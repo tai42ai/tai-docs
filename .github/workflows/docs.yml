@@ -46,7 +46,8 @@ env:
 
 jobs:
   checks:
-    # Lint, format, and test this repo's own tooling under `scripts/`.
+    # Lint and format this repo's own tooling under `scripts/`. The test suite
+    # runs in `gate`, which provisions the generator toolchain those tests drive.
     # Type-checking is deliberately absent: the shipped `examples/` are
     # type-checked by the `gate` job from the synced tai-skeleton env, where the
     # real runtime deps resolve.
@@ -93,10 +94,6 @@ jobs:
       - name: Format check
         working-directory: tai-docs
         run: uv run ruff format --check .
-
-      - name: Test
-        working-directory: tai-docs
-        run: uv run pytest -q
 
   gate:
     # Drift / registry / examples / build gate. Fails on drift; never mutates.
@@ -175,6 +172,10 @@ jobs:
       - name: Drift gate (committed reference must be fresh)
         working-directory: tai-skeleton
         run: uv run python ../tai-docs/scripts/check_drift.py
+
+      - name: Test the generator tooling
+        working-directory: tai-skeleton
+        run: uv run pytest ../tai-docs -q
 
       - name: Registry cross-check (catalog packages resolve to repos)
         working-directory: tai-skeleton
