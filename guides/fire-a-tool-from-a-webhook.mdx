@@ -1,0 +1,61 @@
+---
+title: "Fire a tool from a webhook"
+description: "Bind a tool to an inbound webhook."
+icon: "bolt"
+---
+
+Bind a tool to an inbound webhook behind a verifier and a condition filter.
+
+The runtime fires a tool when a signed webhook arrives. A hook binds a topic to a tool; a verifier authenticates each delivery over its raw bytes before the payload is parsed; an optional condition filters which deliveries fire the tool. This guide covers the platform wiring — the hook, the verifier binding, and the filter. Provider-specific signature schemes live in that verifier plugin's own repository README.
+
+## Register a hook
+
+A hook names the topic to listen on and the tool to fire. Register it from a `HookParams` JSON body. Add a `condition` (a jq expression over the delivery) to fire the tool only on matching deliveries.
+
+```bash
+tai hooks register --params '{"name":"deploy-notify","topic":"github","tool":"notify"}'
+```
+
+List the registered hooks:
+
+```bash
+tai hooks list
+```
+
+## Bind a verifier to the topic
+
+An inbound webhook door is public — bind a verifier so every delivery on the topic is signature-verified before the tool fires. Name a registered verifier and pass its per-binding config. Verification fails closed: a signature failure rejects the delivery and the tool never runs.
+
+```bash
+tai hooks set-verifier github --verifier shared_secret --config '{"header":"X-Hub-Signature","secret_env":"GITHUB_WEBHOOK_SECRET"}'
+```
+
+The verifier config never holds a secret value — only the name of the environment variable that holds it, resolved at verify time.
+
+<Steps>
+  <Step title="Load the verifier">
+    A verifier registers when the manifest imports its module. Load the built-in shared-secret verifier — or a provider verifier package — under `lifecycle_modules`.
+
+    ```yaml manifest.yml
+    lifecycle_modules:
+      - tai_skeleton.webhooks.builtin.shared_secret
+    ```
+  </Step>
+  <Step title="Register the hook">
+    Bind the topic to the tool with `tai hooks register`.
+  </Step>
+  <Step title="Bind the verifier">
+    Lock the topic's door with `tai hooks set-verifier`. Remove a binding with `tai hooks delete-verifier`.
+  </Step>
+</Steps>
+
+<Warning>
+A topic with no verifier bound accepts unauthenticated deliveries — the door is open. Bind a verifier to any topic reachable from the internet. A body-signature verifier rejects GET delivery, so the raw payload cannot ride the URL unauthenticated.
+</Warning>
+
+## See also
+
+- [Triggers and webhooks](/concepts/triggers-and-webhooks) — the hook and verifier model.
+- [Author a webhook verifier](/guides/authors/webhook-verifier) — build a verifier plugin.
+- [Interactions](/concepts/interactions) — external human-in-the-loop answers arrive through the same callback machinery.
+- [CLI reference](/reference/cli) — the full `tai hooks` surface.

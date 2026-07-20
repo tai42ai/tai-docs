@@ -1,0 +1,64 @@
+---
+title: "Backends (tai_contract.backend)"
+description: "The Backend protocol a compute backend implements."
+icon: "server"
+---
+
+
+Execution-backend contract: the ``Backend`` ABC + the ``CallbackSchema``.
+
+## Backend
+
+`tai_contract.backend.base.Backend`
+
+```python
+class Backend(ABC)
+```
+
+Abstract execution backend for a Tai app.
+
+A backend runs the task runtime (``launch``) and executes the work its
+workers pull from the broker. The app core depends only on this interface
+and stays backend-agnostic; concrete backends (celery/rq/arq) implement it
+and register via ``@tai_app.backends.register_backend``.
+
+Fleet propagation of config changes is not a backend concern: it is the
+app's own worker bus, internal to the app. A backend-runtime process
+receives fleet ops through the app's bus subscription exactly like a serving
+HTTP worker — the backend carries no control-plane surface of its own.
+
+### Members
+
+#### launch
+
+`tai_contract.backend.base.Backend.launch`
+
+```python
+async launch(self, args: Sequence[str]) -> None
+```
+
+Start the worker runtime for the backend registered via
+``@tai_app.backends.register_backend``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `args` | `Sequence[str]` | — | — |
+
+
+
+## CallbackSchema
+
+`tai_contract.backend.callback.CallbackSchema`
+
+```python
+class CallbackSchema(ConditionMixin, ExprMixin)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tool` | `str` |
+

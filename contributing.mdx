@@ -1,0 +1,58 @@
+---
+title: "Contributing"
+description: "Where each repository's contributing guide lives."
+icon: "code-pull-request"
+---
+
+Each repository in the ecosystem keeps its own `CONTRIBUTING` guide; this page points to them and states the discipline every repository shares.
+
+The platform is a multi-repo ecosystem. The core repos define and implement the contract; the plugin repos build on it. Contributions live in the repo they touch, under that repo's `CONTRIBUTING` guide.
+
+## The repositories
+
+<CardGroup cols={2}>
+  <Card title="tai-contract" icon="file-contract" href="https://github.com/tai42ai/tai-contract">
+    The pure interface — the Protocols and ABCs plugins implement.
+  </Card>
+  <Card title="tai-kit" icon="toolbox" href="https://github.com/tai42ai/tai-kit">
+    The generic leaf helpers, settings, pooled clients, and factories.
+  </Card>
+  <Card title="tai-skeleton" icon="server" href="https://github.com/tai42ai/tai-skeleton">
+    The framework body — the concrete server and runtime engines.
+  </Card>
+  <Card title="tai-toolbox" icon="wrench" href="https://github.com/tai42ai/tai-toolbox">
+    The reference tool set — generic tools and extensions.
+  </Card>
+  <Card title="Full ecosystem" icon="table-list" href="/reference/catalog">
+    Every shipped plugin and its repository, in the catalog.
+  </Card>
+</CardGroup>
+
+## The shared discipline
+
+Every repository holds to the same rules, enforced in each repo's CI:
+
+- **The leaf rule.** Among `tai-*` packages, the skeleton imports `tai-contract` and `tai-kit` only; a plugin imports `tai-contract` (and `tai-kit` where it needs shared helpers) only. No plugin imports the skeleton — providers register through the `tai_app` handle when the manifest loads them.
+- **Providers stay out of the core.** Connectors, storage, config, backends, and monitoring ship as plugins that register at manifest load — never imported by the skeleton.
+- **Optional drivers stay optional.** A heavy client driver reaches the engine through an extra; a module whose extra is missing fails loudly at import, never a silent skip.
+- **Errors surface loudly.** A missing module, a malformed config entry, or a failed sub-step raises and propagates.
+- **Typed packages.** Every package ships `py.typed` and keeps the type-checker clean.
+
+## Develop
+
+Each repo's dev venv resolves its `tai-*` dependencies from sibling checkouts. The standard loop is the same across repos:
+
+```bash
+uv sync --extra dev
+uv run ruff check .
+uv run pyright
+uv run pytest
+```
+
+See the target repository's `CONTRIBUTING` guide for its specifics — the sibling checkouts it expects, any secret scan, and its licensing statement.
+
+## See also
+
+- [The layering](/concepts/layering) — how contract, kit, and skeleton relate.
+- [Plugin authors](/guides/authors) — the author path for every plugin type.
+- [Ecosystem catalog](/reference/catalog) — every shipped repository.

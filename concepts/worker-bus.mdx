@@ -1,0 +1,147 @@
+---
+title: "The worker bus"
+description: "How a config change reaches every worker."
+icon: "tower-broadcast"
+---
+
+The worker bus is how a live change reaches every process in a deployment. When
+one worker persists a config change — a reloaded tool, a replaced manifest, a
+soft restart — the bus carries that change to every other worker sharing the
+manifest and collects a per-worker outcome, so the whole fleet converges instead
+of one process drifting ahead of its siblings.
+
+## It is internal infrastructure, not a plugin
+
+The bus is app-owned internal infrastructure, in the same class as the reload
+gate. It is **not a [plugin](/concepts/config-and-secrets#the-plugin-model)** and
+sits deliberately outside the plugin system: nothing about it is registrable,
+swappable, or user-selectable, no manifest field chooses an implementation, and
+there is exactly one bus. You do not author a bus or name one in a manifest — you
+configure the single built-in with environment variables, and that is the whole
+surface.
+
+This is a deliberate line. A [backend](/concepts/backends) is a plugin — you pick
+celery, rq, or arq. The bus is not: fan-out is the app's own concern, so a
+backend-runtime process receives fleet changes through the bus exactly like a
+serving HTTP worker, and carries no fan-out surface of its own.
+
+## Enable it
+
+The bus runs on a plain Redis, configured entirely through `TAI_BUS_*`
+environment variables. Set `TAI_BUS_REDIS_URL` to turn it on:
+
+```bash
+export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
+```
+
+With `TAI_BUS_REDIS_URL` unset the bus is **off**, and the process runs on a no-op
+local variant: a mutation applies in that one process and reaches no sibling. That
+is the correct, supported shape for exactly one deployment shape — a single
+worker, in `file` config mode, with no backend — and the wrong shape for every
+other (see [Boot rules](#boot-rules) below).
+
+Any plain, module-less Redis runs the bus — `redis:7`, `redis:8`, or `valkey`. No
+Redis modules are required.
+
+## Boot rules
+
+Three deployment shapes cannot converge without the bus, so `tai serve` and
+`tai backend` **refuse to start** without `TAI_BUS_REDIS_URL` when any holds:
+
+- **More than one server worker.** Sibling workers would serve stale config after
+  a reload with no channel to converge on. `tai serve --workers N` (`N > 1`) is
+  refused busless.
+- **A registered backend.** A manifest that names a `backend_module` runs a
+  separate backend-runtime process that must converge with the server processes
+  on every reload. This is re-checked on every reload, so a manifest or env change
+  that *adds* a backend — or *removes* the bus while a backend remains — is
+  refused too.
+- **`TAI_CONFIG_MODE=k8s`.** The k8s config mode exists for multi-pod shared
+  config, and a pod cannot see its own replica count, so k8s mode always requires
+  the bus.
+
+The refusal names `TAI_BUS_REDIS_URL`. A busless k8s boot is rejected on the
+missing bus, not on a later kubeconfig error, because the k8s and workers checks
+read only boot-fixed env and args and run before the config manager is built.
+
+## Namespacing
+
+`TAI_BUS_NAMESPACE` (default `tai`) prefixes the control channel, every reply
+channel, and every presence key. Redis pub/sub is server-global — it is **not**
+scoped by the numeric database index — so two deployments sharing one Redis would
+cross-deliver each other's fleet ops unless they diverge by namespace.
+
+<Warning>
+When several independent stacks share one Redis, give each a unique
+`TAI_BUS_NAMESPACE`. Two stacks left on the default namespace deliver each other's
+reloads and manifest replaces to the wrong fleet.
+</Warning>
+
+## What the fleet report tells you
+
+A mutation waits for the fleet and returns a per-origin report — one row per
+worker with its outcome. Beyond a plain applied/failed, three honest states name
+a worker the change did not cleanly reach:
+
+- **missing** — the worker is alive but never acknowledged the op inside the short
+  ack window.
+- **departed** — the worker's presence key expired; it went away (a rolling
+  restart or a `SIGKILL` mid-reload).
+- **timed_out** — the worker acknowledged the op but did not finish applying it by
+  the deadline. The op usually still applies once its reload gate frees; verify
+  with the fleet census or a fleet reload.
+
+These states are never hidden. A worker the broadcast could not converge is
+reported, logged, and surfaced in the UI — a failed propagation is never a fake
+success.
+
+## Documented limitations
+
+The boot rules catch the shapes they can *detect from inside one process*. Some
+multi-process shapes look identical to a legitimate single busless process, so the
+rules cannot flag them for you. In every one of these, set `TAI_BUS_REDIS_URL`
+yourself:
+
+- **The workers-count rule lives in the `tai` CLI only.** An external process
+  manager (gunicorn, a supervisor, a container orchestrator) that drives the ASGI
+  factory with its *own* `--workers` bypasses the rule entirely — the factory
+  cannot count sibling processes. Set the bus in any multi-process deployment you
+  run outside `tai serve`.
+- **Single-worker fleets look busless.** A supervisor running many `tai serve
+  -w 1` processes on one host, or several machines sharing one manifest over a
+  network filesystem, pass every boot rule — each process legitimately sees
+  `workers=1`, `file` mode, and no backend — yet run busless-stale. Set the bus in
+  **any** multi-process file-mode deployment.
+- **Mixed transports are undetectable.** A `stdio` or `sse` process sharing a
+  manifest with an `http` fleet is another shape the rules cannot see.
+- **A shared Redis needs a unique namespace.** Distinct stacks on one Redis that
+  do not set unique `TAI_BUS_NAMESPACE` values cross-deliver fleet ops.
+
+The rule of thumb: if two or more processes share a manifest, they need the bus,
+whether or not a rule fires.
+
+## Operational knobs
+
+The timing knobs have safe defaults; change them only for a deployment whose
+reloads legitimately run long.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `TAI_BUS_REDIS_URL` | unset | Redis URL that enables the bus. Unset = bus off (single-worker, `file` mode, no backend only). |
+| `TAI_BUS_NAMESPACE` | `tai` | Prefixes the control channel, reply channels, and presence keys. Unique per stack on a shared Redis. |
+| `TAI_BUS_ACK_TIMEOUT` | `2.0` | Seconds the collector waits for the fast liveness acknowledgements before it budgets the rest of its wait toward the apply deadline. |
+| `TAI_BUS_APPLY_TIMEOUT` | `30.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Budgets a worst-case reload plus the post-apply hooks. |
+| `TAI_BUS_HEARTBEAT_TTL` | `15.0` | Presence-key TTL. A worker refreshes it at a third of this, so a frozen or killed worker leaves the census within one TTL rather than blocking every op. |
+
+## See also
+
+- [Live operations](/concepts/live-operations) — the mutation surface the bus fans
+  out.
+- [Manage a fleet](/guides/manage-a-fleet) — inspecting the fleet and driving
+  fleet-wide operations.
+- [Backends](/concepts/backends) — the task-execution plugin, which the bus is
+  deliberately not.
+- [Config and secrets](/concepts/config-and-secrets#settings-reference) — the full
+  environment-variable reference.
+- [Deploy](/guides/deploy) — the multi-worker and k8s deployment shapes the boot
+  rules gate.

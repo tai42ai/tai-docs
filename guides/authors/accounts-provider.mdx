@@ -1,0 +1,129 @@
+---
+title: "Author an accounts provider"
+description: "Own human accounts, login flows, and the sessions they mint."
+icon: "user-lock"
+---
+
+Author an accounts provider plugin — the human side of
+[access control](/concepts/access-control). It owns user accounts and the login
+flows that sign a person in, and mints the [session tokens](/concepts/accounts)
+those flows return.
+
+An accounts provider depends on `tai-contract` only and never imports the
+skeleton. It **is** an [identity provider](/guides/authors/identity-provider):
+`AccountsProvider` subclasses `IdentityProvider`, so the session tokens it mints
+are validated back through the same `validate_token` seam every other credential
+passes through. Installing an accounts provider adds login flows, not a second
+enforcement path.
+
+## Implement the contract
+
+Subclass `AccountsProvider` and implement its three methods plus the inherited
+`validate_token`:
+
+- `login_methods()` — declare the login methods you offer as metadata (see
+  below). Cheap and side-effect free; it is config-derived data, not I/O.
+- `needs_bootstrap()` — a live store read: `True` while the deployment still
+  needs its first (owner) account, `False` once it exists. A provider with no
+  bootstrap concept returns `False`.
+- `revoke_session(token)` — revoke the session behind `token` if it is yours;
+  return `False` for a token that is not yours (wrong prefix, unknown) so the
+  application's single logout route can dispatch across every provider. Raise
+  only on a backend failure.
+- `validate_token(token)` (inherited) — resolve one of your own session tokens to
+  its `AuthIdentity`, `None` otherwise.
+
+Mint opaque session tokens — the recommended prefix is `tai-sess-`, to
+distinguish them from `sk-` API keys at a glance — and store only a hash, with a
+TTL. Token storage, hashing, and lifetime are entirely provider-owned; the
+contract never parses a token's contents.
+
+## Declare login methods as metadata
+
+A provider declares **how** a human signs in as data; the generic
+[login screen](/studio/login) renders it. Exactly two shapes exist:
+
+- `FormMethod` — a credentials form. It carries a `title`, a list of `FormField`
+  (each with a `name`, `label`, and a `secret` flag for password inputs), a
+  `submit_path` the renderer POSTs the fields to as JSON, and a `purpose` of
+  `login`, `bootstrap`, or `invite` — the renderer shows the bootstrap form only
+  when the deployment reports bootstrap, and the invite form only when the login
+  URL carries an invite token.
+- `ButtonMethod` — a redirect button carrying a `label`, optional inline-SVG
+  `icon`, and an `href` the renderer navigates to (for example an OIDC authorize
+  route).
+
+Both `submit_path` and `href` are validated to same-origin paths under `/api/` —
+an absolute or `..`-climbing target is rejected — so a provider can never steer
+the pre-auth screen off the deployment origin.
+
+The login and lifecycle **HTTP routes** themselves (the submit endpoints, the
+redirect and callback flows, the bootstrap and invite handlers) are shipped by
+your plugin as ordinary router modules. The contract carries only the metadata
+that lets the generic screen render them.
+
+## Policy is applied through injected admin services
+
+An accounts provider mutates account **records** in its own store, but it never
+touches application-owned **policy** directly. The factory receives an
+`AccountsProviderSettings` whose `admin` is the application's
+`AccountsAdminServices` — the only way plugin code reaches policy state:
+
+- `apply_role(user_id, role)` — copy a role template into the user's enforced
+  policy.
+- `remove_policy(user_id)` — delete the user's policy (and revoke keys it owned).
+- `set_user_disabled(user_id, disabled)` — flip the disabled marker.
+
+So "apply the editor role" or "disable this account" is a call into injected
+services, keeping the plugin free of any skeleton import while the application
+stays the sole owner of policy.
+
+## Register on import
+
+`register_accounts_provider` registers your factory into **both** the accounts
+registry and the identity registry under one name — an accounts provider is the
+token answerer for its own sessions, so registering into only one would make
+sessions mintable but not validatable:
+
+```python
+from tai_contract.accounts import register_accounts_provider
+
+register_accounts_provider("my-accounts", lambda settings: MyAccountsProvider(settings))
+```
+
+Importing the module registers the provider; the application activates it only
+when its name appears in the configured [auth-provider](/concepts/access-control)
+chain. Registration alone activates nothing, and a duplicate name raises loudly.
+
+## Ship the store's schema and its apply command
+
+A store-backed accounts provider owns its own schema. Ship the DDL and a small
+apply command **in your plugin package**, and document how to run it in your
+repository's README — the deployment applies your schema per your own
+instructions before enabling the provider. The skeleton stays out of it: it
+never runs a plugin's migrations and never documents a specific provider's apply
+command. Keep the concrete DSN, settings, and apply steps in your repo, not on
+this site.
+
+## Load it
+
+The host loads the provider by naming its module(s) under `lifecycle_modules`
+(registration) and `routers_modules` (its login/lifecycle routes), and listing
+its registration name in the ordered
+[`ACCESS_CONTROL_AUTH_PROVIDERS`](/concepts/access-control) chain. To surface a
+users-admin page in the Studio, ship it as a [studio plugin](/studio/plugins) as
+well — router modules mount API routes, not UI.
+
+## Shipped implementations
+
+Shipped accounts providers appear in the [ecosystem
+catalog](/reference/catalog), each linking to its own repository.
+
+## See also
+
+- [Accounts](/concepts/accounts) — the session, ownership, and role model.
+- [Sign in to the Studio](/studio/login) — the login screen your metadata drives.
+- [Author an identity provider](/guides/authors/identity-provider) — the
+  validate-only base an accounts provider extends.
+- [Python SDK reference](/reference/python-sdk/tai-contract-accounts) — the
+  `AccountsProvider`, `LoginMethod`, and registry surface.

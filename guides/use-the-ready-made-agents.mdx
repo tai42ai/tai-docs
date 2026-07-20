@@ -1,0 +1,121 @@
+---
+title: "Use the ready-made agents"
+description: "Enable and run the seven shipped agents."
+icon: "wand-magic-sparkles"
+---
+
+import EnableReadyMade from '/snippets/examples/agents/enable_ready_made.mdx';
+import AgentsRunHelp from '/snippets/examples/agents/agents_run_help.mdx';
+
+Enable and run the ready-made agents that ship with the platform's default set.
+
+The ready-made agents are a batteries-included default set — agents built against the same `Agent` contract as any agent you write, packaged so you can enable them without writing code. You enable them the same way you enable any agent module: name the module in the manifest, then list and run.
+
+## Enable them
+
+Each agent lives in its own module, and **importing a module is what registers its agent** — so name one `agents[]` entry per module. (Naming the top-level `tai_agents` package alone registers nothing: it imports no submodule.) To drive agents from a UI over an SSE stream, also load the agents router.
+
+<EnableReadyMade />
+
+Use `include` on an entry to enable a subset of a multi-agent module by name; each module here defines a single agent, so `include` is unnecessary above.
+
+## List and run
+
+<Steps>
+  <Step title="See what registered">
+    List every registered agent, then the spec-runnable (authorable) ones.
+
+    ```bash
+    tai agents list
+    tai agents spec-runnable
+    ```
+  </Step>
+  <Step title="Run one">
+    Every agent runs the same way — stream a run one event frame at a time, passing the agent's input as a JSON object. The input fields are the agent's own `ToolInput`; read a schema with `tai tools schema <agent-run-tool>`.
+
+    <AgentsRunHelp />
+  </Step>
+</Steps>
+
+## The seven agents
+
+Each worked run below passes that agent's real `ToolInput` fields. A run needs the server up (`tai serve`) with a model configured for the deployment; the stream renders each `StreamEvent` frame — reasoning steps, tool-call/result steps, message deltas and finals, and a run-usage frame — as it arrives.
+
+### `tools_agent`
+
+The plain/advanced LangGraph tools agent. It binds the named client tools to the model up front and runs them step by step. `spec_runnable` — its `ToolInput` advertises exactly the composable fields (`system_prompt`, `tool_names`, `presets`, `response_format`) an authored variant may bake.
+
+```bash
+tai agents run tools_agent --input '{"user_message":"What is the current time in UTC?","tool_names":["current_time_info"]}'
+```
+
+### `deep_agent`
+
+A deepagents-harness agent: planning, a per-thread scratch filesystem, skills, one level of nested sub-agents, and human-in-the-loop interrupts resumed with a LangGraph `Command`.
+
+```bash
+tai agents run deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
+```
+
+When a run requests a `response_format` (a JSON Schema with a top-level `title`) but produces no structured output, **both faces raise rather than silently omitting the structured frame**: the JSON `run` face raises on drain, and the streaming face raises after the stream drains — unless the run paused on a pending interrupt, which takes precedence over the missing-structured raise.
+
+### `retrieval_tools_agent`
+
+A tools agent that does not bind every tool up front: it embeds each tool's description into a vector store and exposes a `retrieve_tools` semantic-search tool, binding matches on demand. Useful when the tool set is large; cap the working set with `tools_limit`.
+
+```bash
+tai agents run retrieval_tools_agent --input '{"user_message":"Generate a unique identifier for this record.","tool_names":["generate_uuid","current_time_info"],"tools_limit":5}'
+```
+
+### `mcp_tools_agent`
+
+A tools agent whose tools come from an MCP server named in `mcp_config`. It opens a `fastmcp` client, converts those tools to LangChain tools, and runs with the client held open.
+
+```bash
+tai agents run mcp_tools_agent --input '{"user_message":"List the files in the workspace.","mcp_config":{"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp/workspace"]}}}}'
+```
+
+<Warning>
+`mcp_tools_agent` is admin-curated. Expose it ONLY to trusted, access-controlled callers or agents — never to an agent that processes untrusted content, which could steer it to a hostile MCP server. With `inject_env: true`, only the variable names listed in `env_allowlist` are copied from the process environment into each server's `env`; `inject_env: true` with an empty or missing `env_allowlist` is rejected loudly.
+</Warning>
+
+### `voting_agent`
+
+Runs N voter LLMs in parallel over one prompt, then a judge LLM decides by majority vote (breaking ties with its own reasoning). Returns a `VotingOutput`; only the judge streams.
+
+```bash
+tai agents run voting_agent --input '{"voter_message":"Is 97 a prime number? Answer yes or no with a one-line reason.","judge_message":"Choose the best-justified answer."}'
+```
+
+### `refine_agent`
+
+An Evaluator↔Critic loop: the evaluator drafts, the critic reviews, and they alternate until the critic approves or the `max_iterations` budget is exhausted (a loud error, never an unapproved draft). Only the final approved pass streams.
+
+```bash
+tai agents run refine_agent --input '{"evaluator_message":"Write a two-sentence tagline for a note-taking app.","critic_message":"Approve only when it is under twelve words and concrete.","max_iterations":3}'
+```
+
+### `vqa_agent`
+
+Visual question answering: a single multimodal completion over an `image_url` (a public URL or a storage id) and a `query`. No tools, no graph.
+
+```bash
+tai agents run vqa_agent --input '{"image_url":"https://example.com/invoice.png","query":"What is the total amount due?"}'
+```
+
+## Structured output and trusted-caller kwargs
+
+Every agent above accepts a `response_format` — a JSON Schema with a **required top-level `title`** (the structured-output name). When set, the run forces the model to emit matching output and returns the validated structured object; a request that produces none raises loudly rather than falling back to text.
+
+`base_url`/`api_key` in an agent's `llm_kwargs`/`embedding_kwargs` legitimately route to a caller-chosen model or embedding endpoint. Expose any agent carrying these kwargs only to trusted callers — an injected parent agent could redirect the call to a hostile endpoint and leak the key or context.
+
+<Note>
+The exact agent set and each agent's inputs are also listed in the [ecosystem catalog](/reference/catalog); the agents package's README carries the per-agent reference detail. For authoring your own, see [Author an agent](/guides/author-an-agent).
+</Note>
+
+## See also
+
+- [Agents](/concepts/agents) — the `Agent` contract every ready-made agent implements.
+- [Deep agents](/concepts/deep-agents) — sub-agents, skills, and strategies the deeper agents use.
+- [Ecosystem catalog](/reference/catalog) — the shipped agent set and its repository.
+- [CLI reference](/reference/cli) — the full `tai agents` surface.

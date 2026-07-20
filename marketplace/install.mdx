@@ -1,0 +1,108 @@
+---
+title: "Install a plugin"
+description: "Install, update, and uninstall marketplace plugins server-side."
+icon: "download"
+---
+
+Install a marketplace plugin into a running server in one command. Install is
+a server-side operation: the server itself resolves the listing, installs the
+package, patches its manifest, and reloads — so the CLI, the Studio, and the
+HTTP API all drive the same flow.
+
+<Steps>
+  <Step title="Find the plugin ref">
+    Every listing is addressed as `namespace/name`. Find it with
+    [search](/marketplace/browse) — `tai plugins search uuid` names the listing
+    that ships the item you want.
+  </Step>
+  <Step title="Install">
+    <CodeGroup>
+
+    ```bash CLI
+    tai plugins install tai42/toolbox
+    ```
+
+    ```bash HTTP
+    curl -X POST https://<your-server>/api/marketplace/install \
+      -H "x-api-key: $TAI_API_KEY" \
+      -H "content-type: application/json" \
+      -d '{"ref": "tai42/toolbox"}'
+    ```
+
+    </CodeGroup>
+
+    Pin a version with `--version` (or a `version` field in the body); with no
+    version the latest published version installs. Either way the server checks
+    the resolved version's declared contract range against its own installed
+    tai-contract first — a version that does not fit refuses to install, and the
+    error names the mismatch.
+  </Step>
+  <Step title="Verify">
+    ```bash
+    tai plugins installed
+    ```
+    The plugin appears with its installed version, and its items are live —
+    its tools list under `tai tools`, its extensions under `tai extensions`.
+  </Step>
+</Steps>
+
+## What install does
+
+1. Resolves the ref against the registry, checks the resolved version's
+   contract range against the server's installed tai-contract, and checks
+   advisories — a version that does not fit the contract, one that is killed,
+   or one under a non-withdrawn critical advisory refuses before anything
+   changes.
+2. Installs the resolved version by source: a GitHub-sourced plugin downloads
+   the release tarball, verifies its SHA-256 against the digest the registry
+   recorded at ingest, and installs only that verified file — a re-pointed tag
+   is refused; a PyPI-sourced plugin pins the exact version (`package==version`)
+   and relies on PyPI's file immutability for that version.
+3. Patches the server [manifest](/concepts/manifest) once per provided item — a
+   tool module lands under `tools`, an extension module under
+   `extensions_modules`, and so on, exactly as the plugin's
+   [tai-plugin.yml](/guides/authors/plugin-descriptor) declares.
+4. Reloads the server, and records the marketplace ref and version locally.
+
+If any step fails, the whole install aborts and the error names the step —
+never a half-installed plugin. The manifest, registration, and install record
+fully revert; package changes the underlying pip run already made are pip's own
+boundary.
+
+## Update
+
+```bash
+tai plugins update tai42/toolbox
+```
+
+`tai plugins installed` shows update availability per plugin; update resolves
+the new version and runs the same install flow. Pin a target with `--version`,
+or omit it for the latest.
+
+## Uninstall
+
+```bash
+tai plugins uninstall tai42/toolbox
+```
+
+Uninstall reverses the manifest patch, reloads to converge the live
+registration with the stripped manifest, and then uninstalls the package. It
+converges: a failure names exactly what remains, and re-running uninstall
+completes the removal.
+
+<Warning>
+  Install, update, and uninstall mutate the running server's environment.
+  Scope the `/api/marketplace/*` routes with
+  [access control](/concepts/access-control) like any other mutating surface.
+</Warning>
+
+## From the Studio
+
+The Marketplace screen's plugin detail offers the same install, update, and
+uninstall actions with progress surfaced in place — it drives these routes.
+
+## See also
+
+- [Browse and search](/marketplace/browse) — find the ref.
+- [Advisories](/marketplace/advisories) — what a killed version means.
+- [The manifest](/concepts/manifest) — what the patch touches.

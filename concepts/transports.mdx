@@ -1,0 +1,78 @@
+---
+title: "Transports"
+description: "HTTP, SSE, STDIO, and the UDS path."
+icon: "network-wired"
+---
+
+A transport is how a client reaches a server. You pick one when you start the
+server, and clients connect over it. The runtime speaks HTTP by default and can
+also serve over SSE, STDIO, or a fast same-machine Unix-domain-socket path.
+
+## Choosing a transport
+
+`tai serve` takes `--transport`. HTTP is the default; the MCP endpoint is then
+served under `/mcp`.
+
+```bash
+tai serve                        # MCP server over HTTP (default)
+tai serve --transport sse        # MCP server over Server-Sent Events
+tai serve --transport stdio      # MCP server over standard input/output
+```
+
+- **HTTP** — the default network transport, for MCP clients over the network.
+- **SSE** — a streaming HTTP transport.
+- **STDIO** — for a client that launches the server as a subprocess and talks over
+  its standard streams.
+
+## The UDS path
+
+For same-machine communication, `--uds <path>` binds the server to a
+Unix-domain socket instead of a host and port — a fast local path that avoids the
+network stack. `tai-kit` supplies the client-side UDS transports and a selector,
+`get_mcp_transport`, that picks the right transport for a target: a UDS transport
+for a socket, or a plain config for a networked server. A mounted external MCP
+server can be reached over any of these — the manifest's `mcp` entry sets `url`,
+`uds`, or `command` per server.
+
+## Statefulness and workers
+
+The HTTP transports are **stateful per process**: each MCP session is pinned to the
+worker that created it. Under multiple workers a session opened on one worker
+breaks when another worker handles its next request, so `tai serve` refuses
+`--workers` greater than one on any stateful transport (`http`, `streamable-http`,
+`sse`) with an error that names the fix.
+
+The fix is `--stateless-http`, which turns on the underlying stateless HTTP mode and
+lifts the refusal — for the HTTP transports only. It has no meaning for `sse` or
+`stdio` (SSE has no stateless mode and STDIO has no HTTP sessions), so combining it
+with either is itself refused.
+
+`tai serve` also refuses `--workers` greater than one without the
+[worker bus](/concepts/worker-bus): sibling workers would serve stale config after a
+reload with no channel to converge on. So a multi-worker HTTP server needs both
+`--stateless-http` and `TAI_BUS_REDIS_URL`.
+
+| transport | `workers=1` | `workers>1` |
+|---|---|---|
+| stdio | ok | refused |
+| sse | ok | refused |
+| http / streamable-http | ok (stateful default) | refused unless `--stateless-http` **and** the bus (`TAI_BUS_REDIS_URL`) |
+
+Embedding the runtime in your own process applies the session-pinning rule the same
+way: pass `create_app(manifest_path="manifest.yml", stateless_http=True)` to run
+several workers. The bus, though, is a documented limitation when you embed — the
+workers-count rule lives in the `tai serve` CLI, and in-process code cannot count
+sibling processes, so a `create_app(..., stateless_http=True)` factory run under an
+external `--workers` passes no rule yet runs busless-stale. Set `TAI_BUS_REDIS_URL`
+yourself in any multi-process embed. See
+[Multi-worker and fleet sync](/guides/embed#multi-worker-and-fleet-sync).
+
+<Note>
+Before binding a UDS path, `tai serve` cleans up a stale socket left by an unclean
+shutdown, but refuses to unlink a socket that answers a connect probe (a live
+server) or a path that is not a socket. This keeps one command from clobbering
+another server's socket.
+</Note>
+
+See the [deploy guide](/guides/deploy) for choosing a transport in production and
+the [CLI reference](/reference/cli/index) for the full `tai serve` options.

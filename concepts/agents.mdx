@@ -1,0 +1,73 @@
+---
+title: "Agents"
+description: "LLM-driven capabilities and how they are authored."
+icon: "robot"
+---
+
+An agent is an LLM-driven capability registered alongside tools. You author it
+against one uniform contract — the `Agent` ABC — and the [manifest](/concepts/manifest)
+loads it the same way it loads a tool module.
+
+## The Agent contract
+
+The whole agent shape is owned once by the contract: the `Agent` ABC with its
+default stream and drain behaviour, the neutral spec descriptors, and a typed
+event vocabulary. The skeleton adds no agent implementation of its own — it
+surfaces the contract in its own namespace and registers agents against the app.
+
+You register an agent with a decorator that also names it. The skeleton
+synthesizes the agent's JSON `run` tool from its declared input model, so an agent
+is callable exactly like any other tool:
+
+```python
+from pydantic import BaseModel
+from tai_contract.agent import Agent
+from tai_contract.app import tai_app
+
+
+class GreetInput(BaseModel):
+    text: str
+    times: int = 1
+
+
+@tai_app.agents.agent("echo_agent")
+class EchoAgent(Agent):
+    tool_name = "echo_agent"
+    tool_description = "Echo text a number of times."
+    ToolInput = GreetInput
+
+    async def run(self, *, text: str = "", times: int = 1, **_):
+        return text * times
+```
+
+## Streaming events
+
+An agent run streams a typed sequence of `StreamEvent`s rather than returning a
+single blob. The vocabulary covers message deltas and finals, reasoning steps,
+tool-call and tool-result steps, structured finals, interrupt finals, and run
+usage. The event producers — the projection over the agent runtime's updates and
+messages — live in the agents runtime; a client renders the frames as they arrive.
+
+Run an agent and watch its stream from the CLI:
+
+```bash
+tai agents run <name> --input '{"text": "hi", "times": 2}'
+```
+
+## Authored agents
+
+Beyond code-defined agents, you can author an agent as a saved spec that rides the
+[versioning spine](/concepts/versioning-spine) — a preset that bakes the agent's
+preset-bakeable fields. Authored agents version and roll back exactly like
+[presets](/concepts/presets), so an agent's configuration evolves without breaking
+its callers.
+
+## Composition
+
+An agent can drive other agents as sub-agents and chain multi-step work. That
+compositional side — sub-agents and the ready-made set — is its own pillar:
+[deep agents](/concepts/deep-agents).
+
+See the [author-an-agent guide](/guides/author-an-agent) for the full authoring
+path and the [Python SDK reference](/reference/python-sdk/index) for the `Agent`
+ABC and the `StreamEvent` types.

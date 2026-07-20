@@ -1,0 +1,59 @@
+---
+title: "Connect an OAuth provider"
+description: "Wire an OAuth connector end to end."
+icon: "key"
+---
+
+Wire an OAuth connector end to end so tools can call an authenticated third-party API.
+
+A connector is an OAuth connection to an outside app. A connector provider ships as a plugin that declares the provider's OAuth endpoints and sub-services; the connector engine drives the authorize flow, stores the tokens, and launches the provider's sub-service MCP servers. This guide covers the platform flow — loading a provider, running the connect flow, and using the connection. Provider-specific setup (the OAuth app to register, the client-credential environment variables) lives in that provider's own repository README.
+
+## Load a connector provider
+
+A connector provider registers when the manifest imports its module. Add the provider's module to a `lifecycle_modules` entry (importing it calls `tai_app.connectors.register_connector`).
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai_connector.google.core.connector
+```
+
+Set the provider's client-credential environment variables on the server process — each provider names them in its README. With the module loaded and the credentials present, list the available providers:
+
+```bash
+tai connectors providers
+```
+
+## Run the connect flow
+
+<Steps>
+  <Step title="Start a connection">
+    Name the provider, give the connection a unique alias, and enable one or more sub-services. The command prints the authorize URL.
+
+    ```bash
+    tai connectors connect google --alias work --sub-service gmail
+    ```
+  </Step>
+  <Step title="Authorize">
+    Open the printed authorize URL in a browser and grant consent. The provider redirects back to the server's callback, which exchanges the code and stores the tokens under the alias.
+  </Step>
+  <Step title="Confirm the connection">
+    List the installed connections (no secrets are printed).
+
+    ```bash
+    tai connectors connections
+    ```
+  </Step>
+</Steps>
+
+Change which sub-services a connection exposes with `tai connectors sub-services`, re-authorize with `tai connectors reconnect`, and remove a connection with `tai connectors disconnect`.
+
+<Note>
+A connector provider carries no OAuth, probe, or launch code — it is pure descriptor data. The connector engine drives the whole flow generically from that descriptor. To build one, see [Author a connector](/guides/authors/connector).
+</Note>
+
+## See also
+
+- [Connectors](/concepts/connectors) — what a connector is and how the engine drives it.
+- [Author a connector](/guides/authors/connector) — build a provider plugin.
+- [Ecosystem catalog](/reference/catalog) — the shipped connector providers and their repositories.
+- [CLI reference](/reference/cli) — the full `tai connectors` surface.

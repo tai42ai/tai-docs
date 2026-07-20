@@ -1,0 +1,100 @@
+---
+title: "ASGI factory (tai_skeleton.asgi)"
+description: "The public create_app factory for embedding the server in a user-owned ASGI process."
+icon: "server"
+---
+
+
+Public ASGI application factory for a user-owned tai server process.
+
+``create_app`` is the programmatic entry point for embedding the tai MCP
+application inside a host-owned ASGI process — a plain ``uvicorn main:app`` run or
+a mount inside an existing FastAPI/Starlette host:
+
+```python
+from tai_skeleton.asgi import create_app
+
+app = create_app(manifest_path="manifest.yml")
+```
+
+The returned Starlette app carries the full worker lifespan (manifest load,
+``app_context``, transport selection, and the inner FastMCP lifespan), so the host
+serves it exactly as the runtime CLI serves its own workers.
+
+One app per process. The ``tai_app`` contract handle and the built app are
+process-global singletons, so a second ``create_app`` lifespan entered while one
+is already active raises loudly rather than silently rebinding the handle;
+sequential lifespans in one process (enter -&gt; exit -&gt; enter) stay legal.
+
+Deliberately CLI-owned and absent here: root-logger configuration (an embedded
+app never touches the host's logging), the Prometheus multiprocess metrics
+environment (an embedded process serves the in-process registry), and
+process-fleet orchestration. Fleet config-reload fan-out is the app's internal
+worker bus: an embedded worker joins it like any other process when
+``TAI_BUS_REDIS_URL`` is set (the rules cannot count sibling processes in an
+embedded host, so set it in any multi-process embed).
+
+## Transport
+
+`tai_skeleton.asgi.Transport`
+
+```python
+Transport = Literal['http', 'streamable-http', 'sse']
+```
+
+
+## create_app
+
+`tai_skeleton.asgi.create_app`
+
+```python
+create_app(
+    manifest_path: str | None = None,
+    *,
+    transport: Transport = 'http',
+    stateless_http: bool = False,
+) -> Starlette
+```
+
+Build the public ASGI app for a user-owned process.
+
+One app per process: the returned app's lifespan claims a process-global
+one-app token, and a second lifespan entered while one is active raises. The
+``transport`` and ``stateless_http`` arguments are validated at call time.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `manifest_path` | `str \| None` | `None` | The manifest this app loads. Omit it to let the existing environment / config-dir resolution apply. |
+| `transport` | `Transport` | `'http'` | The MCP transport to serve. |
+| `stateless_http` | `bool` | `False` | Run an http/streamable-http transport in fastmcp's stateless mode. Has no ``sse`` equivalent, so pairing it with the ``sse`` transport is rejected at call time. |
+
+**Returns** — A Starlette app whose lifespan claims the one-app token, stamps the manifest env, builds the app singleton, enters ``app_context`` and the inner FastMCP lifespan, and releases the token (restoring the env) on exit.
+
+
+## lifespan
+
+`tai_skeleton.asgi.lifespan`
+
+```python
+lifespan(app: Starlette)
+```
+
+Return a ``create_app`` app's lifespan context manager, for composing into a
+host lifespan when the app is mounted.
+
+Mounting the factory app is not enough on its own: Starlette does not run a
+mounted sub-app's lifespan, so the host must run it. Enter the returned context
+manager inside the host's own lifespan so the tai app's worker startup (manifest
+load, ``app_context``, transport selection, the inner FastMCP lifespan) runs for
+the host process's lifetime.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `app` | `Starlette` | — | A ``create_app`` result whose lifespan the host runs. |
+
+**Returns** — The app's lifespan context manager (``app.router.lifespan_context(app)``), to be entered inside the host lifespan.
+

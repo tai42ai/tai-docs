@@ -1,0 +1,59 @@
+---
+title: "Apply an extension"
+description: "Clip an extension onto a tool."
+icon: "puzzle-piece"
+---
+
+Clip an extension onto a tool to produce a wrapped or transformed variant.
+
+An extension is a clip-on power that wraps or transforms a tool into a new variant. Applying one branches the tool: the original stays bound, and a new `<tool>_<extension>` variant appears alongside it. You load the extension's module, then attach it to a tool — from the manifest or at runtime.
+
+## Load the extension module
+
+Name each extension module under `extensions_modules`. Importing the module runs its registration, adding the extension to the global catalog.
+
+```yaml manifest.yml
+extensions_modules:
+  - tai_toolbox.extensions.cache
+```
+
+List the registered extensions to confirm the catalog:
+
+```bash
+tai extensions list
+```
+
+## Attach it to a tool
+
+Attach an extension in the manifest with the `extensions` map on a `tools` entry. The map is keyed by tool name; a value is one combo (`[cache]`) or a list of combos. A stacked combo `[[a, b]]` layers both onto one branch.
+
+```yaml manifest.yml
+tools:
+  - title: hello
+    module: myapp.tools
+    include: [greet]
+    extensions:
+      greet: [[cache]]
+```
+
+The `extensions` map only attaches — it never selects a tool. A mapped tool that is absent from the selected set raises loudly.
+
+## Or attach at runtime
+
+Apply a tool's full combo list at runtime. Each `--combo` is one combo, written as a JSON array of extension elements; repeat it to author several combos at once. An element is a bare extension name or a `{"name", "config"}` object binding author config. Passing no `--combo` clears the tool's extensions.
+
+```bash
+tai tools apply greet --combo '["cache"]'
+tai tools extensions greet
+```
+
+<Note>
+A **wrapper** presents the wrapped tool's input schema unchanged apart from its own control kwargs; a **transformer** presents its own composed schema. Stacked extensions apply left to right, so `[cache, batch]` produces `batch(cache(tool))`.
+</Note>
+
+## See also
+
+- [Tools and extensions](/concepts/tools-and-extensions) — the wrapper / transformer kinds and their schema rules.
+- [The standard toolbox](/guides/standard-toolbox) — the shipped default extensions.
+- [Author an extension](/guides/authors/extension) — build your own wrapper or transformer.
+- [CLI reference](/reference/cli) — the full `tai extensions` and `tai tools apply` surface.

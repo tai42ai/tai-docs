@@ -1,0 +1,158 @@
+---
+title: "The plugin descriptor"
+description: "Describe a plugin with tai-plugin.yml."
+icon: "id-card"
+---
+
+Describe a plugin with `tai-plugin.yml` — the descriptor the marketplace
+indexes a plugin from.
+
+Every plugin ships a `tai-plugin.yml` at its repository root and inside its
+built wheel. It is the single source for what the plugin is (name, package,
+version, license, contract range) and what it provides (one entry per
+contained item).
+
+The registry validates a release's artifact against it before publishing, and
+the installer patches the server manifest from its `provides` list. It is not
+the server [manifest](/concepts/manifest): `tai-plugin.yml` describes what a
+plugin offers; the server manifest declares what a server loads.
+
+## The fields
+
+| Field | Meaning |
+| --- | --- |
+| `spec_version` | The descriptor format version — currently `1`. An unknown version is rejected loudly. |
+| `namespace` / `name` | The listing ref, `namespace/name` — lowercase slugs, unique per listing. |
+| `display_name` | Optional human UI title; the listing falls back to a titleized `name` when omitted. |
+| `package` | The normalized pip distribution name. |
+| `version` | The release version (PEP 440); it must equal the built wheel's version on ingest. |
+| `description` | One line for the listing. |
+| `icon` | Optional: a package-relative image path or an `https://` URL; a monogram is generated when omitted. |
+| `license` | Required SPDX identifier. |
+| `homepage` / `repository` | Optional links. |
+| `contract` | The tai-contract compatibility range (a PEP 440 specifier set). |
+| `categories` | One to three lowercase category slugs. |
+| `tags` | Free-form lowercase tags, at most ten. |
+| `permissions` | Declared capabilities — `network`, `subprocess`, `filesystem`. Informational: surfaced in listings, not enforced by a sandbox. |
+| `provides` | One entry per contained item: `kind`, `name`, `module`, `description`, `tags`. At least one. |
+
+Each `provides` entry's `module` is the module whose import registers the
+item, and its `kind` maps onto the server-manifest field the installer
+patches — a `tool` lands under `tools`, an `extension` under
+`extensions_modules`, and so on.
+
+## A real descriptor
+
+The toolbox's own descriptor, in full:
+
+```yaml tai-plugin.yml
+spec_version: 1
+namespace: tai42
+name: toolbox
+package: tai-toolbox
+version: 0.1.0
+description: "Reference contrib package for the TAI ecosystem: opt-in, manifest-loaded generic tools and tool extensions (a tool extension extends a single tool)."
+license: Apache-2.0
+homepage: https://tai42.ai
+repository: https://github.com/tai42ai/tai-toolbox
+contract: ">=0.1,<0.2"
+categories: [utilities, productivity]
+tags: [uuid, time, embeddings, http, cache, batch, chain]
+permissions:
+  network: true
+  subprocess: false
+  filesystem: false
+provides:
+  - kind: tool
+    name: current_time_info
+    module: tai_toolbox.tools.current_time_info
+    description: "Return the current time as a structured object."
+    tags: [time]
+  - kind: tool
+    name: generate_embeddings
+    module: tai_toolbox.tools.generate_embeddings
+    description: "Generate embeddings for a single string or a list of strings."
+    tags: [embeddings]
+  - kind: tool
+    name: generate_uuid
+    module: tai_toolbox.tools.generate_uuid
+    description: "Generate a random UUID (version 4)."
+    tags: [uuid]
+  - kind: tool
+    name: pad_embeddings
+    module: tai_toolbox.tools.pad_embeddings
+    description: "Pad each embedding vector with zeros up to a target dimension."
+    tags: [embeddings]
+  - kind: tool
+    name: request
+    module: tai_toolbox.tools.request
+    description: "Execute an HTTP request through a curl-backed session."
+    tags: [http]
+  - kind: extension
+    name: batch
+    module: tai_toolbox.extensions.batch
+    description: "Branch a tool into a variant that runs many instances at once."
+    tags: [batch]
+  - kind: extension
+    name: cache
+    module: tai_toolbox.extensions.cache
+    description: "Branch a tool into a variant that memoizes results by call arguments."
+    tags: [cache]
+  - kind: extension
+    name: chain
+    module: tai_toolbox.extensions.chain
+    description: "Branch a tool into a variant that transforms its output and calls a next tool."
+    tags: [chain]
+  - kind: extension
+    name: output_schema
+    module: tai_toolbox.extensions.output_schema
+    description: "Branch a tool into a variant that forces a configured JSON Schema as its output schema and validates every result against it."
+    tags: [schema]
+  - kind: extension
+    name: prometheus_metrics
+    module: tai_toolbox.extensions.prometheus
+    description: "Branch a tool into a variant that records a Prometheus call metric."
+    tags: [metrics]
+  - kind: extension
+    name: proxy
+    module: tai_toolbox.extensions.proxy
+    description: "Branch a tool into a variant that runs the wrapped tool through a proxy."
+    tags: [proxy]
+```
+
+## Package it
+
+Ship the file twice: at the repository root (the registry reads it from the
+repo) and as package-data inside the wheel (the registry validates the built
+artifact against the listing). Keep the wheel copy under your package directory
+and name it in the package-data config so the build includes it:
+
+```toml pyproject.toml
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tai_toolbox*"]
+
+[tool.setuptools.package-data]
+tai_toolbox = ["py.typed", "tai-plugin.yml"]
+```
+
+## Validate it
+
+Load and validate a descriptor before you publish with `load_plugin_spec`,
+which parses the file and returns a validated `PluginSpec` — a schema violation
+raises rather than returning a partial spec:
+
+```python
+from pathlib import Path
+
+from tai_kit.plugins import load_plugin_spec
+
+spec = load_plugin_spec(Path("tai-plugin.yml"))
+print(spec.ref, spec.version)
+```
+
+## See also
+
+- [The marketplace model](/concepts/marketplace) — listings, items, versions.
+- [Install a plugin](/marketplace/install) — what the installer does with `provides`.
+- [Python SDK reference](/reference/python-sdk) — the `PluginSpec` model.

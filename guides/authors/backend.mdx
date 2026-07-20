@@ -1,0 +1,49 @@
+---
+title: "Author a backend"
+description: "Build a worker backend engine."
+icon: "server"
+---
+
+import InlineBackend from '/snippets/examples/backend/inline_backend.mdx';
+
+Author a worker backend plugin — the engine that runs background, scheduled, and distributed tools.
+
+A backend is where tools run when they leave the request path — background, scheduled, and distributed execution. It is a single strategy object with one job: launch the task runtime that pulls work from the broker. The app core depends only on the `Backend` ABC and stays backend-agnostic; a concrete backend (celery, rq, arq) implements it and registers through the handle.
+
+## Implement the contract
+
+Subclass `Backend` and implement `launch` — start the worker runtime for the backend and keep it running. That is the whole abstract surface. This example has no separate runtime, so its `launch` returns immediately:
+
+<InlineBackend />
+
+Propagating a config change across the fleet is **not** a backend concern. That is the app's own [worker bus](/concepts/worker-bus), internal infrastructure outside the plugin system. A backend-runtime process receives fleet ops through the bus exactly like a serving HTTP worker, so a backend carries no control-plane surface of its own — no subscription to join, no dispatchers to implement, no broadcast to confirm.
+
+## Register through the handle
+
+Decorate the class with `@tai_app.backends.register_backend`, as the example does. Usable bare or called.
+
+## Load it
+
+The host selects the backend by naming its module under `backend_module`, then starts its worker runtime with `tai backend`.
+
+```yaml manifest.yml
+backend_module: your_package.backend
+```
+
+```bash
+tai backend --manifest-path manifest.yml
+```
+
+A registered backend makes the deployment multi-process, so it **requires the worker bus** — the backend-runtime and server processes must converge on config reloads. Set `TAI_BUS_REDIS_URL`, or `tai backend` refuses to start.
+
+Keep any broker driver behind an optional extra; document broker URLs and worker settings in your repository's README.
+
+## Shipped implementations
+
+Shipped backends appear in the [ecosystem catalog](/reference/catalog), each linking to its own repository.
+
+## See also
+
+- [Backends](/concepts/backends) — the execution model.
+- [Schedule a tool](/guides/schedule-a-tool) — scheduled runs execute on the backend.
+- [Python SDK reference](/reference/python-sdk) — the `Backend` contract surface.

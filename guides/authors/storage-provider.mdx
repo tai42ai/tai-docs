@@ -1,0 +1,43 @@
+---
+title: "Author a storage provider"
+description: "Implement the storage contract."
+icon: "database"
+---
+
+import MemoryStorage from '/snippets/examples/storage_provider/memory_storage.mdx';
+
+Author a storage provider plugin behind the storage contract.
+
+A storage provider is where content is stored. It implements the `Storage` ABC — a text surface (`load` / `list` / `upload` / `delete` / `delete_dir`) plus a binary surface (`load_bytes` / `upload_bytes` / `stat`) — and registers as the process's single provider. The binary methods ship text-bridging defaults, so a text-only backend satisfies the whole contract with no new code; binary-native backends override them.
+
+## Implement the contract
+
+Subclass `Storage` and implement the five text methods. `load` raises `FileNotFoundError` for a missing path; `delete_dir` removes a prefix. This in-memory provider is the minimal shape:
+
+<MemoryStorage />
+
+Override `load_bytes` / `upload_bytes` / `stat` only for a binary-native backend; otherwise the contract's text-bridging defaults handle media. The module-level `assert_not_root` guard refuses a directory delete that resolves to the storage root — the example calls it in `delete_dir`, and a real backend does the same.
+
+## Register through the handle
+
+Decorate the class with `@tai_app.storage.register_storage`, as the example does. The registry is dead by default — it holds no provider until one is registered, and the registered class is instantiated as the active provider. One provider per process.
+
+## Load it
+
+The host selects the provider by naming its module under `storage_module`. Importing the module runs the decorator.
+
+```yaml manifest.yml
+storage_module: your_package.storage
+```
+
+Document any backend-specific settings (bucket names, credentials, endpoints) in your repository's README — that impl-specific configuration lives in your repo, not on this site.
+
+## Shipped implementations
+
+Shipped storage providers appear in the [ecosystem catalog](/reference/catalog), each linking to its own repository.
+
+## See also
+
+- [Storage and resources](/concepts/storage-and-resources) — the storage and resource-manager model.
+- [Manage stored content and templates](/guides/manage-stored-content) — using storage.
+- [Python SDK reference](/reference/python-sdk) — the `Storage` contract surface.

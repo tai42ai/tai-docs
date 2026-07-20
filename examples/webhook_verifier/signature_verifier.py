@@ -1,0 +1,42 @@
+"""A minimal fictional webhook verifier: an HMAC body-signature scheme.
+
+Authenticates an inbound webhook from its raw request bytes before the platform
+parses or dispatches the payload. ``verify`` returns ``None`` on success and
+raises ``WebhookVerificationError`` on any failure — it never returns a bool, so
+a forgotten check cannot read as a silent pass. The secret is referenced by env
+var name, never stored in the binding config, and a missing env var fails closed.
+"""
+
+import hashlib
+import hmac
+import os
+from collections.abc import Mapping
+from typing import Any
+
+from tai_contract.app import tai_app
+from tai_contract.webhooks import WebhookVerificationError
+
+
+class SignatureVerifier:
+    """Verifies an ``X-Example-Signature`` HMAC-SHA256 over the raw body."""
+
+    # Body-signature: the HMAC is computed over the raw request body, so this
+    # verifier binds to POST delivery only.
+    post_only = True
+
+    async def verify(self, body: bytes, headers: Mapping[str, str], config: dict[str, Any]) -> None:
+        secret = os.environ[config["secret_env"]]
+        wanted = "x-example-signature"
+        provided = next((v for k, v in headers.items() if k.lower() == wanted), None)
+        if provided is None:
+            raise WebhookVerificationError("example signature header missing")
+        expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        # compare_digest is constant-time; both operands are ASCII hex digests.
+        if not hmac.compare_digest(provided, expected):
+            raise WebhookVerificationError("example signature mismatch")
+
+
+# Import-only registration through the handle. Registering a name already taken
+# raises loudly — a silent overwrite could swap a verifier out from under a live
+# binding.
+tai_app.webhook_verifiers.register("example_signature", SignatureVerifier())

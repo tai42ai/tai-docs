@@ -1,0 +1,62 @@
+---
+title: "The MCP-citizen surface"
+description: "MCP-native features and the FastMCP escape hatch."
+icon: "diagram-project"
+---
+
+A tai server is a first-class MCP citizen. The MCP-native features — output
+schemas and structured content, elicitation, progress, sampling, completions, and
+native tags — are all reachable, and anything the platform's facets do not wrap is
+reachable through one escape hatch to the raw underlying FastMCP server.
+
+## Built on FastMCP
+
+The skeleton's server is a FastMCP server underneath. The platform layers its own
+governance over it — [manifest](/concepts/manifest) gating, the extension registry's
+validation, and the [access-control](/concepts/access-control) gate — and exposes
+its features through typed facets. The MCP-native capabilities ride the FastMCP
+foundation, so an MCP client gets structured content, progress, elicitation, and
+the rest as it would from any MCP server.
+
+The server's management tools are not hand-registered on this surface: they
+project from the [operations layer](/concepts/live-operations), curated by
+[`api_tools`](/concepts/manifest#the-api_tools-block). An `AuthzMiddleware`
+installed on this FastMCP instance and on every [sub-MCP](/concepts/private-tool-sets)
+mount authorizes each projected-operation dispatch before the tool runs.
+
+## The `app.fastmcp` escape hatch
+
+For anything the facets do not wrap, the app exposes the raw FastMCP instance
+directly:
+
+```python
+from tai_skeleton.app.instance import app
+
+raw = app.fastmcp   # the raw, ungoverned FastMCP server
+```
+
+Reach here for what the facets deliberately leave to FastMCP — prompts, resources,
+`add_middleware`, sampling, elicit-handlers, completions, server metadata such as
+`name`/`version`/`auth`, and the process-global `fastmcp.settings`.
+
+<Warning>
+Anything registered **through** `app.fastmcp` skips the platform's governance:
+manifest gating, the extension registry's validation, and the access-control gate.
+Prefer the facets; use the escape hatch only for what they do not cover. It is named
+`fastmcp` (not `mcp`) so it does not read as the [sub-MCP](/concepts/private-tool-sets)
+namespace, `app.sub_app`.
+</Warning>
+
+The accessor is intentionally not on the `TaiApp` contract protocol — the contract
+stays FastMCP-free so an alternative implementation of the platform remains
+possible, which makes this accessor skeleton-specific.
+
+## FastMCP's own capabilities
+
+The platform documents the escape hatch — what the `app.fastmcp` field is and what
+it grants — not FastMCP's own API. For a deep dive into FastMCP's prompts,
+resources, middleware, and the rest, see FastMCP's documentation at
+[gofastmcp.com](https://gofastmcp.com).
+
+See the [Python SDK reference](/reference/python-sdk/index) for the `app.fastmcp`
+field and the platform's facets.

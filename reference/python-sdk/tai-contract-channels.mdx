@@ -1,0 +1,172 @@
+---
+title: "Channels (tai_contract.channels)"
+description: "The Channel protocol a delivery channel plugin implements."
+icon: "paper-plane"
+---
+
+
+Channel delivery contracts.
+
+A `Channel` pushes an ``ask_user`` question to a human on a specific
+medium (Telegram, Slack, SMS, ...) and bridges the human's reply back into the
+interactions store by forwarding it to the delivery's public ``callback_url``.
+Channels are registered on the app handle (``tai_app.channels``) by channel
+plugins and looked up by name when ``ask_user`` is called with ``channel=...``.
+Delivery either returns ``None`` (success) or raises
+`ChannelDeliveryError` (any failure) — never a bool.
+
+A channel also sends fire-and-forget notifications: ``notify`` pushes one
+`ChannelNotification` to a human with no interaction, no ticket, and no
+reply path, under the same loud-failure rule (plain return or
+`ChannelDeliveryError`).
+
+## Channel
+
+`tai_contract.channels.Channel`
+
+```python
+class Channel(Protocol)
+```
+
+Delivers one question to a human on a specific medium.
+
+A channel plugin registers an instance under a name
+(``tai_app.channels.register``); ``ask_user`` resolves it by name and calls
+``deliver`` after the interaction is persisted and its callback ticket is
+minted. A channel never reaches the interactions store directly: the
+human's reply travels back through the delivery's public ``callback_url``.
+
+### Members
+
+#### deliver
+
+`tai_contract.channels.Channel.deliver`
+
+```python
+async deliver(self, delivery: ChannelDelivery) -> None
+```
+
+Push ``delivery`` to the medium, or raise `ChannelDeliveryError`.
+
+Send the question to the resolved recipient — ``delivery.recipient``
+when set (after checking it against the plugin's operator allowlist),
+else the plugin's operator-configured default — and arrange for
+the reply to reach ``delivery.callback_url`` — either a tappable link
+carrying the URL, or an inbound-route correlation the plugin stores.
+Any delivery failure — an unreachable or rejecting medium, a recipient
+outside the operator allowlist, a required credential or recipient not
+configured, a bad send response — raises
+`ChannelDeliveryError`; a plain return is the only success
+signal. One send attempt only:
+retrying is the caller's decision, never an implicit loop here (no
+medium API offers an idempotency key, so a blind retry risks a
+double-send).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `delivery` | `ChannelDelivery` | — | — |
+
+
+#### notify
+
+`tai_contract.channels.Channel.notify`
+
+```python
+async notify(self, notification: ChannelNotification) -> None
+```
+
+Send a fire-and-forget message, or raise `ChannelDeliveryError`.
+
+No interaction, no ticket, no callback, no reply. Any delivery
+failure — an unreachable or rejecting medium, a recipient outside the
+operator allowlist, a required credential or recipient not configured,
+a bad send response — raises `ChannelDeliveryError`; a plain
+return means the medium ACCEPTED the message — not that a human saw
+it. One send attempt only, no retry. A channel that cannot notify
+raises `NotImplementedError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `notification` | `ChannelNotification` | — | — |
+
+
+
+## ChannelDelivery
+
+`tai_contract.channels.ChannelDelivery`
+
+```python
+class ChannelDelivery(BaseModel)
+```
+
+One question handed to a channel for out-of-band delivery.
+
+``callback_url`` is the public ``/api/interactions/callback/{ticket}``
+answer sink; the channel arranges for the human's reply to reach it.
+``recipient`` is the OPTIONAL caller-requested address (chat id, phone
+number, ...): the channel plugin validates it against its operator-set
+allowlist and refuses to send to an unlisted address; when omitted the
+plugin sends to its operator-configured default recipient. It is an
+address only, never a secret or credential.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `interaction_id` | `str` |
+| `recipient` | `str \| None` |
+| `question` | `str` |
+| `answer_format` | `str` |
+| `options` | `list[str] \| None` |
+| `callback_url` | `str` |
+| `timeout_at` | `datetime` |
+
+
+## ChannelDeliveryError
+
+`tai_contract.channels.ChannelDeliveryError`
+
+```python
+class ChannelDeliveryError(Exception)
+```
+
+Raised by a `Channel` when delivering a question fails.
+
+Every failure mode — an unreachable medium API, a rejected send, a missing
+credential, a misconfigured recipient — raises this single typed error.
+``deliver`` NEVER returns a bool and NEVER silently drops a message: an
+undeliverable question is a loud failure, so the only success signal is a
+plain return.
+
+
+## ChannelNotification
+
+`tai_contract.channels.ChannelNotification`
+
+```python
+class ChannelNotification(BaseModel)
+```
+
+One fire-and-forget message handed to a channel.
+
+A notification carries no interaction, no ticket, no ``callback_url`` and
+no deadline: the channel sends the message and nothing travels back.
+``recipient`` is the OPTIONAL caller-requested address (chat id, phone
+number, ...): the channel plugin validates it against its operator-set
+allowlist and refuses to send to an unlisted address; when omitted the
+plugin sends to its operator-configured default recipient. It is an
+address only, never a secret or credential.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `message` | `str` |
+| `recipient` | `str \| None` |
+

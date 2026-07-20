@@ -1,0 +1,100 @@
+---
+title: "The standard toolbox"
+description: "Enable the shipped default tools and extensions."
+icon: "toolbox"
+---
+
+import RunToolKw from '/snippets/examples/toolbox/run_tool_kw.mdx';
+
+Enable the standard toolbox — the shipped default tools and their wrapper and transformer extensions — from a manifest.
+
+The standard toolbox is a batteries-included default set of generic tools and tool extensions. Nothing loads automatically — you opt in per module by naming it in the manifest, exactly like your own code. The tools are self-contained utilities; the extensions are the live demonstration of the clip-on-powers model — memoize, batch, proxy, chain, and meter any tool.
+
+## When to reach for it
+
+- A **tool** from the toolbox gives you a ready-made capability — the current time as a structured object, a random UUID, an HTTP request, embedding vectors.
+- An **extension** from the toolbox clips a power onto an existing tool without changing it — `cache` memoizes results, `batch` fans one tool over many inputs, `chain` pipes one tool's output into another, `output_schema` forces a tool's output to a JSON Schema, `proxy` routes its connections through a forward proxy, `prometheus_metrics` meters it.
+
+## Enable the modules
+
+Load a tool module under `tools[].module` and an extension module under `extensions_modules`. Import paths are the module names; the base install stays light, and each heavier module is gated behind an optional dependency that fails loudly at import if missing.
+
+```yaml manifest.yml
+tools:
+  - title: time
+    module: tai_toolbox.tools.current_time_info
+  - title: ids
+    module: tai_toolbox.tools.generate_uuid
+
+extensions_modules:
+  - tai_toolbox.extensions.cache
+  - tai_toolbox.extensions.batch
+```
+
+With an extension loaded, attach it to a tool through that tool's `extensions` map or `tai tools apply` — see [Apply an extension](/guides/apply-an-extension).
+
+## Run a tool with `--kw`
+
+Run any registered tool synchronously with `tai tools run <name>`. Pass its arguments as repeatable `--kw key=value` pairs — each value is parsed as JSON, falling back to the literal string — or as one JSON object with `--kwargs`:
+
+<RunToolKw />
+
+The tools that take no arguments run bare:
+
+```bash
+tai tools run current_time_info
+tai tools run generate_uuid
+```
+
+The rest take their arguments by name — inspect any tool's exact input schema with `tai tools schema <name>`:
+
+```bash
+# Pad an embedding vector out to a fixed width
+tai tools run pad_embeddings --kw embeddings='[0.12, 0.34]' --kw target_dim=8
+
+# Embed a string (or a JSON list of strings)
+tai tools run generate_embeddings --kw texts='"the quick brown fox"'
+
+# Make an HTTP request through the curl-backed session
+tai tools run request --kw url=https://api.example.com/status --kw method=GET
+```
+
+## The standard set
+
+The tools and extensions the toolbox ships. This table is generated from the ecosystem catalog, so it never drifts from the package.
+
+{/* GENERATED:toolbox-table START */}
+
+| Name | Kind | Summary |
+|---|---|---|
+| `current_time_info` | Tool | Return the current time as a structured object. |
+| `generate_embeddings` | Tool | Generate embeddings for a single string or a list of strings. |
+| `generate_uuid` | Tool | Generate a random UUID (version 4). |
+| `pad_embeddings` | Tool | Pad each embedding vector with zeros up to a target dimension. |
+| `request` | Tool | Execute an HTTP request through a curl-backed session. |
+| `batch` | Extension | Branch a tool into a variant that runs many instances at once. |
+| `cache` | Extension | Branch a tool into a variant that memoizes results by call arguments. |
+| `chain` | Extension | Branch a tool into a variant that transforms its output and calls a next tool. |
+| `output_schema` | Extension | Branch a tool into a variant that forces its output to a caller-supplied JSON Schema and validates results against it. |
+| `prometheus_metrics` | Extension | Branch a tool into a variant that records a Prometheus call metric. |
+| `proxy` | Extension | Branch a tool into a variant that runs the wrapped tool through a proxy. |
+
+{/* GENERATED:toolbox-table END */}
+
+## Confirm what loaded
+
+```bash
+tai tools list
+tai extensions list
+```
+
+<Note>
+The full, always-current list of toolbox tools and extensions — names, kinds, and the optional dependency each needs — lives in the [ecosystem catalog](/reference/catalog). Per-tool specifics (formats, session behavior, the extras to install) live in the toolbox package's README, linked from the catalog.
+</Note>
+
+## See also
+
+- [Tools and extensions](/concepts/tools-and-extensions) — the model the toolbox demonstrates.
+- [Apply an extension](/guides/apply-an-extension) — attach a toolbox extension to a tool.
+- [Ecosystem catalog](/reference/catalog) — the full toolbox catalog and its repository.
+- [CLI reference](/reference/cli) — inspect what loaded.

@@ -1,0 +1,93 @@
+---
+title: "Manage stored content and templates"
+description: "Store, list, and load resources."
+icon: "database"
+---
+
+import StorageHelp from '/snippets/examples/storage/storage_help.mdx';
+import StorageProviderManifest from '/snippets/examples/storage/storage_provider_manifest.mdx';
+
+Store, list, and load resources and templates, including media in and out.
+
+The runtime stores content behind a storage provider and loads it through the resource manager — by storage id, by URL, or from a raw file, as text or as media. A template is one kind of stored resource: content the runtime renders with kwargs. This guide covers managing that content from the CLI.
+
+## Wire a storage provider
+
+Storage is dead by default — the skeleton ships no provider. Name a provider module in the manifest to turn the storage surface on:
+
+<StorageProviderManifest />
+
+The concrete provider (a local filesystem or an object store) ships as a separate [plugin package](/guides/authors/storage-provider). With none wired, `tai storage info` reports the empty state and every CRUD door answers a `501`.
+
+## The raw resource surface
+
+`tai storage` is the raw provider-resource surface — upload, list, stat, download, and delete resources by id:
+
+```bash
+tai storage upload notes/todo.txt --text 'buy milk'
+tai storage list
+tai storage stat notes/todo.txt
+tai storage download notes/todo.txt
+```
+
+Upload takes exactly one of `--text` (stored verbatim) or `--base64` (decoded to bytes); an existing id is overwritten. A resource id must be a relative path with no `..` segment. The full subcommand set:
+
+<StorageHelp />
+
+## Upload and list templates
+
+Upload a local file as a template under a key, then list what is stored.
+
+```bash
+tai templates upload prompts/greeting.md --file greeting.md
+tai templates list
+```
+
+Read one back with its input schema:
+
+```bash
+tai templates get prompts/greeting.md
+```
+
+## Render a template
+
+Render a stored template by id, or inline content, passing render kwargs with the repeatable `--kw key=value` or a JSON `--kwargs` object.
+
+```bash
+tai templates render --template-id prompts/greeting.md --kw name=Ada
+```
+
+Clear the render cache after changing a template out of band:
+
+```bash
+tai templates clear-cache
+```
+
+## Load content in and out
+
+The resource manager loads content by storage id or URL and returns it as text or media. To load a stored resource or a URL from within a tool run, enable the file-loader built-in tool, which returns a file's content as text or media:
+
+```yaml manifest.yml
+tools:
+  - title: file-loader
+    module: tai_skeleton.tools.builtin.file_loader
+```
+
+The resource-management capabilities — `upload_template`, `get_resource_by_id`, and `list_resources` — are [operations](/concepts/live-operations). Each is always a route and a CLI command, and projects as an MCP tool when [`api_tools`](/concepts/manifest#the-api_tools-block) allows it, so a tool run or an MCP client reaches the same surface the CLI does:
+
+```bash
+tai resources get prompts/greeting.md --kw name=Ada
+```
+
+`get_resource_by_id` takes a `resource_id` and optional render kwargs; with no kwargs it returns the loaded content as-is, and with kwargs (any object, including `{}`) it renders text as a Jinja template, refusing media with a `400`. `list_resources` answers `{"resources": [...]}` — the sorted resource ids from the active provider — and `upload_template` takes a `path` and returns `{"path", "uploaded": true}`.
+
+<Note>
+The storage provider is a plugin, so where content lives is swappable. The text and media surfaces are the same regardless of backend — a text-only backend satisfies the binary surface through built-in bridging. To build a backend, see [Author a storage provider](/guides/authors/storage-provider).
+</Note>
+
+## See also
+
+- [Storage and resources](/concepts/storage-and-resources) — the resource manager and the load-by-id / URL / file paths.
+- [Config and secrets](/concepts/config-and-secrets) — selecting the storage provider.
+- [Author a storage provider](/guides/authors/storage-provider) — implement the storage contract.
+- [CLI reference](/reference/cli) — the full `tai templates` surface.

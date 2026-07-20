@@ -1,0 +1,188 @@
+---
+title: "Navigation"
+description: "The shell⇄feature route-token contract — the navigation provider, links, and resolution hooks."
+icon: "compass"
+---
+
+
+The shell⇄feature route-token contract — the navigation provider, links, and resolution hooks.
+
+## AppLink
+
+```ts
+function AppLink<T extends keyof RouteSearchByToken>(props: AppLinkProps<T>): ReactNode
+```
+
+A real anchor (so middle-click / open-in-new-tab keep working) that drives a
+client-side transition on plain left-click. Modified clicks (new tab/window,
+download) fall through to the browser's default handling.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `aria-current?` | `boolean \| "time" \| "false" \| "true" \| "page" \| "step" \| "location" \| "date"` | — |
+| `aria-label?` | `string` | — |
+| `children` | `ReactNode` | — |
+| `className?` | `string` | — |
+| `search?` | `RouteSearch<T>` | — |
+| `to` | `T` | — |
+
+**Related:** [AppLinkProps](/reference/studio-sdk/navigation#applinkprops)
+
+
+## AppLinkProps
+
+```ts
+interface AppLinkProps<T extends RouteToken>
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `aria-current?` | `boolean \| "time" \| "false" \| "true" \| "page" \| "step" \| "location" \| "date"` | — |
+| `aria-label?` | `string` | — |
+| `children` | `ReactNode` | — |
+| `className?` | `string` | — |
+| `search?` | `RouteSearch<T>` | — |
+| `to` | `T` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## NavigationContextValue
+
+```ts
+interface NavigationContextValue
+```
+
+The runtime navigation surface the shell provides through
+`NavigationProvider`. `navigate` performs a client-side transition;
+`resolvePath` produces the href a link should point at (so an AppLink is a real
+anchor — middle-click / open-in-new-tab work — while still driving a
+client-side transition on plain click).
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => void` | — |
+| `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## NavigationProvider
+
+```ts
+function NavigationProvider(
+  props: { children: ReactNode; value: NavigationContextValue },
+): ReactNode
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode; value: NavigationContextValue }` | — | — |
+
+**Related:** [NavigationContextValue](/reference/studio-sdk/navigation#navigationcontextvalue)
+
+
+## PageProps
+
+```ts
+interface PageProps<T extends RouteToken>
+```
+
+Props the shell passes to a feature's page component: the route's typed search
+parameters. Features type their exported page as `PageProps<'tools'>` and read
+`search` — they receive route state as data, never by importing the router.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `search` | `RouteSearch<T>` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## RouteSearch
+
+```ts
+type RouteSearch<T extends RouteToken> = RouteSearchByToken[T]
+```
+
+The search parameters a given route token accepts.
+
+**Related:** [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## RouteSearchByToken
+
+```ts
+interface RouteSearchByToken
+```
+
+Every top-level route the shell owns, mapped to its typed search parameters.
+A route with no parameters maps to the empty object. Detail views are driven
+by a search parameter (e.g. the selected tool / connection), keeping the route
+map flat — one entry per feature surface, matching the shell route map.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `agents` | `Record<string, never>` | — |
+| `connectors` | `{ connection?: string }` | — |
+| `extensions` | `Record<string, never>` | — |
+| `hooks` | `Record<string, never>` | — |
+| `interactions` | `Record<string, never>` | — |
+| `login` | `Record<string, never>` | — |
+| `manifest` | `Record<string, never>` | — |
+| `marketplace` | `{ category?: string; kind?: string; plugin?: string; q?: string; sort?: "downloads" \| "updated" \| "name" \| "relevance"; tab?: "browse" \| "installed"; tags?: string[] }` | — |
+| `notifications` | `Record<string, never>` | — |
+| `observability` | `{ dir?: "desc" \| "asc"; from?: string; maxCost?: number; maxLatencyMs?: number; maxTokens?: number; minCost?: number; minLatencyMs?: number; minTokens?: number; sort?: "createdAt" \| "cost" \| "latencyMs" \| "totalTokens"; status?: "error" \| "success"; tab?: "dashboard" \| "tracing"; tags?: string[]; to?: string; trace?: string }` | — |
+| `presets` | `{ preset?: string }` | — |
+| `scheduling` | `Record<string, never>` | — |
+| `settings` | `Record<string, never>` | — |
+| `storage` | `{ filter?: string }` | — |
+| `system` | `Record<string, never>` | — |
+| `templates` | `{ template?: string }` | — |
+| `tools` | `{ tags?: string[]; tool?: string }` | — |
+
+
+## RouteToken
+
+```ts
+type RouteToken = keyof RouteSearchByToken
+```
+
+An opaque, typed handle to a shell route.
+
+**Related:** [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useAppNavigate
+
+```ts
+function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => void
+```
+
+Imperative navigation to a shell route token with its typed search params.
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useResolvePath
+
+```ts
+function useResolvePath(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string
+```
+
+Resolve a token + search to the href the shell would route to.
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+

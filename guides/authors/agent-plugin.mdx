@@ -1,0 +1,65 @@
+---
+title: "Author an agent plugin"
+description: "Implement the Agent contract."
+icon: "robot"
+---
+
+import GreeterAgent from '/snippets/examples/agent_plugin/greeter_agent.mdx';
+
+Author an agent plugin against the `Agent` contract.
+
+An agent plugin ships one or more agents as a distributable package. Each agent implements the `Agent` ABC; the runtime derives two faces from it — a JSON `run` tool for LLM, MCP, and flow callers, and an in-process `astream` method for API and SSE callers. You write only the `Agent` class. This guide covers the full contract surface and packaging; for a first agent in your own app, see [Author an agent](/guides/author-an-agent).
+
+## Implement the contract
+
+Declare the three class attributes that drive tool generation and implement `run`, the primitive that returns a single final value:
+
+- `tool_name` — the registered name and the auto-generated tool name.
+- `tool_description` — the LLM-facing description.
+- `ToolInput` — a JSON-able pydantic model of the tool parameters. A non-JSON field fails loudly when its schema is generated.
+
+<GreeterAgent />
+
+## Stream real events
+
+`run` is the primitive; the base class provides a free `astream` that runs once and emits one terminal event. A streaming agent overrides `astream` with real per-step events and implements `run` by draining its own stream through the base `_drain` helper — which raises on an interrupt (a non-streaming caller cannot answer one) and never returns a partial.
+
+## Declare preset-bakeable fields
+
+An authored variant of an agent is a [preset](/concepts/presets) that bakes `fixed_kwargs` over the agent, run with `tai agents authored-run`. Which `ToolInput` fields may be baked is a **per-field** capability the implementation declares — it is never inferred:
+
+- `spec_runnable = True` declares that the agent's `ToolInput` advertises exactly the composable fields its runtime honors, so **every** field is preset-bakeable.
+- `preset_bakeable_fields = frozenset({"..."})` names the individual fields that are bakeable when the agent is not (or not only) `spec_runnable`. A field is bakeable iff the agent is `spec_runnable` **or** the field is listed here; the default — not spec-runnable, empty set — bakes nothing.
+
+The gate runs server-side on the authoring doors, so a generic UI can render an authoring control only for a bakeable field. Baking a field the agent does not declare bakeable is rejected with a `400`:
+
+- `fixed_kwargs field '<key>' is not preset-bakeable for agent '<agent>': the agent is not spec_runnable and does not declare it in preset_bakeable_fields`
+- a field that is not on the agent's `ToolInput` at all → `fixed_kwargs field '<key>' is not a field of agent '<agent>'s input`
+- a baked value that violates the field's declared type or constraints → `fixed_kwargs field '<key>' is invalid for agent '<agent>': ...`
+
+The same gate guards both the create door (`POST /api/presets`) and the save-version door (`POST /api/presets/{name}/versions`) whenever the body carries `fixed_kwargs`, so a later version cannot smuggle in an un-bakeable field either.
+
+## Package and load
+
+Depend on `tai-contract` (and `tai-kit` for shared LLM factories) only; never import the skeleton. The host loads the agents by naming the module under `agents[]`, and drives them over SSE by loading the agents router:
+
+```yaml manifest.yml
+agents:
+  - title: my_agents
+    module: your_package.agents
+    include: []
+
+routers_modules:
+  - tai_skeleton.routers.agents
+```
+
+## Shipped implementations
+
+Shipped agent packages appear in the [ecosystem catalog](/reference/catalog), each linking to its own repository.
+
+## See also
+
+- [Agents](/concepts/agents) — the two faces of one `Agent` class.
+- [Deep agents](/concepts/deep-agents) — sub-agents, skills, and strategies.
+- [Author an agent](/guides/author-an-agent) — a first agent, end to end.
+- [Python SDK reference](/reference/python-sdk) — the `Agent` contract surface.

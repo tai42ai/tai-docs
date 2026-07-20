@@ -1,0 +1,169 @@
+---
+title: "tai keys"
+description: "Manage API keys and their access-control conditions."
+icon: "terminal"
+---
+
+Manage API keys and their access-control conditions.
+
+```console
+$ tai keys [OPTIONS] COMMAND [ARGS]...
+```
+
+## `tai keys claim-link`
+
+Mint a one-time claim link that carries a key you hold to another device.
+
+The link's token rides the URL FRAGMENT (`/login#claim=&lt;token&gt;`) and is
+SINGLE-USE — the first exchange burns it. Prints the claim path and expiry; compose
+the absolute URL (or a QR) from your own origin.
+
+Example: `tai keys claim-link sk-abc123 --ttl 300`
+
+```console
+$ tai keys claim-link [OPTIONS] [RAW_KEY]
+```
+
+| Argument | Description |
+| --- | --- |
+| `[RAW_KEY]` | The raw API key to share (omit to enter it at a hidden prompt so it never lands in shell history). _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--ttl` `INTEGER` | Link lifetime in seconds (capped by the server ceiling). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys create`
+
+Provision an API key; the raw `sk-…` value is printed ONCE.
+
+Example: `tai keys create --user alice --description 'CI key' --scope read`
+
+```console
+$ tai keys create [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--user` `TEXT` | The key's user id. |
+| `--description` `TEXT` | Human description (required identity field). |
+| `--scope` `TEXT` | A scope to grant (repeatable). |
+| `--condition` `TEXT` | An inline jq authorization condition. |
+| `--condition-id` `TEXT` | A stored jq condition id. |
+| `--condition-kwargs` `TEXT` | Condition kwargs as a JSON object. |
+| `--policy-data` `TEXT` | Extra policy data as a JSON object. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys delete`
+
+Revoke a key (immediate: the next request fails to auth).
+
+Example: `tai keys delete alice`
+
+```console
+$ tai keys delete [OPTIONS] USER
+```
+
+| Argument | Description |
+| --- | --- |
+| `USER` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys edit`
+
+Partially edit a key's description/scopes/policy in place (no rotation).
+
+Only the flags you pass are written; omitted fields are preserved. Pass an
+empty value to clear an optional condition gate.
+
+Example: `tai keys edit alice --scope read --scope write`
+
+```console
+$ tai keys edit [OPTIONS] USER
+```
+
+| Argument | Description |
+| --- | --- |
+| `USER` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--description` `TEXT` | New description. |
+| `--scope` `TEXT` | Replacement scope (repeatable); replaces the set. |
+| `--condition` `TEXT` | New condition; pass '' to clear. |
+| `--condition-id` `TEXT` | New condition id; pass '' to clear. |
+| `--condition-kwargs` `TEXT` | Condition kwargs JSON; '&#123;&#125;' clears. |
+| `--policy-data` `TEXT` | Policy data JSON; '&#123;&#125;' clears. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys list`
+
+List every provisioned key's identity and policy (never key material).
+
+Example: `tai keys list`
+
+```console
+$ tai keys list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys policy-rollback`
+
+Roll a user's enforced policy back to a prior version.
+
+Example: `tai keys policy-rollback alice 2`
+
+```console
+$ tai keys policy-rollback [OPTIONS] USER VERSION
+```
+
+| Argument | Description |
+| --- | --- |
+| `USER` | The key's user id. _(required)_ |
+| `VERSION` | Target policy version to enforce. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys policy-versions`
+
+List a user's append-only policy version history.
+
+Example: `tai keys policy-versions alice`
+
+```console
+$ tai keys policy-versions [OPTIONS] USER
+```
+
+| Argument | Description |
+| --- | --- |
+| `USER` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys validate-condition`
+
+Compile (and optionally sample-evaluate) a jq policy condition without saving.
+
+Example: `tai keys validate-condition --condition '.method == "GET"'`
+
+```console
+$ tai keys validate-condition [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--condition` `TEXT` | An inline jq condition to compile. |
+| `--condition-id` `TEXT` | A stored jq condition id. |
+| `--condition-kwargs` `TEXT` | Condition kwargs as a JSON object. |
+| `--sample-context` `TEXT` | A JqAuthContext-shaped sample to evaluate against, as JSON. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |

@@ -1,0 +1,124 @@
+---
+title: "Set up access control"
+description: "Turn on the gate and write a policy."
+icon: "shield-halved"
+---
+
+import VerifyAllowed from '/snippets/examples/access_control/verify_allowed.mdx';
+import VerifyDenied from '/snippets/examples/access_control/verify_denied.mdx';
+import IdentityManifest from '/snippets/examples/access_control/identity_manifest.mdx';
+import KeysCreateHelp from '/snippets/examples/cli/keys_create_help.mdx';
+
+Turn on the request-auth gate and write a jq access-control policy.
+
+The runtime gates its HTTP routes behind API keys and per-user policies. A request presents an `sk-…` key; the access-control middleware resolves the key's user and evaluates that user's jq policy against the request context. You provision keys, map routes to scopes, and attach jq conditions.
+
+## Prerequisites
+
+The gate is on by default. Before it can admit requests in a real deployment, these backing pieces must be in place.
+
+<Steps>
+  <Step title="Access control is enabled">
+    The gate runs unless you set `ACCESS_CONTROL_ENABLE=false`. Leave it unset (or `true`) in production — the [quickstart](/getting-started/quickstart) disables it only for local, auth-free development.
+  </Step>
+  <Step title="A Redis for the live auth context">
+    The identity provider's api-key records and the per-user live counters live in a plain Redis — any standard `redis-server`. No RedisJSON module or `redis-stack` image is required. Point the connection with `ACCESS_CONTROL_REDIS_URL` (default `redis://localhost:6379/0`).
+  </Step>
+  <Step title="A Postgres policy store">
+    Scopes, route mappings, and per-user policy bodies live in Postgres — the only policy store. Configure the connection through the `ACCESS_CONTROL_STORE_*` env (`ACCESS_CONTROL_STORE_PG_HOST`, `ACCESS_CONTROL_STORE_PG_DB` defaulting to `tai`, and the password via `ACCESS_CONTROL_STORE_PG_PASSWORD`).
+  </Step>
+  <Step title="An identity provider in the manifest">
+    The skeleton ships no concrete identity provider, so a deployment with the gate on **must** name one as a lifecycle module in the manifest. The default is the redis-backed api-key provider:
+
+    <IdentityManifest />
+
+    It registers itself as the `redis` provider at import; `ACCESS_CONTROL_AUTH_PROVIDER` (default `redis`) selects it. Swap the module and the provider name to use a different authn backend.
+  </Step>
+  <Step title="Probe routes pinned public">
+    The guard denies any route it has no mapping for, so pin your liveness and readiness probes public through the public-routes door before an orchestrator probes them:
+
+    ```bash
+    tai scopes public-pin /health
+    tai scopes public-pin /ready
+    ```
+  </Step>
+</Steps>
+
+## Provision an API key
+
+Create a key for a user. The raw `sk-…` value is printed once — capture it then. Grant scopes with the repeatable `--scope`, and attach an inline jq authorization condition with `--condition`.
+
+```bash
+tai keys create --user alice --description 'CI key' --scope read
+```
+
+The scopes are granted with the repeatable `--scope` flag — the command's own help confirms it:
+
+<KeysCreateHelp />
+
+The CLI itself authenticates with a key. Pass it out of band — read one line from stdin with the global `--api-key-stdin` flag, or set `TAI_API_KEY` in the environment. There is no `--api-key VALUE` flag, because a value would leak via `ps` and shell history.
+
+## Map routes to scopes
+
+A scope maps URLs to a named policy target. Add a URL to a scope, optionally with a dynamic match pattern, and list the current mappings.
+
+```bash
+tai scopes add read /api/tools
+tai scopes list
+```
+
+## Write and validate a jq condition
+
+A jq condition compiles against the request context and returns whether the request is allowed. Validate one before you save it — compile it, and optionally sample-evaluate it against a `JqAuthContext`-shaped sample.
+
+```bash
+tai keys validate-condition --condition '.method == "GET"'
+```
+
+Attach the validated condition when you create or edit a key with `--condition`.
+
+<Steps>
+  <Step title="Draft the condition">
+    Write a jq expression over the request context and compile-check it with `tai keys validate-condition`.
+  </Step>
+  <Step title="Attach it to a key">
+    Create the key with `--condition` (inline) or `--condition-id` (a stored condition), plus any `--condition-kwargs`.
+  </Step>
+  <Step title="Track policy changes">
+    Each user's enforced policy is append-only and versioned. List the history with `tai keys policy-versions`, and roll back with `tai keys policy-rollback`.
+  </Step>
+</Steps>
+
+<Warning>
+A key is revoked immediately with `tai keys delete` — the next request with it fails to authenticate. Rotate a key by revoking and re-issuing; editing a key never rotates its material.
+</Warning>
+
+## Verify enforcement
+
+Prove the gate before you trust it: call a guarded route with two keys. A key whose policy grants the route's scope reaches the resource with `200`; a valid key that lacks the scope is denied with a fixed `403`. Set `TAI_BASE_URL` to your server and the `X-Api-Key` header to each key.
+
+An allowed key reaches the resource:
+
+<VerifyAllowed />
+
+A valid but under-scoped key is denied — a fixed `403`, with the full reason logged only server-side:
+
+<VerifyDenied />
+
+Both requests run against the real `AuthAdapter → AccessControlAuthBackend → ResourceGuardMiddleware` chain in docs CI, so a change that breaks allow/deny enforcement breaks this step.
+
+## Delegate with owned keys
+
+A key minted by a non-admin is an [owned key](/concepts/owned-keys) — capped at a
+subset of its owner's scopes, isolated to its own data, and attenuated with the
+owner on every request. To mint a capped key for a teammate or device, inspect what
+it can do with `tai auth whoami`, and share it by one-time QR claim link, follow the
+[owned-keys guide](/guides/owned-keys).
+
+## See also
+
+- [Access control](/concepts/access-control) — the key, scope, and jq policy model.
+- [Owned keys](/concepts/owned-keys) — capped sub-identities, the capability
+  projection, and data isolation.
+- [The versioning spine](/concepts/versioning-spine) — the append-only policy history.
+- [CLI reference](/reference/cli) — the full `tai keys` and `tai scopes` surface.

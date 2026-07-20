@@ -1,0 +1,161 @@
+---
+title: "Settings (tai_kit.settings)"
+description: "The base settings class and the settings registry."
+icon: "gear"
+---
+
+
+Settings machinery: the base class + the cache-reset registry. Leaf settings
+live next to the impl they configure (``tai_kit.llm``, ``tai_kit.clients``,
+``tai_kit.logging``).
+
+## SettingsClassInfo
+
+`tai_kit.settings.registry.SettingsClassInfo`
+
+```python
+class SettingsClassInfo(BaseModel)
+```
+
+A registered settings class, identified by its qualified name.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `module` | `str` |
+| `qualname` | `str` |
+| `fields` | `list[SettingsFieldInfo]` |
+
+
+## SettingsFieldInfo
+
+`tai_kit.settings.registry.SettingsFieldInfo`
+
+```python
+class SettingsFieldInfo(BaseModel)
+```
+
+One env-configurable field on a settings class, as plain data.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `env_var` | `str` |
+| `type` | `str` |
+| `default` | `Any \| None` |
+| `required` | `bool` |
+| `secret` | `bool` |
+| `description` | `str \| None` |
+| `nested_group` | `str \| None` |
+
+
+## TaiBaseSettings
+
+`tai_kit.settings.base.TaiBaseSettings`
+
+```python
+class TaiBaseSettings(BaseSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+
+### Members
+
+#### with_fallbacks
+
+`tai_kit.settings.base.TaiBaseSettings.with_fallbacks`
+
+```python
+with_fallbacks(self, user_config: dict) -> dict
+```
+
+Return a dict with defaults added for missing keys (never override user config).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_config` | `dict` | — | — |
+
+
+#### load_with_fallbacks
+
+`tai_kit.settings.base.TaiBaseSettings.load_with_fallbacks`
+
+```python
+load_with_fallbacks(self, user_config: str) -> dict
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_config` | `str` | — | — |
+
+
+
+## register_settings_reset
+
+`tai_kit.settings.cache_registry.register_settings_reset`
+
+```python
+register_settings_reset(fn: Callable[[], None]) -> Callable[[], None]
+```
+
+Register a hook that resets settings-derived state on global reset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[], None]` | — | — |
+
+
+## registered_settings
+
+`tai_kit.settings.registry.registered_settings`
+
+```python
+registered_settings() -> list[SettingsClassInfo]
+```
+
+Snapshot of every registered settings group, in registration order.
+
+Returns model copies so callers cannot mutate the registry's internals.
+
+
+## reset_all_settings
+
+`tai_kit.settings.cache_registry.reset_all_settings`
+
+```python
+reset_all_settings() -> None
+```
+
+Drop every registered settings cache, then run the reset hooks.
+
+
+## settings_cache
+
+`tai_kit.settings.cache_registry.settings_cache`
+
+```python
+settings_cache(fn: F) -> F
+```
+
+Cache a zero-arg settings accessor and register it for global reset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `F` | — | — |
+

@@ -1,0 +1,124 @@
+---
+title: "Access control"
+description: "The jq-policy request-auth gate."
+icon: "shield-halved"
+---
+
+Access control is the request-auth gate in front of a server. It resolves an
+inbound API key to an identity, loads that identity's policy, and decides whether
+the request may reach its route. It is on by default; it reads live auth context
+(identity, the policy-version cache-buster, and live counters) from Redis and its
+durable policy bodies and route mappings from Postgres.
+
+<Note>
+For local development against tools that need no auth, turn the gate off with
+`ACCESS_CONTROL_ENABLE=false` — the [quickstart](/getting-started/quickstart)
+does exactly this.
+</Note>
+
+## Identity, policy, route
+
+The gate has three moving parts, resolved on every request:
+
+1. **Identity** — an inbound key is hashed and looked up; a stored key resolves to
+   a `user_id`. A raw key is generated with a CSPRNG, only its SHA-256 is ever
+   stored, and the plaintext is returned to the caller exactly once.
+2. **Policy** — the identity's policy carries its scopes plus an optional jq
+   condition and policy data. The policy is cached per worker and keyed on a
+   version, so a management edit bumps the version and the next read bypasses the
+   stale cache without waiting out the TTL.
+3. **Route** — a request path maps to a scope id; the guard admits the request
+   only if the identity's scopes cover it. A route pinned to the public marker
+   (via `tai scopes public-pin`) is public; `*` is a superuser scope on a key, not
+   a route value.
+
+## Resolving a credential across providers
+
+A deployment can enable more than one identity provider at once — an API-key
+store, an [accounts](/concepts/accounts) provider's sessions, an issuer-JWT
+verifier. `ACCESS_CONTROL_AUTH_PROVIDERS` is an **ordered** list, and the gate
+resolves an inbound token by trying each provider **in order, first match
+wins**: the first provider that recognises the token answers, and resolution
+stops there.
+
+The distinction that keeps this safe is **error is not miss**. A provider that
+does not recognise a token returns "not mine" and the gate falls through to the
+next provider. A provider that recognises the token but hits a backend failure
+**raises** — it does not silently return "not mine", which would let a
+misconfigured store fall through to a weaker provider. A miss falls through; an
+error fails closed.
+
+## Attenuation is enforced at the gate
+
+When an [accounts](/concepts/accounts) provider is in play, a resolved API key
+carries its owning account, and the gate applies **owner attenuation** on every
+request: the key's effective authority is intersected with its owner's live
+policy right here, at resolution time, before the policy decision. Because it is
+re-applied per request rather than frozen at mint, a change to the owner's role —
+or disabling the owner — takes effect on the key's very next call. Only the mint
+path may set the owner claim; the gate strips any owner claim a non-minting
+provider returns, so an external issuer can never assert ownership it did not
+earn.
+
+<Note>
+A key that carries an owner claim is an **owned key** — a capped, isolated
+sub-identity you can hand to a teammate, a device, or a machine. The delegation
+model, the `GET /api/auth/me` capability projection, per-identity data isolation,
+the claim-link channels, and which scopes are safe to grant live on
+[Owned keys](/concepts/owned-keys).
+</Note>
+
+## The login namespace is public; `/api/auth` stays reserved
+
+Human [login](/studio/login) flows live under the `/api/login` namespace — the
+methods listing, the credential-submit routes, the bootstrap and invite flows.
+That namespace is **public by default**: a browser must reach it *before* it has
+any credential, so its public-ness is a code-side default, not a route mapping an
+operator has to remember to add. The `/api/auth` provisioning and policy routes
+stay **reserved** behind the gate — minting keys, editing policies, and managing
+principals all require an authenticated, authorized caller. Sign-in is open;
+administration is not.
+
+Two reserved routes carry a carve-in so a scoped identity can still onboard and
+introspect: `GET /api/auth/me` (the [capability projection](/concepts/owned-keys))
+is authenticated-implies-allowed — any authenticated caller reaches it regardless
+of the route table — and `POST /api/auth/claim-links` is carved into the seeded
+`editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
+the gate; neither is public.
+
+## The jq policy
+
+A policy is scopes plus rules. The rule is a **jq condition** evaluated against the
+request's credentials and context — expressive enough to gate on identity, scope,
+and request attributes without any custom code. The condition is compiled and
+evaluated by the policy enforcer; a backend error while reading the policy version
+**fails closed** by raising, which surfaces as a clean deny rather than a silent
+default.
+
+A denied request never leaks internal detail: an authentication failure returns a
+fixed `401` and an authenticated-but-forbidden request a fixed `403`, with the full
+failure logged only server-side.
+
+Validate a jq condition offline before you commit it, and mint keys with the CLI:
+
+```bash
+tai keys validate-condition --condition '.method == "GET"'
+tai keys create --user alice --description 'CI key' --scope read --condition '.method == "GET"'
+```
+
+## Route mapping is two-tier
+
+Mapping a route to public or protected is a configuration decision, not a property
+of the route code. It is two-tier: a path pattern maps a URL to a template key,
+and a Postgres record in the access-control policy store maps that template key to
+a scope id (or the public marker).
+This is how the [interactions](/concepts/interactions) callback doors are mapped
+public while the stream and answer doors stay protected.
+
+Every management mutation that touches more than one key commits through a single
+WATCH/MULTI/EXEC transaction, so a crash never leaves the store half-written and a
+concurrent edit aborts and retries against fresh state.
+
+See the [access-control guide](/guides/access-control) for the provisioning
+workflow, the [CLI reference](/reference/cli/index) for `tai keys` and
+`tai scopes`, and the [HTTP API reference](/reference/api/index) for the routes.

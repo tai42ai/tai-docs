@@ -1,0 +1,75 @@
+---
+title: "Backends"
+description: "Where tools run: background, scheduled, distributed."
+icon: "server"
+---
+
+A backend is where a tool actually runs when it should not run inline in the
+request. It is the execution engine behind background, scheduled, and distributed
+tool runs — and it is swappable, so the same tool runs the same way whichever
+engine you choose.
+
+## The backend seam
+
+The `Backend` ABC is the contract; the skeleton re-exports it as the registration
+seam and ships the callback glue that chains a backend result back into the
+runtime. Concrete worker backends — for example ones built on Celery, RQ, or arq —
+are external [plugins](/concepts/config-and-secrets) that implement the ABC and
+register through `tai_app.backends.register_backend` when the
+[manifest](/concepts/manifest) names the `backend_module`.
+
+The backend runs as its own process:
+
+```bash
+tai backend
+```
+
+A registered backend adds a separate task runtime, so the deployment is now a
+fleet of more than one process. Keeping those processes converged on a config
+change is **not** the backend's job — it is the app's own
+[worker bus](/concepts/worker-bus). Because a backend makes the deployment
+multi-process, naming a `backend_module` requires the bus: set `TAI_BUS_REDIS_URL`
+or the server refuses to start.
+
+## Three ways a tool runs off the request path
+
+- **Background** — submit a tool run and poll its result, for a run that outlives
+  one request. The background tool-runs HTTP surface loads as a router module.
+- **Scheduled** — schedule a tool to run later or on a cadence. A schedule names
+  the `tool_name`, its `tool_kwargs`, and the schedule parameters the backend's
+  scheduling tool consumes.
+- **Distributed** — the worker backend spreads runs across workers.
+
+Manage schedules from the CLI:
+
+```bash
+tai schedules list
+tai schedules add report --schedule-kw cron='0 9 * * *'
+tai schedules delete <name>
+```
+
+## Routing a tool to a backend
+
+A tool is routed to a backend with a `BACKEND`-kind
+[extension](/concepts/tools-and-extensions) — the extension kind whose job is to
+send a tool's execution through a backend rather than running it inline. The tool's
+definition does not change; the extension decides where it runs.
+
+<Warning>
+A tool that depends on a managed `stdio` MCP server's tools runs on the ASGI, arq,
+and RQ execution paths, but not inside a Celery **prefork** worker child: the
+managed server's live stdio subprocess connection does not survive the prefork
+fork, so those tools are unavailable there. Route such a tool to a non-prefork
+engine, or run it inline on the request path.
+</Warning>
+
+<Note>
+A specific worker backend's setup — its broker, queues, and concurrency — lives in
+that backend package's own repository, reachable from the
+[catalog](/reference/catalog/index). The platform documents the backend contract,
+not any one engine.
+</Note>
+
+See the [schedule-a-tool guide](/guides/schedule-a-tool), the
+[backend author guide](/guides/authors/backend), and the
+[HTTP API reference](/reference/api/index) for the tool-run and schedule routes.

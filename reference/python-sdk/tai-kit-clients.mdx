@@ -1,0 +1,216 @@
+---
+title: "Pooled clients (tai_kit.clients)"
+description: "Pooled Postgres/Redis clients and connection settings."
+icon: "network-wired"
+---
+
+
+Pooled clients + the generic client facade.
+
+Each client subclasses ``PooledClient`` (per-loop pooling, satisfies the contract
+``BaseClient`` Protocol) and is reached by class through ``client_ctx``. The
+driver each impl needs is declared by an extra (``tai-kit[curl]`` /
+``[postgres]``); import a driver submodule only when its driver is installed.
+
+## ClientDisconnectedError
+
+`tai_contract.errors.ClientDisconnectedError`
+
+```python
+class ClientDisconnectedError(Exception)
+```
+
+Raised when a client disconnects unexpectedly and is removed from the cache.
+
+This is not a permanent failure — retrying the operation will cause a fresh
+client to be created automatically.
+
+
+## ClientSettings
+
+`tai_kit.clients.settings.ClientSettings`
+
+```python
+class ClientSettings(TaiBaseSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `registry_exclude` | `bool` |
+
+### Members
+
+#### client_kwargs
+
+`tai_kit.clients.settings.ClientSettings.client_kwargs`
+
+```python
+client_kwargs(self) -> dict[str, Any]
+```
+
+Connection kwargs passed to the client's ``_create`` / ``current``.
+
+
+
+## PooledClient
+
+`tai_kit.clients.base.PooledClient`
+
+```python
+class PooledClient
+```
+
+### Members
+
+#### current
+
+`tai_kit.clients.base.PooledClient.current`
+
+```python
+async current(self, **kwargs) -> AsyncIterator[T]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kwargs` | — | `{}` | — |
+
+
+#### close
+
+`tai_kit.clients.base.PooledClient.close`
+
+```python
+async close(self, **kwargs) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kwargs` | — | `{}` | — |
+
+
+
+## PostgresConnectionSettings
+
+`tai_kit.clients.settings.PostgresConnectionSettings`
+
+```python
+class PostgresConnectionSettings(ClientSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `registry_exclude` | `bool` |
+| `pg_host` | `str` |
+| `pg_port` | `int` |
+| `pg_db` | `str` |
+| `pg_user` | `str` |
+| `pg_password` | `SecretStr` |
+| `pg_min_connections` | `int` |
+| `pg_max_connections` | `int` |
+| `pg_connect_timeout` | `int` |
+| `pg_statement_timeout_seconds` | `float` |
+| `pg_dsn` *(property)* | `str` |
+
+### Members
+
+#### client_kwargs
+
+`tai_kit.clients.settings.PostgresConnectionSettings.client_kwargs`
+
+```python
+client_kwargs(self) -> dict[str, Any]
+```
+
+Connection identity for the pooled client — JSON-serializable only.
+
+Pools are keyed by DSN + min/max size; callers that disagree on pool
+bounds get separate pools.
+
+
+
+## RedisConnectionSettings
+
+`tai_kit.clients.settings.RedisConnectionSettings`
+
+```python
+class RedisConnectionSettings(ClientSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `registry_exclude` | `bool` |
+| `redis_url` | `str \| None` |
+| `redis_max_connections` | `int \| None` |
+| `decode_responses` | `bool` |
+| `socket_timeout` | `float \| None` |
+| `socket_connect_timeout` | `float \| None` |
+| `retry_on_timeout` | `bool` |
+| `retry_attempts` | `int` |
+
+### Members
+
+#### client_kwargs
+
+`tai_kit.clients.settings.RedisConnectionSettings.client_kwargs`
+
+```python
+client_kwargs(self) -> dict[str, Any]
+```
+
+Connection identity for the pooled client — JSON-serializable only.
+
+The facade keys its per-loop connection pool on these kwargs, so every
+value must be JSON-serializable. ``retry_attempts`` travels as an int;
+the redis client turns it into a ``Retry`` object at construction time —
+a ``Retry`` instance is not serializable and would break the pool key.
+
+
+
+## client_ctx
+
+`tai_kit.clients.facade.client_ctx`
+
+```python
+client_ctx(
+    client_cls: type[PooledClient[T]],
+    settings: ClientSettings | None = None,
+    *,
+    fresh: bool = False,
+    **kwargs: Any,
+) -> AbstractAsyncContextManager[T]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `client_cls` | `type[PooledClient[T]]` | — | — |
+| `settings` | `ClientSettings \| None` | `None` | — |
+| `fresh` | `bool` | `False` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+## shutdown_all_clients
+
+`tai_kit.clients.base.shutdown_all_clients`
+
+```python
+async shutdown_all_clients() -> None
+```
+
+Close every live client pool for the running event loop.
+
+Sweeps the per-loop class-keyed cache and closes each pooled client. Closes
+are best-effort — failures are collected and raised together, never silently
+dropped.
+

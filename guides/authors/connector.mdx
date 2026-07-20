@@ -1,0 +1,43 @@
+---
+title: "Author a connector"
+description: "Build an OAuth connector plugin."
+icon: "plug"
+---
+
+import WeatherProvider from '/snippets/examples/connector/weather_provider.mdx';
+
+Author an OAuth connector plugin — a pure descriptor the connector engine drives.
+
+A connector provider is a pure-data plugin. It declares one `ProviderDescriptor` — the OAuth endpoints, the per-sub-service MCP servers, and the environment-variable names that hold the client credentials — and registers it through the `tai_app` handle. It carries no OAuth, probe, or launch code: the connector engine drives all of that generically from the descriptor. It depends on `tai-contract` only and never imports the skeleton.
+
+## Build the descriptor
+
+Build a `ProviderDescriptor` naming the provider, its OAuth endpoints, the client-credential env vars, and one `SubServiceDescriptor` per sub-service. Each sub-service is a pkg-launched stdio MCP server named by its `entry_point`; the engine synthesizes the launch command from the provider's `pkg_manager`.
+
+<WeatherProvider />
+
+The client credentials are named, never stored: `client_id_env` / `client_secret_env` hold the environment-variable names, which the engine resolves from the process environment at connect time. Use `extra_authorize_params` for authorize-URL parameters a provider requires — anything the provider's OAuth server expects beyond the standard set.
+
+## Register on import
+
+Register the descriptor through the handle at module import, as the last line of the example above shows. A connector ships pure data, so this is a plain call — `tai_app.connectors.register_connector(build_descriptor())` — not a decorator. Importing the module registers the provider.
+
+## Package layout
+
+- Ship each provider in its own package and repository.
+- Depend on `tai-contract` only; a clone needs nothing private.
+- Document the OAuth app the operator must register and the two credential env vars in your repository's README — that impl-specific setup lives in your repo, not on this site.
+
+The host loads the provider by naming the module under `lifecycle_modules` — see [Connect an OAuth provider](/guides/connect-an-oauth-provider).
+
+## Shipped implementations
+
+- [`tai-connector-google`](https://github.com/tai42ai/tai-connector-google) — Gmail, Calendar, Drive.
+- [`tai-connector-atlassian`](https://github.com/tai42ai/tai-connector-atlassian) — Jira, Confluence, Compass.
+
+## See also
+
+- [Connectors](/concepts/connectors) — the connector model and the engine that drives it.
+- [Connect an OAuth provider](/guides/connect-an-oauth-provider) — using a connector.
+- [Python SDK reference](/reference/python-sdk) — `ProviderDescriptor` and the `tai_app.connectors` surface.
+- [Ecosystem catalog](/reference/catalog) — every shipped connector.

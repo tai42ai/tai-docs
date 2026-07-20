@@ -1,0 +1,25 @@
+{/* Generated from examples/deploy/access_control_manifest.yaml by scripts/sync_examples.py. Do not edit. */}
+
+```yaml examples/deploy/access_control_manifest.yaml
+# A deployment-shaped manifest. Entries are Python import paths — naming a module
+# here imports it at boot so its registration decorators run.
+#
+# `lifecycle_modules` carries the identity provider. The skeleton ships NO concrete
+# provider, so a deployment with access control enabled MUST name one. This default
+# registers itself as the "redis" identity provider at import; ACCESS_CONTROL_AUTH_PROVIDER
+# (default "redis") selects it. Swap this line to change the authn backend.
+lifecycle_modules:
+  - tai_identity_redis.redis_api_key_provider
+# A durable store backend for tools/config and a task backend for background,
+# scheduled, and distributed runs. A registered backend requires the worker bus
+# (the backend-runtime and server processes converge on reloads through it), so
+# set TAI_BUS_REDIS_URL (an env var, not a manifest key; placeholder host):
+#
+#   TAI_BUS_REDIS_URL=redis://redis.internal:6379/0
+storage_module: tai_storage_local
+backend_module: tai_backend_arq
+# The HTTP routers a UI-driven server opts in.
+routers_modules:
+  - tai_skeleton.routers.agents
+  - tai_skeleton.routers.presets
+```

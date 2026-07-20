@@ -1,0 +1,29 @@
+"""A minimal fictional worker backend.
+
+A backend is where tools run when they leave the request path — background,
+scheduled, and distributed execution. It is a single strategy object with one
+job: launch the task runtime that pulls work from the broker. The app core
+depends only on the ``Backend`` ABC and stays backend-agnostic; a concrete
+backend (celery, rq, arq) implements it and registers through the handle.
+
+Propagating a config change across the fleet is NOT a backend concern — it is
+the app's own internal worker bus. A backend-runtime process receives fleet ops
+through that bus exactly like a serving HTTP worker, so a backend that registers
+here requires the bus: set ``TAI_BUS_REDIS_URL`` (a placeholder host below), or
+the boot rules refuse to start.
+
+    # TAI_BUS_REDIS_URL=redis://redis.internal:6379/0
+"""
+
+from collections.abc import Sequence
+
+from tai_contract.app import tai_app
+from tai_contract.backend import Backend
+
+
+@tai_app.backends.register_backend
+class InlineBackend(Backend):
+    async def launch(self, args: Sequence[str]) -> None:
+        # Start the worker runtime that consumes the broker. An inline backend
+        # has no separate runtime, so this returns immediately.
+        return None

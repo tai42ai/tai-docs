@@ -1,0 +1,57 @@
+---
+title: "Author code plugins"
+description: "The four manifest-wired code plugin types."
+icon: "code"
+---
+
+import Routes from '/snippets/examples/code_plugins/routes.mdx';
+import Lifecycle from '/snippets/examples/code_plugins/lifecycle.mdx';
+import PooledClient from '/snippets/examples/code_plugins/pooled_client.mdx';
+
+Author the lightweight code plugin types — routes, middleware, lifecycle handlers, and pooled clients.
+
+These four are the smallest kinds of extension. Three of them — routes, middleware, and lifecycle handlers — share one pattern: a module the manifest imports, plus a registration decorator that runs on import. The fourth — a pooled client — is a code helper you open from within one of those modules. All register through the `tai_app` handle and depend on `tai-contract` only.
+
+<Note>
+These are **server-side** code plugins — they run in the Python process. To extend the browser workbench instead — contribute pages, tool panels, or sidebar nav entries to the Studio shell — see [Author a Studio plugin](/studio/plugins).
+</Note>
+
+## Routes
+
+Add an HTTP route with `@tai_app.http.custom_route`. It registers a Starlette handler and its self-describing OpenAPI metadata in one call — `summary`, `tags`, and `response_model` are required so the route describes itself to the API reference.
+
+<Routes />
+
+Load the module under `routers_modules`.
+
+## Middleware
+
+Add ASGI middleware with `@tai_app.http.middleware`, which registers the middleware onto the app's stack.
+
+```yaml manifest.yml
+middlewares_modules:
+  - your_package.middleware
+```
+
+## Lifecycle handlers
+
+Run code at process startup, shutdown, or after an in-place reload. Register a handler with `@tai_app.lifecycle.on_startup`, `on_shutdown`, or `on_reload`. An `on_reload` handler re-runs after every reload — use it for dynamic loaders that `on_startup` ran once.
+
+<Lifecycle />
+
+Load the module under `lifecycle_modules`. This is also how import-only registrations — a webhook verifier, a connector provider — reach the process.
+
+## Pooled clients
+
+A pooled client shares one connection per event loop across tool calls. Subclass the kit's `PooledClient` (which implements the `BaseClient` contract), then open it through `tai_app.clients.client_ctx` from inside a tool, route, or lifecycle handler. The context manager yields a connected client, pooled per loop and connection params (or one-shot with `fresh=True`).
+
+<PooledClient />
+
+A client is not wired by a manifest field of its own — it rides into the process through whichever module imports it, and is opened via `client_ctx` at call time.
+
+## See also
+
+- [The manifest](/concepts/manifest) — the `routers_modules`, `middlewares_modules`, and `lifecycle_modules` sections.
+- [Live operations](/concepts/live-operations) — the reload an `on_reload` handler responds to.
+- [HTTP API reference](/reference/api) — the routes a `custom_route` contributes.
+- [Python SDK reference](/reference/python-sdk) — the `tai_app.http`, `tai_app.lifecycle`, and `tai_app.clients` surfaces.

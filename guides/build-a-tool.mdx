@@ -1,0 +1,76 @@
+---
+title: "Build a tool"
+description: "Register a Python function as a tool."
+icon: "wrench"
+---
+
+Write a plain Python function, register it, and load it from the manifest as a tool.
+
+A tool is the atom of work — a plain Python function the runtime exposes as an MCP tool. You write the function, decorate it with `@tai_app.tools.tool`, and name its module in the manifest. Importing the module runs the decorator, which registers the tool on the server.
+
+## Write the tool module
+
+Put your function in a module in your own package and register it through the `tai_app` handle. The decorator returns the function unchanged, so the module stays ordinary Python.
+
+```python myapp/tools.py
+from tai_contract.app import tai_app
+
+
+@tai_app.tools.tool
+def greet(name: str) -> str:
+    """Greet a person by name."""
+    return f"Hello, {name}!"
+```
+
+The function's signature becomes the tool's input schema and its docstring becomes the tool description, so annotate the parameters and write a real docstring.
+
+## Load it from the manifest
+
+Name the module under `tools[].module`. Each entry imports the module; `include` filters which tool names to expose (omit it to expose every tool the module defines).
+
+```yaml manifest.yml
+tools:
+  - title: hello
+    module: myapp.tools
+    include: [greet]
+```
+
+The module must be importable from the server process, so keep your package on `PYTHONPATH`.
+
+## Run and call it
+
+<Steps>
+  <Step title="Start the server">
+    Point the server at your manifest and start it.
+
+    ```bash
+    tai serve --manifest-path manifest.yml
+    ```
+  </Step>
+  <Step title="Confirm it registered">
+    List the registered tools and inspect one tool's schema.
+
+    ```bash
+    tai tools list
+    tai tools schema greet
+    ```
+  </Step>
+  <Step title="Run it">
+    Call the tool synchronously and print its result. Pass arguments with the repeatable `--kw key=value` (each value is parsed as JSON), or a whole JSON object with `--kwargs`.
+
+    ```bash
+    tai tools run greet --kw name=Ada
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Long-running work does not have to block a request. Submit a detached run with `tai tools runs submit`, then poll it with `tai tools runs get`.
+</Tip>
+
+## See also
+
+- [Tools and extensions](/concepts/tools-and-extensions) — what a tool is and how an extension wraps one.
+- [The manifest](/concepts/manifest) — every section a server loads at startup.
+- [Apply an extension](/guides/apply-an-extension) — clip a wrapper or transformer onto a tool.
+- [CLI reference](/reference/cli) — the full `tai tools` surface.
