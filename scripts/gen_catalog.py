@@ -2,7 +2,7 @@
 """Generate the ecosystem catalog reference from the packaged ``ecosystem.yml``.
 
 The single input is the STATIC data file shipped inside the installed
-``tai_skeleton`` package (``tai_skeleton/data/ecosystem.yml``). This script
+``tai42_skeleton`` package (``tai42_skeleton/data/ecosystem.yml``). This script
 reads it offline with ZERO plugin imports and renders the catalog page under
 ``reference/catalog/``.
 
@@ -13,7 +13,7 @@ repo lives in one place and is never duplicated per entry. A ``package`` absent
 from that mapping is a LOUD error — the script exits non-zero and writes
 nothing, never a blank repo cell.
 
-Run it where ``tai_skeleton`` resolves (the tai-skeleton virtualenv)::
+Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/gen_catalog.py
 """
@@ -81,9 +81,9 @@ def _anchor(heading: str) -> str:
 
 
 def load_ecosystem() -> dict:
-    """Read the packaged ecosystem.yml from the installed tai_skeleton package."""
+    """Read the packaged ecosystem.yml from the installed tai42_skeleton package."""
     try:
-        data_file = resources.files("tai_skeleton").joinpath("data/ecosystem.yml")
+        data_file = resources.files("tai42_skeleton").joinpath("data/ecosystem.yml")
         raw = data_file.read_text(encoding="utf-8")
     except (ModuleNotFoundError, FileNotFoundError, AttributeError) as exc:
         print(f"gen_catalog: cannot locate packaged ecosystem.yml: {exc}", file=sys.stderr)

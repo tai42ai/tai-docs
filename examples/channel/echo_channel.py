@@ -19,8 +19,8 @@ link shape for both.
 import os
 
 import httpx
-from tai_contract.app import tai_app
-from tai_contract.channels import ChannelDelivery, ChannelDeliveryError, ChannelNotification
+from tai42_contract.app import tai42_app
+from tai42_contract.channels import ChannelDelivery, ChannelDeliveryError, ChannelNotification
 
 
 class EchoChannel:
@@ -62,4 +62,4 @@ class EchoChannel:
         await self._send(notification.message, notification.recipient, "notification")
 
 
-tai_app.channels.register("echo", EchoChannel())
+tai42_app.channels.register("echo", EchoChannel())

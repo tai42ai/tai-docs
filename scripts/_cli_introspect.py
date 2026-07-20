@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Dump the ``tai`` command tree as JSON.
 
-This runs inside the tai-skeleton environment (where the CLI and its
+This runs inside the tai42-skeleton environment (where the CLI and its
 dependencies are importable). It imports the compiled Typer/click application
-at ``tai_skeleton.cli.app:app`` and walks the whole command tree -- every group,
+at ``tai42_skeleton.cli.app:app`` and walks the whole command tree -- every group,
 every command, at every depth -- emitting a JSON document on stdout that
 ``gen_cli.py`` renders to MDX.
 
@@ -75,7 +75,7 @@ def _walk(command, name: str, path: list[str], parent: click.Context) -> dict:
 
 
 def build_tree() -> dict:
-    from tai_skeleton.cli.app import app
+    from tai42_skeleton.cli.app import app
 
     return _walk(app, "tai", ["tai"], parent=None)
 

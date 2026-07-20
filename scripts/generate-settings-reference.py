@@ -7,7 +7,7 @@ surface with :func:`load_api_routes` registers every kit + skeleton (and
 manifest-loaded plugin) settings class, and :func:`registered_settings` then
 yields each group with its field metadata. This runs entirely OFFLINE with no
 server, no manifest, and no auth — matching the other reference generators, which
-introspect the installed ``tai_skeleton`` package rather than calling a live
+introspect the installed ``tai42_skeleton`` package rather than calling a live
 server.
 
 Only the field DEFAULT is rendered, never a resolved runtime value: the schema
@@ -17,7 +17,7 @@ default is the code-level default and is safe to publish; a secret field that
 nonetheless ships a non-empty default is a LOUD error (it exits non-zero and
 writes nothing) rather than being published.
 
-Run it where ``tai_skeleton`` resolves (the tai-skeleton virtualenv)::
+Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/generate-settings-reference.py
 """
@@ -30,12 +30,12 @@ import tempfile
 from pathlib import Path
 
 try:
-    from tai_kit.settings import registered_settings
-    from tai_skeleton.app.route_registry import load_api_routes
+    from tai42_kit.settings import registered_settings
+    from tai42_skeleton.app.route_registry import load_api_routes
 except ImportError as exc:  # pragma: no cover - environment guard
     print(
-        f"generate-settings-reference: the tai_skeleton/tai_kit packages are not "
-        f"importable ({exc}); run inside the tai-skeleton virtualenv.",
+        f"generate-settings-reference: the tai42_skeleton/tai42_kit packages are not "
+        f"importable ({exc}); run inside the tai42-skeleton virtualenv.",
         file=sys.stderr,
     )
     raise SystemExit(1) from exc

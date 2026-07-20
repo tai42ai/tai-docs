@@ -1,6 +1,6 @@
 """A minimal fictional HTTP route plugin.
 
-``@tai_app.http.custom_route`` registers a Starlette handler and its
+``@tai42_app.http.custom_route`` registers a Starlette handler and its
 self-describing OpenAPI metadata in one call — ``summary``, ``tags``, and
 ``response_model`` are required so the route describes itself to the API
 reference. Load the module under ``routers_modules``.
@@ -8,10 +8,10 @@ reference. Load the module under ``routers_modules``.
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from tai_contract.app import tai_app
+from tai42_contract.app import tai42_app
 
 
-@tai_app.http.custom_route(
+@tai42_app.http.custom_route(
     "/api/weather/regions",
     methods=["GET"],
     summary="List available weather regions",

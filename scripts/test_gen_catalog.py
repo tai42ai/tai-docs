@@ -6,7 +6,7 @@ resolve the packaged ``ecosystem.yml`` natively::
 
     uv run pytest scripts/test_gen_catalog.py
 
-Running it inside the tai-skeleton virtualenv is a supported alternative::
+Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/test_gen_catalog.py
 
@@ -72,7 +72,7 @@ def test_fail_loud_unmapped_package() -> None:
 def test_fail_loud_missing_field() -> None:
     """An entry missing a required field -> SystemExit(non-zero)."""
     doc = copy.deepcopy(gen_catalog.load_ecosystem())
-    doc["entries"].append({"name": "partial", "kind": "tool", "package": "tai-skeleton"})
+    doc["entries"].append({"name": "partial", "kind": "tool", "package": "tai42-skeleton"})
     with pytest.raises(SystemExit) as excinfo:
         gen_catalog.render(doc)
     assert excinfo.value.code != 0, "malformed entry must exit non-zero"

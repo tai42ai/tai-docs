@@ -13,8 +13,8 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from tai_contract.app import tai_app
-from tai_contract.webhooks import WebhookVerificationError
+from tai42_contract.app import tai42_app
+from tai42_contract.webhooks import WebhookVerificationError
 
 
 class SignatureVerifier:
@@ -39,4 +39,4 @@ class SignatureVerifier:
 # Import-only registration through the handle. Registering a name already taken
 # raises loudly — a silent overwrite could swap a verifier out from under a live
 # binding.
-tai_app.webhook_verifiers.register("example_signature", SignatureVerifier())
+tai42_app.webhook_verifiers.register("example_signature", SignatureVerifier())

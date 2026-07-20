@@ -14,8 +14,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
-from tai_contract.app import tai_app
-from tai_contract.monitoring import (
+from tai42_contract.app import tai42_app
+from tai42_contract.monitoring import (
     DEFAULT_LEVEL,
     MetricsFilter,
     MetricsResult,
@@ -205,7 +205,7 @@ class InMemoryMonitoring:
         pass
 
 
-@tai_app.monitoring.register_monitoring
+@tai42_app.monitoring.register_monitoring
 def build_monitoring() -> InMemoryMonitoring:
     """Return the process monitoring backend. One provider per process."""
     return InMemoryMonitoring()

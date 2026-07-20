@@ -34,7 +34,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 # The fakes live in the skeleton's test tree. The docs scripts run from the
-# skeleton virtualenv (cwd = tai-skeleton), but resolve the skeleton root
+# skeleton virtualenv (cwd = tai42-skeleton), but resolve the skeleton root
 # explicitly so ``import tests…`` works regardless of the invoking cwd.
 _SKELETON_ROOT = Path(__file__).resolve().parent.parent.parent / "tai-skeleton"
 if _SKELETON_ROOT.is_dir() and str(_SKELETON_ROOT) not in sys.path:
@@ -67,16 +67,16 @@ def ac_app() -> Iterator[dict[str, str]]:
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
-    from tai_contract.access_control import registry
-    from tai_contract.app import tai_app
-    from tai_identity_redis import redis_api_key_provider as provider_module
-    from tai_identity_redis.redis_api_key_provider import RedisApiKeyProvider
-    from tai_kit.utils.data.string_util import hash_api_key
-    from tai_skeleton.access_control import policy as policy_module
-    from tai_skeleton.access_control import store as store_module
-    from tai_skeleton.access_control import verifier as verifier_module
-    from tai_skeleton.access_control.adapter import AuthAdapter
-    from tai_skeleton.access_control.settings import AccessControlSettings
+    from tai42_contract.access_control import registry
+    from tai42_contract.app import tai42_app
+    from tai42_identity_redis import redis_api_key_provider as provider_module
+    from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
+    from tai42_kit.utils.data.string_util import hash_api_key
+    from tai42_skeleton.access_control import policy as policy_module
+    from tai42_skeleton.access_control import store as store_module
+    from tai42_skeleton.access_control import verifier as verifier_module
+    from tai42_skeleton.access_control.adapter import AuthAdapter
+    from tai42_skeleton.access_control.settings import AccessControlSettings
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
         FakeRedis,
@@ -102,7 +102,7 @@ def ac_app() -> Iterator[dict[str, str]]:
         registry.register_identity_provider("redis", RedisApiKeyProvider)
 
         # The auth backend renders the (empty) policy condition through the bound app.
-        tai_app.bind(_FakeApp())
+        tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
         fake_redis = FakeRedis(
@@ -160,7 +160,7 @@ def ac_app() -> Iterator[dict[str, str]]:
             thread.join(timeout=5)
         for module, original in seams:
             module.client_ctx = original  # type: ignore[attr-defined]
-        tai_app.bind(None)
+        tai42_app.bind(None)
         registry._REGISTRY.clear()
         registry._REGISTRY.update(saved_registry)
 
@@ -194,22 +194,22 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     import uvicorn
     from starlette.applications import Starlette
     from starlette.routing import Route
-    from tai_contract.access_control import registry
-    from tai_contract.app import tai_app
-    from tai_identity_redis import redis_api_key_provider as provider_module
-    from tai_identity_redis.redis_api_key_provider import RedisApiKeyProvider
-    from tai_kit.utils.data.string_util import hash_api_key
-    from tai_skeleton.access_control import claim_links as claim_links_module
-    from tai_skeleton.access_control import management as management_module
-    from tai_skeleton.access_control import policy as policy_module
-    from tai_skeleton.access_control import projection as projection_module
-    from tai_skeleton.access_control import store as store_module
-    from tai_skeleton.access_control import verifier as verifier_module
-    from tai_skeleton.access_control.adapter import AuthAdapter
-    from tai_skeleton.access_control.policy_store import AcPolicyStore
-    from tai_skeleton.access_control.settings import AccessControlSettings
-    from tai_skeleton.app.route_registry import load_api_routes
-    from tai_skeleton.operations import api_keys as ops_api_keys
+    from tai42_contract.access_control import registry
+    from tai42_contract.app import tai42_app
+    from tai42_identity_redis import redis_api_key_provider as provider_module
+    from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
+    from tai42_kit.utils.data.string_util import hash_api_key
+    from tai42_skeleton.access_control import claim_links as claim_links_module
+    from tai42_skeleton.access_control import management as management_module
+    from tai42_skeleton.access_control import policy as policy_module
+    from tai42_skeleton.access_control import projection as projection_module
+    from tai42_skeleton.access_control import store as store_module
+    from tai42_skeleton.access_control import verifier as verifier_module
+    from tai42_skeleton.access_control.adapter import AuthAdapter
+    from tai42_skeleton.access_control.policy_store import AcPolicyStore
+    from tai42_skeleton.access_control.settings import AccessControlSettings
+    from tai42_skeleton.app.route_registry import load_api_routes
+    from tai42_skeleton.operations import api_keys as ops_api_keys
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
         FakeRedis,
@@ -237,12 +237,12 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         # capture app and imports every router module, so the real handlers become
         # importable without booting a server.
         load_api_routes()
-        from tai_skeleton.routers import api_keys as api_keys_router
-        from tai_skeleton.routers import login as login_router
+        from tai42_skeleton.routers import api_keys as api_keys_router
+        from tai42_skeleton.routers import login as login_router
 
         # Rebind the storage-bearing fake app the auth backend + projection render the
         # (empty) policy condition through at request time.
-        tai_app.bind(_FakeApp())
+        tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
         fake_redis = FakeRedis(
@@ -346,7 +346,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         # projection_module may be unbound if an import failed before it — nothing to reset.
         with suppress(NameError):
             projection_module.reset_projection_cache()
-        tai_app.bind(None)
+        tai42_app.bind(None)
         registry._REGISTRY.clear()
         registry._REGISTRY.update(saved_registry)
 

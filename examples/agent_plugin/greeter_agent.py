@@ -10,15 +10,15 @@ agent like this one.
 from typing import Any
 
 from pydantic import BaseModel
-from tai_contract.agent import Agent
-from tai_contract.app import tai_app
+from tai42_contract.agent import Agent
+from tai42_contract.app import tai42_app
 
 
 class GreeterInput(BaseModel):
     name: str
 
 
-@tai_app.agents.agent("greeter")
+@tai42_app.agents.agent("greeter")
 class GreeterAgent(Agent):
     tool_name = "greeter"
     tool_description = "Greet the named person."

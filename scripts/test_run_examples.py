@@ -6,7 +6,7 @@ the landed contract (the YAML validation path) resolve natively::
 
     uv run pytest scripts/test_run_examples.py
 
-Running the same test inside the tai-skeleton virtualenv is a supported
+Running the same test inside the tai42-skeleton virtualenv is a supported
 alternative::
 
     cd tai-skeleton && uv run python -m pytest ../tai-docs/scripts/test_run_examples.py
@@ -198,7 +198,7 @@ def test_yaml_manifest_valid_and_invalid(tmp_path: Path, monkeypatch) -> None:
     _example(
         examples,
         "manifest/ok.yaml",
-        "#| validate: manifest\nextensions_modules:\n  - tai_toolbox.extensions.cache\n",
+        "#| validate: manifest\nextensions_modules:\n  - tai42_toolbox.extensions.cache\n",
     )
     # ``tools`` is a non-optional list; an explicit null is rejected at validation.
     _example(examples, "manifest/bad.yaml", "#| validate: manifest\ntools: null\n")

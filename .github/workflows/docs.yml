@@ -49,7 +49,7 @@ jobs:
     # Lint and format this repo's own tooling under `scripts/`. The test suite
     # runs in `gate`, which provisions the generator toolchain those tests drive.
     # Type-checking is deliberately absent: the shipped `examples/` are
-    # type-checked by the `gate` job from the synced tai-skeleton env, where the
+    # type-checked by the `gate` job from the synced tai42-skeleton env, where the
     # real runtime deps resolve.
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -63,22 +63,12 @@ jobs:
 
       - name: Check out the sibling source repositories
         # `[tool.uv.sources]` floats these as editable siblings of this checkout,
-        # so `uv sync` needs them on disk. They are PRIVATE during dev, so the
-        # clones authenticate with TAI_CI_TOKEN (fine-grained, contents:read on
-        # the source repos) via a git url.insteadOf rewrite. The token is
-        # referenced by name; its value is masked in logs.
-        env:
-          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        # so `uv sync` needs them on disk.
         run: |
-          git config --global \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
-            "https://github.com/"
-          for repo in tai-skeleton tai-contract tai-kit tai-identity-redis; do
+          for repo in tai42-skeleton tai42-contract tai42-kit tai42-identity-redis; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
-          git config --global --unset-all \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -108,38 +98,27 @@ jobs:
           path: tai-docs
 
       - name: Check out source repositories
-        # The source repos are PRIVATE during dev, so the clones authenticate
-        # with TAI_CI_TOKEN (fine-grained, contents:read on the source repos)
-        # via a git url.insteadOf rewrite. The token is referenced by name; its
-        # value is masked in logs.
-        env:
-          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
         run: |
-          git config --global \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
-            "https://github.com/"
-          for repo in tai-contract tai-kit tai-skeleton tai-studio tai-toolbox \
-                      tai-connector-google tai-connector-atlassian tai-config-k8s \
-                      tai-agents tai-storage-s3 tai-storage-github tai-storage-local \
-                      tai-webhook-verifier-github tai-identity-redis \
-                      tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
-                      tai-channel-telegram tai-channel-slack tai-channel-twilio \
-                      tai-backend-arq tai-backend-celery tai-backend-rq \
-                      tai-monitoring-langfuse; do
+          for repo in tai42-contract tai42-kit tai42-skeleton tai-studio tai42-toolbox \
+                      tai42-connector-google tai42-connector-atlassian tai42-config-k8s \
+                      tai42-agents tai42-storage-s3 tai42-storage-github tai42-storage-local \
+                      tai42-webhook-verifier-github tai42-identity-redis \
+                      tai42-accounts-postgres tai42-accounts-oidc tai42-identity-oidc \
+                      tai42-channel-telegram tai42-channel-slack tai42-channel-twilio \
+                      tai42-backend-arq tai42-backend-celery tai42-backend-rq \
+                      tai42-monitoring-langfuse; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
           # Confine the source-clone credential rewrite to this step so it does
           # not shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
-          git config --global --unset-all \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Sync the generator environment
         working-directory: tai-skeleton
-        # Installs tai_skeleton + tai_contract + tai_kit + griffe so the SDK,
+        # Installs tai42_skeleton + tai42_contract + tai42_kit + griffe so the SDK,
         # CLI, catalog, and OpenAPI generators resolve their inputs.
         run: uv sync --all-extras
 
@@ -190,7 +169,7 @@ jobs:
         # examples/ and scripts/sync_examples.py are shipped by the examples
         # generator. Both checks run UNCONDITIONALLY from the SYNCED skeleton env
         # (the step above ran `uv sync --all-extras`, which installs pyright and
-        # the runtime deps the examples import -- tai_contract/tai_kit/starlette/
+        # the runtime deps the examples import -- tai42_contract/tai42_kit/starlette/
         # makefun/pydantic). Running `uvx pyright` in an ephemeral env instead
         # cannot resolve those imports and would fail with reportMissingImports;
         # `uv run pyright` here type-checks the examples against the REAL contract.
@@ -243,31 +222,20 @@ jobs:
           path: tai-docs
 
       - name: Check out source repositories
-        # The source repos are PRIVATE during dev, so the clones authenticate
-        # with TAI_CI_TOKEN (fine-grained, contents:read on the source repos)
-        # via a git url.insteadOf rewrite. The token is referenced by name; its
-        # value is masked in logs.
-        env:
-          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
         run: |
-          git config --global \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
-            "https://github.com/"
-          for repo in tai-contract tai-kit tai-skeleton tai-studio tai-toolbox \
-                      tai-connector-google tai-connector-atlassian tai-config-k8s \
-                      tai-agents tai-storage-s3 tai-storage-github tai-storage-local \
-                      tai-webhook-verifier-github tai-identity-redis \
-                      tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
-                      tai-channel-telegram tai-channel-slack tai-channel-twilio \
-                      tai-backend-arq tai-backend-celery tai-backend-rq \
-                      tai-monitoring-langfuse; do
+          for repo in tai42-contract tai42-kit tai42-skeleton tai-studio tai42-toolbox \
+                      tai42-connector-google tai42-connector-atlassian tai42-config-k8s \
+                      tai42-agents tai42-storage-s3 tai42-storage-github tai42-storage-local \
+                      tai42-webhook-verifier-github tai42-identity-redis \
+                      tai42-accounts-postgres tai42-accounts-oidc tai42-identity-oidc \
+                      tai42-channel-telegram tai42-channel-slack tai42-channel-twilio \
+                      tai42-backend-arq tai42-backend-celery tai42-backend-rq \
+                      tai42-monitoring-langfuse; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
           # Confine the source-clone credential rewrite to this step so it does
           # not shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
-          git config --global --unset-all \
-            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2

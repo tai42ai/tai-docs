@@ -6,7 +6,7 @@ resolve the three source packages natively::
 
     uv run pytest scripts/test_gen_sdk.py
 
-Running it inside the tai-skeleton virtualenv is a supported alternative::
+Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/test_gen_sdk.py
 

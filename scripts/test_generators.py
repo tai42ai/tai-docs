@@ -6,7 +6,7 @@ Pins the "a broken generator FAILS, never writes a placeholder" contract:
   * gen_openapi rejects a spec that is not JSON, not OpenAPI 3.1, or has no
     paths, and never overwrites ``openapi.json`` when the emit fails.
   * gen_cli rejects an empty command tree, exits non-zero when extraction
-    fails, and the real introspector exits non-zero when ``tai_skeleton``
+    fails, and the real introspector exits non-zero when ``tai42_skeleton``
     cannot be imported (the "app can't be imported" case).
 
 Runs with plain ``python3 scripts/test_generators.py`` (no pytest needed); it is
@@ -119,21 +119,22 @@ def test_gen_cli_returns_nonzero_when_extraction_fails():
 
 
 def test_introspector_fails_loud_without_skeleton():
-    """The introspector exits non-zero when ``tai_skeleton`` cannot be imported.
+    """The introspector exits non-zero when ``tai42_skeleton`` cannot be imported.
 
     Deterministic across environments: rather than relying on the ambient
-    interpreter *not* having ``tai_skeleton`` installed (false when the suite
+    interpreter *not* having ``tai42_skeleton`` installed (false when the suite
     runs inside the skeleton venv), we explicitly poison ``sys.modules`` so the
-    ``from tai_skeleton.cli.app import app`` inside the introspector always
+    ``from tai42_skeleton.cli.app import app`` inside the introspector always
     raises ``ImportError`` -- while leaving ``click`` and everything else
     importable. This reproduces the real "app can't be imported" failure mode
     regardless of what is installed.
     """
     introspect = SCRIPTS_DIR / "_cli_introspect.py"
-    # ``sys.modules['tai_skeleton'] = None`` forces any ``import tai_skeleton``
+    # ``sys.modules['tai42_skeleton'] = None`` forces any ``import tai42_skeleton``
     # (or submodule import) to raise ImportError, independent of installation.
     bootstrap = (
-        "import sys; sys.modules['tai_skeleton'] = None; import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
+        "import sys; sys.modules['tai42_skeleton'] = None; "
+        "import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
     )
     proc = subprocess.run(
         [sys.executable, "-c", bootstrap, str(introspect)],
@@ -141,7 +142,7 @@ def test_introspector_fails_loud_without_skeleton():
         capture_output=True,
         text=True,
     )
-    assert proc.returncode != 0, f"introspector must fail when tai_skeleton is unimportable; stderr={proc.stderr}"
+    assert proc.returncode != 0, f"introspector must fail when tai42_skeleton is unimportable; stderr={proc.stderr}"
     assert proc.stdout.strip() == ""  # no placeholder tree emitted
 
 

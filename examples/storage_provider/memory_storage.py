@@ -7,11 +7,11 @@ text-bridging defaults, so this text-only backend satisfies the whole contract
 with no extra code. A real backend swaps the dict for its own store.
 """
 
-from tai_contract.app import tai_app
-from tai_contract.storage import Storage, assert_not_root
+from tai42_contract.app import tai42_app
+from tai42_contract.storage import Storage, assert_not_root
 
 
-@tai_app.storage.register_storage
+@tai42_app.storage.register_storage
 class InMemoryStorage(Storage):
     def __init__(self) -> None:
         self._items: dict[str, str] = {}

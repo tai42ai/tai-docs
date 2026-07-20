@@ -6,7 +6,7 @@ script against a temporary examples/ tree)::
 
     uv run pytest scripts/test_sync_examples.py
 
-Running it inside the tai-skeleton virtualenv is a supported alternative::
+Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
     cd tai-skeleton && uv run python -m pytest ../tai-docs/scripts/test_sync_examples.py
 

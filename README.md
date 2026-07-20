@@ -64,8 +64,8 @@ They are confirmed on the deploy preview, not in `mint dev`.
 
 The reference sections are generated from the source repositories so they
 cannot drift from the code. The generators live in `scripts/` and run in the
-tai-skeleton virtualenv, where `tai_contract`, `tai_kit`, and `tai_skeleton`
-resolve. Regenerate all seven from a tai-skeleton checkout:
+tai42-skeleton virtualenv, where `tai42_contract`, `tai42_kit`, and `tai42_skeleton`
+resolve. Regenerate all seven from a tai42-skeleton checkout:
 
 ```bash
 cd ../tai-skeleton
@@ -89,7 +89,7 @@ from the same packaged `ecosystem.yml` as the catalog.
 ## Freshness checks
 
 Three checks keep the committed reference honest. Run the first two from a
-tai-skeleton checkout (they need the source packages); the third is offline:
+tai42-skeleton checkout (they need the source packages); the third is offline:
 
 ```bash
 cd ../tai-skeleton
@@ -132,8 +132,8 @@ aligned with the source repositories): `ruff check scripts/` and
 the source checkouts, `uv`, and `mint`, so it does not run in an offline
 checkout). On pull requests and pushes it runs the drift gate, registry
 cross-check, examples type-check (`uv run pyright ../tai-docs/examples/` from the
-synced `tai-skeleton` env, so the examples resolve the real
-`tai_contract`/`tai_kit`/`starlette`/`makefun`/`pydantic` deps, plus
+synced `tai42-skeleton` env, so the examples resolve the real
+`tai42_contract`/`tai42_kit`/`starlette`/`makefun`/`pydantic` deps, plus
 `scripts/sync_examples.py --check`, both required — an absent `examples/` makes
 pyright error and a present-but-empty `examples/` trips `sync_examples.py`'s
 zero-file guard, so the gate never skips clean), and a Mintlify build + link

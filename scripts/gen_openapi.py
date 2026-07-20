@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the HTTP API reference spec (``openapi.json``).
 
-Runs the tai-skeleton offline OpenAPI emitter (``tai openapi --out``) and writes
+Runs the tai42-skeleton offline OpenAPI emitter (``tai openapi --out``) and writes
 the resulting OpenAPI 3.1 document to ``openapi.json`` at the repo root, where
 Mintlify renders the HTTP API section natively from the ``openapi`` field in
 ``docs.json``.
@@ -40,7 +40,7 @@ def emit_spec(dest: Path) -> None:
     or the command exits non-zero.
     """
     if not SKELETON_DIR.is_dir():
-        raise GenerationError(f"tai-skeleton checkout not found at {SKELETON_DIR}")
+        raise GenerationError(f"tai42-skeleton checkout not found at {SKELETON_DIR}")
     try:
         proc = subprocess.run(
             ["uv", "run", "tai", "openapi", "--out", str(dest)],

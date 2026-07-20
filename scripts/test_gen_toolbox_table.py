@@ -6,7 +6,7 @@ resolve the packaged ``ecosystem.yml`` natively::
 
     uv run pytest scripts/test_gen_toolbox_table.py
 
-Running it inside the tai-skeleton virtualenv is a supported alternative::
+Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/test_gen_toolbox_table.py
 
@@ -44,7 +44,7 @@ def test_real_catalog_renders_and_injects() -> None:
     doc = gen_toolbox_table.load_ecosystem()
     rows = gen_toolbox_table.toolbox_rows(doc)  # raises SystemExit on a bad catalog
 
-    assert rows, "expected at least one tai-toolbox tool/extension entry"
+    assert rows, "expected at least one tai42-toolbox tool/extension entry"
     for row in rows:
         assert row["package"] == gen_toolbox_table.TOOLBOX_PACKAGE
         assert row["kind"] in gen_toolbox_table.TOOLBOX_KINDS
@@ -89,7 +89,7 @@ def test_inject_reversed_markers_fails_loud() -> None:
 
 
 def test_toolbox_rows_no_matching_entries_fails_loud() -> None:
-    """A catalog with no tai-toolbox tool/extension entries -> SystemExit."""
+    """A catalog with no tai42-toolbox tool/extension entries -> SystemExit."""
     doc = {
         "entries": [
             {
@@ -107,7 +107,7 @@ def test_toolbox_rows_no_matching_entries_fails_loud() -> None:
 
 
 def test_toolbox_rows_missing_field_fails_loud() -> None:
-    """A tai-toolbox entry missing a required field -> SystemExit."""
+    """A tai42-toolbox entry missing a required field -> SystemExit."""
     doc = {
         "entries": [
             {

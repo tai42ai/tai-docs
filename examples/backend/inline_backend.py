@@ -17,11 +17,11 @@ the boot rules refuse to start.
 
 from collections.abc import Sequence
 
-from tai_contract.app import tai_app
-from tai_contract.backend import Backend
+from tai42_contract.app import tai42_app
+from tai42_contract.backend import Backend
 
 
-@tai_app.backends.register_backend
+@tai42_app.backends.register_backend
 class InlineBackend(Backend):
     async def launch(self, args: Sequence[str]) -> None:
         # Start the worker runtime that consumes the broker. An inline backend

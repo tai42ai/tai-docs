@@ -2,14 +2,14 @@
 """Generate the standard-toolbox summary table in ``guides/standard-toolbox.mdx``.
 
 The "standard toolbox" is the batteries-included default set shipped in the
-``tai-toolbox`` package. Its tool and extension registrations already live,
+``tai42-toolbox`` package. Its tool and extension registrations already live,
 once, in the packaged ``ecosystem.yml`` (the same file ``gen_catalog.py``
 renders). This script filters that data to the toolbox's tools and extensions
 and rewrites ONLY the generated table between two stable markers in the guide,
 leaving the hand-written prose untouched. The table therefore rides the drift
 gate and is never hand-maintained.
 
-Run it where ``tai_skeleton`` resolves (the tai-skeleton virtualenv)::
+Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/gen_toolbox_table.py
 
@@ -36,7 +36,7 @@ DOCS_ROOT = SCRIPT_DIR.parent
 GUIDE = DOCS_ROOT / "guides" / "standard-toolbox.mdx"
 
 # The package whose tools/extensions ARE the standard toolbox.
-TOOLBOX_PACKAGE = "tai-toolbox"
+TOOLBOX_PACKAGE = "tai42-toolbox"
 # Only these kinds appear in the table (tools and their clip-on extensions).
 TOOLBOX_KINDS = ("tool", "extension")
 
@@ -49,9 +49,9 @@ _KIND_RANK = {kind: i for i, kind in enumerate(TOOLBOX_KINDS)}
 
 
 def load_ecosystem() -> dict:
-    """Read the packaged ecosystem.yml from the installed tai_skeleton package."""
+    """Read the packaged ecosystem.yml from the installed tai42_skeleton package."""
     try:
-        data_file = resources.files("tai_skeleton").joinpath("data/ecosystem.yml")
+        data_file = resources.files("tai42_skeleton").joinpath("data/ecosystem.yml")
         raw = data_file.read_text(encoding="utf-8")
     except (ModuleNotFoundError, FileNotFoundError, AttributeError) as exc:
         print(f"gen_toolbox_table: cannot locate packaged ecosystem.yml: {exc}", file=sys.stderr)

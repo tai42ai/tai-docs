@@ -14,7 +14,7 @@ then restores the snapshot -- so a drift run reports the drift without altering
 the working tree. In CI the drift is what triggers the automated regeneration
 PR; the deployed site always builds from the committed files.
 
-Run it where the source packages resolve (the tai-skeleton virtualenv)::
+Run it where the source packages resolve (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/check_drift.py
 """

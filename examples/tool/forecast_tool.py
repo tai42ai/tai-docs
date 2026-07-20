@@ -1,13 +1,13 @@
 """A minimal fictional tool: a weather forecast lookup.
 
-Registers one tool through the ``tai_app`` handle. The function signature becomes
+Registers one tool through the ``tai42_app`` handle. The function signature becomes
 the input schema and the docstring becomes the description.
 """
 
-from tai_contract.app import tai_app
+from tai42_contract.app import tai42_app
 
 
-@tai_app.tools.tool
+@tai42_app.tools.tool
 def get_forecast(city: str, days: int = 1) -> dict[str, object]:
     """Return a short weather forecast for a city.
 

@@ -8,8 +8,8 @@ the CLI group's page list in ``docs.json`` so the nav always matches the files
 on disk.
 
 Approach: a hand-rolled click-tree walker (not ``typer utils docs``). The tree
-is extracted by running ``scripts/_cli_introspect.py`` inside the tai-skeleton
-environment -- it imports ``tai_skeleton.cli.app:app`` and dumps the tree as
+is extracted by running ``scripts/_cli_introspect.py`` inside the tai42-skeleton
+environment -- it imports ``tai42_skeleton.cli.app:app`` and dumps the tree as
 JSON, so every rendered line traces to the live command objects the runtime
 uses for ``--help``. ``typer utils docs`` was rejected: it emits an unstable,
 truncated tree here and cannot render leaf commands that carry no help.
@@ -43,7 +43,7 @@ class GenerationError(RuntimeError):
 def extract_tree() -> dict:
     """Run the introspection helper in the skeleton env and parse its JSON."""
     if not SKELETON_DIR.is_dir():
-        raise GenerationError(f"tai-skeleton checkout not found at {SKELETON_DIR}")
+        raise GenerationError(f"tai42-skeleton checkout not found at {SKELETON_DIR}")
     try:
         proc = subprocess.run(
             ["uv", "run", "python", str(INTROSPECT)],

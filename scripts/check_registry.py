@@ -2,7 +2,7 @@
 """Registry cross-check: the ecosystem catalog's offline freshness guarantee.
 
 The catalog page is generated from the STATIC ``ecosystem.yml`` shipped inside
-the ``tai_skeleton`` package. This check asserts the file's own integrity so the
+the ``tai42_skeleton`` package. This check asserts the file's own integrity so the
 "generated from the registries" claim holds offline: every catalog entry names
 a ``package`` that resolves through the file's ``package -> repo`` mapping, and
 every repo in that mapping resolves to an actual sibling repository checkout.
@@ -10,10 +10,10 @@ every repo in that mapping resolves to an actual sibling repository checkout.
 This is the offline half of the freshness guarantee. The deeper boot-check --
 pip-install each package from its repo's ``main``, boot an ephemeral in-process
 skeleton, and assert each declared registration actually appears in the live
-``tai_app`` -- requires network installs and is a hosted-CI step (see
+``tai42_app`` -- requires network installs and is a hosted-CI step (see
 ``.github/workflows/docs.yml``); it cannot run in this offline environment.
 
-Run it where ``tai_skeleton`` resolves (the tai-skeleton virtualenv)::
+Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/check_registry.py
 """

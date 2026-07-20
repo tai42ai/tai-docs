@@ -10,11 +10,11 @@ still treats the branch as schema-preserving.
 import inspect
 
 from makefun import create_function
-from tai_contract.app import tai_app
-from tai_contract.extensions import ExtensionKind
+from tai42_contract.app import tai42_app
+from tai42_contract.extensions import ExtensionKind
 
 
-@tai_app.extensions.extension(kind=ExtensionKind.WRAPPER, name="retry")
+@tai42_app.extensions.extension(kind=ExtensionKind.WRAPPER, name="retry")
 def retry(func, name, description):
     """Branch ``func`` into a re-invoking ``<name>_retry`` variant."""
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Generate the Python SDK reference from source docstrings via griffe.
 
-This script loads the PUBLIC API of ``tai_contract``, ``tai_kit``, and the
-``tai_skeleton`` app surface as a griffe object model (static analysis of the
+This script loads the PUBLIC API of ``tai42_contract``, ``tai42_kit``, and the
+``tai42_skeleton`` app surface as a griffe object model (static analysis of the
 source tree — no imports are executed) and renders one MDX reference page per
 logical area under ``reference/python-sdk/``. Docstrings are the source of
 truth; every rendered symbol traces to a real object in the source.
 
 Run it from a context where the three source packages resolve — the
-tai-skeleton virtualenv does::
+tai42-skeleton virtualenv does::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/gen_sdk.py
 
@@ -59,157 +59,161 @@ DOCS_JSON = DOCS_ROOT / "docs.json"
 PAGES: list[dict] = [
     {
         "slug": "tai-contract-app",
-        "title": "App facade (tai_contract.app)",
+        "title": "App facade (tai42_contract.app)",
         "description": "The assembled TaiApp facade and its per-feature namespaces.",
         "icon": "layer-group",
-        "modules": ["tai_contract.app", "tai_contract.app.facets"],
+        "modules": ["tai42_contract.app", "tai42_contract.app.facets"],
     },
     {
         "slug": "tai-contract-agent",
-        "title": "Agents (tai_contract.agent)",
+        "title": "Agents (tai42_contract.agent)",
         "description": "The Agent base class plugin authors subclass.",
         "icon": "robot",
-        "modules": ["tai_contract.agent"],
+        "modules": ["tai42_contract.agent"],
     },
     {
         "slug": "tai-contract-versioning",
-        "title": "Versioning (tai_contract.versioning)",
+        "title": "Versioning (tai42_contract.versioning)",
         "description": "The VersionedStore primitive behind presets and policies.",
         "icon": "code-branch",
-        "modules": ["tai_contract.versioning"],
+        "modules": ["tai42_contract.versioning"],
     },
     {
         "slug": "tai-contract-presets",
-        "title": "Presets (tai_contract.presets)",
+        "title": "Presets (tai42_contract.presets)",
         "description": "The PresetStore protocol and preset document models.",
         "icon": "sliders",
-        "modules": ["tai_contract.presets"],
+        "modules": ["tai42_contract.presets"],
     },
     {
         "slug": "tai-contract-connectors",
-        "title": "Connectors (tai_contract.connectors)",
+        "title": "Connectors (tai42_contract.connectors)",
         "description": "The ProviderDescriptor a connector plugin declares.",
         "icon": "plug",
-        "modules": ["tai_contract.connectors.providers"],
+        "modules": ["tai42_contract.connectors.providers"],
     },
     {
         "slug": "tai-contract-extensions",
-        "title": "Extensions (tai_contract.extensions)",
+        "title": "Extensions (tai42_contract.extensions)",
         "description": "The ExtensionKind taxonomy and extension base surface.",
         "icon": "puzzle-piece",
-        "modules": ["tai_contract.extensions"],
+        "modules": ["tai42_contract.extensions"],
     },
     {
         "slug": "tai-contract-monitoring",
-        "title": "Monitoring (tai_contract.monitoring)",
+        "title": "Monitoring (tai42_contract.monitoring)",
         "description": "The MonitoringReader and MonitoringWriter protocols.",
         "icon": "chart-line",
-        "modules": ["tai_contract.monitoring.reader", "tai_contract.monitoring.writer"],
+        "modules": ["tai42_contract.monitoring.reader", "tai42_contract.monitoring.writer"],
     },
     {
         "slug": "tai-contract-storage",
-        "title": "Storage (tai_contract.storage)",
+        "title": "Storage (tai42_contract.storage)",
         "description": "The Storage protocol a storage provider implements.",
         "icon": "database",
-        "modules": ["tai_contract.storage"],
+        "modules": ["tai42_contract.storage"],
     },
     {
         "slug": "tai-contract-backend",
-        "title": "Backends (tai_contract.backend)",
+        "title": "Backends (tai42_contract.backend)",
         "description": "The Backend protocol a compute backend implements.",
         "icon": "server",
-        "modules": ["tai_contract.backend"],
+        "modules": ["tai42_contract.backend"],
     },
     {
         "slug": "tai-contract-channels",
-        "title": "Channels (tai_contract.channels)",
+        "title": "Channels (tai42_contract.channels)",
         "description": "The Channel protocol a delivery channel plugin implements.",
         "icon": "paper-plane",
-        "modules": ["tai_contract.channels"],
+        "modules": ["tai42_contract.channels"],
     },
     {
         "slug": "tai-contract-accounts",
-        "title": "Accounts (tai_contract.accounts)",
+        "title": "Accounts (tai42_contract.accounts)",
         "description": "The AccountsProvider contract, its registry, and the login-method metadata models.",
         "icon": "user-lock",
-        "modules": ["tai_contract.accounts.provider", "tai_contract.accounts.models", "tai_contract.accounts.registry"],
+        "modules": [
+            "tai42_contract.accounts.provider",
+            "tai42_contract.accounts.models",
+            "tai42_contract.accounts.registry",
+        ],
     },
     {
         "slug": "tai-contract-tools",
-        "title": "Tools (tai_contract.tools)",
+        "title": "Tools (tai42_contract.tools)",
         "description": "Tool registration types and the app tools namespace.",
         "icon": "wrench",
-        "modules": ["tai_contract.tools"],
+        "modules": ["tai42_contract.tools"],
     },
     {
         "slug": "tai-contract-manifest",
-        "title": "Manifest (tai_contract.manifest)",
+        "title": "Manifest (tai42_contract.manifest)",
         "description": "The manifest model a server loads at startup.",
         "icon": "file-lines",
-        "modules": ["tai_contract.manifest"],
+        "modules": ["tai42_contract.manifest"],
     },
     {
         "slug": "tai-contract-plugins",
-        "title": "Plugins (tai_contract.plugins)",
+        "title": "Plugins (tai42_contract.plugins)",
         "description": "The PluginSpec model behind tai-plugin.yml.",
         "icon": "store",
-        "modules": ["tai_contract.plugins"],
+        "modules": ["tai42_contract.plugins"],
     },
     {
         "slug": "tai-kit-clients",
-        "title": "Pooled clients (tai_kit.clients)",
+        "title": "Pooled clients (tai42_kit.clients)",
         "description": "Pooled Postgres/Redis clients and connection settings.",
         "icon": "network-wired",
-        "modules": ["tai_kit.clients"],
+        "modules": ["tai42_kit.clients"],
     },
     {
         "slug": "tai-kit-llm",
-        "title": "LLM factories (tai_kit.llm)",
+        "title": "LLM factories (tai42_kit.llm)",
         "description": "LLM, embedding, checkpoint, and store factories.",
         "icon": "brain",
-        "modules": ["tai_kit.llm"],
+        "modules": ["tai42_kit.llm"],
     },
     {
         "slug": "tai-kit-settings",
-        "title": "Settings (tai_kit.settings)",
+        "title": "Settings (tai42_kit.settings)",
         "description": "The base settings class and the settings registry.",
         "icon": "gear",
-        "modules": ["tai_kit.settings"],
+        "modules": ["tai42_kit.settings"],
     },
     {
         "slug": "tai-kit-transport",
-        "title": "Transports (tai_kit.transport)",
+        "title": "Transports (tai42_kit.transport)",
         "description": "UDS transports and the MCP transport factory.",
         "icon": "route",
-        "modules": ["tai_kit.transport"],
+        "modules": ["tai42_kit.transport"],
     },
     {
         "slug": "tai-kit-net",
-        "title": "Network guard (tai_kit.net)",
+        "title": "Network guard (tai42_kit.net)",
         "description": "The URL guard and safe fetch helpers.",
         "icon": "shield-halved",
-        "modules": ["tai_kit.net"],
+        "modules": ["tai42_kit.net"],
     },
     {
         "slug": "tai-kit-logging",
-        "title": "Logging (tai_kit.logging)",
+        "title": "Logging (tai42_kit.logging)",
         "description": "Structured logging settings and setup.",
         "icon": "file-lines",
-        "modules": ["tai_kit.logging"],
+        "modules": ["tai42_kit.logging"],
     },
     {
         "slug": "tai-skeleton-app",
-        "title": "Skeleton app (tai_skeleton.app)",
+        "title": "Skeleton app (tai42_skeleton.app)",
         "description": "The concrete TaiMCP app, including the raw fastmcp escape hatch.",
         "icon": "microchip",
-        "modules": ["tai_skeleton.app.server"],
+        "modules": ["tai42_skeleton.app.server"],
     },
     {
         "slug": "tai-skeleton-asgi",
-        "title": "ASGI factory (tai_skeleton.asgi)",
+        "title": "ASGI factory (tai42_skeleton.asgi)",
         "description": "The public create_app factory for embedding the server in a user-owned ASGI process.",
         "icon": "server",
-        "modules": ["tai_skeleton.asgi"],
+        "modules": ["tai42_skeleton.asgi"],
     },
 ]
 
@@ -632,7 +636,7 @@ def load_model() -> GriffeLoader:
         if not path.is_dir():
             raise FileNotFoundError(f"source path missing: {path}")
     loader = GriffeLoader(search_paths=[str(p) for p in SRC_PATHS])
-    for pkg in ("tai_contract", "tai_kit", "tai_skeleton"):
+    for pkg in ("tai42_contract", "tai42_kit", "tai42_skeleton"):
         loader.load(pkg)
     loader.resolve_aliases(external=True, implicit=True)
     return loader

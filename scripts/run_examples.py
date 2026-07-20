@@ -94,9 +94,9 @@ def _load_yaml_models() -> None:
     """Populate ``YAML_MODELS`` from the landed contract, once and lazily."""
     if YAML_MODELS:
         return
-    from tai_contract.interactions.models import MediaItem
-    from tai_contract.manifest import Manifest
-    from tai_contract.presets import PresetBody
+    from tai42_contract.interactions.models import MediaItem
+    from tai42_contract.manifest import Manifest
+    from tai42_contract.presets import PresetBody
 
     YAML_MODELS["preset"] = lambda data: PresetBody(**data)
     YAML_MODELS["manifest"] = lambda data: Manifest(**data)
