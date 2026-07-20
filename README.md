@@ -159,7 +159,7 @@ Two hosted-CI secrets are required:
 - **`TAI_DOCS_DISPATCH_TOKEN`** — set in each source repo (see
   `ci/source-repo-docs-hook.yml`); a token with `contents: write` on tai-docs,
   used to fire the cross-repo regeneration dispatch.
-- **`DOCS_PR_TOKEN`** — set in tai-docs; a PAT/App token with `contents: write`
+- **`TAI_DOCS_PR_TOKEN`** — set in tai-docs; a PAT/App token with `contents: write`
   + `pull-requests: write`, passed to `create-pull-request` so the automated
   regeneration PR triggers the `gate` job. (A PR opened with the default
   `GITHUB_TOKEN` does not trigger further workflows, so the drift gate would
