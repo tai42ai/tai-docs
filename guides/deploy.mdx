@@ -161,6 +161,31 @@ tai doctor
 Requires Python 3.13+. Nothing is on PyPI yet — install from source (`pip install git+https://github.com/tai42ai/tai-skeleton`). This switches to `pip install tai42-skeleton` once published.
 </Note>
 
+## Self-host from source
+
+The [`tai-distribution`](https://github.com/tai42ai/tai-distribution) repo ships a
+Docker Compose bundle that runs the batteries-included image as three processes
+(serve, backend worker, metrics) over Postgres and Redis. The base
+`compose/docker-compose.yml` pulls the released image; to run against local
+changes instead, layer `compose/docker-compose.local.yml`, which adds a
+`SOURCE=local` build to every app service — it builds the image from your
+sibling checkouts and starts the stack against it:
+
+```bash
+# with every tai-* repo cloned beside tai-distribution
+cd tai-distribution/compose
+cp .env.example .env                 # fill POSTGRES_PASSWORD etc.
+mkdir -p config && cp manifest.example.yml config/manifest.yml && touch config/.env
+TAI_VERSION=local docker compose \
+  -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+The `siblings` build context defaults to the parent of the checkouts (`../..`),
+overridable with `TAI_SIBLINGS`. Because that context may hold untracked
+secrets, the source build runs on a LOCAL builder only — never CI or a shared
+registry. Datastores are never host-published; only serve's port is, and access
+control gates it exactly as above.
+
 ## See also
 
 - [Transports](/concepts/transports) — the HTTP, SSE, stdio, and UDS paths in depth.
