@@ -69,12 +69,36 @@ def test_logo_asset_not_mistaken_for_distribution() -> None:
 
 
 def test_real_repo_url_passes() -> None:
-    """A package-repo URL resolves against the distribution->repo mapping."""
+    """A package-repo URL resolves against the distribution->repo mapping — no
+    problems AND no notes (genuinely recognized, not merely un-flagged)."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "git clone https://github.com/tai42ai/tai-skeleton")]
-    problems, _notes = check_docs_refs.check_repo_urls(docs, dist_map)
+    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map)
     assert problems == [], problems
-    print("  real repo URL: no problems")
+    assert notes == [], notes
+    print("  real repo URL: recognized, no problems/notes")
+
+
+def test_infra_repo_url_passes() -> None:
+    """A known non-package repo (tai-distribution) resolves via the infra allowlist."""
+    dist_map = _dist_map()
+    docs = [("fake/x.mdx", "See https://github.com/tai42ai/tai-distribution for the compose bundle.")]
+    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map)
+    assert problems == [], problems
+    assert notes == [], notes
+    print("  infra repo URL: recognized via allowlist")
+
+
+def test_bogus_repo_url_fails() -> None:
+    """A typo'd/renamed repo URL fails CLOSED with its file:line — neither a package
+    repo, a known non-package repo, nor a present sibling (workspace has none)."""
+    dist_map = _dist_map()
+    docs = [("fake/x.mdx", "line one\ngit clone https://github.com/tai42ai/tai-skeltn\n")]
+    problems, _notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
+    assert "tai-skeltn" in problems[0]
+    print("  bogus repo URL: flagged at file:line")
 
 
 # --- ALWAYS_PUBLIC ---------------------------------------------------------
@@ -98,6 +122,21 @@ def test_matching_always_public_passes() -> None:
     problems = check_docs_refs.compare_always_public(docs, default)
     assert problems == [], problems
     print("  matching ALWAYS_PUBLIC: no problems")
+
+
+def test_compose_regex_extracts_default() -> None:
+    """The compose-side ``${VAR:-[...]}`` extraction regex pulls the JSON default —
+    the source-of-truth read the whole ALWAYS_PUBLIC comparison hinges on."""
+    import json
+
+    line = (
+        "  ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES: "
+        '\'${ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES:-["/api/login", "/assets", "/"]}\''
+    )
+    m = check_docs_refs._ALWAYS_PUBLIC_COMPOSE_RE.search(line)
+    assert m is not None, "compose regex failed to match the ${VAR:-[...]} default"
+    assert json.loads(m.group(1)) == ["/api/login", "/assets", "/"]
+    print("  compose ALWAYS_PUBLIC regex: extracts the JSON default")
 
 
 # --- whole tree ------------------------------------------------------------

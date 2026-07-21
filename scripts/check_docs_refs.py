@@ -140,27 +140,46 @@ def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str])
     return problems
 
 
+# The org's non-package repos — real repos that ship no PyPI distribution, so
+# they never appear in the ecosystem dist->repo map. A curated allowlist: offline
+# there is no other way to tell a real infra repo from a typo, so an unknown
+# tai-<repo> must fail rather than pass silently. Keep in sync when a non-package
+# repo is added to the org (adding one is far rarer than a doc typo).
+INFRA_REPOS: frozenset[str] = frozenset(
+    {
+        "tai-studio",
+        "tai-docs",
+        "tai-distribution",
+        "tai-e2e",
+        "tai-marketplace",
+        "tai-marketplace-web",
+        "tai-website",
+        "tai-babelfish-kit",
+        "tai-babelfish-flows",
+    }
+)
+
+
 def check_repo_urls(
     docs: list[tuple[str, str]],
     dist_map: dict[str, str],
     workspace_root: Path = WORKSPACE_ROOT,
 ) -> tuple[list[str], list[str]]:
-    valid_repos = set(dist_map.values())
+    valid_repos = set(dist_map.values()) | INFRA_REPOS
     problems: list[str] = []
     notes: list[str] = []
     for rel, text in docs:
         for lineno, repo in _iter_matches(text, _REPO_RE, group=1):
-            if repo in valid_repos:
+            # A known package repo, a known non-package repo, or present as a
+            # sibling checkout -> real. Anything else fails closed: offline a typo
+            # (github.com/tai42ai/tai-skeltn) is indistinguishable from a real repo,
+            # so reject it rather than note-and-pass.
+            if repo in valid_repos or (workspace_root / repo).is_dir():
                 continue
-            # Not a package repo (an infra repo such as tai-distribution): the
-            # offline sources of truth cannot name it, so verify it exists as a
-            # sibling checkout. Absent -> unverified note, never a silent pass.
-            if (workspace_root / repo).is_dir():
-                continue
-            notes.append(
-                f"{rel}:{lineno}: github.com/tai42ai/{repo} is not a package repo and no "
-                f"'{repo}' sibling checkout is present to verify it offline; NOT checked here "
-                f"(a full checkout verifies it)."
+            problems.append(
+                f"{rel}:{lineno}: github.com/tai42ai/{repo} is not a known repo "
+                f"(not a package repo, not a known non-package repo, and no sibling checkout) "
+                f"— likely a typo or a renamed/removed repo"
             )
     return problems, notes
 
