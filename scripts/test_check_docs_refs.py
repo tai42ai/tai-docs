@@ -155,8 +155,11 @@ def main() -> int:
     test_bogus_distribution_fails()
     test_logo_asset_not_mistaken_for_distribution()
     test_real_repo_url_passes()
+    test_infra_repo_url_passes()
+    test_bogus_repo_url_fails()
     test_mismatched_always_public_fails()
     test_matching_always_public_passes()
+    test_compose_regex_extracts_default()
     test_current_tree_passes()
     print("test_check_docs_refs: OK")
     return 0
