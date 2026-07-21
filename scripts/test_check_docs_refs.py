@@ -65,27 +65,36 @@ def test_logo_asset_not_mistaken_for_distribution() -> None:
     print("  logo asset path: not mistaken for a distribution")
 
 
+def test_slash_prefixed_bogus_distribution_flagged() -> None:
+    """A slash-prefixed distribution token (e.g. inside a URL) is still detected —
+    the exclusion is scoped to image assets, not to any leading slash."""
+    dist_map = _dist_map()
+    docs = [("fake/install.mdx", "See https://pypi.org/project/tai42-bogus for the package.")]
+    problems = check_docs_refs.check_distribution_names(docs, set(dist_map))
+    assert len(problems) == 1, problems
+    assert "tai42-bogus" in problems[0], problems[0]
+    print("  slash-prefixed bogus distribution: flagged")
+
+
 # --- repo URLs -------------------------------------------------------------
 
 
 def test_real_repo_url_passes() -> None:
-    """A package-repo URL resolves against the distribution->repo mapping — no
-    problems AND no notes (genuinely recognized, not merely un-flagged)."""
+    """A package-repo URL resolves against the distribution->repo mapping —
+    genuinely recognized, not merely un-flagged."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "git clone https://github.com/tai42ai/tai-skeleton")]
-    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map)
+    problems = check_docs_refs.check_repo_urls(docs, dist_map)
     assert problems == [], problems
-    assert notes == [], notes
-    print("  real repo URL: recognized, no problems/notes")
+    print("  real repo URL: recognized, no problems")
 
 
 def test_infra_repo_url_passes() -> None:
     """A known non-package repo (tai-distribution) resolves via the infra allowlist."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "See https://github.com/tai42ai/tai-distribution for the compose bundle.")]
-    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map)
+    problems = check_docs_refs.check_repo_urls(docs, dist_map)
     assert problems == [], problems
-    assert notes == [], notes
     print("  infra repo URL: recognized via allowlist")
 
 
@@ -94,7 +103,7 @@ def test_bogus_repo_url_fails() -> None:
     repo, a known non-package repo, nor a present sibling (workspace has none)."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "line one\ngit clone https://github.com/tai42ai/tai-skeltn\n")]
-    problems, _notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    problems = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
     assert len(problems) == 1, problems
     assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
     assert "tai-skeltn" in problems[0]
@@ -122,6 +131,22 @@ def test_matching_always_public_passes() -> None:
     problems = check_docs_refs.compare_always_public(docs, default)
     assert problems == [], problems
     print("  matching ALWAYS_PUBLIC: no problems")
+
+
+def test_double_quoted_always_public_verified() -> None:
+    """A documented value in the double-quoted / JSON-array form (not the shell
+    single-quoted form) is still verified: a mismatch is flagged and a match passes."""
+    default = ["/api/login", "/assets", "/"]
+
+    mismatch = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="[\"/api/login\"]"'
+    problems = check_docs_refs.compare_always_public([("fake/deploy.mdx", mismatch)], default)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("fake/deploy.mdx:1:"), problems[0]
+
+    match = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="[\"/api/login\", \"/assets\", \"/\"]"'
+    problems = check_docs_refs.compare_always_public([("fake/deploy.mdx", match)], default)
+    assert problems == [], problems
+    print("  double-quoted ALWAYS_PUBLIC: mismatch flagged, match passes")
 
 
 def test_compose_regex_extracts_default() -> None:
@@ -154,11 +179,13 @@ def main() -> int:
     test_real_distribution_passes()
     test_bogus_distribution_fails()
     test_logo_asset_not_mistaken_for_distribution()
+    test_slash_prefixed_bogus_distribution_flagged()
     test_real_repo_url_passes()
     test_infra_repo_url_passes()
     test_bogus_repo_url_fails()
     test_mismatched_always_public_fails()
     test_matching_always_public_passes()
+    test_double_quoted_always_public_verified()
     test_compose_regex_extracts_default()
     test_current_tree_passes()
     print("test_check_docs_refs: OK")

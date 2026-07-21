@@ -21,11 +21,12 @@ Three checks, all OFFLINE (no network); the two that depend on the
    outside that set is drift.
 
 2. Repo URLs -- every ``github.com/tai42ai/tai-<repo>`` referenced resolves to a
-   real repository. Package repos are validated against the values side of the
-   same distribution->repo mapping. A repo that is NOT a package repo (an infra
-   repo such as ``tai-distribution``) is verified against a sibling checkout when
-   present; when absent it is reported as UNVERIFIED with a loud note (never
-   silently passed).
+   real repository. A repo resolves if it is a package repo (the values side of
+   the same distribution->repo mapping), a known non-package repo (the
+   ``INFRA_REPOS`` allowlist), or present as a local sibling checkout. Anything
+   else is a HARD failure naming its ``file:line`` -- offline a typo is
+   indistinguishable from a real repo, so an unknown repo fails closed rather
+   than passing.
 
 3. ALWAYS_PUBLIC example -- every documented
    ``ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='[...]'`` value must EQUAL the
@@ -60,16 +61,22 @@ import gen_catalog  # noqa: E402
 # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES default the docs mirror.
 COMPOSE_REL = Path("tai-distribution") / "compose" / "docker-compose.yml"
 
-# A `tai42-<name>` distribution token. The negative lookbehind on `/` keeps the
-# static asset path `/tai42-logo-icon.png` (which appears inside the
-# ALWAYS_PUBLIC example list) from being mistaken for a distribution name.
-_DIST_RE = re.compile(r"(?<!/)tai42-[a-z0-9]+(?:-[a-z0-9]+)*")
+# A `tai42-<name>` distribution token. The first lookahead forces a maximal
+# token match (so no shorter prefix can be matched); the second excludes image
+# asset paths such as `/tai42-logo-icon.png` (a `tai42-` token immediately
+# followed by an image extension), which are icons, not distribution names. A
+# slash prefix alone is NOT excluded, so a distribution token inside a URL is
+# still detected.
+_DIST_RE = re.compile(r"tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp))")
 
 # A `github.com/tai42ai/tai-<repo>` reference (https, git+https, or bare).
 _REPO_RE = re.compile(r"github\.com/tai42ai/(tai-[a-z0-9]+(?:-[a-z0-9]+)*)")
 
-# A documented ALWAYS_PUBLIC assignment: `...PREFIXES='[...]'`.
-_ALWAYS_PUBLIC_DOC_RE = re.compile(r"ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES\s*=\s*'(\[.*?\])'")
+# A documented ALWAYS_PUBLIC assignment. The array may be single-quoted
+# (`...PREFIXES='[...]'`, the shell form), double-quoted (`...PREFIXES="[...]"`),
+# or a bare JSON array (`...PREFIXES=[...]`); the optional surrounding quote is
+# tolerated in either style so the value is verified regardless of quoting.
+_ALWAYS_PUBLIC_DOC_RE = re.compile(r"""ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES\s*=\s*['"]?(\[.*?\])['"]?""")
 
 # The compose default: `...PREFIXES: '${...:-[...]}'`.
 _ALWAYS_PUBLIC_COMPOSE_RE = re.compile(
@@ -123,6 +130,8 @@ def load_distribution_map(docs_root: Path = DOCS_ROOT) -> dict[str, str]:
 
 def _iter_matches(text: str, pattern: re.Pattern[str], group: int = 0):
     """Yield ``(lineno, matched_value)`` for every match, 1-based line numbers."""
+    # Scans line by line: documented values are single-line assignments by
+    # convention, so a match never straddles a line break.
     for lineno, line in enumerate(text.splitlines(), start=1):
         for m in pattern.finditer(line):
             yield lineno, m.group(group)
@@ -164,10 +173,9 @@ def check_repo_urls(
     docs: list[tuple[str, str]],
     dist_map: dict[str, str],
     workspace_root: Path = WORKSPACE_ROOT,
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
     valid_repos = set(dist_map.values()) | INFRA_REPOS
     problems: list[str] = []
-    notes: list[str] = []
     for rel, text in docs:
         for lineno, repo in _iter_matches(text, _REPO_RE, group=1):
             # A known package repo, a known non-package repo, or present as a
@@ -181,7 +189,7 @@ def check_repo_urls(
                 f"(not a package repo, not a known non-package repo, and no sibling checkout) "
                 f"— likely a typo or a renamed/removed repo"
             )
-    return problems, notes
+    return problems
 
 
 def compare_always_public(docs: list[tuple[str, str]], default: list) -> list[str]:
@@ -255,9 +263,7 @@ def evaluate(
 
     problems += check_distribution_names(docs, set(dist_map))
 
-    p, n = check_repo_urls(docs, dist_map, workspace_root)
-    problems += p
-    notes += n
+    problems += check_repo_urls(docs, dist_map, workspace_root)
 
     p, n = check_always_public(docs, workspace_root)
     problems += p
