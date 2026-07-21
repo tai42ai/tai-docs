@@ -119,7 +119,7 @@ jobs:
                       tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
                       tai-channel-telegram tai-channel-slack tai-channel-twilio \
                       tai-backend-arq tai-backend-celery tai-backend-rq \
-                      tai-monitoring-langfuse; do
+                      tai-monitoring-langfuse tai-distribution; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
@@ -176,6 +176,18 @@ jobs:
       - name: Docs integrity check (nav pages and redirects resolve)
         working-directory: tai-skeleton
         run: uv run python ../tai-docs/scripts/check_docs.py
+
+      - name: Docs reference drift-check (hand-written package/repo/config refs)
+        working-directory: tai-skeleton
+        # Fails if a hand-written tai42-<name> distribution, a
+        # github.com/tai42ai/tai-<repo> URL, or the documented
+        # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES example has drifted from its
+        # source of truth (the packaged ecosystem.yml, the tai42ai repos, and the
+        # tai-distribution compose default). The compose comparison and the
+        # infra-repo URL are gated on the tai-distribution sibling being present;
+        # tai-distribution is not cloned in this job, so those two surface as
+        # offline-gated notes here and are verified in a full checkout.
+        run: uv run python ../tai-docs/scripts/check_docs_refs.py
 
       - name: Examples type-check and snippet sync (both required)
         working-directory: tai-skeleton
@@ -250,7 +262,7 @@ jobs:
                       tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
                       tai-channel-telegram tai-channel-slack tai-channel-twilio \
                       tai-backend-arq tai-backend-celery tai-backend-rq \
-                      tai-monitoring-langfuse; do
+                      tai-monitoring-langfuse tai-distribution; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
