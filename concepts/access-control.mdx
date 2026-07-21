@@ -90,6 +90,27 @@ of the route table — and `POST /api/auth/claim-links` is carved into the seede
 `editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
 the gate; neither is public.
 
+## Admin-only mutations
+
+The default router set mounts privileged surfaces on every `all`/`api`
+deployment — `marketplace` (install / uninstall / update), `backup`
+(import / export), and the `config` env write (`POST /api/config/env`). Their
+**mutations are fenced to `admin`**: the seeded `editor` and `viewer` roles are
+denied
+
+- `POST /api/marketplace/install`, `/api/marketplace/uninstall`, and
+  `/api/marketplace/update` — they install code and rewrite the running manifest;
+- `POST /api/backup/import` and `/api/backup/export` — import restores whole
+  sections over the live store, export reads secret-bearing sections;
+- `POST /api/config/env` — it rewrites arbitrary deployment environment and
+  triggers a fleet-wide reload.
+
+An `admin` reaches all of them; an `editor` or `viewer` is denied. The read
+surfaces of these routers stay reachable to non-admins — the fence keys on the
+mutating routes only. The fence lives in the jq condition of the seeded `editor`
+and `viewer` [roles](/concepts/accounts#roles-are-policy-templates); the `admin`
+role is unconditional.
+
 ## The jq policy
 
 A policy is scopes plus rules. The rule is a **jq condition** evaluated against the

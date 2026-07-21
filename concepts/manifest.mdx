@@ -48,6 +48,8 @@ registration decorators, which is how a tool, agent, or provider becomes live.
   plugins in: `storage_module`, `backend_module`, `monitoring_module`,
   `extensions_modules`, `lifecycle_modules`, `routers_modules`,
   `middlewares_modules`, `webhook_verifier_modules`, and `channel_modules`.
+  `routers_modules` names only extra HTTP routers mounted on top of the default
+  set; `default_routers` selects that set ([below](#http-routers)).
 - **`studio_plugins`** — names the installed Python **packages** that ship a
   [Studio plugin](/studio/plugins) (a browser-side UI extension), not import
   paths. Each named package carries its own `studio-manifest.json` declaring what
@@ -114,11 +116,36 @@ keys, edits policy, replaces the manifest (`update_manifest`), or restores
 unshipped state (a backup import) — is off the default surface and projects only
 when `include` names it explicitly.
 
+## HTTP routers
+
+Out of the box the server mounts a **default core-router set** — every built-in
+API router, plus the Studio SPA catch-all served last — so a bare manifest boots
+the full Studio surface. You do not list the core routers. `default_routers`
+selects the set:
+
+- **`all`** (the default) — mount the core API routers and serve the Studio SPA,
+  whose catch-all route is added last. The normal full-Studio deployment.
+- **`api`** — mount the core API routers but do not serve the SPA: a headless
+  JSON HTTP API (`/api/*`) with no browser UI.
+- **`none`** — mount no defaults; `routers_modules` must then list every router
+  the server loads. For a fully manual or MCP-only surface.
+
+`routers_modules` is always **additive**: it names extras — your own routers, a
+plugin's router — mounted on top of the selected default set. Under `all` and
+`api` the loader mounts each core router once even if the manifest re-lists it, so
+an extra never double-mounts a default.
+
+The Studio SPA catch-all matches every unclaimed path, so it must register **last**
+or it shadows the routers after it. Under `all` the loader forces it last, and an
+installed plugin router is inserted before it. Under `none`, where you list routers
+yourself, keep the SPA catch-all module last in `routers_modules` if you serve the
+Studio UI.
+
 <Note>
-The skeleton ships tool extensions and HTTP router modules that do not load
-automatically — you opt each one in by naming its module in the manifest, exactly
-like your own code. The management tools are the exception: they project from the
-operations layer, curated by `api_tools`, not loaded module by module.
+Tool extensions still load per module — you opt each one in by naming its module,
+exactly like your own code. The management tools are a further exception: they
+project from the operations layer, curated by `api_tools`, not loaded module by
+module.
 </Note>
 
 See the [Python SDK reference](/reference/python-sdk/index) for the `Manifest`
