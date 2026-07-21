@@ -1,0 +1,192 @@
+---
+title: "User types and permissions"
+description: "The identity types, what each may reach, and how a request is judged."
+icon: "user-shield"
+---
+
+Every request reaching a server is judged as one of a small, fixed set of
+identity types. This page names those types, shows what each may do across the
+feature surface, and explains the three composed gates that produce the verdict.
+It builds on [access control](/concepts/access-control) (the request gate),
+[accounts](/concepts/accounts) (the humans behind it), and
+[owned keys](/concepts/owned-keys) (capped sub-identities).
+
+## Identity types
+
+There are seven actors. Each is distinguished by **how it authenticates** and
+**whether it is an admin** — the admin verdict is a condition-free `*` policy that
+carries no owner claim, computed server-side and stamped on the request, never
+taken from a provider's word.
+
+| Identity | Admin? | Authenticates via | What it reaches |
+|---|---|---|---|
+| **Bootstrap owner** | Admin | `POST /api/login/bootstrap` → session | The first admin, created once by the one-time owner-creation flow. |
+| **Admin account** | Admin | password / OIDC → session | A human whose policy grants `*` with **no** jq condition — full reach, including routes with no mapping. |
+| **Editor account** | Non-admin | session token | A human gated entirely by the seeded editor jq condition. Normal feature work; destructive ops fenced. |
+| **Viewer account** | Non-admin | session token | A read-only human: GET / HEAD / OPTIONS plus a small self-service surface. |
+| **Owned API key** | Non-admin | `sk-…` bearer / `X-Api-Key` | A key a user minted. Its authority is **its grant ∩ its owner's live policy**, the owner's condition re-applied each request, isolated to its own runs / interactions / notifications. It cannot mint keys. |
+| **Scoped / machine key** | Non-admin | `sk-…` bearer | Admin-minted, **ownerless**. Reaches exactly the routes its scopes map to — the one identity the route→scope table meaningfully gates. |
+| **Unauthenticated** | Public | — none — | No credential. Reaches only public routes: the `/api/login` sign-in surface plus anything pinned public (a health or metrics probe). |
+
+## Permissions matrix
+
+Rows are feature areas; columns are the identity types. Every cell reads against
+the current seeded roles. The cell words mean:
+
+| Cell | Meaning |
+|---|---|
+| `Full` | read + mutate, including admin ops |
+| `CRUD` | create / read / update / delete on the operator surface |
+| `Read` | read-only (GET / HEAD / OPTIONS) or scope-limited |
+| `own only` | confined to the caller's own isolated slice |
+| `by grant` | owned key: reaches a feature only where its grant, intersected live with its owner's policy, allows |
+| `by scope` | scoped key: reaches a route only where the route→scope table maps it to a scope it holds |
+| `admin-only` | fenced or control-plane gated to admin |
+| `—` | denied |
+
+| Feature area | Admin | Editor | Viewer | Owned key | Scoped key | Unauth |
+|---|---|---|---|---|---|---|
+| **Tools** | Full | CRUD | Read | own runs only | by scope | — |
+| **Agents** | Full | CRUD | Read | by grant | by scope | — |
+| **Presets / Extensions / Templates** | Full | CRUD | Read | by grant | by scope | — |
+| **Connectors** | Full | CRUD | Read | by grant | by scope | — |
+| **Hooks** (list read returns real secrets) | Full | CRUD | Read | by grant | by scope | — |
+| **Storage & resources** | Full | CRUD | Read | by grant | by scope | — |
+| **Scheduling** | Full | CRUD | Read | by grant | by scope | — |
+| **Interactions / Notifications** | Full | CRUD | Read | own only | by scope | — |
+| **Observability / Metrics / Health** | Full | Read | Read | by grant | by scope | if public |
+| **MCP servers & manifest** | Full | CRUD | Read | by grant | by scope | — |
+| **Sub-MCP servers** | Full | CRUD | Read | by grant | by scope | — |
+| **Fleet & workers** | Full | Read | Read | by grant | by scope | — |
+| **Channels** | Full | Read | Read | by grant | by scope | — |
+| **Studio plugins** | Full | Read | Read | by grant | by scope | — |
+| **System kinds** | Full | Read | Read | by grant | by scope | — |
+| **Config & secrets** | | | | | | |
+| **Config read** (`GET /api/config/env`, settings schema — returns real secrets) | Full | Read | Read | by grant | by scope | — |
+| **Config write** (`POST /api/config/env`, config reload — admin-only) | Full | admin-only | — | by grant | by scope | — |
+| **Privileged / destructive — admin-only fence** | | | | | | |
+| **Run-tool · tools reload / remove** (`/api/run-tool`, `/api/tools/reload`, `/remove`) | Full | admin-only | — | by grant | by scope | — |
+| **Manifest replace · MCP re-probe / detach · fleet reload** (`/api/manifest/replace`, `/api/mcp-status/reload-failed`, `…/deregister`, `/api/fleet/reload-config`) | Full | admin-only | — | by grant | by scope | — |
+| **Marketplace install / uninstall / update** (`/api/marketplace/…`) | Full | admin-only | — | by grant | by scope | — |
+| **Backup import / export** (`/api/backup/import`, `/export`) | Full | admin-only | — | by grant | by scope | — |
+| **Identity & access control** | | | | | | |
+| **Own API keys + claim links** (`/api/auth/api-keys`, own) | Full | own only | own only | no mint | by scope | — |
+| **Scopes / routes / policy administration** (`/api/auth/scopes`, `routes`, `public-routes` — admin-only) | Full | — | — | — | by scope | — |
+| **Accounts & role assignment** (`/api/auth/users*` — admin-only) | Full | — | — | — | by scope | — |
+| **Login / claim exchange** (`/api/login`, public) | public | public | public | public | public | public |
+
+**`by grant`** — an owned key reaches a feature only where its own grant,
+intersected live with its owner's policy, allows; the label reflects the default
+attenuated (editor-minted) key. An admin-minted, condition-free key follows its
+grant to any mapped route, so it is not a hard denial. Isolation to the caller's
+**own** runs, interactions, and notifications is the only hard resource
+confinement.
+
+### The admin-only mutation fence
+
+A single jq clause — carried in the **seeded editor and viewer conditions** — denies
+these mutating routes to editor and viewer role-holders (and to keys owned by them,
+because the owner's condition is re-applied on every request), regardless of the
+scopes they hold:
+
+- `POST /api/run-tool`, `/api/tools/reload`, `/api/tools/remove`
+- `POST /api/config/env` (write) and `/api/config/reload`
+- `POST /api/manifest/replace`
+- `POST /api/mcp-status/reload-failed` and per-server `POST /api/mcp-status/{title}/deregister` (re-probe / detach MCP servers)
+- `POST /api/fleet/reload-config`
+- `POST /api/marketplace/install`, `/uninstall`, `/update`
+- `POST /api/backup/import` and `/api/backup/export`
+
+The single-server `POST /api/mcp-status/{title}/reload` is deliberately **not** fenced,
+and the read surfaces of these routers stay reachable to non-admins — the fence keys on
+the mutating routes only.
+
+A **scoped / machine key** carries no jq condition, so this fence never touches it.
+It is gated by the **route→scope table** instead: it reaches a fenced route only if an
+admin has mapped that route to a scope the key holds, and an unmapped route denies it.
+That is why its whole column reads **by scope**.
+
+### The control-plane (`/api/auth`) admin gate
+
+**Scopes / routes / policy administration** and **accounts & role assignment** are
+admin-only through a *different* mechanism. The seeded editor and viewer conditions
+**default-deny the whole `/api/auth` area** and carve back in only a fixed self-service
+list (own API keys, `GET /api/auth/scopes`, tokens-payload, capabilities, `me`,
+one-time claim-link creation, logout, own-password). Everything else under `/api/auth`
+— editing scopes, the route table, public-route pins, policy history / rollback, and
+account / role management — falls to the default-deny, so only an admin reaches it. This
+gate is not part of the mutation fence (which carries no `/api/auth` path).
+
+<Note>
+**A read that returns real secrets.** An identity with read access to the config
+env (`GET /api/config/env`), the settings schema, or the hooks listing receives the
+**raw secret values** on the wire — an editor and a viewer can read them. Any masking is
+applied **client-side** in the Studio for display; it is not a server-side redaction, so
+a direct API read still returns the real values. Grant these read scopes accordingly.
+</Note>
+
+## How a request is judged
+
+The verdict is three gates composed with **AND**, evaluated in order and
+**fail-closed** — a backend error at any gate raises and surfaces as a clean deny,
+never a silent default.
+
+<Steps>
+  <Step title="Authenticate and resolve policy">
+    The credential is resolved to an identity and that identity's policy is loaded.
+    For an **owned key**, the effective scopes are its own scopes **intersected with the
+    owner's current scopes** right here, so a change to the owner takes effect on the
+    key's next call; a disabled or empty owner denies the key outright.
+  </Step>
+  <Step title="The role jq condition">
+    The policy's jq condition is evaluated against the request. This is where the
+    **admin-only mutation fence** lives — a clause in the seeded editor and viewer
+    conditions. An **admin's** condition is empty, which allows; a condition that is
+    *configured but renders empty* **denies** (a configured fence is never mistaken for
+    "no condition"). For an owned key, the **owner's** condition is re-applied as a
+    separate enforce pass, so the two conditions compose as AND without splicing jq
+    strings.
+  </Step>
+  <Step title="The route→scope table">
+    The request path maps to scope ids, and the guard admits the request only if the
+    identity's scopes cover **every** one. Because every role-holder carries `*`, this
+    gate only meaningfully constrains **scoped keys**. A route with **no mapping fails
+    closed** for every ordinary identity — the sole exception is the stamped super-admin
+    (a condition-free `*` key with no owner), admitted so a root can never lock itself
+    out of a route it can map anyway.
+  </Step>
+</Steps>
+
+An authentication failure returns a fixed `401`; an authenticated-but-forbidden
+request returns a fixed `403`. The full reason is logged server-side only.
+
+## Two ways to make a sub-user
+
+There are two distinct mechanisms for handing someone a lesser identity, and they
+behave differently over time.
+
+### Minted API key — attenuated
+
+An [owned key](/concepts/owned-keys): **attenuated** to a subset of its creator's
+authority, **capped live** (the cap is re-applied every request, so it follows the
+owner up and down), and **isolated** to its own slice of the runs, interactions, and
+notifications surfaces. A non-admin mints only keys owned by itself; an owned key can
+never itself mint keys.
+
+### Sub-account — fixed role
+
+Only an **admin** can create a human account, and it is assigned one of admin /
+editor / viewer. Applying a role **copies** that template's scopes and condition into
+the account's enforced policy — a fixed snapshot at assignment time. Editing the
+template later does not retro-apply; re-assigning is explicit. Moving an account
+between roles swaps that copied body (and immediately attenuates every key it owns,
+since those keys are capped by the owner's live policy).
+
+## See also
+
+- [Access control](/concepts/access-control) — the request gate, scopes, and the jq policy model.
+- [Owned keys](/concepts/owned-keys) — capped sub-identities, attenuation, and data isolation.
+- [Accounts](/concepts/accounts) — human accounts, sessions, and roles as policy templates.
+- [Set up access control](/guides/access-control) — turn on the gate and write a policy.
+- [CLI reference](/reference/cli/keys) — `tai keys` and [`tai scopes`](/reference/cli/scopes).
+- [HTTP API reference](/reference/api/index) — the routes behind each surface.

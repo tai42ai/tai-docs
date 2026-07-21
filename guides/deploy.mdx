@@ -135,13 +135,13 @@ export ACCESS_CONTROL_STORE_PG_PASSWORD="$PGPASSWORD"
 
 <AccessControlManifest />
 
-**Public SPA prefixes when serving Studio.** With access control on, unknown routes are denied — including the Studio SPA shell and its static assets, which are not route-table rows. So a Studio-serving deployment must make the SPA's static surface public, or its login page never loads. `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` **replaces** the code default (`/api/login`) wholesale, so re-include `/api/login` alongside the SPA prefixes:
+**Public SPA prefixes when serving Studio.** With access control on, unknown routes are denied — including the Studio SPA shell and its static assets, which are not route-table rows. So a Studio-serving deployment must make the SPA's static surface public, or its login page never loads. `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` **replaces** the code default (`/api/login`) wholesale, so re-include `/api/login` and the operational probes (`/health`, `/ready` — see [Liveness and readiness](#liveness-and-readiness) below) alongside the SPA prefixes:
 
 ```bash
-export ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='["/api/login", "/assets", "/vendor", "/favicon.ico", "/tai42-logo-icon.png", "/apple-touch-icon.png", "/"]'
+export ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='["/api/login", "/assets", "/vendor", "/favicon.ico", "/tai42-logo-icon.png", "/apple-touch-icon.png", "/", "/health", "/ready"]'
 ```
 
-Everything under `/api/*` except `/api/login` stays authed. The distribution compose ships this default; a headless (no-Studio) deployment can drop the SPA prefixes.
+Everything under `/api/*` except `/api/login` stays authed. The distribution compose ships this default; a headless (no-Studio) deployment can drop the SPA prefixes, but keep `/api/login`, `/health`, and `/ready`.
 
 See the [access-control guide](/guides/access-control) for the end-to-end walkthrough.
 
@@ -156,7 +156,7 @@ The server exposes two operational routes for orchestrators and load balancers. 
 
 `/health` stays green as long as the process is up. `/ready` lets an orchestrator hold traffic off a worker whose Redis or Postgres is unreachable — such a worker would 500 every real request but stay live.
 
-**Pin the probe routes public.** With access control enabled, unknown routes are denied, so pin `/health` and `/ready` public for probes that carry no key. Use the public-routes door (the `public` marker); there is no `"*"` wildcard.
+**Pin the probe routes public.** With access control enabled, unknown routes are denied, so `/health` and `/ready` must be public for probes that carry no key. The distribution compose's `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` default above already includes both, so a compose deployment needs no further step. Otherwise, pin them at runtime through the public-routes door (the `public` marker); there is no `"*"` wildcard.
 
 ```bash
 tai scopes public-pin /health
