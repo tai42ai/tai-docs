@@ -11,6 +11,38 @@ It builds on [access control](/concepts/access-control) (the request gate),
 [accounts](/concepts/accounts) (the humans behind it), and
 [owned keys](/concepts/owned-keys) (capped sub-identities).
 
+## The model at a glance
+
+Before the full matrix, here is the one-line model: an **editor** does everything
+across the feature surface **except** access-control administration and a small
+set of admin-only deployment and infrastructure actions; a **viewer** sees that
+same surface read-only; and both always keep self-service over their own
+credentials.
+
+<Note>
+**Admin-only means deployment-level.** A handful of genuinely dangerous,
+infrastructure actions are reserved for an admin and are **never** grantable to a
+non-admin role. Everything else — the day-to-day feature-configuration surface —
+an editor reaches through its **role grants** (a per-tag `read` / `write` level),
+because an editor is trusted to build and run the features it is granted.
+</Note>
+
+The two columns below are independent lists — the left is the admin-only set, the
+right is what an editor drives through its grants:
+
+| Admin-only (never grantable) | Editor — via role grants (per-tag read / write) |
+|---|---|
+| Install / remove plugins (marketplace) | Hooks |
+| Backup import / export | Presets and schedules |
+| Write config and environment | Connectors |
+| Read the deployment env / settings store — it holds deployment secrets such as the connector encryption key | Async tool runs |
+| Role and policy administration | MCP config and sub-MCP mounts |
+| Fleet / tool reloads, manifest replace, MCP-server registration and deregistration | Tool extensions, and reading the config mode |
+
+A **viewer** reaches that same editor surface at `read` only. Both an editor and a
+viewer always keep **self-service** — their own API keys, their own identity, and
+their own password.
+
 ## Identity types
 
 There are seven actors. Each is distinguished by **how it authenticates** and
