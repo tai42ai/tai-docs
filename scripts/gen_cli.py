@@ -131,7 +131,9 @@ def _params_tables(node: dict) -> list[str]:
         out.append("| --- | --- |")
         for p in opts:
             desc = p["help"]
-            if p["default"] is not None:
+            if p["required"]:
+                desc += " _(required)_"
+            elif p["default"] is not None:
                 desc += f" _(default: `{p['default']}`)_"
             out.append(f"| {_option_label(p)} | {_cell(desc)} |")
         out.append("")
