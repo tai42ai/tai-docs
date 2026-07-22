@@ -10,6 +10,33 @@ Register and inspect webhook hooks.
 $ tai hooks [OPTIONS] COMMAND [ARGS]...
 ```
 
+## `tai hooks create-trigger-link`
+
+Mint a trigger link — a PUBLIC URL that fires the topic's hooks.
+
+Exactly ONE of `--ttl SECONDS` or `--permanent` is required (expiry is an
+explicit choice — there is no default). The token is shown ONCE, in the printed
+absolute URL; the link is MULTI-use and revocable by name (`tai hooks
+delete-trigger-link NAME`). Regenerate = revoke + create.
+
+Example: `tai hooks create-trigger-link orders --ttl 3600 --params '&#123;"priority":"high"&#125;'`
+
+```console
+$ tai hooks create-trigger-link [OPTIONS] TOPIC
+```
+
+| Argument | Description |
+| --- | --- |
+| `TOPIC` | The hook topic the link fires. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--name` `TEXT` | Link name (the revocation handle); a unique name is generated when omitted. |
+| `--ttl` `INTEGER` | Link lifetime in seconds (a timed link). |
+| `--permanent` | Mint a link that never expires. _(default: `False`)_ |
+| `--params` `TEXT` | Per-link tool_kwargs as a JSON object, merged last at each fire. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai hooks delete`
 
 Unregister a hook by name.
@@ -23,6 +50,25 @@ $ tai hooks delete [OPTIONS] NAME
 | Argument | Description |
 | --- | --- |
 | `NAME` | Hook name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai hooks delete-trigger-link`
+
+Revoke a trigger link by name (immediate and durable — a restored backup
+cannot re-arm it).
+
+Example: `tai hooks delete-trigger-link my-wall-qr`
+
+```console
+$ tai hooks delete-trigger-link [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Trigger link name. _(required)_ |
 
 | Option | Description |
 | --- | --- |
@@ -94,6 +140,20 @@ $ tai hooks set-verifier [OPTIONS] TOPIC
 | --- | --- |
 | `--verifier` `TEXT` | Registered webhook-verifier name. |
 | `--config` `TEXT` | Verifier config as a JSON object. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai hooks trigger-links`
+
+List trigger links (name, topic, expiry, hash prefix; never a raw token).
+
+Example: `tai hooks trigger-links`
+
+```console
+$ tai hooks trigger-links [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai hooks verifiers`

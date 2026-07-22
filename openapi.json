@@ -1933,6 +1933,57 @@
         ],
         "title": "TopicVerifierBinding",
         "type": "object"
+      },
+      "TriggerLinkCreate": {
+        "description": "Mint a trigger link for a hook ``topic``.\n\n``ttl_seconds`` is REQUIRED (no default ⇒ the key must be present) and STRICT\n(``\"3600\"``, ``3600.0``, ``3600.5`` and bools all reject under one regime): a\npositive int is a timed link, ``null`` is a permanent link, and ``0``/negative\nis a loud 400 — expiry is the creator's explicit choice with no default and no\nproduct ceiling. ``tool_kwargs`` (optional) is stored on the link and merged\nLAST into every fired hook's input, winning on a colliding key over the hook's\nown ``tool_kwargs``.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "tool_kwargs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Kwargs"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "topic",
+          "ttl_seconds"
+        ],
+        "title": "TriggerLinkCreate",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -5478,6 +5529,215 @@
           }
         ],
         "summary": "Bind a webhook verifier to a topic",
+        "tags": [
+          "hooks"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/hooks/trigger-links": {
+      "get": {
+        "description": "Every live trigger link's record plus its hash PREFIX — never a raw token\n(none is stored; a listed link's QR is unrecoverable by design). Returns\n``{\"items\", \"total\"}``.",
+        "operationId": "get_api_hooks_trigger_links",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List trigger links",
+        "tags": [
+          "hooks"
+        ]
+      },
+      "post": {
+        "description": "Mint a trigger link for ``topic``.\n\n``ttl_seconds`` is the creator's explicit choice (``null`` permanent, positive\ntimed; ``0``/negative → 400); a unique name is generated when omitted; a\nverifier-bound topic is refused (400); ``tool_kwargs`` rides every\nfire. Returns ``{\"name\", \"trigger_path\", \"token\", \"topic\", \"expires_at\"}``\n— the token appears ONLY here (nothing else stores or lists it).",
+        "operationId": "post_api_hooks_trigger_links",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerLinkCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create a trigger link",
+        "tags": [
+          "hooks"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/hooks/trigger-links/{name}": {
+      "delete": {
+        "description": "Revoke a trigger link by name — immediate and DURABLE (a permanent tombstone\nkeeps a restored backup from re-arming it). An unknown name is a loud 404.\nReturns ``{\"removed\", \"name\"}``.",
+        "operationId": "delete_api_hooks_trigger_links_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a trigger link",
         "tags": [
           "hooks"
         ],
