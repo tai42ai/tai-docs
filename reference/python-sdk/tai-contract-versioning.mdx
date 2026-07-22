@@ -150,7 +150,29 @@ duplicate, or invalid target — never a silent default. ``tags`` is the generic
 per-version grouping label (see `DocumentVersion`), distinct from any
 categorization a ``kind``'s body may carry.
 
+A write method (`create`, `save_version`, `delete`,
+`rollback`) accepts an optional ``tx`` — the handle from an open
+`transaction`. Passed, the write runs WITHIN that unit of work and commits
+or rolls back with it; omitted, the write is self-contained and atomic on its own.
+
 ### Members
+
+#### transaction
+
+`tai42_contract.versioning.VersionedStore.transaction`
+
+```python
+transaction(self) -> AbstractAsyncContextManager[VersionedStoreTransaction]
+```
+
+Open a single-backend unit of work: ``async with store.transaction() as tx``.
+
+Every store write performed with the yielded ``tx`` (passed as ``tx=`` to the
+write methods) commits or rolls back TOGETHER — a clean exit commits, an
+exception rolls the whole scope back. A pure durability primitive over the one
+backend: it carries no audit or domain awareness, and yields an opaque handle
+the caller only threads back into the write methods.
+
 
 #### create
 
@@ -163,12 +185,14 @@ async create(
     name: str,
     body: dict[str, Any],
     tags: list[str] | None = None,
+    *,
+    tx: VersionedStoreTransaction | None = None,
 ) -> DocumentRecord
 ```
 
 Insert a new document at ``active_version = 1`` plus its version 1, one
 transaction. Raise `DocumentExistsError` if ``(kind, name)`` is
-already a live document.
+already a live document. Runs within ``tx`` when one is supplied.
 
 **Parameters**
 
@@ -178,6 +202,7 @@ already a live document.
 | `name` | `str` | — | — |
 | `body` | `dict[str, Any]` | — | — |
 | `tags` | `list[str] \| None` | `None` | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
 
 
 #### save_version
@@ -191,13 +216,16 @@ async save_version(
     name: str,
     body: dict[str, Any],
     tags: list[str] | None = None,
+    *,
+    tx: VersionedStoreTransaction | None = None,
 ) -> DocumentVersion
 ```
 
 Append a new version (``new_version = max(version) + 1``, NOT
 ``active_version + 1``) and bump the active pointer to it, one transaction
 (a partial failure rolls the whole save back — no orphan version, no
-half-bumped pointer). Raise `DocumentNotFoundError` if absent.
+half-bumped pointer). Raise `DocumentNotFoundError` if absent. Runs
+within ``tx`` when one is supplied.
 
 **Parameters**
 
@@ -207,6 +235,7 @@ half-bumped pointer). Raise `DocumentNotFoundError` if absent.
 | `name` | `str` | — | — |
 | `body` | `dict[str, Any]` | — | — |
 | `tags` | `list[str] \| None` | `None` | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
 
 
 #### list
@@ -250,11 +279,26 @@ Fetch the active record for ``(kind, name)``. Raise
 `tai42_contract.versioning.VersionedStore.get_active_body`
 
 ```python
-async get_active_body(self, kind: str, name: str) -> dict[str, Any]
+async get_active_body(
+    self,
+    kind: str,
+    name: str,
+    *,
+    tx: VersionedStoreTransaction | None = None,
+    for_update: bool = False,
+) -> dict[str, Any]
 ```
 
 Return the ``body`` of the active version for ``(kind, name)``. Raise
 `DocumentNotFoundError` if absent.
+
+Passed a ``tx``, the read rides that transaction's connection so a
+read-modify-write can lock and mutate the row on one connection (no second pooled
+connection while the transaction is open). With ``for_update=True`` it takes a
+``SELECT ... FOR UPDATE`` row lock on the active document so concurrent writers
+serialize — the lock is meaningful only inside a transaction, so ``for_update``
+REQUIRES a ``tx`` and raises loudly without one. Omitting both preserves the
+stand-alone read.
 
 **Parameters**
 
@@ -262,6 +306,8 @@ Return the ``body`` of the active version for ``(kind, name)``. Raise
 |---|---|---|---|
 | `kind` | `str` | — | — |
 | `name` | `str` | — | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
+| `for_update` | `bool` | `False` | — |
 
 
 #### list_versions
@@ -289,11 +335,19 @@ Raise `DocumentNotFoundError` if the document is absent.
 `tai42_contract.versioning.VersionedStore.get_version`
 
 ```python
-async get_version(self, kind: str, name: str, version: int) -> DocumentVersion
+async get_version(
+    self,
+    kind: str,
+    name: str,
+    version: int,
+    *,
+    tx: VersionedStoreTransaction | None = None,
+) -> DocumentVersion
 ```
 
 Fetch one version. Raise `DocumentVersionNotFoundError` if that
-version does not exist.
+version does not exist. Passed a ``tx``, the read rides that transaction's
+connection rather than opening a second pooled one.
 
 **Parameters**
 
@@ -302,6 +356,7 @@ version does not exist.
 | `kind` | `str` | — | — |
 | `name` | `str` | — | — |
 | `version` | `int` | — | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
 
 
 #### rollback
@@ -309,11 +364,19 @@ version does not exist.
 `tai42_contract.versioning.VersionedStore.rollback`
 
 ```python
-async rollback(self, kind: str, name: str, version: int) -> DocumentRecord
+async rollback(
+    self,
+    kind: str,
+    name: str,
+    version: int,
+    *,
+    tx: VersionedStoreTransaction | None = None,
+) -> DocumentRecord
 ```
 
 Re-point ``active_version`` to ``version`` (NO data copy). Raise
-`DocumentVersionNotFoundError` if that version does not exist.
+`DocumentVersionNotFoundError` if that version does not exist. Runs
+within ``tx`` when one is supplied.
 
 **Parameters**
 
@@ -322,6 +385,7 @@ Re-point ``active_version`` to ``version`` (NO data copy). Raise
 | `kind` | `str` | — | — |
 | `name` | `str` | — | — |
 | `version` | `int` | — | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
 
 
 #### soft_delete
@@ -348,7 +412,7 @@ document drops out of ``list``/``get`` but its rows survive.
 `tai42_contract.versioning.VersionedStore.delete`
 
 ```python
-async delete(self, kind: str, name: str) -> None
+async delete(self, kind: str, name: str, *, tx: VersionedStoreTransaction | None = None) -> None
 ```
 
 HARD delete, DISTINCT from `soft_delete`: remove ONLY the ACTIVE
@@ -356,7 +420,8 @@ document row for ``(kind, name)`` AND its version rows, so nothing of the
 active document survives; a soft-deleted ghost of the same name is left
 untouched. Raise `DocumentNotFoundError` if there is no active row.
 Used to roll a never-succeeded create fully back and to remove a conflicted
-record without leaving the ghost + spurious history a soft delete would.
+record without leaving the ghost + spurious history a soft delete would. Runs
+within ``tx`` when one is supplied.
 
 **Parameters**
 
@@ -364,6 +429,7 @@ record without leaving the ghost + spurious history a soft delete would.
 |---|---|---|---|
 | `kind` | `str` | — | — |
 | `name` | `str` | — | — |
+| `tx` | `VersionedStoreTransaction \| None` | `None` | — |
 
 
 #### rename
@@ -393,4 +459,20 @@ already a live document.
 | `name` | `str` | — | — |
 | `new_name` | `str` | — | — |
 
+
+
+## VersionedStoreTransaction
+
+`tai42_contract.versioning.VersionedStoreTransaction`
+
+```python
+class VersionedStoreTransaction(Protocol)
+```
+
+Opaque unit-of-work handle yielded by `VersionedStore.transaction`.
+
+A pure durability token exposing NO operations of its own: a caller only passes it
+back to a write method's ``tx=`` parameter so that write joins the open
+transaction. The concrete store owns the handle's real shape (its pooled
+connection); the token carries no audit or domain awareness.
 

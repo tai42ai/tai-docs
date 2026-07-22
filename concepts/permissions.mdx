@@ -6,7 +6,7 @@ icon: "user-shield"
 
 Every request reaching a server is judged as one of a small, fixed set of
 identity types. This page names those types, shows what each may do across the
-feature surface, and explains the three composed gates that produce the verdict.
+feature surface, and explains the composed layers that produce the verdict.
 It builds on [access control](/concepts/access-control) (the request gate),
 [accounts](/concepts/accounts) (the humans behind it), and
 [owned keys](/concepts/owned-keys) (capped sub-identities).
@@ -21,12 +21,32 @@ taken from a provider's word.
 | Identity | Admin? | Authenticates via | What it reaches |
 |---|---|---|---|
 | **Bootstrap owner** | Admin | `POST /api/login/bootstrap` → session | The first admin, created once by the one-time owner-creation flow. |
-| **Admin account** | Admin | password / OIDC → session | A human whose policy grants `*` with **no** jq condition — full reach, including routes with no mapping. |
-| **Editor account** | Non-admin | session token | A human gated entirely by the seeded editor jq condition. Normal feature work; destructive ops fenced. |
-| **Viewer account** | Non-admin | session token | A read-only human: GET / HEAD / OPTIONS plus a small self-service surface. |
-| **Owned API key** | Non-admin | `sk-…` bearer / `X-Api-Key` | A key a user minted. Its authority is **its grant ∩ its owner's live policy**, the owner's condition re-applied each request, isolated to its own runs / interactions / notifications. It cannot mint keys. |
+| **Admin account** | Admin | password / OIDC → session | A human on the reserved `admin` role — full reach, including access-control administration and every route with no mapping. Its per-tag pass is skipped. |
+| **Editor account** | Non-admin | session token | A human on the `editor` role: `write` on every grantable feature group, plus self-service. Everything except the admin-only fence and access-control administration. |
+| **Viewer account** | Non-admin | session token | A human on the `viewer` role: `read` on every grantable feature group, plus self-service. Read-only over the same surface. |
+| **Owned API key** | Non-admin | `sk-…` bearer / `X-Api-Key` | A key a user minted. It inherits its **owner's live role** — the owner's base-tier ceiling and per-tag grant map, re-applied each request — and its scopes are intersected with the owner's, isolated to its own runs / interactions / notifications. It cannot mint keys. |
 | **Scoped / machine key** | Non-admin | `sk-…` bearer | Admin-minted, **ownerless**. Reaches exactly the routes its scopes map to — the one identity the route→scope table meaningfully gates. |
-| **Unauthenticated** | Public | — none — | No credential. Reaches only public routes: the `/api/login` sign-in surface plus anything pinned public (a health or metrics probe). |
+| **Unauthenticated** | Public | — none — | No credential. Reaches only public routes: the `/api/login` sign-in surface, anything pinned public (a health or metrics probe), and the dataless Studio SPA shell. |
+
+## The three composed layers
+
+A role composes three parts, and enforcement is their **intersection**,
+fail-closed:
+
+1. **A base-tier ceiling** (non-editable) — owner-scoping for a minted key, the
+   reserved `/api/auth` control-plane gate, and the viewer read-only ceiling.
+   This is the security posture a role inherits from its tier (`admin`,
+   `editor`, or `viewer`); it is never authored through the grant map.
+2. **A route action-class** (declared at registration) — every authed route
+   declares one of `read`, `write`, `fenced`, or `secret`. `read`/`write` are the
+   **grantable** classes; `fenced`/`secret` are the admin-only fence. A route that
+   declares no class fails boot — there is no allow-by-omission.
+3. **A per-tag access-level map** (editable) — the role's level on each feature
+   group: `none`, `read`, or `write`. This is the part an admin edits.
+
+The action a request needs is derived from its HTTP method centrally —
+`GET`/`HEAD`/`OPTIONS` → `read`, `POST`/`PUT`/`PATCH`/`DELETE` → `write` — so the
+same route classes read and write uniformly.
 
 ## Permissions matrix
 
@@ -35,158 +55,227 @@ the current seeded roles. The cell words mean:
 
 | Cell | Meaning |
 |---|---|
-| `Full` | read + mutate, including admin ops |
-| `CRUD` | create / read / update / delete on the operator surface |
-| `Read` | read-only (GET / HEAD / OPTIONS) or scope-limited |
+| `Full` | read + write, including admin-only ops |
+| `Write` | the tag at level `write` — its reads and its non-fenced writes |
+| `Read` | the tag at level `read` — GET / HEAD / OPTIONS only |
 | `own only` | confined to the caller's own isolated slice |
-| `by grant` | owned key: reaches a feature only where its grant, intersected live with its owner's policy, allows |
+| `by role` | owned key: reaches a feature exactly where its **owner's live role** allows, intersected with the owner's scopes |
 | `by scope` | scoped key: reaches a route only where the route→scope table maps it to a scope it holds |
-| `admin-only` | fenced or control-plane gated to admin |
+| `admin-only` | admin only, never grantable to a non-admin role — a `fenced` mutation, a `secret` read, or a `/api/auth` control-plane route held admin-only by the base-tier ceiling |
+| `self` | the self-service surface only (own keys, own identity, own password, logout) |
 | `—` | denied |
 
 | Feature area | Admin | Editor | Viewer | Owned key | Scoped key | Unauth |
 |---|---|---|---|---|---|---|
-| **Tools** | Full | CRUD | Read | own runs only | by scope | — |
-| **Agents** | Full | CRUD | Read | by grant | by scope | — |
-| **Presets / Extensions / Templates** | Full | CRUD | Read | by grant | by scope | — |
-| **Connectors** | Full | CRUD | Read | by grant | by scope | — |
-| **Hooks** (list read returns real secrets) | Full | CRUD | Read | by grant | by scope | — |
-| **Storage & resources** | Full | CRUD | Read | by grant | by scope | — |
-| **Scheduling** | Full | CRUD | Read | by grant | by scope | — |
-| **Interactions / Notifications** | Full | CRUD | Read | own only | by scope | — |
-| **Observability / Metrics / Health** | Full | Read | Read | by grant | by scope | if public |
-| **MCP servers & manifest** | Full | CRUD | Read | by grant | by scope | — |
-| **Sub-MCP servers** | Full | CRUD | Read | by grant | by scope | — |
-| **Fleet & workers** | Full | Read | Read | by grant | by scope | — |
-| **Channels** | Full | Read | Read | by grant | by scope | — |
-| **Studio plugins** | Full | Read | Read | by grant | by scope | — |
-| **System kinds** | Full | Read | Read | by grant | by scope | — |
-| **Config & secrets** | | | | | | |
-| **Config read** (`GET /api/config/env`, settings schema — returns real secrets) | Full | Read | Read | by grant | by scope | — |
-| **Config write** (`POST /api/config/env`, config reload — admin-only) | Full | admin-only | — | by grant | by scope | — |
-| **Privileged / destructive — admin-only fence** | | | | | | |
-| **Run-tool · tools reload / remove** (`/api/run-tool`, `/api/tools/reload`, `/remove`) | Full | admin-only | — | by grant | by scope | — |
-| **Manifest replace · MCP re-probe / detach · fleet reload** (`/api/manifest/replace`, `/api/mcp-status/reload-failed`, `…/deregister`, `/api/fleet/reload-config`) | Full | admin-only | — | by grant | by scope | — |
-| **Marketplace install / uninstall / update** (`/api/marketplace/…`) | Full | admin-only | — | by grant | by scope | — |
-| **Backup import / export** (`/api/backup/import`, `/export`) | Full | admin-only | — | by grant | by scope | — |
-| **Identity & access control** | | | | | | |
-| **Own API keys + claim links** (`/api/auth/api-keys`, own) | Full | own only | own only | no mint | by scope | — |
-| **Scopes / routes / policy administration** (`/api/auth/scopes`, `routes`, `public-routes` — admin-only) | Full | — | — | — | by scope | — |
-| **Accounts & role assignment** (`/api/auth/users*` — admin-only) | Full | — | — | — | by scope | — |
+| **Agents** | Full | Write | Read | by role | by scope | — |
+| **Presets / Templates / Tool extensions** | Full | Write | Read | by role | by scope | — |
+| **Connectors** | Full | Write | Read | by role | by scope | — |
+| **Storage & resources** | Full | Write | Read | by role | by scope | — |
+| **Scheduling** | Full | Write | Read | by role | by scope | — |
+| **Tool runs** (async execution) | Full | Write | Read | own only | by scope | — |
+| **Interactions / Notifications** | Full | Write | Read | own only | by scope | — |
+| **MCP config & status** (set config, reload a server) | Full | Write | Read | by role | by scope | — |
+| **Sub-MCP mounts** | Full | Write | Read | by role | by scope | — |
+| **Hooks** (register, topic verifiers) | Full | Write | Read | by role | by scope | — |
+| **Tools** (inspect — list, tags, schema) | Full | Read | Read | by role | by scope | — |
+| **Config mode** (`GET /api/config/mode`) | Full | Read | Read | by role | by scope | — |
+| **Observability / Metrics / Health** | Full | Read | Read | by role | by scope | if public |
+| **Manifest** (read) | Full | Read | Read | by role | by scope | — |
+| **Fleet & workers** (read) | Full | Read | Read | by role | by scope | — |
+| **Channels** (read) | Full | Read | Read | by role | by scope | — |
+| **Marketplace** (browse) | Full | Read | Read | by role | by scope | — |
+| **Backup** (list / read) | Full | Read | Read | by role | by scope | — |
+| **Studio plugins · System kinds** | Full | Read | Read | by role | by scope | — |
+| **Admin-only fence — never grantable** | | | | | | |
+| **Run a tool directly** (`POST /api/run-tool`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Reload / remove a tool** (`/api/tools/reload`, `/remove`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Config env write + reload** (`POST /api/config/env`, `/api/config/reload`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Replace the manifest** (`POST /api/manifest/replace`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Reload-failed / deregister an MCP** (`/api/mcp-status/reload-failed`, `/{title}/deregister`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Fleet reload** (`POST /api/fleet/reload-config`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Marketplace install / uninstall / update** | Full | admin-only | admin-only | by role | admin-only | — |
+| **Backup import / export** (`/api/backup/import`, `/export`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Role & policy administration** (create / edit / delete / roll back roles, roll back a user's policy) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Admin-only secret reads — never grantable** | | | | | | |
+| **Bulk role / policy reads** (`GET /api/auth/roles`, role version histories, a user's policy version history) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Deployment config reads** (`GET /api/config/env`, `GET /api/config/settings-schema`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Control-plane routes (`/api/auth`) — admin-only via the base-tier ceiling, not the fence** | | | | | | |
+| **Scopes, route table, public-route pins** (`/api/auth/scopes*`, `GET /api/auth/routes`, `/api/auth/public-routes`) | Full | admin-only | admin-only | by role | admin-only | — |
+| **Self-service — always allowed** | | | | | | |
+| **Own API keys + claim links** (`/api/auth/api-keys`, own) | Full | self | self | no mint | by scope | — |
+| **Own identity + password + logout** (`/api/auth/me`, `capabilities`, `users/me/password`, `logout`, `GET scopes`) | Full | self | self | self | by scope | — |
 | **Login / claim exchange** (`/api/login`, public) | public | public | public | public | public | public |
 
-**`by grant`** — an owned key reaches a feature only where its own grant,
-intersected live with its owner's policy, allows; the label reflects the default
-attenuated (editor-minted) key. An admin-minted, condition-free key follows its
-grant to any mapped route, so it is not a hard denial. Isolation to the caller's
-**own** runs, interactions, and notifications is the only hard resource
-confinement.
+**`by role`** — an owned key reaches a feature exactly where its **owner's live
+role** allows, intersected with the owner's scopes and re-evaluated on every
+request. There is no per-key grant map: a key follows its owner's role up and
+down as an admin edits it. Isolation to the caller's **own** runs, interactions,
+and notifications is the only hard resource confinement.
 
-### The admin-only mutation fence
+### The grantable per-tag surface
 
-A single jq clause — carried in the **seeded editor and viewer conditions** — denies
-these mutating routes to editor and viewer role-holders (and to keys owned by them,
-because the owner's condition is re-applied on every request), regardless of the
-scopes they hold:
+The **resource** is a feature group (a route's tag); the **action** is derived
+from the HTTP method — the same shape as Kubernetes RBAC, AWS IAM, or GitHub
+fine-grained permissions. A role's level on a tag decides its reach:
 
-- `POST /api/run-tool`, `/api/tools/reload`, `/api/tools/remove`
-- `POST /api/config/env` (write) and `/api/config/reload`
-- `POST /api/manifest/replace`
-- `POST /api/mcp-status/reload-failed` and per-server `POST /api/mcp-status/{title}/deregister` (re-probe / detach MCP servers)
-- `POST /api/fleet/reload-config`
-- `POST /api/marketplace/install`, `/uninstall`, `/update`
-- `POST /api/backup/import` and `/api/backup/export`
+- `write` admits the tag's reads **and** its non-fenced writes;
+- `read` admits the tag's reads only (GET / HEAD / OPTIONS);
+- `none` (the default for any tag not in the map) admits nothing.
 
-The single-server `POST /api/mcp-status/{title}/reload` is deliberately **not** fenced,
-and the read surfaces of these routers stay reachable to non-admins — the fence keys on
-the mutating routes only.
+A role granted a tag reaches every grantable route under it — including a route
+added later under that same tag. Shipping a **brand-new** feature group is a
+deliberate release step: its tag is level `none` for every non-admin role until
+an admin grants it. The seeded `editor` and `viewer` roles derive their maps from
+the live route registry, so a new grantable feature area joins their default
+reach automatically; a role an operator authored does not, and an admin opens it
+explicitly.
 
-A **scoped / machine key** carries no jq condition, so this fence never touches it.
-It is gated by the **route→scope table** instead: it reaches a fenced route only if an
-admin has mapped that route to a scope the key holds, and an unmapped route denies it.
-That is why its whole column reads **by scope**.
+### The admin-only fence
 
-### The control-plane (`/api/auth`) admin gate
+Two route action-classes are **never grantable** — no per-tag level opens them
+for any non-admin role. They cover the infrastructure mutations, the
+role and policy control plane, and the deployment's env/settings store — not the
+everyday feature-configuration surface an editor drives through each feature's own
+routes:
 
-**Scopes / routes / policy administration** and **accounts & role assignment** are
-admin-only through a *different* mechanism. The seeded editor and viewer conditions
-**default-deny the whole `/api/auth` area** and carve back in only a fixed self-service
-list (own API keys, `GET /api/auth/scopes`, tokens-payload, capabilities, `me`,
-one-time claim-link creation, logout, own-password). Everything else under `/api/auth`
-— editing scopes, the route table, public-route pins, policy history / rollback, and
-account / role management — falls to the default-deny, so only an admin reaches it. This
-gate is not part of the mutation fence (which carries no `/api/auth` path).
+- **`fenced`** — the admin-only mutations. Running a tool **directly**
+  (`POST /api/run-tool`); reloading or removing a tool; writing and reloading
+  config (`POST /api/config/env`, `/api/config/reload`); replacing the manifest;
+  reloading failed MCPs and deregistering an MCP; reloading the fleet; marketplace
+  install / uninstall / update; backup import / export; and the role and policy
+  control plane — creating, editing, deleting, and rolling back roles, and rolling
+  back a user's policy. Editing scopes, the route table, and the public-route pins
+  is **not** `fenced` — those routes are ordinary `read`/`write` class, held
+  admin-only by the base-tier `/api/auth` control-plane ceiling described below.
+- **`secret`** — the admin-only reads, over two admin-owned stores. The **bulk
+  role / policy reads**: the roles listing (`GET /api/auth/roles`), the role
+  version histories, and a user's policy version history — their payload carries
+  raw jq policy bodies, so a bulk read is admin-equivalent. And the **deployment
+  config store**: the stored environment (`GET /api/config/env`) and the
+  per-settings-class values (`GET /api/config/settings-schema`). Environment and
+  settings are one store — the deployment's environment plus each settings class's
+  values, including deployment secrets such as the connector encryption key — so
+  only an admin reads or writes it.
+
+Because the class is **declared on the route**, the fence is not a
+hand-maintained list an author can forget to extend: a new mutating route that
+should be admin-only declares `fenced`, and a route that declares nothing fails
+boot rather than defaulting open.
 
 <Note>
-**A read that returns real secrets.** An identity with read access to the config
-env (`GET /api/config/env`), the settings schema, or the hooks listing receives the
-**raw secret values** on the wire — an editor and a viewer can read them. Any masking is
-applied **client-side** in the Studio for display; it is not a server-side redaction, so
-a direct API read still returns the real values. Grant these read scopes accordingly.
+**An editor configures every feature; it does not own the deployment store.** An
+editor keeps **full feature functionality** — it configures connectors, MCP and
+sub-MCP config, presets, hooks, schedules, and tool extensions through each
+feature's **own** grantable routes and stores, never through the env/settings
+store. Running a tool through the **async** run surface (`POST /api/tool-runs`),
+scheduling a tool, setting the MCP config, reloading a single MCP server, mounting
+a sub-MCP, setting tool extensions, registering hooks, and reading the hooks
+listing are ordinary grantable `read`/`write` routes an editor reaches. What stays
+admin-only is the deployment config store — reading the env and settings
+(`GET /api/config/env`, `GET /api/config/settings-schema`) and the env write —
+alongside the pre-existing infrastructure mutations (a **direct** tool run, tool
+reload / remove, fleet reload, manifest replace, MCP reload-failed / deregister,
+marketplace, backup) and access-control administration.
 </Note>
+
+### The control-plane (`/api/auth`) gate
+
+The `editor` and `viewer` base tiers **default-deny the whole `/api/auth` area**
+and carve back in only a fixed **self-service** list: managing one's own API keys
+and claim links, the identity projection (`me`, `capabilities`, `tokens-payload`,
+the read-only `GET /api/auth/scopes`), changing one's own password, and logout.
+Everything else under `/api/auth` — editing scopes, the route table,
+public-route pins, policy history and rollback, and role and account management —
+falls to the default-deny, so only an admin reaches it. This ceiling is separate
+from the action-class fence, and it holds even for a viewer: the self-service
+surface stays reachable regardless of the read-only ceiling.
 
 ## How a request is judged
 
-The verdict is three gates composed with **AND**, evaluated in order and
-**fail-closed** — a backend error at any gate raises and surfaces as a clean deny,
-never a silent default.
+The verdict composes the layers with **AND**, evaluated **fail-closed** — a
+backend error at any layer raises and surfaces as a clean deny, never a silent
+default.
 
 <Steps>
-  <Step title="Authenticate and resolve policy">
-    The credential is resolved to an identity and that identity's policy is loaded.
-    For an **owned key**, the effective scopes are its own scopes **intersected with the
-    owner's current scopes** right here, so a change to the owner takes effect on the
-    key's next call; a disabled or empty owner denies the key outright.
+  <Step title="Authenticate and resolve the role">
+    The credential resolves to an identity and its policy. The policy carries a
+    live **role-name pointer**, not a frozen copy — enforcement reads the role's
+    **current** grant map at request time. For an **owned key**, the governing
+    role is the **owner's**, and the key's scopes are intersected with the
+    owner's right here, so a change to the owner takes effect on the key's next
+    call.
   </Step>
-  <Step title="The role jq condition">
-    The policy's jq condition is evaluated against the request. This is where the
-    **admin-only mutation fence** lives — a clause in the seeded editor and viewer
-    conditions. An **admin's** condition is empty, which allows; a condition that is
-    *configured but renders empty* **denies** (a configured fence is never mistaken for
-    "no condition"). For an owned key, the **owner's** condition is re-applied as a
-    separate enforce pass, so the two conditions compose as AND without splicing jq
-    strings.
+  <Step title="The base-tier ceiling">
+    The role's base-tier condition applies: owner-scoping, the `/api/auth`
+    control-plane gate, and — for a viewer — the read-only ceiling. An **admin**
+    is condition-free and skips this pass.
+  </Step>
+  <Step title="The per-tag level + the fence">
+    The request's route resolves to its feature tags and action-class. A
+    `fenced` or `secret` route denies every non-admin outright. Otherwise the
+    governing role's level on the route's tag must satisfy the method's derived
+    action. An admin skips this pass entirely.
   </Step>
   <Step title="The route→scope table">
-    The request path maps to scope ids, and the guard admits the request only if the
-    identity's scopes cover **every** one. Because every role-holder carries `*`, this
-    gate only meaningfully constrains **scoped keys**. A route with **no mapping fails
-    closed** for every ordinary identity — the sole exception is the stamped super-admin
-    (a condition-free `*` key with no owner), admitted so a root can never lock itself
-    out of a route it can map anyway.
+    The request path maps to scope ids, and the guard admits the request only if
+    the identity's scopes cover **every** one. Because every role-holder carries
+    `*`, this gate only meaningfully constrains **scoped keys**. A route with
+    **no mapping fails closed** for every ordinary identity — the sole exception
+    is the stamped super-admin, admitted so a root can never lock itself out of a
+    route it can map anyway.
   </Step>
 </Steps>
 
 An authentication failure returns a fixed `401`; an authenticated-but-forbidden
 request returns a fixed `403`. The full reason is logged server-side only.
 
-## Two ways to make a sub-user
+## Roles are live and editable
 
-There are two distinct mechanisms for handing someone a lesser identity, and they
-behave differently over time.
+A role is not a fixed template. An admin can **create, edit, delete, and roll
+back** roles — through the Studio or the [`tai roles`](/reference/cli/roles) CLI —
+and every edit is **live**: it changes every current holder's authorization on
+their next request, with no reassignment. Editing a role also re-attenuates every
+key its holders own, since an owned key follows its owner's live role. The
+reserved `admin` role is permanent — undeletable, unrenamable, always full
+control — and **multiple admins are allowed**; the last admin can never be
+removed. See [accounts](/concepts/accounts#roles) for the editing surface and the
+assignment flow.
 
-### Minted API key — attenuated
+## An account is not an API key
 
-An [owned key](/concepts/owned-keys): **attenuated** to a subset of its creator's
-authority, **capped live** (the cap is re-applied every request, so it follows the
-owner up and down), and **isolated** to its own slice of the runs, interactions, and
-notifications surfaces. A non-admin mints only keys owned by itself; an owned key can
-never itself mint keys.
+Two things are easy to confuse because both hand someone a working identity. They
+are **different in kind** — who creates them, what sets their authority, and how
+far that authority reaches.
 
-### Sub-account — fixed role
+| | **Account (user)** | **API key** |
+|---|---|---|
+| What it is | A human login | A scoped credential |
+| Who creates it | Only an **admin** | **Any** user, for itself |
+| Where its authority comes from | The **role** an admin assigns it | Its own scopes, **capped by its creator** |
+| How far it reaches | Whatever its role grants | Never more than its creator — an owner-attenuated slice |
+| Reassignment | An admin moves it to a different role | Its ceiling follows its owner's live role automatically |
 
-Only an **admin** can create a human account, and it is assigned one of admin /
-editor / viewer. Applying a role **copies** that template's scopes and condition into
-the account's enforced policy — a fixed snapshot at assignment time. Editing the
-template later does not retro-apply; re-assigning is explicit. Moving an account
-between roles swaps that copied body (and immediately attenuates every key it owns,
-since those keys are capped by the owner's live policy).
+An **account** is the human side: only an admin creates one, and its authority is
+the [role](/concepts/accounts#roles) the admin assigns by name. The account's
+enforced policy carries a **live pointer** to that role, not a copy — editing the
+role changes the account's access on its next request, and moving the account to a
+different role re-points it immediately.
+
+An **API key** is a credential **any** user mints to delegate a slice of its
+**own** access to a teammate, a device, or a script. A key minted by a non-admin
+is an [owned key](/concepts/owned-keys): **attenuated** to a subset of its
+creator's authority, **capped live** (the cap is re-applied every request, so it
+follows the owner up and down), and **isolated** to its own slice of the runs,
+interactions, and notifications surfaces. A key can never exceed the user who
+created it, and an owned key can never itself mint further keys. Editing an
+account's role therefore also re-attenuates every key that account owns, without
+touching the keys themselves.
 
 ## See also
 
 - [Access control](/concepts/access-control) — the request gate, scopes, and the jq policy model.
 - [Owned keys](/concepts/owned-keys) — capped sub-identities, attenuation, and data isolation.
-- [Accounts](/concepts/accounts) — human accounts, sessions, and roles as policy templates.
+- [Accounts](/concepts/accounts) — human accounts, sessions, and the editable role model.
 - [Set up access control](/guides/access-control) — turn on the gate and write a policy.
-- [CLI reference](/reference/cli/keys) — `tai keys` and [`tai scopes`](/reference/cli/scopes).
+- [`tai roles`](/reference/cli/roles) — create, edit, and roll back roles from the terminal.
 - [HTTP API reference](/reference/api/index) — the routes behind each surface.

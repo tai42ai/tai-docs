@@ -32,6 +32,25 @@ content. Leave it unset on a server that does not host the UI — the app route
 answers `404` while the path is unset.
 </Note>
 
+## Deep links under access control
+
+With [access control](/concepts/access-control) on, a refresh or bookmark of an
+inner Studio route — `/agents`, `/settings`, and the rest — serves the **dataless
+SPA shell** (`index.html` and its static assets), not a `404`. The shell leaks
+nothing: every piece of data it renders sits behind an authenticated `/api/*`
+call, so an unauthenticated visitor lands on the login page. This is on by
+default (the `spa_shell_public` setting), so **deep links work without pinning
+`/` or any SPA path public** — you do not add the app routes or asset prefixes to
+the public-route table. The `/api/*` surface and the control plane are never
+served the shell.
+
+<Note>
+A headless / API-only deployment that hosts no UI can turn the fallback off by
+setting `spa_shell_public` to `false`. A genuinely public non-`/api` GET route
+outside the shell must instead be listed in `acknowledged_public_routes`, which
+the boot audits explicitly.
+</Note>
+
 ## Why the app must be built and served
 
 The skeleton injects an import map into `index.html` at serve time — the map

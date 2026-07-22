@@ -64,17 +64,25 @@ credential that belongs to no human account. That keeps the automation path
 alive while making the common case (a key tied to a person) the default. See
 [API keys](/studio/api-keys) for provisioning and the ownership cap.
 
-## Roles are policy templates
+## Roles
 
-An account's authority comes from a **role** — a named template of policy that
-an admin applies to the account. Applying a role copies its policy body into the
-account's enforced policy; changing an account's role swaps that body. Roles are
-the human-facing shorthand over the [jq policy](/concepts/access-control) model:
-an editor role and a viewer role differ by the jq condition their template
-carries — for example, a viewer's condition admits reads but denies a tool run —
-not by the breadth of scopes. Because the role sets the owner's live policy,
-moving an owner from editor to viewer immediately attenuates every key that
-owner holds, without touching the keys themselves.
+An account's authority comes from a **role** — a named, editable permission set
+an admin assigns by name. An account's enforced policy carries a **live pointer**
+to its role, not a copy: enforcement reads the role's current definition on every
+request, so an edit to a role changes every holder's access on their next request,
+and moving an account to a different role re-points it immediately.
+
+A role's editable part is a **per-tag access-level map** — each feature group is
+set to `none`, `read`, or `write` — composed with a non-editable base-tier ceiling
+and the admin-only route fence (see
+[user types and permissions](/concepts/permissions)). The platform seeds three
+roles: **admin** (full control, reserved and permanent), **editor** (`write` on
+every grantable feature group), and **viewer** (`read` on every grantable feature
+group). An admin can also **create, edit, delete, and roll back** custom roles —
+through the Studio or the [`tai roles`](/reference/cli/roles) CLI. Because the role
+sets the owner's live authority, moving an owner from editor to viewer, or editing
+either role, immediately re-attenuates every key that owner holds, without touching
+the keys themselves.
 
 ## First run and invites
 
@@ -92,8 +100,11 @@ time-bounded — an expired or already-accepted invite is refused.
 
 The Studio's [users-admin page](/studio/admin-console) manages **only human
 accounts** — the `usr-*` principals an accounts provider owns: create a user,
-invite them, apply a role, disable an account. It deliberately does **not** list
-non-human principals, because they are not accounts:
+invite them, apply a role, disable an account. The role picker reflects the
+**current editable role set** — the seeded admin/editor/viewer plus any role an
+admin has created — so a newly authored role is assignable the moment it exists.
+It deliberately does **not** list non-human principals, because they are not
+accounts:
 
 - `sk-*` — machine API keys — are governed on the
   [API keys](/studio/api-keys) surface.

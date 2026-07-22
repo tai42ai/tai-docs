@@ -90,26 +90,68 @@ of the route table — and `POST /api/auth/claim-links` is carved into the seede
 `editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
 the gate; neither is public.
 
+## The Studio SPA shell is public; its data is not
+
+An unmatched non-`/api` GET is served the **dataless Studio SPA shell** —
+`index.html` and its static assets — so a refresh or bookmark of an inner Studio
+route (`/agents`, `/settings`) lands the app, not a `404`. This is on by default
+(the `spa_shell_public` setting) and safe: the shell carries no data — everything
+it renders sits behind an authenticated `/api/*` call — so an unauthenticated
+visitor sees only the login page. Deep links therefore work with **no manual
+public pin** for `/` or any SPA path. The fallback is GET-only and never touches
+`/api` or `/mcp`, so it can never open the control plane; a headless deployment
+turns it off by setting `spa_shell_public` to `false`. See
+[deploying the Studio](/studio/deploy#deep-links-under-access-control).
+
 ## Admin-only mutations
 
-The default router set mounts privileged surfaces on every `all`/`api`
-deployment — `marketplace` (install / uninstall / update), `backup`
-(import / export), and the `config` env write (`POST /api/config/env`). Their
-**mutations are fenced to `admin`**: the seeded `editor` and `viewer` roles are
-denied
+Beyond the editable per-tag role map, some routes are **never grantable** — no
+per-tag level opens them for any non-admin. The fence is **declared on the route**,
+not maintained as a hand-written list: every authed route declares an
+action-class, and two of the classes are the admin-only fence:
 
-- `POST /api/marketplace/install`, `/api/marketplace/uninstall`, and
-  `/api/marketplace/update` — they install code and rewrite the running manifest;
-- `POST /api/backup/import` and `/api/backup/export` — import restores whole
-  sections over the live store, export reads secret-bearing sections;
-- `POST /api/config/env` — it rewrites arbitrary deployment environment and
-  triggers a fleet-wide reload.
+- **`fenced`** — the admin-only mutations: the pre-existing infrastructure
+  changes and the role and policy control plane. Running a tool **directly**
+  (`POST /api/run-tool`); reloading or removing a tool; the `config` env write and
+  reload (`POST /api/config/env`, `/api/config/reload`); replacing the manifest;
+  reloading failed MCPs and deregistering an MCP; reloading the fleet; marketplace
+  install / uninstall / update; backup import / export; and the role and policy
+  control plane (creating, editing, deleting, and rolling back roles, and rolling
+  back a user's policy). Editing scopes, the route table, and the public-route
+  pins is **not** `fenced` — those routes are ordinary `read`/`write` class, made
+  admin-only by the base-tier `/api/auth` control-plane ceiling that default-denies
+  the area to every non-admin role.
+- **`secret`** — the admin-only reads, over two admin-owned stores. The bulk
+  role / policy reads: the roles listing (`GET /api/auth/roles`), the role version
+  histories, and a user's policy version history, whose payload carries raw jq
+  policy bodies. And the deployment config store: the stored environment
+  (`GET /api/config/env`) and the per-settings-class values
+  (`GET /api/config/settings-schema`). Environment and settings are one
+  admin-owned store — including deployment secrets such as the connector encryption
+  key — so only an admin reads or writes it.
 
-An `admin` reaches all of them; an `editor` or `viewer` is denied. The read
-surfaces of these routers stay reachable to non-admins — the fence keys on the
-mutating routes only. The fence lives in the jq condition of the seeded `editor`
-and `viewer` [roles](/concepts/accounts#roles-are-policy-templates); the `admin`
-role is unconditional.
+An `admin` reaches all of them; an `editor` or `viewer` is denied. Everyday
+**feature** configuration is **not** on this fence: starting an async tool-run
+(`POST /api/tool-runs`), scheduling a tool, setting the MCP config, reloading a
+single MCP server, mounting a sub-MCP, setting tool extensions, registering hooks,
+and reading the hooks listing are ordinary grantable `read`/`write` routes an
+editor reaches — an editor configures every feature through the feature's own
+routes. The deployment env/settings store is the admin-owned exception. A route
+that declares no action-class fails boot, so the fence can never be silently
+forgotten. See
+[user types and permissions](/concepts/permissions) for the full surface and the
+per-tag [role model](/concepts/accounts#roles).
+
+<Note>
+**Editors configure every feature; they do not own the deployment store.** An
+`editor` reaches the async tool-run surface, schedules, the MCP config, sub-MCP
+mounts, tool extensions, and hooks through each feature's own grantable routes —
+the platform trusts a granted role to operate the features it holds. The
+deployment env/settings store stays admin-only: reading the env and settings
+(`GET /api/config/env`, `GET /api/config/settings-schema`) and the env write are
+admin-only, alongside the infrastructure mutations and access-control
+administration above.
+</Note>
 
 ## The jq policy
 

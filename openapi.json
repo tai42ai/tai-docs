@@ -1318,6 +1318,94 @@
         "title": "ResourceGet",
         "type": "object"
       },
+      "RoleCreate": {
+        "description": "The create-role request body: the grant map + base tier the operator authors; the\nbase-tier jq is resolved server-side (no raw jq surface).",
+        "properties": {
+          "base_tier": {
+            "title": "Base Tier",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "grants": {
+            "additionalProperties": {
+              "enum": [
+                "none",
+                "read",
+                "write"
+              ],
+              "type": "string"
+            },
+            "title": "Grants",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "base_tier"
+        ],
+        "title": "RoleCreate",
+        "type": "object"
+      },
+      "RoleRollback": {
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RoleRollback",
+        "type": "object"
+      },
+      "RoleUpdate": {
+        "description": "The edit-role request body: only the per-tag grant map + description are editable;\nthe base-tier jq / base_tier are seed-fixed and rejected on any change attempt. Both\nfields are omit-means-keep — an absent ``grants`` (``None``) preserves the stored grant\nmap (it is never silently wiped), and an absent ``description`` preserves the stored\ndescription.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "grants": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "enum": [
+                    "none",
+                    "read",
+                    "write"
+                  ],
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Grants"
+          }
+        },
+        "title": "RoleUpdate",
+        "type": "object"
+      },
       "RouteEntry": {
         "description": "A concrete route the caller can reach, with the methods that pass its jq.",
         "properties": {
@@ -2948,7 +3036,7 @@
     },
     "/api/auth/roles": {
       "get": {
-        "description": "The seeded/operator-authored role templates as ``[{\"name\", \"scopes\", \"condition\",\n\"description\"}, …]`` — the users-admin role picker reads this instead of hardcoding\nthe role names. A store-less deployment (no versioned store configured) has no role\ntemplates — the seed step is skipped at boot — so the read is skipped and the list\nis empty.",
+        "description": "The seeded/operator-authored roles as full ``RoleDefinition``-shaped bodies\n(``{name, description, scopes, condition, condition_id, condition_kwargs, base_tier,\nallow_all, grants}``) — the users-admin role picker and the Studio Roles page read\nthis. A store-less deployment (no versioned store configured) has no roles — the seed\nstep is skipped at boot — so the read is skipped and the list is empty.\n\nAdmin-only: a listing exposes every role's raw base-tier jq condition, so a non-admin\ncaller is denied 403. This op-level check is defense in depth behind the ``secret``\nroute action-class that already fences the route.",
         "operationId": "get_api_auth_roles",
         "responses": {
           "200": {
@@ -2976,6 +3064,16 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
           }
         },
         "security": [
@@ -2983,7 +3081,430 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List role templates",
+        "summary": "List roles",
+        "tags": [
+          "access-control"
+        ]
+      },
+      "post": {
+        "description": "Create an operator-authored role. Admin-only; validates the grant map + base tier\nbefore persist; 409 on a name collision. Bumps the policy version and audits.",
+        "operationId": "post_api_auth_roles",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create a role",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/roles/{name}": {
+      "delete": {
+        "description": "Delete a role. Admin-only; the reserved ``admin`` role is undeletable; a role still\nassigned to any principal (its LIVE pointer held by any policy) is rejected loudly so\na holder can never be orphaned. Bumps the version and audits.",
+        "operationId": "delete_api_auth_roles_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a role",
+        "tags": [
+          "access-control"
+        ],
+        "x-destructive": true
+      },
+      "put": {
+        "description": "Edit a role's per-tag grant map + description (the base-tier jq is seed-fixed, not\neditable here). Admin-only; guards the reserved ``admin`` role and the block-downgrade\nof any allow_all role. Both inputs are omit-means-keep — an absent ``grants``/\n``description`` preserves the stored value, so a description-only edit never wipes the\ngrant map. Validates a supplied grant map before persist; LIVE — the edit changes every\nholder's reach on their next request via the policy-version bump. Audits.",
+        "operationId": "put_api_auth_roles_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Edit a role's grant map",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/roles/{name}/rollback": {
+      "post": {
+        "description": "Re-point a role's active version to a prior one (LIVE — holders follow on their\nnext request). Admin-only; the reserved ``admin`` role has no editable history.\nBumps the version and audits.",
+        "operationId": "post_api_auth_roles_name_rollback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleRollback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Roll a role back to a version",
+        "tags": [
+          "access-control"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/auth/roles/{name}/versions": {
+      "get": {
+        "description": "The role's append-only version history plus its who/when/before→after audit trail.\nAdmin-only. A store-less deployment keeps no history, so the read is an empty pair.",
+        "operationId": "get_api_auth_roles_name_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "A role's version history + audit trail",
         "tags": [
           "access-control"
         ]
@@ -2991,7 +3512,7 @@
     },
     "/api/auth/routes": {
       "get": {
-        "description": "Enumerate the app's own HTTP routes with each route's current scope mapping —\nthe mapper's route picker and its \"unassigned routes\" bucket (the ``mapped: null``\nentries).\n\n``routes`` is the app's live route table (the route-adapter extractor hands the\noperation ``request.app.routes`` so it stays request-free). One entry per\n:class:`starlette.routing.Route`, sorted by ``path``. ``Mount`` entries (the sub-MCP\nmount, the MCP mount) are EXCLUDED — a mount is not a bindable url and the sub-MCP\nsurface has its own door. The exclusion is an explicit ``isinstance`` filter: any\nroute-table entry that is neither a ``Route`` nor a ``Mount`` raises loudly (a new\nStarlette routing type must be classified here, never silently dropped). ``methods``\nis the route's method set sorted with ``HEAD`` removed (Starlette auto-adds it to\nevery GET route — noise for the mapper). ``mapped`` is the url's value from\n``get_all_route_mappings`` looked up by the EXACT path string — a scope id, the\npublic marker for a public pin, or ``null`` when the path has no mapping. Exact-key\nlookup only: this door does not attempt dynamic-pattern matching.",
+        "description": "Enumerate the app's own HTTP routes with each route's current scope mapping —\nthe mapper's route picker and its \"unassigned routes\" bucket (the ``mapped: null``\nentries).\n\n``routes`` is the app's live route table (the route-adapter extractor hands the\noperation ``request.app.routes`` so it stays request-free). One entry per\n:class:`starlette.routing.Route`, sorted by ``path``. ``Mount`` entries (the sub-MCP\nmount, the MCP mount) are EXCLUDED — a mount is not a bindable url and the sub-MCP\nsurface has its own door. The exclusion is an explicit ``isinstance`` filter: any\nroute-table entry that is neither a ``Route`` nor a ``Mount`` raises loudly (a new\nStarlette routing type must be classified here, never silently dropped). ``methods``\nis the route's method set sorted with ``HEAD`` removed (Starlette auto-adds it to\nevery GET route — noise for the mapper). ``mapped`` is the url's value from\n``get_all_route_mappings`` looked up by the EXACT path string — a scope id, the\npublic marker for a public pin, or ``null`` when the path has no mapping. Exact-key\nlookup only: this door does not attempt dynamic-pattern matching.\n\nEach entry is JOINED with its :class:`RouteMetadata` (from\n``route_registry.load_all_routes()``, a separate collection) to also carry the\nroute's feature ``tags`` + ``summary`` + authorization ``action`` — the data the\nStudio Roles page groups the per-tag tri-state by and marks the ``fenced``/``secret``\n(admin-only) routes it must never offer a grant for. The join is keyed on the route\nTEMPLATE + its method set with ``HEAD`` stripped on BOTH sides (Starlette auto-adds\n``HEAD`` to a GET), so the two collections compare like-for-like; a registered route\nwhose method set fails to join is a loud STOP (a normalization drift), never a\nsilently dropped row.",
         "operationId": "get_api_auth_routes",
         "responses": {
           "200": {
@@ -8551,6 +9072,7 @@
         ]
       },
       "post": {
+        "description": "Schedule a caller-named tool to run on a cadence — a run-ANY-tool door.\n\nThe caller supplies ``tool_name``, so reaching this is arbitrary-tool-execution\nprivilege (the recurring firing runs the named tool with real side effects).",
         "operationId": "post_api_schedules",
         "requestBody": {
           "content": {
