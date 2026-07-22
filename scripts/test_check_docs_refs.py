@@ -138,12 +138,12 @@ def test_double_quoted_always_public_verified() -> None:
     single-quoted form) is still verified: a mismatch is flagged and a match passes."""
     default = ["/api/login", "/assets", "/"]
 
-    mismatch = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="[\"/api/login\"]"'
+    mismatch = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="["/api/login"]"'
     problems = check_docs_refs.compare_always_public([("fake/deploy.mdx", mismatch)], default)
     assert len(problems) == 1, problems
     assert problems[0].startswith("fake/deploy.mdx:1:"), problems[0]
 
-    match = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="[\"/api/login\", \"/assets\", \"/\"]"'
+    match = 'ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES="["/api/login", "/assets", "/"]"'
     problems = check_docs_refs.compare_always_public([("fake/deploy.mdx", match)], default)
     assert problems == [], problems
     print("  double-quoted ALWAYS_PUBLIC: mismatch flagged, match passes")
