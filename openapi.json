@@ -350,6 +350,113 @@
         "title": "ConnectorRef",
         "type": "object"
       },
+      "ConversationMessage": {
+        "description": "The client-facing inbound body of the authed API door\n``POST /api/conversations/{route_name}/messages``.\n\n``external_user_id`` is the caller's handle for the end user: it becomes the\n``client_address`` the answer is delivered against and the conversation's thread\nkey. Frozen.",
+        "properties": {
+          "external_user_id": {
+            "minLength": 1,
+            "title": "External User Id",
+            "type": "string"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "wait_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Bounded sync-wait window (seconds); absent = async 202. The door clamps to its runtime cap.",
+            "title": "Wait Seconds"
+          }
+        },
+        "required": [
+          "external_user_id",
+          "text"
+        ],
+        "title": "ConversationMessage",
+        "type": "object"
+      },
+      "ConversationRouteCreate": {
+        "description": "The client-facing create/edit body for a conversation route: the fields a caller\nsupplies.\n\nBinds an ``agent_name`` to an ``execution_key`` the turn runs AS (bound with\npass-role at create). ``api`` rows carry an https ``callback_url``; ``channel`` rows\ncarry the registry ``channel`` plus the ``our_identity`` the medium is texted at (N\nrows may share a channel, each its own identity). The server-derived\n``callback_secret`` and ``execution_key_fingerprint`` are deliberately absent;\n:class:`ConversationRoute` is this shape plus those. Frozen.",
+        "properties": {
+          "agent_name": {
+            "minLength": 1,
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "callback_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Callback Url"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Channel"
+          },
+          "door": {
+            "enum": [
+              "api",
+              "channel"
+            ],
+            "title": "Door",
+            "type": "string"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run and every tool call the turn makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
+          "our_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Our Identity"
+          },
+          "route_name": {
+            "title": "Route Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "route_name",
+          "door",
+          "agent_name",
+          "execution_key"
+        ],
+        "title": "ConversationRouteCreate",
+        "type": "object"
+      },
       "EnvUpdate": {
         "additionalProperties": {
           "type": "string"
@@ -369,7 +476,8 @@
         ],
         "type": "object"
       },
-      "HookParams": {
+      "HookRegister": {
+        "description": "The client-facing register-a-hook request body: the fields a caller supplies.\n\n``execution_key_fingerprint`` is server-derived at bind and deliberately absent\nhere; :class:`HookParams` is this shape plus that one stored field.",
         "properties": {
           "condition": {
             "anyOf": [
@@ -399,6 +507,12 @@
             "additionalProperties": true,
             "title": "Condition Kwargs",
             "type": "object"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the hook fires as; its live stored grants authorize every tool call the fire makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
           },
           "expr": {
             "anyOf": [
@@ -430,10 +544,12 @@
             "type": "object"
           },
           "name": {
+            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "tool": {
+            "minLength": 1,
             "title": "Tool",
             "type": "string"
           },
@@ -443,6 +559,7 @@
             "type": "object"
           },
           "topic": {
+            "minLength": 1,
             "title": "Topic",
             "type": "string"
           }
@@ -450,9 +567,10 @@
         "required": [
           "name",
           "topic",
-          "tool"
+          "tool",
+          "execution_key"
         ],
-        "title": "HookParams",
+        "title": "HookRegister",
         "type": "object"
       },
       "InteractionAnswer": {
@@ -705,6 +823,19 @@
             ],
             "default": null,
             "title": "Recipient"
+          },
+          "sender_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Reserved: the sending identity a channel message leaves FROM, set by the conversation bridge on the notification it builds to answer a route. Callers MUST NOT supply it here — a set value is rejected with a 400, never forwarded.",
+            "title": "Sender Identity"
           }
         },
         "required": [
@@ -1935,8 +2066,13 @@
         "type": "object"
       },
       "TriggerLinkCreate": {
-        "description": "Mint a trigger link for a hook ``topic``.\n\n``ttl_seconds`` is REQUIRED (no default ⇒ the key must be present) and STRICT\n(``\"3600\"``, ``3600.0``, ``3600.5`` and bools all reject under one regime): a\npositive int is a timed link, ``null`` is a permanent link, and ``0``/negative\nis a loud 400 — expiry is the creator's explicit choice with no default and no\nproduct ceiling. ``tool_kwargs`` (optional) is stored on the link and merged\nLAST into every fired hook's input, winning on a colliding key over the hook's\nown ``tool_kwargs``.",
+        "description": "Mint a trigger link for a hook ``topic``.\n\n``ttl_seconds`` is REQUIRED (no default ⇒ the key must be present) and STRICT\n(``\"3600\"``, ``3600.0``, ``3600.5`` and bools all reject under one regime): a\npositive int is a timed link, ``null`` is a permanent link, and ``0``/negative\nis a loud 400 — expiry is the creator's explicit choice with no default and no\nproduct ceiling. ``execution_key`` is the api-key identity the link's dispatch is\ngated on — the link dies with the key — and the creator must be allowed to\ndelegate it; each hook the dispatch reaches still fires as its OWN bound key.\n``require_api_key`` makes the link's door demand an authenticated principal ON TOP\nof the token — one the authentication backend admits, and, when that principal is\ngoverned by a ROLE, one the ordinary ``hooks``-tag level pass admits at the request's\nmethod (``read`` for GET, ``write`` for POST); the governing policy is the OWNER's for\nan owned key, so a key escapes that pass exactly when its governing policy is admin or\ncarries no role pointer. The\ndefault is token-only — the QR-on-a-wall case. ``topic`` must be non-empty, the same\nrule the stored record enforces, so the mint door never writes a link its own restore\nwould refuse. ``tool_kwargs`` (optional) is stored on the link and merged into every\nfired hook's input BELOW that hook's own static ``tool_kwargs``, so it supplies only\nthe arguments the hook's author left unpinned — a colliding key stays the author's.",
         "properties": {
+          "execution_key": {
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
           "name": {
             "anyOf": [
               {
@@ -1948,6 +2084,11 @@
             ],
             "default": null,
             "title": "Name"
+          },
+          "require_api_key": {
+            "default": false,
+            "title": "Require Api Key",
+            "type": "boolean"
           },
           "tool_kwargs": {
             "anyOf": [
@@ -1963,6 +2104,7 @@
             "title": "Tool Kwargs"
           },
           "topic": {
+            "minLength": 1,
             "title": "Topic",
             "type": "string"
           },
@@ -1980,6 +2122,7 @@
         },
         "required": [
           "topic",
+          "execution_key",
           "ttl_seconds"
         ],
         "title": "TriggerLinkCreate",
@@ -2277,7 +2420,7 @@
     },
     "/api/auth/api-keys": {
       "post": {
-        "description": "Provision a key; the raw ``sk-…`` is returned ONCE.",
+        "description": "Provision a key, returning ``{\"api_key\", \"key_fingerprint\"}``. The raw ``sk-…``\n``api_key`` is surfaced ONCE; ``key_fingerprint`` is the key's immutable per-mint\nidentity a caller binds a hook against so the binding survives only this exact mint.",
         "operationId": "post_api_auth_api_keys",
         "requestBody": {
           "content": {
@@ -2351,7 +2494,7 @@
     },
     "/api/auth/api-keys/{user_id}": {
       "delete": {
-        "description": "Revoke a key (immediate: next request fails to auth). Deletes the key record, its\nenforced policy row, and its live context; the user's ``ac_policy`` version history\nis deliberately NOT touched (it belongs to the identity, so a key later re-created\nfor the same ``user_id`` resumes that history).",
+        "description": "Revoke a key (immediate: next request fails to auth). Deletes the key record, its\nenforced policy row, and its live context; the user's ``ac_policy`` version history\nis deliberately NOT touched (it belongs to the identity, so a key later re-created\nfor the same ``user_id`` resumes that history).\n\nNo version bump here, unlike every other mutation on this surface: revocation's\ncache-buster is atomic with the policy-row delete inside\n:func:`~tai42_skeleton.access_control.management.revoke_api_key`, so no fault in the\nsteps behind it can leave the revoked key's authority live in a warm cache slot.",
         "operationId": "delete_api_auth_api_keys_user_id",
         "parameters": [
           {
@@ -4236,6 +4379,68 @@
         ]
       }
     },
+    "/api/checkpoints/sweep": {
+      "post": {
+        "description": "Delete conversation threads whose newest checkpoint is older than the\nconfigured idle lifetime; return the provider, the TTL, and the swept threads.\n\nA no-op (nothing deleted) when the TTL is unset, or the provider is ``redis``\n(native key TTL) or ``memory`` (process-lifetime) — each reported in ``skipped``.",
+        "operationId": "post_api_checkpoints_sweep",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Sweep expired conversation checkpoints",
+        "tags": [
+          "checkpoints"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/clear-templates-cache": {
       "post": {
         "description": "Drop every compiled template from the render cache.",
@@ -5083,6 +5288,627 @@
         ]
       }
     },
+    "/api/conversations": {
+      "get": {
+        "description": "Every stored conversation route, each with its ``callback_secret`` withheld.\nReturns ``{\"items\", \"total\"}``.",
+        "operationId": "get_api_conversations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List conversation routes",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/messages/failed": {
+      "get": {
+        "description": "Every answer record whose delivery ended ``failed``. Admin-only — the listing spans\nevery route and caller, so it is not caller-scoped. Returns ``{\"items\", \"total\"}``.",
+        "operationId": "get_api_conversations_messages_failed",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List failed conversation deliveries",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{route_name}": {
+      "delete": {
+        "description": "Delete a conversation route by name. An unknown name is a loud 404; a name that\nis not a valid slug is a 400. Returns ``{\"removed\", \"route_name\"}``.",
+        "operationId": "delete_api_conversations_route_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a conversation route",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
+      },
+      "get": {
+        "description": "One conversation route by name, with its ``callback_secret`` withheld. An\nunknown name is a loud 404; a name that is not a valid slug is a 400.",
+        "operationId": "get_api_conversations_route_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a conversation route",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "post": {
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``agent_name`` must merely EXIST — the\nkey's live grants bound the turn at fire. A ``channel`` row's ``our_identity`` is stored\ncanonicalized and must not already be routed on that channel. An ``api`` row's\n``callback_secret`` is minted here and returned ONCE. Returns ``{\"created\",\n\"route_name\", \"route\", \"callback_secret\"}``.",
+        "operationId": "post_api_conversations_route_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationRouteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create or replace a conversation route",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/conversations/{route_name}/messages": {
+      "post": {
+        "description": "Accept one authed message for ``route_name`` and run its turn AS the route's\nexecution key.\n\nThe auth gate authorizes who may SEND; the turn's own authority is the route's\nexecution key, not the caller. Default answer is ``202 {message_id, thread_id}`` with\nthe answer delivered later by signed callback. With a ``wait_seconds`` body field\n(clamped here to ``sync_wait_max_seconds``) a turn finishing in time answers ``200``\nwith the answer inline and its callback suppressed, so it never double-fires; a turn\nstill running when the wait elapses falls back to ``202``.",
+        "operationId": "post_api_conversations_route_name_messages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Send a message to a conversation route",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{route_name}/messages/{message_id}": {
+      "get": {
+        "description": "One conversation answer record by ``message_id`` under ``route_name``, caller-scoped.\n\nAn api-door record is readable by the caller that invoked the turn or by an admin; a\nchannel-door record is admin-only. A missing record or one on another route is a 404; a\nrecord that exists but is not the caller's is a 403. An admin reads the whole record;\nthe caller reads the caller-safe projection, which withholds the internal detail of the\nroute key's run.",
+        "operationId": "get_api_conversations_route_name_messages_message_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Read one conversation answer record",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/api/delete-template": {
       "post": {
         "description": "Delete the stored template at ``path``.\n\nIdempotent: an already-absent path is a no-op success (the store treats a\nmissing template as a no-op rather than raising), so this returns ``200``.",
@@ -5296,7 +6122,7 @@
     },
     "/api/hooks": {
       "get": {
-        "description": "List registered hooks plus the per-topic verifier bindings.\n\nWith a topic, lists only the hooks registered for that topic; without one,\nlists every registered hook. The response carries the hooks under ``items``\n(with ``total``) and the per-topic verifier bindings under ``topic_verifiers``.",
+        "description": "List registered hooks plus the per-topic verifier bindings.\n\nWith a topic, lists only the hooks registered for that topic; without one,\nlists every registered hook. The response carries the hooks under ``items``\n(with ``total``), the per-topic verifier bindings under ``topic_verifiers``, and\nunder ``trigger_auth`` how a topic's webhook ingress door authenticates its caller —\nDERIVED from the live verifier bindings just read, never stored. ``trigger_auth`` is\nkeyed by every topic among the LISTED hooks plus every topic currently carrying a\nverifier binding (one may be bound before any hook exists on it), so under a\n``topic`` filter it is neither a subset nor a superset of the listed topics.",
         "operationId": "get_api_hooks",
         "responses": {
           "200": {
@@ -5337,13 +6163,13 @@
         ]
       },
       "post": {
-        "description": "Register a new hook from its flat parameters.\n\nSupports conditional execution (via ``condition`` or ``condition_id``),\npayload transformation (via ``expr`` or ``expr_id``), and dynamic tool\narguments. Returns ``{\"registered\", \"name\"}`` — whether the hook was newly\nstored, and its name.",
+        "description": "Register a hook from its flat parameters — an UPSERT, so this is the create\npath AND the edit path for a hook of that name.\n\nSupports conditional execution (via ``condition`` or ``condition_id``), payload\ntransformation (via ``expr`` or ``expr_id``), and dynamic tool arguments.\n``execution_key`` is the api-key identity every fire runs as; the caller's authority\nto delegate it and its usability by a tokenless fire are decided BEFORE the upsert, so\na refusal stores nothing and leaves any existing hook of that name untouched. Returns\n``{\"registered\", \"name\"}``; ``registered`` is ``True`` for a create and a replace\nalike.",
         "operationId": "post_api_hooks",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/HookParams"
+                "$ref": "#/components/schemas/HookRegister"
               }
             }
           },
@@ -5385,6 +6211,26 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
           }
         },
         "security": [
@@ -5401,7 +6247,7 @@
     },
     "/api/hooks/topics/{topic}/verifier": {
       "delete": {
-        "description": "Remove a topic's verifier binding; a missing binding is a loud 404.",
+        "description": "Remove a topic's verifier binding, reopening its public ingress door; a missing\nbinding is a loud 404.",
         "operationId": "delete_api_hooks_topics_topic_verifier",
         "parameters": [
           {
@@ -5537,7 +6383,7 @@
     },
     "/api/hooks/trigger-links": {
       "get": {
-        "description": "Every live trigger link's record plus its hash PREFIX — never a raw token\n(none is stored; a listed link's QR is unrecoverable by design). Returns\n``{\"items\", \"total\"}``.",
+        "description": "Every live trigger link's record plus its hash PREFIX and its derived\n``trigger_auth`` — never a raw token (none is stored; a listed link's QR is\nunrecoverable by design). Returns ``{\"items\", \"total\"}``.",
         "operationId": "get_api_hooks_trigger_links",
         "responses": {
           "200": {
@@ -5588,7 +6434,7 @@
         ]
       },
       "post": {
-        "description": "Mint a trigger link for ``topic``.\n\n``ttl_seconds`` is the creator's explicit choice (``null`` permanent, positive\ntimed; ``0``/negative → 400); a unique name is generated when omitted; a\nverifier-bound topic is refused (400); ``tool_kwargs`` rides every\nfire. Returns ``{\"name\", \"trigger_path\", \"token\", \"topic\", \"expires_at\"}``\n— the token appears ONLY here (nothing else stores or lists it).",
+        "description": "Mint a trigger link for ``topic``.\n\n``ttl_seconds`` is the creator's explicit choice (``null`` permanent, positive\ntimed; ``0``/negative → 400); a unique name is generated when omitted; a\nverifier-bound topic is refused (400); ``tool_kwargs`` rides every fire, filling\nonly the arguments each fired hook's author left\nunpinned. ``execution_key`` is the api-key identity the link's dispatch is gated on,\ndecided BEFORE the mint so a refusal leaves no live URL. ``require_api_key`` makes\nthe link's door demand an authenticated caller beside the token. Returns\n``{\"name\", \"trigger_path\", \"token\", \"topic\", \"expires_at\"}``\n— the token appears ONLY here (nothing else stores or lists it).\n\n``created_by`` is stamped from the AMBIENT caller identity, never a request field\n(which would be caller-spoofable); with the gate off there is no principal and it\nis stored ``null``.",
         "operationId": "post_api_hooks_trigger_links",
         "requestBody": {
           "content": {
@@ -5636,6 +6482,26 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -7493,7 +8359,7 @@
         ]
       },
       "post": {
-        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message, an unknown channel name, or a blank recipient/audience → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify → 501;\n* a channel delivery failure → 502.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
+        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message, an unknown channel name, a blank recipient/audience, or a\n  caller-supplied ``sender_identity`` → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify → 501;\n* a channel delivery failure → 502.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
         "operationId": "post_api_notifications",
         "requestBody": {
           "content": {
@@ -9422,7 +10288,7 @@
         ]
       },
       "post": {
-        "description": "Schedule a caller-named tool to run on a cadence — a run-ANY-tool door.\n\nThe caller supplies ``tool_name``, so reaching this is arbitrary-tool-execution\nprivilege (the recurring firing runs the named tool with real side effects).",
+        "description": "Schedule a caller-named tool to run on a cadence — a run-ANY-tool door.\n\nThe caller supplies ``tool_name``, so reaching this is arbitrary-tool-execution\nprivilege (the recurring firing runs the named tool with real side effects). As a\n\"run any tool by name\" door it is a tier-1 meta-executor, never projected to the MCP\nsurface — matching ``run_tool`` and ``submit_run``.",
         "operationId": "post_api_schedules",
         "requestBody": {
           "content": {
@@ -10574,7 +11440,7 @@
         ]
       },
       "post": {
-        "description": "Submit a tool for background execution — returns ``202 {run_id}`` at once\nand runs the tool through the same seam the sync door uses.",
+        "description": "Submit a tool for background execution — returns ``202 {run_id}`` at once\nand runs the tool through the same seam the sync door uses.\n\nThe submitted tool is authorized against the caller with the full tool-edge decision\nbefore anything is recorded, so a fenced/secret target is admin-only here exactly as\nat the sync door and the MCP edge.",
         "operationId": "post_api_tool_runs",
         "requestBody": {
           "content": {

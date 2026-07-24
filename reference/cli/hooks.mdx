@@ -14,12 +14,20 @@ $ tai hooks [OPTIONS] COMMAND [ARGS]...
 
 Mint a trigger link — a PUBLIC URL that fires the topic's hooks.
 
-Exactly ONE of `--ttl SECONDS` or `--permanent` is required (expiry is an
-explicit choice — there is no default). The token is shown ONCE, in the printed
-absolute URL; the link is MULTI-use and revocable by name (`tai hooks
-delete-trigger-link NAME`). Regenerate = revoke + create.
+`--execution-key` is REQUIRED: the api-key identity the link's DISPATCH is gated on,
+so revoking or disabling that key kills the link (each hook the link fires is
+authorized against its OWN bound key). Bind your own identity or a key you own (an
+admin may bind any); its policy condition must be evaluable without a presented token.
+Exactly ONE of `--ttl SECONDS` or `--permanent` is required — expiry is an explicit
+choice. `--require-api-key` also demands an authenticated caller, enforced only where
+access control is ENABLED; it does not touch the topic's own
+`/universal_webhook/&#123;topic&#125;` door, which stays reachable by anyone who knows the
+topic name wherever the deployment maps it public. `--params` merges BELOW each fired
+hook's static tool_kwargs, so a link never restates a pinned argument. The token is
+shown ONCE, in the printed absolute URL; the link is MULTI-use and revocable by name
+(`tai hooks delete-trigger-link NAME`). Regenerate = revoke + create.
 
-Example: `tai hooks create-trigger-link orders --ttl 3600 --params '&#123;"priority":"high"&#125;'`
+Example: `tai hooks create-trigger-link orders --execution-key svc --ttl 3600 --params '&#123;"p":"hi"&#125;'`
 
 ```console
 $ tai hooks create-trigger-link [OPTIONS] TOPIC
@@ -31,10 +39,12 @@ $ tai hooks create-trigger-link [OPTIONS] TOPIC
 
 | Option | Description |
 | --- | --- |
+| `--execution-key` `TEXT` | The api-key user id the link's dispatch is gated on; revoking it kills the link. _(required)_ |
 | `--name` `TEXT` | Link name (the revocation handle); a unique name is generated when omitted. |
 | `--ttl` `INTEGER` | Link lifetime in seconds (a timed link). |
 | `--permanent` | Mint a link that never expires. _(default: `False`)_ |
-| `--params` `TEXT` | Per-link tool_kwargs as a JSON object, merged last at each fire. |
+| `--require-api-key` | Also demand an api key the route gate admits at the door, beside the token (enforced only where access control is enabled). _(default: `False`)_ |
+| `--params` `TEXT` | Per-link tool_kwargs as a JSON object, filling only the arguments a hook leaves unpinned. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai hooks delete`
@@ -76,7 +86,12 @@ $ tai hooks delete-trigger-link [OPTIONS] NAME
 
 ## `tai hooks delete-verifier`
 
-Remove a topic's verifier binding.
+Remove a topic's verifier binding. ADMIN-ONLY: a `hooks`-write role is fenced
+out of this door and reads a bare 403.
+
+Unbinding REOPENS the topic's public `/universal_webhook/&#123;topic&#125;` ingress door to
+anyone who knows the topic name, at which point every hook on it fires under its bound
+execution key for an anonymous caller.
 
 Example: `tai hooks delete-verifier github`
 
@@ -94,7 +109,8 @@ $ tai hooks delete-verifier [OPTIONS] TOPIC
 
 ## `tai hooks list`
 
-List registered hooks (and the per-topic verifier bindings under `--json`).
+List registered hooks (the per-topic verifier bindings and each topic's
+derived `trigger_auth` ride the `--json` body).
 
 Example: `tai hooks list --topic github`
 
@@ -109,9 +125,16 @@ $ tai hooks list [OPTIONS]
 
 ## `tai hooks register`
 
-Register a hook from a HookParams JSON body.
+Register a hook from a `HookRegister` JSON body.
 
-Example: `tai hooks register --params '&#123;"name":"h1","topic":"github","tool":"notify"&#125;'`
+The body REQUIRES an `execution_key` — the api-key user id the hook fires as. Bind
+your own identity or a key you own (an admin may bind any); its policy condition must
+be evaluable without a presented token.
+
+An existing name is REPLACED, `execution_key` included, and `registered` is
+`true` either way — run `tai hooks list` first to see whether the name is taken.
+
+Example: `tai hooks register --params '&#123;"name":"h1","topic":"gh","tool":"notify","execution_key":"svc"&#125;'`
 
 ```console
 $ tai hooks register [OPTIONS]
@@ -119,12 +142,16 @@ $ tai hooks register [OPTIONS]
 
 | Option | Description |
 | --- | --- |
-| `--params` `TEXT` | The full HookParams as a JSON object. _(required)_ |
+| `--params` `TEXT` | The hook register body as a JSON object. _(required)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai hooks set-verifier`
 
 Bind a webhook verifier to a topic so its deliveries are signature-verified.
+ADMIN-ONLY: a `hooks`-write role is fenced out of this door and reads a bare 403.
+
+Binding also takes every trigger link on the topic OUT OF SERVICE until it is
+removed — those doors answer a uniform 404 while the binding stands.
 
 Example: `tai hooks set-verifier github --verifier github_hmac`
 
@@ -144,7 +171,8 @@ $ tai hooks set-verifier [OPTIONS] TOPIC
 
 ## `tai hooks trigger-links`
 
-List trigger links (name, topic, expiry, hash prefix; never a raw token).
+List trigger links (name, topic, execution key, door auth, expiry, hash
+prefix; never a raw token).
 
 Example: `tai hooks trigger-links`
 
