@@ -1,0 +1,102 @@
+---
+title: "Hooks and trigger links"
+description: "Register a hook or mint a trigger link from the Studio, each bound to the execution key its fire runs as."
+icon: "bolt"
+---
+
+The Hooks screen drives the server's `/api/hooks` surface: it registers the
+[hooks](/concepts/hooks) that fire a tool when an event arrives, binds a
+[verifier](/concepts/triggers-and-webhooks) to a topic's public ingress door, and
+mints [trigger links](/guides/fire-a-tool-from-a-webhook#trigger-links-qr) — public
+QR URLs that fire a topic on a scan.
+
+Every hook and every trigger link fires under a bound **execution key**: the api-key
+identity the dispatch runs as. The picker is the same on both forms, and it is a
+required field on each — a fire never runs as "nobody".
+
+## Register a hook
+
+The **Register hook** form names the topic to listen on and the tool to fire, then
+binds the execution key that fire runs as. Name, topic, tool, and the execution key
+are required; tool kwargs, a condition, and an expr are optional.
+
+<Frame caption="The Register hook form: the required execution-key picker binds the api-key identity each fire runs as.">
+  <img className="block dark:hidden" src="/images/studio/hooks-execution-key-light.png" alt="The Studio Hooks page Register hook form with an execution-key picker selected." />
+  <img className="hidden dark:block" src="/images/studio/hooks-execution-key-dark.png" alt="The Studio Hooks page Register hook form with an execution-key picker selected." />
+</Frame>
+
+The **Execution key** picker lists the api keys you may bind — your own identity or a
+key you own; an admin may bind any. Each option shows the key's id, its description,
+and its stable fingerprint. The fire runs **as** that key: every tool call it makes is
+authorized against that key's live grants, so prefer a least-privilege service key
+over a human's broad one. If no key is bindable the picker says so and points you at
+the [API-keys tab](/studio/api-keys) to mint one first.
+
+<Note>
+The binding is to the key's **fingerprint**, not just its id. Revoking the key kills
+every hook and link bound to it, and re-minting the same id does **not** revive the
+binding — the fingerprint changes, and a fire against the stale binding is denied, not
+run as the new key. See [owned keys](/concepts/owned-keys) for the delegation model.
+</Note>
+
+<Warning>
+The execution key is the whole authority a background fire runs on. A hook on a public
+topic fires for an anonymous caller, so the tool runs with exactly the key's grants and
+nothing more — bind the narrowest key that can do the job.
+</Warning>
+
+Binding a verifier to the topic is the adjacent **Bind verifier** form. It is
+admin-only: a `hooks`-write role registers hooks and mints links but is fenced out of
+setting or removing a topic's verifier. See
+[fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook) for the verifier flow.
+
+## Mint a trigger link
+
+A trigger link is a minted, public URL — `GET /trigger/<token>` — that fires a topic's
+hooks on a bare request, printable as a QR code. The **Create trigger link** button
+opens a dialog that takes the topic, an optional name, the execution key, an
+**Also require an api key** toggle, an expiry (there is no default — choose one), and
+optional tool params. On success the dialog renders the link's QR, shown once.
+
+<Frame caption="The Create trigger link dialog mints a public QR bound to an execution key; the QR is shown once.">
+  <img className="block dark:hidden" src="/images/studio/hooks-trigger-link-light.png" alt="The Studio Hooks page create-trigger-link dialog showing the generated QR code." />
+  <img className="hidden dark:block" src="/images/studio/hooks-trigger-link-dark.png" alt="The Studio Hooks page create-trigger-link dialog showing the generated QR code." />
+</Frame>
+
+The link binds its own execution key, independent of the hooks on the topic — each
+fired hook still runs under **its own** bound key, while the link's key gates the
+link's dispatch, so revoking that key kills the link. The **Also require an api key**
+toggle adds a second gate: a caller must present an api key the route admits, beside
+the token. It is enforced only where [access control](/concepts/access-control) is
+enabled, and it never touches the topic's own `/universal_webhook/{topic}` door.
+
+## The trigger-auth type
+
+The trigger-links table lists each live link with its name, topic, bound execution
+key, expiry, a params indicator, the token's hash prefix, and a **trigger-auth** cell
+naming how that door reads. The value is server-derived from the live bindings, never
+a stored flag:
+
+| Trigger-auth | What admits a fire |
+| --- | --- |
+| Public | The topic's open `/universal_webhook/{topic}` door — no verifier, no token. |
+| Verifier-signed | A verifier is bound; each delivery is signature-checked over its raw body. |
+| QR token | The trigger link's token alone fires the topic. |
+| QR token + api key | The token **and** an api key the gate admits, from the require-api-key toggle. |
+| Out of service | The topic gained a verifier after minting; the link answers the uniform `404`. |
+
+<Warning>
+**Verified topics and trigger links are mutually exclusive.** Minting a link for a
+verifier-bound topic is refused, and a link whose topic later gains a verifier reads as
+**Out of service** and answers the uniform `404`. Treat the URL and its QR as a
+capability: anyone who holds it fires the topic for as long as the link lives.
+</Warning>
+
+Revoke a link from its row's revoke-confirm — immediate and durable, and a restored
+backup cannot re-arm it. The token is shown once at creation and never stored, so a
+listed link's QR is unrecoverable; to rotate a code, revoke and mint a new one.
+
+See [hooks](/concepts/hooks) for the dispatch model,
+[fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook) for the full
+binding-and-condition workflow from the CLI, and the
+[`tai hooks` reference](/reference/cli/hooks) for the command surface.

@@ -1,0 +1,223 @@
+---
+title: "Conversation bridge"
+description: "Route CRUD and CLI, the read doors, retention, the fire-path authorization model, and every bridge setting."
+icon: "comments"
+---
+
+Reference for the [conversation bridge](/concepts/client-conversations): the routing
+table, the read and delivery doors, checkpoint and answer retention, the fire-path
+authorization model, and every `CONVERSATIONS_*` setting with its default.
+
+Every routing operation requires the Redis conversations backend
+(`CONVERSATIONS_REDIS_URL`). With no backend, each one refuses with a loud `501`.
+
+## Routes: CRUD and CLI
+
+| HTTP | CLI | What it does |
+| --- | --- | --- |
+| `GET /api/conversations` | `tai conversations list` | List routes (each `callback_secret` withheld). |
+| `GET /api/conversations/{route_name}` | `tai conversations get <name>` | Read one route; unknown name → `404`. |
+| `POST /api/conversations/{route_name}` | `tai conversations create <name> …` | Create **or replace** a route (an upsert). |
+| `DELETE /api/conversations/{route_name}` | `tai conversations delete <name>` | Delete a route; unknown name → `404`. |
+
+`create` is an authority-changing, admin-adjacent operation: it **binds** the
+route's `execution_key` (a pass-role decision) before any write, so a refused bind
+leaves an existing row untouched. `agent_name` must merely exist. A `channel` row's
+`(channel, our_identity)` pair must be unclaimed. An `api` row mints a
+`callback_secret` returned **once** in the create result and never re-readable.
+
+```bash
+tai conversations create support-line \
+  --door channel --agent support --execution-key support-bot \
+  --channel twilio --identity whatsapp:+14155238886
+```
+
+`create` flags: `--door` (`api`|`channel`), `--agent`, `--execution-key`,
+`--channel` / `--identity` (channel rows), `--callback-url` (api rows, HTTPS).
+
+## The message door
+
+`POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
+message and runs its turn as the route's execution key. Body: `external_user_id`,
+`text`, optional `wait_seconds`.
+
+- `202 {message_id, thread_id}` — accepted, answer delivered later by signed
+  callback (default).
+- `200` with the answer inline — a `wait_seconds` turn that finished in time; its
+  callback is suppressed so it never double-fires. `wait_seconds` is clamped to
+  `sync_wait_max_seconds`.
+- Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
+  address rate cap, `501` no backend, `503` thread queue full.
+
+## The read doors
+
+| HTTP | CLI | Scope |
+| --- | --- | --- |
+| `GET /api/conversations/{route_name}/messages/{message_id}` | `tai conversations get-message <route> <id>` | Caller-scoped. |
+| `GET /api/conversations/messages/failed` | `tai conversations failed` | Admin only. |
+
+The single-record door is **caller-scoped**: an API-door record is readable by the
+caller that invoked the turn or by an admin; a channel-door record is admin-only. A
+non-owning caller gets `403`; a record on another route (or missing) is `404`. An
+admin read returns the full record (including `error`, the turn's internal detail);
+the caller read returns a caller-safe projection that withholds `error` and the
+delivery bookkeeping — the turn ran as the **route's** key, not the caller's.
+
+The failed-delivery listing spans every route and caller, so it is admin-only.
+
+## The delivery lifecycle
+
+An answer record moves through `accepted` → `pending_delivery` → `provisional` →
+`delivered`, or ends `failed` (undelivered past the attempt budget, or reported
+failed by the provider) or `shed` (refused by the address rate cap; no turn ran).
+Only the terminal states (`delivered`, `failed`, `shed`) carry the retention TTL.
+Delivery is retried with exponential backoff; a provisional record awaits an
+out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
+every unfinished record, delivering exactly once (no double callback).
+
+Client-facing text on the failure paths is fixed, not configurable:
+
+- **Turn error** — `"Sorry, something went wrong handling your message. Please try
+  again."` An `error` answer never carries an internal detail; the detail is
+  retained in the record's `error` field for the admin read door only.
+- **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
+  Please wait a moment and try again."` — sent once per cooldown window; further
+  over-limit messages are dropped as `shed`.
+
+## Checkpoint retention
+
+Conversation continuity is the checkpoint store's. Idle-thread expiry is governed by
+the LLM checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*`
+setting:
+
+| Setting | Env | Default |
+| --- | --- | --- |
+| `checkpoint` | `LLM_PROVIDER_CHECKPOINT` | `redis` |
+| `checkpoint_ttl_minutes` | `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` | *(unset — keep forever)* |
+
+`checkpoint_ttl_minutes` is an **idle** TTL: a thread lives as long as it keeps
+receiving messages and expires only after it sits idle past the lifetime. Unset
+means threads are kept forever.
+
+How the idle window is enforced depends on the provider:
+
+- `redis` carries a native per-key TTL, refreshed on each checkpoint write — idle
+  expiry is automatic.
+- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes
+  every thread whose newest checkpoint is older than the cutoff.
+- `memory` is process-lifetime.
+
+### The sweep operation
+
+`sweep_checkpoints` (`POST /api/checkpoints/sweep`, `tai checkpoints sweep`) is
+**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes
+stale threads on a DB-backed provider and is a reported no-op on `redis`/`memory`
+or with the TTL unset. It runs on either recurrence path:
+
+- **Native schedules** — recurrence needs the tool branched with the backend's
+  `schedule_task` extension: wrap the sweep in a small manifest tool carrying
+  `schedule_task`, then schedule that branched tool via `POST /api/schedules`
+  (`tai schedules …`) on a scheduler-capable backend. (Projecting as a tool makes
+  the sweep runnable by name; the `schedule_task` branch is what registers a
+  recurrence.)
+- **External cron** — call `tai checkpoints sweep` on a timer from your own cron /
+  systemd timer / k8s CronJob. The busless path — no scheduler backend needed.
+
+## The fire-path authorization model
+
+A conversation route separates *who may send* from *what the agent may do*, and both
+are enforced live.
+
+**Who may send.** A `channel` message is authenticated by the provider's own
+signature over the raw webhook body (fail-closed — a missing or bad signature is
+rejected and runs no turn). An `api` message is authenticated by the access-control
+gate on the send door. This mirrors the general
+[trigger authentication](/concepts/triggers-and-webhooks) posture — a door is
+public, verifier-signed, token-gated, or API-key-gated — applied to the two
+conversation doors.
+
+**What the agent may do.** The turn runs **as** the route's bound `execution_key`,
+never as the sender. That key's **live** stored grants authorize the agent run and
+every tool call the turn makes — including any tool a deep-agent sub-agent calls.
+The rules:
+
+- **Bind (pass-role).** You may bind your own identity or an execution key you own;
+  an admin may bind any key. A non-admin's refusal is a uniform `403` across
+  absent-key and not-yours, so the door is no probe for key ids.
+- **Token-free-evaluable only.** The bound key's stored policy condition must be
+  resolvable by a background execution with no request token. A condition that needs
+  a request token is rejected at bind — it could never be evaluated at fire.
+- **Fingerprint binding.** The route stores a server-derived per-mint
+  `execution_key_fingerprint`. The fire resolves the identity against that
+  fingerprint, so a key re-minted under a new fingerprint no longer satisfies the
+  route until it is re-bound.
+- **Enforce at fire, automatic revocation.** The turn is authorized against the
+  key's grants at fire time, not at bind. Attenuate the key by any means — drop a
+  scope, disable it, delete it, narrow its owner — and the next turn is denied, with
+  no revocation-specific step on the route. Scope the key (and the agent) to least
+  privilege.
+
+A denied run does not crash the turn: it becomes a client-safe `error` outcome, its
+detail retained for the admin read door.
+
+**Signed-callback posture.** An `api` route's `callback_url` must be absolute
+**HTTPS** — an `http://` or relative URL is rejected at create, with **no** insecure
+opt-out. Every callback is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
+raw_body)>`. See [connect your own system](/guides/connect-your-own-system#verify-the-x-tai-signature).
+
+## Settings
+
+Every setting reads the `CONVERSATIONS_` env prefix (so `max_concurrent_turns` is
+`CONVERSATIONS_MAX_CONCURRENT_TURNS`). Startup validators reject an invalid
+combination loudly.
+
+### Backend
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `redis_url` | *(unset)* | `CONVERSATIONS_REDIS_URL`. No URL → no durable store → every routing op refuses `501`. |
+| `redis.socket_connect_timeout` | `5` | Seconds; bounds the connect so a black-holed Redis fails loudly. |
+| `redis.socket_timeout` | `5` | Seconds; bounds each command read. |
+| `prefix` | `conversations` | Keyspace prefix for every conversation key. |
+
+### Turn-engine bounds
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `max_concurrent_turns` | `10` | One semaphore bounds **total** in-flight turns on the worker. |
+| `thread_queue_depth` | `20` | Per-thread FIFO depth; a message that would exceed it is refused (`503`). |
+| `per_address_turns_per_hour` | `20` | Per-`client_address` token-bucket rate (turns per rolling hour). |
+| `address_bucket_max_entries` | `50000` | Max per-address buckets one worker holds; a flood evicts rather than growing unbounded. |
+| `sync_wait_max_seconds` | `120` | Upper clamp on the API door's `wait_seconds` before it falls back to `202`. |
+| `intake_claim_lease_seconds` | `120` | Seconds a running turn's intake lease stays live; only a lapsed lease is re-driven. |
+| `intake_claim_refresh_seconds` | `30` | Intake-lease refresh interval; must stay **below** the lease. |
+
+### Delivery bounds
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `delivery_max_attempts` | `8` | Attempts before an undelivered answer is marked `failed` (retained). |
+| `delivery_backoff_base_seconds` | `60` | First retry wait; each later one doubles. |
+| `delivery_backoff_max_seconds` | `900` | Backoff ceiling. |
+| `delivery_claim_lease_seconds` | `120` | Seconds a delivery worker's exactly-once claim stays live. |
+| `delivery_send_timeout_seconds` | `60` | Bounds one outbound channel send; must stay **below** the delivery lease. |
+| `delivery_callback_timeout_seconds` | `15` | Bounds one api-door callback POST; must stay **below** the delivery lease. |
+| `delivery_sweep_interval_seconds` | `60` | Seconds between stalled-delivery sweep passes. |
+| `delivery_grace_seconds` | `3600` | Seconds a `provisional` record waits for a receipt before it confirms `delivered`. |
+| `max_message_chars` | `{twilio: 1600, telegram: 4096, slack: 40000, whatsapp-cloud: 4096}` | Per-channel outbound split caps. A routed channel absent from the map is a loud config error at send. |
+| `max_outbound_chunks` | `10` | Max provider messages one answer may fan out to; a longer answer is refused with a client-safe error, never silently truncated. |
+
+### Retention / idempotency
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `inbound_dedupe_ttl_seconds` | `172800` (48h) | How long a seen `(channel, provider_message_id)` stays deduped; a replay within it starts no second turn. |
+| `answer_retention_ttl_seconds` | `2592000` (30d) | Applied to a record and its indexes **only** on the terminal transition; before that it carries no expiry. |
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — the model.
+- [WhatsApp](/guides/whatsapp-to-agent), [Telegram / Slack](/guides/telegram-slack-to-agent),
+  and [your own system](/guides/connect-your-own-system) — the setup guides.
+- [Access control](/concepts/access-control) and [owned keys](/concepts/owned-keys)
+  — the execution key's grants.

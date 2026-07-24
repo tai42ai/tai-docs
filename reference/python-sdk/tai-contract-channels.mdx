@@ -17,8 +17,8 @@ Delivery either returns ``None`` (success) or raises
 
 A channel also sends fire-and-forget notifications: ``notify`` pushes one
 `ChannelNotification` to a human with no interaction, no ticket, and no
-reply path, under the same loud-failure rule (plain return or
-`ChannelDeliveryError`).
+reply path, under the same loud-failure rule; it returns the per-message ids the
+medium assigned the send (empty when the medium exposes none), never a bool.
 
 ## Channel
 
@@ -74,18 +74,18 @@ double-send).
 `tai42_contract.channels.Channel.notify`
 
 ```python
-async notify(self, notification: ChannelNotification) -> None
+async notify(self, notification: ChannelNotification) -> list[str]
 ```
 
 Send a fire-and-forget message, or raise `ChannelDeliveryError`.
 
-No interaction, no ticket, no callback, no reply. Any delivery
-failure — an unreachable or rejecting medium, a recipient outside the
-operator allowlist, a required credential or recipient not configured,
-a bad send response — raises `ChannelDeliveryError`; a plain
-return means the medium ACCEPTED the message — not that a human saw
-it. One send attempt only, no retry. A channel that cannot notify
-raises `NotImplementedError`.
+No interaction, no ticket, no callback, no reply. Any delivery failure raises
+`ChannelDeliveryError`; a return means the medium ACCEPTED the message —
+not that a human saw it — and yields the per-message ids it assigned this send
+(several when the medium splits a long message, empty when it exposes no id),
+which later correlate an out-of-band delivery receipt back to this send. One
+send attempt only, no retry. A channel that cannot notify raises
+`NotImplementedError`.
 
 **Parameters**
 
@@ -162,6 +162,10 @@ allowlist and refuses to send to an unlisted address; when omitted the
 plugin sends to its operator-configured default recipient. It is an
 address only, never a secret or credential.
 
+``sender_identity`` is the OPTIONAL address to send FROM when the channel fronts
+several operator identities: an internal routing control set by the sending side,
+never caller-supplied, and an address only — never a secret.
+
 **Attributes**
 
 | Attribute | Type |
@@ -169,4 +173,5 @@ address only, never a secret or credential.
 | `model_config` | — |
 | `message` | `str` |
 | `recipient` | `str \| None` |
+| `sender_identity` | `str \| None` |
 

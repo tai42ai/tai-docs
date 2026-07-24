@@ -482,6 +482,79 @@ The connector token store (single-namespace, keyed by ``connection_id``).
 
 
 
+## AppConversations
+
+`tai42_contract.app.facets.AppConversations`
+
+```python
+class AppConversations(Protocol)
+```
+
+The conversation bridge's entry surface for medium adapters: inbound messages
+via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
+Routing-row CRUD, the turn engine and the API door are not part of this facet.
+
+### Members
+
+#### accept
+
+`tai42_contract.app.facets.AppConversations.accept`
+
+```python
+async accept(
+    self,
+    channel: str,
+    our_identity: str,
+    client_address: str,
+    text: str,
+    provider_message_id: str,
+) -> str
+```
+
+Accept one inbound channel message, persist it, and return its
+``message_id`` (a uuid4).
+
+Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
+turn runs as that route's execution key and answers back over the same channel.
+Idempotent on ``(channel, provider_message_id)`` — a redelivery returns the
+existing ``message_id`` and starts no second turn. Raises when no route matches.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `our_identity` | `str` | — | — |
+| `client_address` | `str` | — | — |
+| `text` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+
+
+#### record_delivery_status
+
+`tai42_contract.app.facets.AppConversations.record_delivery_status`
+
+```python
+async record_delivery_status(self, channel: str, provider_message_id: str, status: DeliveryReceipt) -> None
+```
+
+Ingest a channel's out-of-band delivery receipt for an outbound message.
+
+``provider_message_id`` is one of the ids a prior ``notify`` returned, resolved
+to the answer record through the outbound-id reverse index. ``FAILED`` marks the
+record failed; ``DELIVERED`` confirms a ``provisional`` record. Raises when the
+id resolves to no record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+| `status` | `DeliveryReceipt` | — | — |
+
+
+
 ## AppExtensions
 
 `tai42_contract.app.facets.AppExtensions`
@@ -1128,6 +1201,9 @@ handler passes it explicitly at its ``custom_route`` registration. Its
 ``reload_gated`` / ``reads_body`` / error statuses / success status feed the
 emitted spec and the coverage/parity gates.
 
+``additional_success_statuses`` names further 2xx codes one method may answer
+besides ``success_status``; each is emitted as its own success response.
+
 **Attributes**
 
 | Attribute | Type |
@@ -1136,6 +1212,7 @@ emitted spec and the coverage/parity gates.
 | `reads_body` | `bool` |
 | `error_statuses` | `tuple[int, ...]` |
 | `success_status` | `int` |
+| `additional_success_statuses` | `tuple[int, ...]` |
 
 
 ## RouteAction
@@ -1168,6 +1245,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `connectors` *(property)* | `AppConnectors` |
 | `webhook_verifiers` *(property)* | `AppWebhookVerifiers` |
 | `channels` *(property)* | `AppChannels` |
+| `conversations` *(property)* | `AppConversations` |
 | `monitoring` *(property)* | `AppMonitoring` |
 | `extensions` *(property)* | `AppExtensions` |
 | `http` *(property)* | `AppHttp` |
@@ -1215,6 +1293,9 @@ handler passes it explicitly at its ``custom_route`` registration. Its
 ``reload_gated`` / ``reads_body`` / error statuses / success status feed the
 emitted spec and the coverage/parity gates.
 
+``additional_success_statuses`` names further 2xx codes one method may answer
+besides ``success_status``; each is emitted as its own success response.
+
 **Attributes**
 
 | Attribute | Type |
@@ -1223,6 +1304,7 @@ emitted spec and the coverage/parity gates.
 | `reads_body` | `bool` |
 | `error_statuses` | `tuple[int, ...]` |
 | `success_status` | `int` |
+| `additional_success_statuses` | `tuple[int, ...]` |
 
 
 ## AppAgents
@@ -1560,6 +1642,79 @@ names(self) -> list[str]
 ```
 
 Every registered channel name, for the channels catalog route.
+
+
+
+## AppConversations
+
+`tai42_contract.app.facets.AppConversations`
+
+```python
+class AppConversations(Protocol)
+```
+
+The conversation bridge's entry surface for medium adapters: inbound messages
+via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
+Routing-row CRUD, the turn engine and the API door are not part of this facet.
+
+### Members
+
+#### accept
+
+`tai42_contract.app.facets.AppConversations.accept`
+
+```python
+async accept(
+    self,
+    channel: str,
+    our_identity: str,
+    client_address: str,
+    text: str,
+    provider_message_id: str,
+) -> str
+```
+
+Accept one inbound channel message, persist it, and return its
+``message_id`` (a uuid4).
+
+Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
+turn runs as that route's execution key and answers back over the same channel.
+Idempotent on ``(channel, provider_message_id)`` — a redelivery returns the
+existing ``message_id`` and starts no second turn. Raises when no route matches.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `our_identity` | `str` | — | — |
+| `client_address` | `str` | — | — |
+| `text` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+
+
+#### record_delivery_status
+
+`tai42_contract.app.facets.AppConversations.record_delivery_status`
+
+```python
+async record_delivery_status(self, channel: str, provider_message_id: str, status: DeliveryReceipt) -> None
+```
+
+Ingest a channel's out-of-band delivery receipt for an outbound message.
+
+``provider_message_id`` is one of the ids a prior ``notify`` returned, resolved
+to the answer record through the outbound-id reverse index. ``FAILED`` marks the
+record failed; ``DELIVERED`` confirms a ``provisional`` record. Raises when the
+id resolves to no record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+| `status` | `DeliveryReceipt` | — | — |
 
 
 
