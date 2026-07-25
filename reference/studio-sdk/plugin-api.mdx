@@ -1,0 +1,351 @@
+---
+title: "Plugin API"
+description: "The plugin contract a Studio plugin implements — the context, contribution types, and the compatibility gate."
+icon: "plug"
+---
+
+
+The plugin contract a Studio plugin implements — the context, contribution types, and the compatibility gate.
+
+## NavEntryContribution
+
+```ts
+interface NavEntryContribution
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `icon?` | `ComponentType` | Optional icon rendered before the title. It must be a square inline SVG that fills its box and draws with `currentColor`; the host constrains the slot, rendering it inside a fixed 1em box, `aria-hidden` (the accessible name is `title`), with the color inherited from the link. Its bytes live inside the plugin bundle, so no external fetch and no CSP change. Absent icon renders a text-only entry, exactly like the core nav. |
+| `path` | `string` | Path of a page THIS plugin registers. The nav entry links to `/plugins/{pluginId}/{path}`, so it must match a PageContribution `path` of the same plugin — the registry rejects a nav entry with no page. |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
+
+
+## PageContribution
+
+```ts
+interface PageContribution
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `component` | `ComponentType<PluginPageProps>` | — |
+| `path` | `string` | URL segment under `/plugins/{pluginId}/`. |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [PluginPageProps](/reference/studio-sdk/plugin-api#pluginpageprops), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
+
+
+## PluginContext
+
+```ts
+interface PluginContext
+```
+
+The registration surface a plugin receives in its `register(context)` entry.
+Each method binds the contribution to the plugin the host is loading — the
+plugin's identity is fixed by the host, not read from any ambient state — so a
+contribution can never be misattributed to another plugin. Contributions are
+staged and committed together once `register` settles; a `register` that throws
+commits nothing. The context is SEALED once `register` settles: a call made
+after that (a deferred timer, a post-resolve microtask) throws instead of
+silently dropping, so every registration must happen during `register`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `registerNavEntry` | `(contribution: NavEntryContribution) => void` | Register a sidebar nav entry linking to one of this plugin's pages at `/plugins/{pluginId}/{path}`. The `path` must match a page the plugin also registers (a nav entry with no page is a dead link and is rejected loudly). |
+| `registerPage` | `(contribution: PageContribution) => void` | Register a full page mounted under `/plugins/{pluginId}/{path}`. |
+| `registerSettingsTab` | `(contribution: SettingsTabContribution) => void` | Register a settings tab. |
+| `registerToolPanel` | `(contribution: ToolPanelContribution) => void` | Register a rich run panel for a tool by name (overrides the auto-form). |
+
+**Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+
+
+## PluginContributions
+
+```ts
+interface PluginContributions
+```
+
+Everything a single plugin bundle has registered at import time.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `navEntries` | `readonly RegisteredNavEntry[]` | — |
+| `pages` | `readonly RegisteredPage[]` | — |
+| `settingsTabs` | `readonly RegisteredSettingsTab[]` | — |
+| `toolPanels` | `ReadonlyMap<string, ToolPanelContribution>` | — |
+
+**Related:** [RegisteredNavEntry](/reference/studio-sdk/plugin-api#registerednaventry), [RegisteredPage](/reference/studio-sdk/plugin-api#registeredpage), [RegisteredSettingsTab](/reference/studio-sdk/plugin-api#registeredsettingstab), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+
+
+## PluginEntry
+
+```ts
+type PluginEntry = (context: PluginContext) => void | Promise<void>
+```
+
+A plugin bundle's entry: the default plugin API. The host imports the bundle,
+reads its `register` export, and calls it with a `PluginContext`. All
+contributions flow through that context — there are no free registration
+functions. The entry may be synchronous or `async`; the host awaits it before
+committing, so an async entry must complete every registration before it
+resolves (see the seal on `PluginContext`).
+
+**Related:** [PluginContext](/reference/studio-sdk/plugin-api#plugincontext)
+
+
+## PluginPageProps
+
+```ts
+interface PluginPageProps
+```
+
+Props a contributed full page receives. Navigation is via shell route tokens.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `pluginId` | `string` | — |
+
+
+## RegisteredNavEntry
+
+```ts
+interface RegisteredNavEntry extends NavEntryContribution
+```
+
+A nav entry as stored in the registry: the plugin's
+`NavEntryContribution` plus the id of the plugin that registered it. The
+`pluginId` is stamped by the registry from the identity the host passed to
+`PluginEntry`, so the entry links only under its owner's
+`/plugins/{pluginId}/` prefix and two plugins may register the same `path`
+without colliding.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `icon?` | `ComponentType` | Optional icon rendered before the title. It must be a square inline SVG that fills its box and draws with `currentColor`; the host constrains the slot, rendering it inside a fixed 1em box, `aria-hidden` (the accessible name is `title`), with the color inherited from the link. Its bytes live inside the plugin bundle, so no external fetch and no CSP change. Absent icon renders a text-only entry, exactly like the core nav. |
+| `path` | `string` | Path of a page THIS plugin registers. The nav entry links to `/plugins/{pluginId}/{path}`, so it must match a PageContribution `path` of the same plugin — the registry rejects a nav entry with no page. |
+| `pluginId` | `string` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
+
+
+## RegisteredPage
+
+```ts
+interface RegisteredPage extends PageContribution
+```
+
+A page as stored in the registry: the plugin's `PageContribution` plus
+the id of the plugin that registered it. The `pluginId` is stamped by the
+registry from the identity the host passed to `PluginEntry` — a plugin
+never supplies its own id — so a page resolves only under its owner's
+`/plugins/{pluginId}/` prefix and two plugins may register the same `path`
+without colliding.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `component` | `ComponentType<PluginPageProps>` | — |
+| `path` | `string` | URL segment under `/plugins/{pluginId}/`. |
+| `pluginId` | `string` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [PluginPageProps](/reference/studio-sdk/plugin-api#pluginpageprops), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
+
+
+## RegisteredSettingsTab
+
+```ts
+interface RegisteredSettingsTab extends SettingsTabContribution
+```
+
+A settings tab as stored in the registry: the plugin's
+`SettingsTabContribution` plus the id of the plugin that registered it.
+The `pluginId` is stamped by the registry from the identity the host passed to
+`PluginEntry` — a plugin never supplies its own id — so a tab is always
+attributable to its owner and two plugins may register the same tab `id`
+without colliding.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `component` | `ComponentType<SettingsTabProps>` | — |
+| `id` | `string` | — |
+| `pluginId` | `string` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [SettingsTabProps](/reference/studio-sdk/plugin-api#settingstabprops)
+
+
+## RequiredCapabilities
+
+```ts
+interface RequiredCapabilities
+```
+
+A capability requirement a contribution may declare. `routes` is a list of
+route-path prefixes (anyOf semantics, the same evaluator the shell nav uses):
+the contribution renders iff the caller's capability projection covers at least
+one of them. ABSENT (the field is optional) means the contribution renders only
+for a FULL projection — safe-by-default for every existing plugin, which never
+declared a requirement. The server remains the authority; this only shapes what
+the UI advertises.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `routes` | `readonly string[]` | — |
+
+
+## STUDIO_PLUGIN_API_VERSION
+
+```ts
+const STUDIO_PLUGIN_API_VERSION: 1
+```
+
+The Studio-plugin API compatibility version.
+
+A monotonic integer bumped ONLY on a breaking change to the Studio-plugin API
+OR the public prop/type surface of any DS component the SDK exports (a prop
+rename/removal bumps it; genuinely internal/visual changes do not).
+
+Gate rule: equality is correct precisely because additive changes never
+bump (existing plugins keep matching) and after a break every plugin must
+rebuild by design. `targeted == current` accepts; anything else rejects.
+
+Additive evolution under this gate: a host that gains a NEW optional context
+capability (a new `register*` method, a new host-side injection behavior)
+keeps the same version, so every existing plugin loads unchanged. The one
+asymmetry the equality gate leaves is a plugin that USES a newer capability on
+an OLDER host that lacks it — and it fails loudly, by construction, not by any
+negotiation machinery:
+ - A plugin calling a context method the host does not define throws the
+   natural `context.<method> is not a function` during `register`; the loader
+   catches it as that plugin's loud error card and commits nothing.
+ - A plugin shipping a `.css` asset to a host that does not inject stylesheets
+   is served but never injected — the page renders with SDK-component styling
+   only. This is the single quiet degradation the mechanism admits, and the
+   authoring docs state it: stylesheet injection is a host capability, so a
+   deployment pairs the Studio host with plugins built for it.
+
+
+## SettingsTabContribution
+
+```ts
+interface SettingsTabContribution
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `component` | `ComponentType<SettingsTabProps>` | — |
+| `id` | `string` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | — |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities), [SettingsTabProps](/reference/studio-sdk/plugin-api#settingstabprops)
+
+
+## SettingsTabProps
+
+```ts
+interface SettingsTabProps
+```
+
+Props a contributed settings tab receives.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `pluginId` | `string` | — |
+
+
+## ToolPanelContribution
+
+```ts
+interface ToolPanelContribution
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `component` | `ComponentType<ToolPanelProps>` | — |
+| `toolName` | `string` | — |
+
+**Related:** [ToolPanelProps](/reference/studio-sdk/plugin-api#toolpanelprops)
+
+
+## ToolPanelProps
+
+```ts
+interface ToolPanelProps
+```
+
+Props a contributed tool-run panel receives (replaces the auto-form).
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `run` | `(args: Record<string, unknown>) => Promise<unknown>` | Run the tool with arguments; resolves with the typed result or throws. |
+| `schema` | `Record<string, unknown>` | The tool's JSON schema (Pydantic-emitted), for panels that introspect it. |
+| `toolName` | `string` | The tool name this panel targets. |
+
+
+## VersionGateResult
+
+```ts
+interface VersionGateResult
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `ok` | `boolean` | — |
+| `reason?` | `string` | — |
+
+
+## checkPluginApiVersion
+
+```ts
+function checkPluginApiVersion(targeted: number, current: number): VersionGateResult
+```
+
+Accept iff the plugin's targeted version exactly equals the host's.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `targeted` | `number` | — | — |
+| `current` | `number` | `STUDIO_PLUGIN_API_VERSION` | — |
+
+**Related:** [VersionGateResult](/reference/studio-sdk/plugin-api#versiongateresult)
+

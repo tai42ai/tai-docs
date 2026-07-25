@@ -1,0 +1,156 @@
+---
+title: "Connectors (tai42_contract.connectors)"
+description: "The ProviderDescriptor a connector plugin declares."
+icon: "plug"
+---
+
+
+Provider descriptors — declarative shape of a supported third-party.
+
+Pure pydantic models describing a provider, its sub-services, MCP server
+endpoints, OAuth endpoints, and client-supplied config fields. Descriptors are
+validated when built so a misconfigured provider fails loudly rather than at
+first user click.
+
+## SLUG_RE
+
+`tai42_contract.connectors.providers.SLUG_RE`
+
+```python
+SLUG_RE = re.compile('^[a-z][a-z0-9_]*$')
+```
+
+
+## McpServerDescriptor
+
+`tai42_contract.connectors.providers.McpServerDescriptor`
+
+```python
+class McpServerDescriptor(BaseModel)
+```
+
+MCP server endpoint for one sub-service.
+
+Transport is either ``http``/``websocket`` (hosted out-of-band, set ``url``)
+or ``stdio`` (launched as a child process, set ``command`` + ``args``).
+Exactly one configuration is allowed: ``url`` xor (``command`` + ``args``).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['http', 'websocket', 'stdio']` |
+| `url` | `str \| None` |
+| `command` | `str \| None` |
+| `args` | `list[str]` |
+| `env` | `dict[str, str]` |
+| `extra_headers` | `dict[str, str]` |
+
+### Members
+
+#### model_post_init
+
+`tai42_contract.connectors.providers.McpServerDescriptor.model_post_init`
+
+```python
+model_post_init(self, _ctx: Any) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `_ctx` | `Any` | — | — |
+
+
+
+## ConfigFieldSpec
+
+`tai42_contract.connectors.providers.ConfigFieldSpec`
+
+```python
+class ConfigFieldSpec(BaseModel)
+```
+
+One client-supplied static config value for a no-auth provider.
+
+``target`` picks the injection channel and MUST match the server transport
+(``env`` for stdio, ``header`` for http/websocket). ``secret`` flags a value
+masked in the UI and never logged; ``required`` gates connect-time validation.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `key` | `str` |
+| `label` | `str` |
+| `target` | `Literal['env', 'header']` |
+| `required` | `bool` |
+| `secret` | `bool` |
+
+
+## SubServiceDescriptor
+
+`tai42_contract.connectors.providers.SubServiceDescriptor`
+
+```python
+class SubServiceDescriptor(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `id` | `str` |
+| `display_name` | `str` |
+| `description` | `str` |
+| `scopes` | `list[str]` |
+| `mcp_server` | `McpServerDescriptor \| None` |
+| `entry_point` | `str \| None` |
+
+
+## OAuthEndpoints
+
+`tai42_contract.connectors.providers.OAuthEndpoints`
+
+```python
+class OAuthEndpoints(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `authorize` | `str` |
+| `token` | `str` |
+| `revoke` | `str \| None` |
+
+
+## ProviderDescriptor
+
+`tai42_contract.connectors.providers.ProviderDescriptor`
+
+```python
+class ProviderDescriptor(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `id` | `str` |
+| `display_name` | `str` |
+| `description` | `str` |
+| `icon_url` | `str` |
+| `kind` | `Literal['oauth', 'none']` |
+| `origin` | `Literal['system', 'community']` |
+| `category` | `str` |
+| `oauth` | `OAuthEndpoints \| None` |
+| `client_id_env` | `str \| None` |
+| `client_secret_env` | `str \| None` |
+| `sub_services` | `dict[str, SubServiceDescriptor]` |
+| `pkg_manager` | `Literal['uvx', 'npx'] \| None` |
+| `pkg_version` | `str \| None` |
+| `config_fields` | `list[ConfigFieldSpec]` |
+| `extra_authorize_params` | `dict[str, str]` |
+

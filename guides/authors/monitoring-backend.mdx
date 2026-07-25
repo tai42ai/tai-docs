@@ -1,0 +1,47 @@
+---
+title: "Author a monitoring backend"
+description: "Implement the monitoring surface."
+icon: "chart-line"
+---
+
+import InMemoryMonitoring from '/snippets/examples/monitoring_backend/inmemory_monitoring.mdx';
+
+Author a monitoring backend plugin implementing the monitoring reader and writer surface.
+
+A monitoring backend records and serves observability data. It provides a `Monitoring` object exposing two faces: a `MonitoringWriter` that opens and records spans, events, and trace attributes as tools and agents run, and a `MonitoringReader` that answers metric and trace queries. You register a builder that returns the backend; the runtime installs it, replacing the no-op default.
+
+## The surface
+
+A `Monitoring` exposes:
+
+- `writer` — a `MonitoringWriter`: `start_span`, `record_span`, `create_event`, `update_current_span`, `current_trace_id`, and the context helpers the runtime calls as work runs.
+- `reader` — a `MonitoringReader`: `query_metrics`, `list_spans_in_window`, `get_trace`, and `list_traces`, which back the `tai obs` and `tai traces` commands.
+- `add_project` — register a project's configuration.
+
+Implement both faces over your backing store (an OpenTelemetry exporter, a tracing SaaS, a database).
+
+## Register a builder
+
+Decorate a zero-argument callable that returns your `Monitoring`. The runtime builds and installs it; one provider per process, last registration wins. The runtime never names a concrete vendor — the plugin is selected purely by the manifest.
+
+<InMemoryMonitoring />
+
+## Load it
+
+The host selects the backend by naming its module under `monitoring_module`. Importing the module runs the decorator.
+
+```yaml manifest.yml
+monitoring_module: your_package.monitoring
+```
+
+Without a monitoring backend, the runtime uses a no-op default and there is nothing to query. Document your backend's own settings (endpoints, keys, sampling) in your repository's README.
+
+## Shipped implementations
+
+Shipped monitoring backends appear in the [ecosystem catalog](/reference/catalog), each linking to its own repository.
+
+## See also
+
+- [Observe](/guides/observe) — querying metrics and traces.
+- [Live operations](/concepts/live-operations) — runtime state a backend records.
+- [Python SDK reference](/reference/python-sdk) — the `Monitoring`, `MonitoringWriter`, and `MonitoringReader` surface.

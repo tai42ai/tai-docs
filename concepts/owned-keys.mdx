@@ -1,0 +1,233 @@
+---
+title: "Owned keys"
+description: "Delegation as a capped sub-identity: attenuation, the capability projection, and per-identity isolation."
+icon: "share-nodes"
+---
+
+An **owned key** is an API key minted by a user and capped by that user forever.
+It is the delegation primitive: a credential you hand to a teammate, a device, or
+a machine that acts *as you, but lesser* — it can never do more than you can, and
+it loses power the moment you do. Where [access control](/concepts/access-control)
+is the request gate and [accounts](/concepts/accounts) are the humans behind it,
+owned keys are the layer that lets one identity safely lend a slice of its
+authority to another.
+
+## What an owned key is
+
+Every owned key carries an **owner** — the account that minted it, recorded on the
+key's identity record as an owner claim. That single claim is what makes the key
+*owned* rather than free-standing, and it drives three properties:
+
+- **Minted by an owner.** A non-admin mints only keys owned by itself; only an
+  admin may mint an **ownerless** machine key (see [accounts](/concepts/accounts)).
+  Ownership is exactly one level deep — an owned key can never itself mint keys.
+- **Capped by the owner.** The key's scopes are a subset of the owner's, enforced
+  at mint time and re-checked on every request. A mint that asks for a scope the
+  owner does not hold is rejected with a `400` at mint time, never a silently
+  narrowed key.
+- **Dies with the owner.** Because the cap is re-applied per request, disabling or
+  narrowing the owner attenuates the key on its very next call — no revocation of
+  the key itself required.
+
+## Attenuation over time
+
+An owned key's **effective authority is its own grant intersected with its owner's
+*current* policy**, computed fresh on every request at the gate. The key does not
+carry a frozen snapshot of what its owner could do when it was minted:
+
+- Move the owner from an editor role to a viewer role and every key that owner
+  holds is re-evaluated against the narrower policy on its next request.
+- Disable the owner, or empty the owner's scopes, and every owned key is denied —
+  the key is powerless while the owner is down, and recovers if the owner is
+  restored.
+
+This is why an owned key is safe to hand out: the ceiling follows the owner
+automatically, so you revoke a person once (their account) rather than chasing
+down every key they were ever issued.
+
+## The capability projection
+
+An owned-key holder needs to know what it may actually do — otherwise a scoped key
+meets a wall of `401`/`403`s with no way to discover its own limits. `GET /api/auth/me`
+answers that: the caller's **derived capability projection**.
+
+```bash
+tai auth whoami
+```
+
+The projection reports the caller's own `user_id`, its owner (if any), whether it
+is an admin, its effective scopes, and the concrete **routes, route patterns,
+sub-MCP mounts, tools, and agents it can reach right now** — plus a `mintable`
+flag. Two properties make it trustworthy:
+
+- **Derived, never stored.** The projection is computed from the *same*
+  `access_control_routes` store and policy the gate reads, filtered by the caller's
+  effective scopes. There is no second access-control list that could drift from
+  the gate. It is cached per policy version and identity, so a policy edit yields a
+  fresh projection on the next read.
+- **jq-exact.** For a policy that carries a jq condition, the projection evaluates
+  the *same* condition per candidate `(path, method)` through the real enforcer, so
+  it never advertises a door the gate would then deny. The projection is a subset
+  of what the gate admits, by construction.
+
+Because introspection must work for every identity on every deployment, `GET /api/auth/me`
+is **authenticated-implies-allowed**: an authenticated caller reaches it regardless
+of the route table (an unauthenticated caller still gets a `401`). It stays under
+the reserved `/api/auth` prefix — it is never public.
+
+<Warning>
+The always-allowed carve-out bypasses only the route **table**, never jq. The gate
+evaluates a policy's jq condition first. The seeded `editor` and `viewer` roles
+already carry a `/api/auth/me` carve-in, so they work out of the box. But if you
+write a **custom** jq condition that fences the `/api/auth` namespace, you must add
+a `/api/auth/me` carve-in to it — otherwise every owned key under that condition
+`403`s on `/me` and its [scoped Studio](/studio/api-keys) bricks. This is inherent:
+jq is your own lever, and the carve-in covers only the seeded roles.
+</Warning>
+
+## Data isolation
+
+An owned key is **restricted**: any identity whose claims carry an owner is confined
+to its **own slice** of the data-bearing surfaces, while unrestricted identities —
+admins, editor/viewer role-holders, ownerless machine keys — keep the full operator
+view (their limits come from scopes and jq fences, not isolation). This single
+mechanical test — *does the identity carry an owner claim?* — is the whole isolation
+boundary; there is no new stored type field.
+
+A restricted caller sees only its own slice of three surfaces — and that slice is
+the key's **own identity**, never its owner's. Same-owner keys do not share a slice
+and cannot see each other's activity; each key is its own island.
+
+- **Tool runs**, keyed on the run's owning identity — the caller's *own* key
+  identity (`get_current_user_id()`), not its owner. A restricted caller lists and
+  reads only the runs its own key submitted, and a fetch of any other identity's run
+  — including one belonging to a sibling key under the same owner — is a `403`.
+- **[Interactions](/concepts/interactions)**, keyed on `audience` (below).
+- **Notifications**, also keyed on `audience`.
+
+### `audience` — one concept across interactions and notifications
+
+`audience` is **the identity a message is addressed to** — the same field, with the
+same meaning, on both `ask_user` (interactions) and `notify_user` (notifications).
+It drives the same own-slice-only read on the interactions inbox *and* the
+notifications inbox: a restricted caller sees only messages whose `audience` is its
+own key identity; a message with no `audience` is an operator/broadcast, shown to
+unrestricted callers but not to restricted ones. The write side mirrors this. When a
+restricted caller *sends* with no `audience`, the field is auto-scoped to its own key
+identity — so the message lands in (and reads back from) its own slice rather than
+broadcasting — and an attempt to address *another* identity is refused with a `403`,
+the write-side dual of the read isolation.
+
+Do not confuse `audience` with a notification's channel **`recipient`**. They are
+two orthogonal axes, and both may be set at once:
+
+| Field | Axis | Meaning |
+|---|---|---|
+| `audience` | identity | *whose in-app Studio inbox shows it* |
+| `recipient` | delivery address | *where to push it externally* (a chat id, a phone number) |
+
+Setting `audience` is honored even when a channel `recipient` is also set — you get
+both the external push and the in-app inbox entry. Two honest notes for tool
+authors:
+
+- **`audience` is a routing hint, not an authorization input for reads.** Reads
+  authorize by the *caller's* identity, and unrestricted operators always see
+  everything, so addressing a message can neither hide it from operators nor expose
+  another identity's data. For an unrestricted caller, `audience` only chooses whose
+  scoped inbox surfaces it.
+- **A restricted caller addresses only its own slice — it cannot broadcast.** The
+  slice is keyed on the caller's *own* key identity, so leaving `audience` unset
+  auto-scopes the send to that key itself: an unaddressed `notify_user` or `ask_user`
+  is recorded to — and read back from — the caller's own scoped inbox, never dropped
+  and never a broadcast. Any *other* `audience` — a foreign identity, including the
+  key's own owner — is a cross-identity attempt rejected with a `403`, and is never
+  escalated to operators. An owned key therefore notifies itself simply by leaving
+  `audience` unset; it never sets an id to reach its own inbox.
+
+<Note>
+To run a **restricted machine key**, an admin mints it as an owned key with the
+owner set to the admin. A `*` owner caps nothing, so attenuation is a no-op — but
+the isolation rule still applies, so the machine key sees only its **own** slice:
+the runs and addressed messages of that key itself, never its owner's and never a
+sibling key's. Ownership is thus how you get an isolated automation identity, not
+only a human-delegated one.
+</Note>
+
+## Access channels
+
+The ways an owned key reaches a caller are a **defined, closed list** — only
+industry best practice, with the rejected shapes recorded so they are never
+"conveniently" added later.
+
+<Steps>
+  <Step title="Programmatic API">
+    The key travels in an `Authorization: Bearer <key>` or `X-Api-Key` header.
+    Header-only is law — a credential never appears in a query parameter, a URL
+    path, or a body at rest.
+  </Step>
+  <Step title="MCP client">
+    The same key in an MCP client's header config, against the main `/mcp` endpoint
+    or a scope-gated [sub-MCP mount](/concepts/mcp-citizen-surface).
+  </Step>
+  <Step title="Browser UI (the scoped Studio)">
+    The key pasted at the [Studio sign-in](/studio/login) page and held in the
+    browser. The Studio renders from the projection, so a scoped key sees only the
+    features it can reach — one UI for everyone, no separate portal.
+  </Step>
+  <Step title="QR / deep-link claim">
+    A one-time, short-TTL **claim link** — `<origin>/login#claim=<token>`. The token
+    rides the URL **fragment**, so it never reaches a server log; the browser (or
+    `tai auth claim`) exchanges it once at the always-public `POST /api/login/claim`,
+    receives the raw key exactly once (the token then burns), and proceeds as the
+    browser channel. See the [owned-keys guide](/guides/owned-keys).
+  </Step>
+</Steps>
+
+<Warning>
+**What we deliberately do not offer.** These shapes are recorded so they stay
+rejected:
+
+- **Anonymous, long-lived capability URLs to execution surfaces.** Langflow's
+  anonymous shareable-playground links became the cautionary case here — they drew
+  published security advisories for unauthenticated remote code execution and
+  arbitrary file read. A claim link is the opposite: single-use, short-TTL, and it
+  exchanges for a *real revocable identity* rather than being a standing anonymous
+  door.
+- **Credentials in query params or URL paths** — they land in logs and browser
+  history.
+- **The raw key inside a QR image** — the QR carries a single-use claim token, never
+  the credential itself.
+- **Cookie/session login for keys** — stateless keys remain the model.
+</Warning>
+
+## Scope doctrine
+
+Isolation makes some read scopes safe to grant to owned keys, and leaves others
+strictly operator-only. Grant an owned key only the scopes in the **safe** column;
+the others expose account-wide data or let an owned key mutate a shared namespace it
+does not own.
+
+| Scope family | Safe to grant to an owned key? | Why |
+|---|---|---|
+| Tool runs (read) | **Yes — isolated** | A restricted caller sees only its own key's runs — its own island, keyed on the key's own identity, never shared with sibling keys under the same owner. |
+| [Interactions](/concepts/interactions) (read/answer) | **Yes — isolated** | Scoped to the caller's own `audience`. |
+| Notifications (read) | **Yes — isolated** | Scoped to the caller's own `audience`. |
+| [Observability / traces](/guides/observe) | **No** | Trace payloads are full tool and model inputs/outputs, account-wide. |
+| [Storage / resources](/concepts/storage-and-resources) | **No** | A shared namespace — an owned key would read and mutate content it does not own. |
+| [Presets](/concepts/presets) | **No** | Shared, unowned definitions; a mint is an account-wide mutation. |
+| [Schedules](/concepts/triggers-and-webhooks) | **No** | An owned key would create or edit unowned, account-wide schedules. |
+
+Per-resource ownership for the operator surfaces is not offered — the boundary is
+deliberately "own slice on the isolated surfaces, operator-only everywhere else."
+
+## See also
+
+- [Access control](/concepts/access-control) — the request gate, scopes, and the jq
+  policy model owned keys are capped by.
+- [Accounts](/concepts/accounts) — owners, roles, and who may mint what.
+- [Use owned keys](/guides/owned-keys) — mint a capped key, inspect it, and share it
+  by QR claim link.
+- [CLI reference](/reference/cli/auth) — `tai auth whoami`, `tai auth claim`, and
+  [`tai keys claim-link`](/reference/cli/keys).
+- [HTTP API reference](/reference/api/index) — `/api/auth/me`, `/api/auth/claim-links`,
+  and `/api/login/claim`.

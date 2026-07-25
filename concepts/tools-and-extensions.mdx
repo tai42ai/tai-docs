@@ -1,0 +1,96 @@
+---
+title: "Tools and extensions"
+description: "Atoms of work and the clip-on powers over them."
+icon: "wrench"
+---
+
+A tool is the atom of work: a plain Python function you decorate, a tool from a
+mounted MCP server, or a management [operation](/concepts/live-operations) the
+runtime projects. An extension is a clip-on power that wraps or transforms a tool
+into a new variant. Everything else the platform does is built around these two.
+
+## Tools
+
+You register a function as a tool with one decorator on the shared `tai42_app`
+handle. The function's signature becomes the tool's input schema, and its
+docstring becomes the tool's description:
+
+```python
+from tai42_contract.app import tai42_app
+
+
+@tai42_app.tools.tool
+def greet(name: str) -> str:
+    """Greet a person by name."""
+    return f"Hello, {name}!"
+```
+
+The tool registry keys each requested tool by its base name and maps it to its
+extension combos. The dispatch adapters turn a vendor tool — an MCP tool or a
+langchain tool — into a plain callable, so a tool from a
+[mounted MCP server](/guides/bring-an-mcp-server) behaves like a local one. A tool
+becomes live because the [manifest](/concepts/manifest) names its module.
+
+A third source registers through the same binding: the management
+[operations](/concepts/live-operations) — reload a tool, replace the manifest,
+re-probe a failed MCP server. Each operation projects as a first-class tool (unless
+[`api_tools`](/concepts/manifest#the-api_tools-block) curates it out), so an
+extension wraps it, a [preset](/concepts/presets) bakes over it, and `tai tools
+run` or an agent dispatches it exactly as with any other tool.
+
+## Extensions
+
+An extension is a plain callable registered against an `ExtensionKind` and applied
+to a tool. There are three kinds:
+
+- **`WRAPPER`** — wraps the call around the tool without changing its input schema
+  (for example, tracing or caching the call).
+- **`TRANSFORMER`** — transforms the tool into a new shape, changing what inputs it
+  presents.
+- **`BACKEND`** — routes the tool's execution through a
+  [backend](/concepts/backends).
+
+The extension registry holds the registered extensions and enforces each kind's
+cardinality rule. Applying an extension **branches** the base tool into a new
+named variant rather than mutating it: attaching `monitor` to `mytool` binds a
+`mytool_monitor` branch, leaving `mytool` itself untouched.
+
+## Clipping an extension on
+
+Extensions are attached in the manifest, separately from tool selection. A tool's
+`extensions` map names the branch to build:
+
+```yaml
+tools:
+  - title: my_tools
+    module: myapp.tools
+    include: [greet]
+    extensions:
+      greet: [monitor]
+```
+
+A value may be one combo (`[ext]`) or a list of combos (`[[ext], [ext, other]]`),
+and a stacked combo (`[[a, b]]`) layers both extensions onto one branch. The
+extension's module must also be loaded — through `extensions_modules` — before you
+can attach it.
+
+## Built-in and contrib extensions
+
+The skeleton ships two built-in extensions that depend on skeleton features:
+`monitor` (a `WRAPPER` that traces a standalone tool call as one live span) and
+`ask_external` (a `TRANSFORMER` that turns a callback-URL tool into an
+[external interaction](/concepts/interactions)). Generic, self-contained
+extensions — `chain`, `batch`, `cache`, and more — live in the `tai42-toolbox`
+contrib package and load the same way. The
+[standard toolbox guide](/guides/standard-toolbox) lists them.
+
+<Note>
+An extension extends a single tool. A [plugin](/concepts/config-and-secrets) —
+a connector, storage backend, or config provider — extends the whole platform.
+The two are different things.
+</Note>
+
+See the [Python SDK reference](/reference/python-sdk/index) for the `ExtensionKind`
+enum and the tool registry surface, and the guides on
+[building a tool](/guides/build-a-tool) and
+[applying an extension](/guides/apply-an-extension).
