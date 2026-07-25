@@ -150,12 +150,7 @@ The server exposes two operational routes for orchestrators and load balancers. 
 
 `/health` stays green as long as the process is up. `/ready` lets an orchestrator hold traffic off a worker whose Redis or Postgres is unreachable — such a worker would 500 every real request but stay live.
 
-**Pin the probe routes public.** With access control enabled, unknown routes are denied, so `/health` and `/ready` must be public for probes that carry no key. Unlike the Studio shell, these are registered operational routes — the SPA-shell fallback never covers them, so pin each one explicitly through the public-routes door (the `public` marker); there is no `"*"` wildcard. A distribution compose that carries them in its `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` needs no further step.
-
-```bash
-tai scopes public-pin /health
-tai scopes public-pin /ready
-```
+**The probe routes are public by default — no manual step.** With access control enabled, unknown routes are denied, but `/health` and `/ready` are served public by the app's own route-level declaration: they ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so a probe carrying no key reaches them with nothing to configure. Do **not** also list them in `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` — an acknowledged route that overlaps an always-public prefix is rejected at boot.
 
 <Warning>
 When the access-control Redis itself is down, `ResourceGuardMiddleware` **fails closed with `403`** before the `/ready` handler runs. A probe still sees a non-`200` and rotates or drains the worker either way — the readiness signal is preserved even when the gate's own store is unreachable.
