@@ -112,10 +112,16 @@ jobs:
         working-directory: tai-studio
         # docs-screenshots.sh builds the SPA + reference plugin (from the fresh
         # package dists above), boots a docs-demo skeleton (docker brings up its own
-        # loopback Redis + Postgres -- both preinstalled on ubuntu-latest), warms
-        # metrics, seeds the demo, and captures every screen into
-        # ../tai-docs/images/studio, failing (never shipping a broken shot) if a
-        # screen does not render. One retry absorbs a transient Playwright/boot flake.
+        # loopback Redis + Postgres -- both preinstalled on ubuntu-latest), seeds the
+        # demo, and captures every screen into ../tai-docs/images/studio, failing
+        # (never shipping a broken shot) if a screen does not render. One retry absorbs
+        # a transient Playwright/boot flake.
+        #
+        # SKIP_NONDETERMINISTIC_SHOTS skips the QR screens, whose QR encodes a freshly-
+        # minted random token each run and would otherwise churn every regeneration;
+        # they are recaptured only on a manual full run when their dialog UI changes.
+        env:
+          SKIP_NONDETERMINISTIC_SHOTS: "1"
         run: |
           set -o pipefail
           cleanup() {
