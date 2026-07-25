@@ -1,0 +1,114 @@
+---
+title: "Use owned keys"
+description: "Mint a capped key, inspect what it can do, and share it by QR claim link."
+icon: "share-nodes"
+---
+
+import MintOwnedKey from '/snippets/examples/owned_keys/mint_owned_key.mdx';
+import Whoami from '/snippets/examples/owned_keys/whoami.mdx';
+import ClaimLink from '/snippets/examples/owned_keys/claim_link.mdx';
+
+An [owned key](/concepts/owned-keys) is a capped sub-identity you hand to a
+teammate, a device, or a machine — it can never out-scope you, and it loses power
+the moment your own does. This guide mints one, checks what it may do, and moves it
+onto another device with a one-time QR claim link.
+
+## Prerequisites
+
+[Access control](/guides/access-control) is on, and you hold a key whose scopes are
+the ceiling for what you can delegate. A non-admin owner may grant only scopes it
+holds itself; an admin may also mint ownerless machine keys. Point `TAI_SERVER_URL`
+at your server and `TAI_API_KEY` at your key (the CLI reads both from the
+environment).
+
+## Mint a capped key
+
+Mint a key owned by you. A non-admin owner may grant only a **subset** of its own
+scopes — the new key is automatically owned by the minter, and the raw `sk-…` value
+is returned exactly once, so capture it then.
+
+<MintOwnedKey />
+
+Asking for a scope you do not hold yourself is rejected at mint time with a fixed
+`400` — the key is never silently narrowed to fit. From the Studio, the same mint
+lives on the API-keys tab of the [Settings](/studio/api-keys) screen, where the
+scope picker is capped to your own scopes.
+
+<Info>
+Ownership is exactly one level deep: an owned key can never itself mint keys. Only
+an admin may mint an **ownerless** machine key. See
+[accounts](/concepts/accounts) for who may mint what.
+</Info>
+
+## Inspect what the key can do
+
+A scoped key needs to know its own limits. `tai auth whoami` prints the caller's
+[capability projection](/concepts/owned-keys) — the routes, tools, and agents it
+can reach right now and its effective scopes, plus a `mintable` flag. Run it with
+the owned key (set `TAI_API_KEY` to the key you just minted):
+
+<Whoami />
+
+The projection is derived from the same store and policy the gate reads and is
+jq-exact, so it never lists a door the gate would then deny. It is also what the
+scoped Studio renders from — a limited key sees only the features it can reach.
+
+The `mintable` flag is not a per-caller grant: it reports whether this
+**deployment's** identity provider can mint keys at all (a validator-only provider
+reports `false`). An owned key can never mint regardless — it sees `mintable: true`
+under a mint-capable provider yet still gets a `403` on any mint, because ownership
+is exactly one level deep.
+
+## Watch it die with the owner
+
+An owned key never has to be revoked on its own — it is capped by its owner's
+*current* policy on every request, so attenuating the owner attenuates the key on its
+very next call. Prove the mechanism end to end: disable the owner, empty the owner's
+scopes, or revoke the owner's key, then make any call with the owned key. The gate
+re-evaluates the key against the now-empty owner policy and denies it with a `403` —
+the key is powerless while the owner is down, and recovers the instant the owner is
+restored. (Revoking the owned key itself is the other lever: its own credential then
+fails to authenticate at all.) This is why you revoke a person once, rather than
+chasing down every key they were ever issued.
+
+## Share it by QR claim link
+
+To move a key onto another device without ever putting the secret in a URL, mint a
+**one-time claim link**. Its token rides the URL fragment (`/login#claim=<token>`),
+so it never reaches a server log, and the first exchange burns it.
+
+<ClaimLink />
+
+You may create a claim link only for a key you own (or, as an admin, any key); the
+submitted key is validated before the link is stored, so a bad key fails fast rather
+than producing a dead QR. Compose the absolute URL — or render a QR — from your own
+origin and the returned `claim_path`, then open it on the other device: the
+[sign-in page](/studio/login) recognises the `#claim=` fragment and exchanges the
+token for the key automatically.
+
+<Warning>
+The link is **single-use** and short-lived. A used, unknown, or expired token all
+answer the same `404` — deliberately indistinguishable, so the public exchange door
+gives an attacker no oracle to probe. There is no way to list or revoke a claim in
+flight: wait out the TTL, or revoke the underlying key (the exchange then refuses to
+hand out a revoked credential).
+</Warning>
+
+## Grant scopes safely
+
+Isolation makes some read scopes safe to grant to an owned key and leaves others
+operator-only. A restricted key sees only its own tool runs, interactions, and
+notifications, so those read scopes are safe. **Never** grant an owned key the
+observability, storage, presets, or schedules scopes — those surfaces are
+account-wide and unowned. The full table is in the
+[owned-keys scope doctrine](/concepts/owned-keys#scope-doctrine).
+
+## See also
+
+- [Owned keys](/concepts/owned-keys) — the delegation model, the projection, and
+  isolation.
+- [Set up access control](/guides/access-control) — the gate, scopes, and jq
+  policies behind the cap.
+- [Sign in to the Studio](/studio/login) — the API-key and claim-link sign-in legs.
+- [CLI reference](/reference/cli/auth) — `tai auth whoami`, `tai auth claim`, and
+  [`tai keys claim-link`](/reference/cli/keys).

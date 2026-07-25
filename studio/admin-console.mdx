@@ -1,0 +1,122 @@
+---
+title: "Admin console & live ops"
+description: "Watch a server's health, read its settings, and drive live operations from the browser."
+icon: "sliders"
+---
+
+The Studio is also the live operations console for a server. You confirm it is
+healthy, read its configuration, and drive
+[live operations](/concepts/live-operations) — reloading a tool, updating the
+manifest, or removing a capability — without a restart and without leaving the
+browser.
+
+## Health
+
+The System screen reads the server's liveness probe. A green `Healthy` badge
+confirms the server is up and answering. The demo instance below shows a
+populated `Healthy` badge.
+
+<Frame caption="The System screen: a populated 'Healthy' badge from the server's liveness probe.">
+  <img className="block dark:hidden" src="/images/studio/system-light.png" alt="The System screen showing a 'Healthy' badge from the server's liveness probe." />
+  <img className="hidden dark:block" src="/images/studio/system-dark.png" alt="The System screen showing a 'Healthy' badge from the server's liveness probe." />
+</Frame>
+
+## The kinds table
+
+The System screen also reads the server's **kinds** summary — the plugin kinds
+the server knows about and, for each, whether it is **active** (a provider is
+configured and running), running on a **default** (the built-in fallback is in
+use), or **off** (the kind is not configured). It is the fastest way to confirm
+which providers a running server actually resolved — for example, which
+[identity and accounts](/concepts/accounts) providers the configured
+[auth-provider](/concepts/access-control) chain brought up. The same summary is
+served at `GET /api/system/kinds` and printed in the server's startup log — see
+[live operations](/concepts/live-operations#the-kinds-summary).
+
+<Frame caption="The System screen's kinds table: each known plugin kind with its active, default, or off status.">
+  <img className="block dark:hidden" src="/images/studio/system-kinds-light.png" alt="The System kinds table listing plugin kinds with active, default, or off status." />
+  <img className="hidden dark:block" src="/images/studio/system-kinds-dark.png" alt="The System kinds table listing plugin kinds with active, default, or off status." />
+</Frame>
+
+## User administration
+
+When a server runs an [accounts](/concepts/accounts) provider that ships a Studio
+page, that page mounts into the shell as its own **users-admin** surface — an
+example of the [studio plugin](/studio/plugins) model, where a plugin contributes
+UI, not just API routes. From it an admin manages **human accounts**: create a
+user, issue an [invite](/studio/login#invites), apply a [role](/concepts/accounts#roles),
+and disable an account. The role picker reflects the current editable role set
+(the seeded admin/editor/viewer plus any role an admin has created with
+[`tai roles`](/reference/cli/roles)).
+
+The page governs only the `usr-*` human principals. Machine keys are managed on
+the [API keys](/studio/api-keys) surface, and non-human sign-in subjects
+(`oidc:*`, `idp:*`) through the raw [access-control](/concepts/access-control)
+policy routes — see the [principal-type split](/concepts/accounts#what-the-users-admin-page-governs).
+
+<Frame caption="The plugin-contributed users-admin page: the human accounts on a server, with invite and role controls.">
+  <img className="block dark:hidden" src="/images/studio/users-admin-light.png" alt="The users-admin page listing human accounts with invite and role controls." />
+  <img className="hidden dark:block" src="/images/studio/users-admin-dark.png" alt="The users-admin page listing human accounts with invite and role controls." />
+</Frame>
+
+<Note>
+The users-admin page is contributed by an accounts provider plugin. Its exact
+fields and controls come from that plugin; the concrete provider setup lives in
+the plugin's own repository README, not on this site.
+</Note>
+
+## The operations dashboard
+
+The Dashboard summarises the server's [monitoring](/concepts/live-operations)
+backend — total runs, cost, latency, and token counts over a time range, with a
+per-model breakdown and a trend chart. It answers "what has this server been
+doing" at a glance. The demo instance below is populated from a monitoring
+backend seeded with example runs, so the summary tiles, trend chart, and
+per-model breakdown show representative data. With no monitoring backend
+registered, the Dashboard renders a clean empty state instead.
+
+<Frame caption="The observability Dashboard: run, cost, latency, and token summaries.">
+  <img className="block dark:hidden" src="/images/studio/dashboard-light.png" alt="The observability Dashboard with summary tiles and a trend chart." />
+  <img className="hidden dark:block" src="/images/studio/dashboard-dark.png" alt="The observability Dashboard with summary tiles and a trend chart." />
+</Frame>
+
+## Settings and environment
+
+The **Settings** and **Environment** tabs are the deployment's admin-owned config
+store: the server's configuration mode, its settings schema, and the stored
+environment values — one store holding the deployment's environment plus each
+settings class's values, including deployment secrets such as the connector
+encryption key. Each subsystem's settings — connector crypto, engine config, store
+connections — surface as an editable form. Because that store is admin-owned, both
+tabs are **admin-only**; an editor or viewer configures each feature through the
+feature's own screen, never here — see
+[user types and permissions](/concepts/permissions).
+
+The **API keys** tab on this screen is separate and **self-service**: any signed-in
+user manages its own keys there, regardless of role.
+
+<Frame caption="The Settings screen: the server's configuration mode and settings schema.">
+  <img className="block dark:hidden" src="/images/studio/settings-light.png" alt="The Settings screen showing the server's configuration schema." />
+  <img className="hidden dark:block" src="/images/studio/settings-dark.png" alt="The Settings screen showing the server's configuration schema." />
+</Frame>
+
+## Live operations
+
+Because the Studio drives the same `/api/*` surface as the
+[`tai` CLI](/reference/cli/index), the management
+[operations](/concepts/live-operations) are one run away. From the Tools screen
+you invoke `reload_tool`, `remove_tool`, or `reload_config` — the
+[live operations](/concepts/live-operations) — to reload a tool, drop one from
+the live registry, or soft-restart the server in place. While a reload is in
+flight, the API answers dispatch routes with a retriable `503` rather than
+serving against a half-swapped registry.
+
+<Tip>
+Anything the console does maps to an HTTP route and a CLI command. Reach for
+`tai mcp status` or `tai tools run` from a terminal when you want the same
+operation scripted.
+</Tip>
+
+See [live operations](/concepts/live-operations) for the management operations, and
+the [CLI reference](/reference/cli/index) and
+[HTTP API reference](/reference/api/index) for the routes behind each screen.

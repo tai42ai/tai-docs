@@ -1,0 +1,182 @@
+---
+title: "WhatsApp to an agent"
+description: "Bridge a WhatsApp number to an agent through Twilio or the Meta Cloud API."
+icon: "whatsapp"
+---
+
+Bridge a WhatsApp number to an agent so a client's message runs an agent turn and
+the answer comes back on WhatsApp. Two providers carry WhatsApp: **Twilio** and the
+**Meta Cloud API**. The bridge is the same for both — only the channel plugin, its
+env group, and the webhook wiring differ.
+
+See [client conversations](/concepts/client-conversations) for the model this guide
+configures.
+
+## Prerequisite: mint and bind a least-privilege execution key
+
+A conversation route runs its turn **as** an `execution_key` — an API-key identity,
+not the client who texted. That key's live grants are the turn's entire authority,
+so scope it to exactly what the agent needs and nothing more.
+
+<Steps>
+  <Step title="Mint a scoped key">
+    Mint a key whose scopes are the least the agent's tools require. A non-admin
+    owner may grant only scopes it already holds; the new key is owned by you.
+
+    ```bash
+    tai keys create --user support-bot --description 'WhatsApp support agent' --scope read
+    ```
+  </Step>
+  <Step title="Bind it when you create the route">
+    The route's `--execution-key` binds that identity. You may bind your own
+    identity or a key you own; an admin may bind any key (a pass-role check). The
+    key must be evaluable by a background execution — a stored policy condition that
+    needs a request token is rejected at bind. The turn is bounded by the key's
+    **live** grants: attenuate the key and the next turn is denied, with no
+    revocation step on the route.
+  </Step>
+</Steps>
+
+<Warning>
+The turn can do whatever the execution key can do. Never bind an admin or a broadly
+scoped key to a route reachable from a messaging channel — a prompt-injected message
+would run as that key. Bind a purpose-built, least-privilege key.
+</Warning>
+
+## Provider A — Twilio
+
+### Configure the channel
+
+Set the `CHANNEL_TWILIO_*` env group and load the channel module in the manifest.
+
+```bash
+CHANNEL_TWILIO_ACCOUNT_SID=ACxxxxxxxx
+CHANNEL_TWILIO_AUTH_TOKEN=your-twilio-auth-token
+CHANNEL_TWILIO_FROM=whatsapp:+14155238886   # the WhatsApp sender, whatsapp:-prefixed
+CHANNEL_TWILIO_REDIS_URL=redis://localhost:6379/0
+```
+
+```yaml manifest.yml
+channel_modules:
+  - tai42_channel_twilio
+```
+
+`CHANNEL_TWILIO_AUTH_TOKEN` is a secret — it authenticates the outbound send and
+keys the inbound signature check (a mis-signed webhook is rejected, fail-closed).
+`CHANNEL_TWILIO_ACCOUNT_SID` and the WhatsApp sender come from your Twilio account
+and its WhatsApp sender registration.
+
+### Point the webhooks at the deployment
+
+Twilio calls two webhooks (configured in the Twilio console or REST — the plugin
+never mutates your Twilio account):
+
+- **Inbound message** ("A message comes in", HTTP POST) →
+  `{public base URL}/api/channels/twilio/inbound`
+- **Delivery status callback** (HTTP POST) →
+  `{public base URL}/api/channels/twilio/status`
+
+The status callback is what surfaces a **late** delivery failure: Twilio accepts
+the send, then posts a `failed`/`undelivered` status, which flips the answer record
+to `failed`.
+
+### Create the route
+
+Bind the texted WhatsApp number to the agent. `our_identity` is the number the
+client texts — the Twilio WhatsApp sender, `whatsapp:`-prefixed:
+
+```bash
+tai conversations create support-line \
+  --door channel --agent support --execution-key support-bot \
+  --channel twilio --identity whatsapp:+14155238886
+```
+
+## Provider B — Meta Cloud API
+
+### Configure the channel
+
+Set the `CHANNEL_WHATSAPP_*` env group and load the channel module.
+
+```bash
+CHANNEL_WHATSAPP_ACCESS_TOKEN=your-graph-api-token
+CHANNEL_WHATSAPP_APP_SECRET=your-app-secret
+CHANNEL_WHATSAPP_VERIFY_TOKEN=a-secret-you-choose
+CHANNEL_WHATSAPP_REDIS_URL=redis://localhost:6379/0
+```
+
+```yaml manifest.yml
+channel_modules:
+  - tai42_channel_whatsapp
+```
+
+`ACCESS_TOKEN` is the Graph API bearer token for the send (one token serves many
+numbers). `APP_SECRET` keys the `X-Hub-Signature-256` HMAC the inbound door checks
+over the raw body. `VERIFY_TOKEN` is the shared secret echoed during Meta's
+subscribe handshake. All three are secrets, masked in logs.
+
+### Point the webhook at the deployment
+
+Meta uses a **single** webhook endpoint for verification, inbound messages, and
+delivery statuses (configured in the Meta App dashboard):
+
+- Callback URL → `{public base URL}/api/channels/whatsapp/inbound`
+- Verify token → the value of `CHANNEL_WHATSAPP_VERIFY_TOKEN`
+
+On subscribe, Meta sends a `GET` with `hub.challenge`; the door echoes the
+challenge only when the verify token matches. Inbound messages and delivery
+statuses then arrive as signed `POST`s on the same URL — the `failed` status posted
+outside WhatsApp's service window flips the answer record to `failed` here.
+
+### Create the route
+
+For the Cloud API, `our_identity` is the number's **`phone_number_id`** (from the
+Meta dashboard), not the display number:
+
+```bash
+tai conversations create support-line \
+  --door channel --agent support --execution-key support-bot \
+  --channel whatsapp --identity 109999888877776
+```
+
+## The 24-hour window failure
+
+WhatsApp only lets you send freeform messages inside a **24-hour service window**
+opened by the client's last message. Outside it, a freeform reply is rejected and
+must be a pre-approved template. The bridge surfaces this failure on both providers,
+in both timings:
+
+- **Synchronous** — the provider rejects the send outright; the delivery attempt
+  fails and retries within the attempt budget, then the record ends `failed`.
+- **Asynchronous** — the provider accepts the send (`2xx`) and later posts a
+  `failed`/`undelivered` delivery-status webhook (Twilio's status callback, Meta's
+  same-URL status), which flips the record to `failed`.
+
+Either way the answer never silently vanishes: a permanently undelivered answer is
+retained as `failed` and listed on the admin failed-delivery door.
+
+```bash
+tai conversations failed
+```
+
+## Test it and add more numbers
+
+Send a WhatsApp message to the configured number and watch the agent's reply come
+back from that same number. Read one answer record by id:
+
+```bash
+tai conversations get-message support-line <message_id>
+```
+
+**Multi-number** is just more rows: create another route with the same `--channel`
+and a different `--identity` (a second Twilio sender, or a second `phone_number_id`
+under one Cloud credential). Each identity resolves to its own route and agent, and
+each reply leaves from the number that was texted. A `(channel, identity)` pair may
+be claimed by only one route.
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — doors, routing, and
+  delivery outcomes.
+- [Conversation bridge reference](/reference/conversation-bridge) — every setting,
+  the read doors, and the authorization model.
+- [Use owned keys](/guides/owned-keys) — minting and capping the execution key.

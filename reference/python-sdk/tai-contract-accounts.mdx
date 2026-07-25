@@ -1,0 +1,331 @@
+---
+title: "Accounts (tai42_contract.accounts)"
+description: "The AccountsProvider contract, its registry, and the login-method metadata models."
+icon: "user-lock"
+---
+
+
+The accounts provider contract: user accounts, login flows, sessions.
+
+## AccountsAdminServices
+
+`tai42_contract.accounts.provider.AccountsAdminServices`
+
+```python
+class AccountsAdminServices(Protocol)
+```
+
+Application-side policy services an accounts provider may invoke.
+
+Implemented by the application and INJECTED via
+``AccountsProviderSettings.admin`` — accounts plugins never import the
+application package, so this Protocol is the only way plugin code can
+apply a role template, remove a principal's policy, or flip the disabled
+marker. Every method mutates application-owned policy state; the plugin
+never touches that state directly.
+
+### Members
+
+#### apply_role
+
+`tai42_contract.accounts.provider.AccountsAdminServices.apply_role`
+
+```python
+async apply_role(self, user_id: str, role: str) -> None
+```
+
+Copy the named role template into the user's enforced policy.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+| `role` | `str` | — | — |
+
+
+#### remove_policy
+
+`tai42_contract.accounts.provider.AccountsAdminServices.remove_policy`
+
+```python
+async remove_policy(self, user_id: str) -> None
+```
+
+Delete the user's enforced policy (and revoke keys it owned).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+
+
+#### set_user_disabled
+
+`tai42_contract.accounts.provider.AccountsAdminServices.set_user_disabled`
+
+```python
+async set_user_disabled(self, user_id: str, disabled: bool) -> None
+```
+
+Set/clear the disabled marker on the user's enforced policy.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+| `disabled` | `bool` | — | — |
+
+
+
+## AccountsProvider
+
+`tai42_contract.accounts.provider.AccountsProvider`
+
+```python
+class AccountsProvider(IdentityProvider)
+```
+
+A user-accounts provider: login methods plus session-token validation.
+
+An accounts provider owns human accounts and the login flows that mint
+session tokens for them. It IS an identity provider: the session tokens
+it mints are validated through the inherited ``validate_token`` — the
+same seam every credential passes through — so installing an accounts
+provider never adds a second enforcement pathway.
+
+Session tokens are opaque strings minted and stored by the provider
+(recommended prefix ``tai-sess-`` to distinguish them from ``sk-`` API
+keys at a glance); the contract never parses token contents. Storage,
+hashing, and lifetime are provider-owned.
+
+Login/lifecycle HTTP routes (submit endpoints, redirect flows) are
+shipped by the provider plugin as ordinary router modules; the contract
+carries only the metadata that lets a generic login screen render them.
+
+### Members
+
+#### login_methods
+
+`tai42_contract.accounts.provider.AccountsProvider.login_methods`
+
+```python
+login_methods(self) -> list[LoginMethod]
+```
+
+Declare the login methods this provider offers.
+
+Called by the application's public login-methods aggregator. Must be
+cheap and side-effect free: this is static, config-derived metadata,
+not I/O (sync by contract, like ``readiness_targets``).
+
+
+#### needs_bootstrap
+
+`tai42_contract.accounts.provider.AccountsProvider.needs_bootstrap`
+
+```python
+async needs_bootstrap(self) -> bool
+```
+
+Whether this provider still needs its first account created.
+
+A LIVE store read (async by contract): the aggregator calls it on
+every methods fetch so the owner-creation screen disappears the
+moment the owner exists. Providers with no bootstrap concept return
+``False``.
+
+
+#### revoke_session
+
+`tai42_contract.accounts.provider.AccountsProvider.revoke_session`
+
+```python
+async revoke_session(self, token: str) -> bool
+```
+
+Revoke the session behind ``token`` if it is this provider's.
+
+Returns ``True`` when a session was found and revoked; ``False``
+when the token is not this provider's (wrong prefix, unknown). The
+application's single logout route dispatches across ALL registered
+accounts providers, so implementations must answer ``False`` for
+foreign tokens instead of raising. Backend errors still raise
+(fail closed).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `token` | `str` | — | — |
+
+
+
+## AccountsProviderSettings
+
+`tai42_contract.accounts.provider.AccountsProviderSettings`
+
+```python
+class AccountsProviderSettings(Protocol)
+```
+
+Settings shape handed to an accounts-provider factory.
+
+``redis`` and ``admin`` are typed loosely for the same reason
+``IdentityProviderSettings.redis`` is ``Any``: the contract cannot name
+application or kit types. ``admin`` carries the application's
+``AccountsAdminServices`` implementation.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `redis` | `Any` |
+| `admin` | `Any` |
+
+
+## ButtonMethod
+
+`tai42_contract.accounts.models.ButtonMethod`
+
+```python
+class ButtonMethod(BaseModel)
+```
+
+A redirect button: the renderer draws a button that navigates to href (e.g. an OIDC authorize route).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `shape` | `Literal['button']` |
+| `id` | `str` |
+| `label` | `str` |
+| `icon` | `str \| None` |
+| `href` | `str` |
+
+
+## FormField
+
+`tai42_contract.accounts.models.FormField`
+
+```python
+class FormField(BaseModel)
+```
+
+One input of a form-shaped login method.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `name` | `str` |
+| `label` | `str` |
+| `secret` | `bool` |
+| `autocomplete` | `str \| None` |
+
+
+## FormMethod
+
+`tai42_contract.accounts.models.FormMethod`
+
+```python
+class FormMethod(BaseModel)
+```
+
+A credentials form: the renderer draws the fields and POSTs them as JSON to submit_path.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `shape` | `Literal['form']` |
+| `id` | `str` |
+| `title` | `str` |
+| `purpose` | `Literal['login', 'bootstrap', 'invite']` |
+| `fields` | `list[FormField]` |
+| `submit_path` | `str` |
+
+
+## LoginMethod
+
+`tai42_contract.accounts.models.LoginMethod`
+
+```python
+LoginMethod = Annotated[FormMethod | ButtonMethod, Field(discriminator='shape')]
+```
+
+The closed union of renderable login-method shapes.
+
+
+## get_accounts_provider_factory
+
+`tai42_contract.accounts.registry.get_accounts_provider_factory`
+
+```python
+get_accounts_provider_factory(name: str) -> Callable[..., AccountsProvider]
+```
+
+Return the factory registered under ``name``; unknown names raise KeyError.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+## iter_accounts_provider_factories
+
+`tai42_contract.accounts.registry.iter_accounts_provider_factories`
+
+```python
+iter_accounts_provider_factories() -> list[tuple[str, Callable[..., AccountsProvider]]]
+```
+
+Name-sorted snapshot of all registered factories.
+
+Returns a new list: callers may iterate freely without touching registry
+state. Sorted for deterministic aggregator output.
+
+
+## register_accounts_provider
+
+`tai42_contract.accounts.registry.register_accounts_provider`
+
+```python
+register_accounts_provider(name: str, factory: Callable[..., AccountsProvider]) -> None
+```
+
+Register a named accounts-provider factory in BOTH registries.
+
+Registers ``factory`` here and — because an accounts provider is the
+identity answerer for its own session tokens — into the identity
+registry under the same name. A duplicate in either registry raises.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `factory` | `Callable[..., AccountsProvider]` | — | — |
+
+
+## reset_registry
+
+`tai42_contract.accounts.registry.reset_registry`
+
+```python
+reset_registry() -> None
+```
+
+Clear the accounts registrations (application start() re-imports plugin modules).
+
+Clears only this registry: the application's start() resets the identity
+registry itself before re-importing plugin modules.
+

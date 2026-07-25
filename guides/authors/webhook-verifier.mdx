@@ -1,0 +1,43 @@
+---
+title: "Author a webhook verifier"
+description: "Build a webhook verifier plugin."
+icon: "bolt"
+---
+
+import SignatureVerifier from '/snippets/examples/webhook_verifier/signature_verifier.mdx';
+
+Author a webhook verifier plugin.
+
+A webhook verifier authenticates an inbound webhook from its raw request bytes and headers, before the platform parses or dispatches the payload. It implements the `WebhookVerifier` protocol — one `verify` method that returns `None` on success or raises `WebhookVerificationError` on any failure. It never returns a bool: a forgotten check must not read as a silent pass. An HMAC signature over the raw body is the common shape.
+
+## Implement verify
+
+`verify` receives the exact raw body bytes, the request headers (case-insensitive lookup expected), and the per-binding config. A signature scheme computes its HMAC over the raw bytes, so a door calls `verify` before any parsing. The config never holds a secret value — only a `secret_env` naming the environment variable that holds it, resolved here at verify time; a missing env var raises loudly, so verification fails closed.
+
+<SignatureVerifier />
+
+The example sets `post_only = True` because it authenticates the raw **body**: a door that also accepts GET then rejects GET for a topic bound to it, so the real payload can never ride the URL unauthenticated. A verifier that reads only a header leaves `post_only` at `False` and works over any delivery method.
+
+## Register through the handle
+
+Register the verifier under a name through the handle, as the last line of the example does. Registering a name already taken raises loudly — a silent overwrite could swap a verifier out from under a live binding.
+
+## Load it
+
+The host loads a verifier by naming its import-only module under `lifecycle_modules`; a topic then binds it with `tai hooks set-verifier`. See [Fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook).
+
+```yaml manifest.yml
+lifecycle_modules:
+  - your_package.verifier
+```
+
+## Shipped implementations
+
+- `shared_secret` — the built-in header-secret verifier that ships with the runtime.
+- Provider verifiers ship as their own packages; see the [ecosystem catalog](/reference/catalog).
+
+## See also
+
+- [Triggers and webhooks](/concepts/triggers-and-webhooks) — the verifier and binding model.
+- [Fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook) — binding a verifier to a topic.
+- [Python SDK reference](/reference/python-sdk) — the `WebhookVerifier` protocol.

@@ -1,0 +1,126 @@
+---
+title: "CLI"
+description: "The tai command-line tool: one entrypoint, global flags, and config resolution."
+icon: "terminal"
+---
+
+`tai` is the single command-line entrypoint for operating a server from the
+terminal. It groups every surface — tools, presets, agents, connectors, keys,
+schedules, and more — under one command tree. The per-group pages in this
+section render from the live command tree, so their usage and options never
+drift from the code.
+
+```console
+$ tai [OPTIONS] COMMAND [ARGS]...
+```
+
+Run `tai --help`, or `tai <command> --help`, for the same tree these pages
+document.
+
+## Command groups
+
+<CardGroup cols={2}>
+  <Card title="serve" icon="play" href="/reference/cli/serve">
+    Boot a server locally.
+  </Card>
+  <Card title="tools" icon="wrench" href="/reference/cli/tools">
+    Inspect and manage registered tools.
+  </Card>
+  <Card title="agents" icon="robot" href="/reference/cli/agents">
+    Inspect and manage agents.
+  </Card>
+  <Card title="presets" icon="sliders" href="/reference/cli/presets">
+    Manage versioned tool presets.
+  </Card>
+  <Card title="connectors" icon="plug" href="/reference/cli/connectors">
+    Manage OAuth connectors.
+  </Card>
+  <Card title="plugins" icon="store" href="/reference/cli/plugins">
+    Browse the marketplace and install plugins.
+  </Card>
+  <Card title="keys" icon="key" href="/reference/cli/keys">
+    Mint and manage API keys.
+  </Card>
+  <Card title="config" icon="gear" href="/reference/cli/config">
+    Inspect the resolved configuration.
+  </Card>
+  <Card title="doctor" icon="stethoscope" href="/reference/cli/doctor">
+    Diagnose the local environment.
+  </Card>
+</CardGroup>
+
+## Global options
+
+These flags apply to every command:
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. Pipe the JSON into other tools. |
+| `--server URL` | The server base URL to talk to. |
+| `--api-key-stdin` | Read the API key as one line from stdin, rather than prompting. |
+
+<Note>
+  There is no `--api-key VALUE` flag: a key on the command line leaks through
+  `ps` and shell history. Supply the key through the environment, the config
+  file, `--api-key-stdin`, or the interactive prompt.
+</Note>
+
+## Server URL resolution
+
+`tai` resolves the server it talks to in this order, first match wins:
+
+<Steps>
+  <Step title="The --server flag">
+    An explicit `--server URL` on the command line.
+  </Step>
+  <Step title="The TAI_SERVER_URL environment variable">
+    Set it to point a shell session at a server.
+  </Step>
+  <Step title="The config file">
+    The `server_url` key in `config.toml`.
+  </Step>
+  <Step title="The local default">
+    `http://127.0.0.1:8000` — the port comes from the same serve defaults
+    `tai serve` uses, so the two always agree.
+  </Step>
+</Steps>
+
+## API-key resolution
+
+The API key resolves in this order, first match wins:
+
+<Steps>
+  <Step title="--api-key-stdin">
+    Read one line from stdin — the way to pass a key from a secret store.
+  </Step>
+  <Step title="The TAI_API_KEY environment variable">
+    Set it for a shell session.
+  </Step>
+  <Step title="The config file">
+    The `api_key` key in `config.toml`.
+  </Step>
+  <Step title="An interactive prompt">
+    A hidden prompt, as a last resort.
+  </Step>
+</Steps>
+
+## Config file
+
+`tai` reads a TOML config file at `$XDG_CONFIG_HOME/tai/config.toml`, or
+`~/.config/tai/config.toml` when `XDG_CONFIG_HOME` is unset. It recognizes two
+keys:
+
+```toml
+server_url = "https://your-server/"
+api_key = "tai-..."
+```
+
+A malformed config file raises loudly rather than being ignored.
+
+## Local vs remote commands
+
+Most commands call the server's [HTTP API](/reference/api) and so resolve a
+server URL and an API key. A few run locally and never contact a server —
+`tai serve` boots one, `tai openapi` emits the API spec offline, `tai version`
+and `tai doctor` inspect the local environment, and `tai completion` installs
+shell completion.

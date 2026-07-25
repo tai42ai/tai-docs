@@ -1,0 +1,209 @@
+---
+title: "Host & testing"
+description: "The host-only registry API (loadPlugin / getContributions) and the test-only reset."
+icon: "shield-halved"
+---
+
+
+The host-only registry API (loadPlugin / getContributions) and the test-only reset.
+
+## PluginContributionsSnapshot
+
+```ts
+interface PluginContributionsSnapshot
+```
+
+What `usePluginContributions` returns: the load status and the registry.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `contributions` | `PluginContributions` | The committed contributions, meaningful only when `status === 'ready'`. |
+| `status` | `"idle" \| "loading" \| "ready"` | The load pass's status; contributions are only complete once it is `'ready'`. |
+
+**Related:** [PluginContributions](/reference/studio-sdk/plugin-api#plugincontributions)
+
+
+## PluginLoaderState
+
+```ts
+interface PluginLoaderState
+```
+
+The plugin load pass's public state, mirrored for feature pages to read. It is
+the shape the app shell's loader store already exposes: `status` gates when the
+contributions are complete, and the error fields carry the loud failures.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `errors` | `Readonly<Record<string, string>>` | Plugin name → loud error message (version mismatch / load failure). |
+| `loaded` | `readonly string[]` | Names of plugins whose bundle imported and registered successfully. |
+| `registryError` | `string \| null` | A registry-listing failure that is NOT a 401 (surfaced loudly, never hidden). |
+| `status` | `"idle" \| "loading" \| "ready"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
+
+
+## __resetContributions
+
+```ts
+function __resetContributions(): void
+```
+
+Tests reset the module-level registry between cases.
+
+
+## __resetPluginHostState
+
+```ts
+function __resetPluginHostState(): void
+```
+
+Tests reset the module-level host state between cases.
+
+
+## deferred
+
+```ts
+function deferred<T>(): { promise: Promise<T>; reject: (reason: unknown) => void; resolve: (value: T) => void }
+```
+
+A promise whose settlement the test controls, returned alongside its own
+`resolve`/`reject`. It pins a component's loading state for assertion: hand the
+unsettled `promise` to the code under test (e.g. as a mocked api call's return
+value), assert the in-flight UI while it hangs, then call `resolve`/`reject` to
+drive the success or failure branch and assert the settled UI. Each call
+returns a fresh, independent deferred.
+
+
+## getContributions
+
+```ts
+function getContributions(): PluginContributions
+```
+
+The shell reads this after loading every installed plugin bundle.
+
+**Related:** [PluginContributions](/reference/studio-sdk/plugin-api#plugincontributions)
+
+
+## getPluginHostState
+
+```ts
+function getPluginHostState(): PluginLoaderState
+```
+
+The current mirrored host state — the snapshot `usePluginContributions` reads.
+
+**Related:** [PluginLoaderState](/reference/studio-sdk/host-testing#pluginloaderstate)
+
+
+## installJsdomStubs
+
+```ts
+function installJsdomStubs(): void
+```
+
+jsdom omits a handful of browser APIs the Studio components reach for while a
+test drives them. Installing every stub in one place keeps each feature's
+`test-setup.ts` identical and lets interaction tests exercise the real
+components instead of mocking them out:
+
+- Radix primitives observe element size (`ResizeObserver`), scroll the active
+  item into view, and capture the pointer while opening.
+- Export/download paths create and revoke object URLs.
+- File-import flows read the picked file via `Blob.text()`.
+- Router scroll restoration calls `scrollTo` on navigation.
+
+Each stub only fills a MISSING API, so installing the whole set everywhere is
+harmless — the one exception is `window.scrollTo`, which jsdom ships as a "Not
+implemented" stub that logs loudly on every navigation, so it is replaced
+unconditionally. Call once from a package's Vitest `setupFiles` entry.
+
+
+## loadPlugin
+
+```ts
+function loadPlugin(pluginId: string, entry: PluginEntry): Promise<void>
+```
+
+Load one plugin: call its `register` entry with a context bound to `pluginId`,
+then commit everything it staged into the global registry.
+
+Contributions are STAGED into local arrays (identity captured in the closure,
+never read from ambient state) and only committed after `entry` settles
+successfully. `entry` is AWAITED before commit, so a synchronous or an `async`
+entry is fully done first: a post-`await` throw skips the commit (atomicity
+holds for async too) and a post-`await` registration cannot slip past the batch.
+The seal is set after `entry` has SETTLED — for a sync entry, after it returns
+and the `await` continuation runs; for an async entry, after its returned promise
+resolves. A registration attempted from that point on (a deferred timer, a
+callback scheduled after settle) throws loudly instead of pushing into an
+orphaned staged array that never commits. Registrations made during `entry`'s
+synchronous body — including a microtask it enqueues then, which runs before the
+`await` continuation — are still captured and committed with the batch. A
+`register` that throws commits nothing and leaves the registry untouched.
+Duplicate guards run against BOTH the staged contributions and what is already
+committed, and fail loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `pluginId` | `string` | — | — |
+| `entry` | `PluginEntry` | — | — |
+
+**Related:** [PluginEntry](/reference/studio-sdk/plugin-api#pluginentry)
+
+
+## setPluginHostState
+
+```ts
+function setPluginHostState(state: PluginLoaderState): void
+```
+
+The host loader pushes every load-pass transition here (it stays the single
+driver); every subscriber is notified so feature pages re-render off it.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `errors` | `Readonly<Record<string, string>>` | Plugin name → loud error message (version mismatch / load failure). |
+| `loaded` | `readonly string[]` | Names of plugins whose bundle imported and registered successfully. |
+| `registryError` | `string \| null` | A registry-listing failure that is NOT a 401 (surfaced loudly, never hidden). |
+| `status` | `"idle" \| "loading" \| "ready"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
+
+**Related:** [PluginLoaderState](/reference/studio-sdk/host-testing#pluginloaderstate)
+
+
+## subscribePluginHost
+
+```ts
+function subscribePluginHost(listener: () => void): () => void
+```
+
+Subscribe to host-state transitions; returns the unsubscribe function
+`useSyncExternalStore` requires so a subscriber detaches on unmount.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `listener` | `() => void` | — | — |
+
+
+## usePluginContributions
+
+```ts
+function usePluginContributions(): PluginContributionsSnapshot
+```
+
+Subscribe to the plugin host state and read the committed contributions. The
+status drives re-renders as the load pass advances; `contributions` is only
+meaningful once `status === 'ready'` (before then the pass has committed
+nothing, so callers render their non-plugin content).
+
+**Related:** [PluginContributionsSnapshot](/reference/studio-sdk/host-testing#plugincontributionssnapshot)
+

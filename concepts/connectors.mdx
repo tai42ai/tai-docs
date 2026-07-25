@@ -1,0 +1,70 @@
+---
+title: "Connectors"
+description: "OAuth connections to outside apps."
+icon: "plug"
+---
+
+A connector is an OAuth connection to an outside app. It binds a running server to
+a third party — Google, Atlassian, and others — and manages the token exchange and
+storage so a tool can call an authenticated API without ever handling raw
+credentials.
+
+## The provider-agnostic engine
+
+The connector engine is provider-agnostic. The domain and wire models and the
+provider ABCs live in the contract; the skeleton owns the runtime — the OAuth
+flow, the token store, the resolver, and the stdio glue. Individual providers
+ship as separate [plugins](/concepts/config-and-secrets) that register through
+`tai42_app` when the [manifest](/concepts/manifest) loads them.
+
+## Tokens resolved at call time
+
+A managed connection is referenced from the manifest by its provider and
+sub-service; the actual credential is resolved at call time, per outbound request.
+The resolver serves a healthy, still-fresh token on the hot path without locking,
+and only takes a lock to refresh a stale one — so replicas racing an expired token
+converge on one refresh.
+
+The resolved credential is injected on the right channel for the transport: an
+`Authorization: Bearer` header for HTTP, or the `_meta` token field for a stdio
+MCP server. A connection can also be no-auth-with-config, in which case configured
+values are injected as headers or environment instead of a token.
+
+## Where tokens live
+
+The token store keeps tokens in Redis as a cache and Postgres as the source of
+truth. The connector engine loads its provider catalog from Postgres at startup
+**only when connectors are actually in use** — a connector entry in the manifest,
+a registered provider, or connector environment configuration. Otherwise the
+catalog load is skipped and startup never touches Postgres. With connectors in use
+and no reachable database, startup fails loudly.
+
+## Connection health
+
+A connection carries a health state, so a token that has stopped refreshing or a
+connection that needs re-authorising surfaces as a clear, typed condition rather
+than a silent failure at call time. Reconnect-required and refresh-failing states
+raise their own errors.
+
+## Managing connections
+
+Drive the OAuth lifecycle from the CLI:
+
+```bash
+tai connectors providers      # list the registered providers
+tai connectors connections    # list live connections
+tai connectors connect <provider>
+tai connectors reconnect <id>
+tai connectors disconnect <id>
+```
+
+<Note>
+The platform documents connectors at the platform level. A specific provider's
+setup — its scopes, redirect URIs, and environment — lives in that connector
+package's own repository, reachable from the
+[catalog](/reference/catalog/index).
+</Note>
+
+See the [connect-an-OAuth-provider guide](/guides/connect-an-oauth-provider) for
+the end-to-end flow and the [HTTP API reference](/reference/api/index) for the
+connector routes.

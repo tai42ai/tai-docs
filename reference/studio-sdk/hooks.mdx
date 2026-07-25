@@ -1,0 +1,356 @@
+---
+title: "Hooks"
+description: "The React hooks and providers every feature builds on — API access, theme, auth, and the interactions stream."
+icon: "circle-nodes"
+---
+
+
+The React hooks and providers every feature builds on — API access, theme, auth, and the interactions stream.
+
+## ApiProvider
+
+```ts
+const ApiProvider: Provider<ApiClient | null>
+```
+
+**Related:** [ApiClient](/reference/studio-sdk/utilities#apiclient)
+
+
+## AuthProvider
+
+```ts
+function AuthProvider(
+  props: { children: ReactNode },
+): FunctionComponentElement<ProviderProps<AuthState | null>>
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+**Related:** [AuthState](/reference/studio-sdk/hooks#authstate)
+
+
+## AuthState
+
+```ts
+interface AuthState
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `isAuthenticated` | `boolean` | — |
+| `login` | `(token: string, remember: boolean) => void` | Store the key; `remember` persists to sessionStorage for this device. |
+| `logout` | `() => void` | — |
+| `token` | `string \| null` | — |
+
+
+## CapabilityContextValue
+
+```ts
+interface CapabilityContextValue
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `retry` | `() => void` | Re-fetch the projection (the nav-region `ErrorState`'s retry action). |
+| `state` | `CapabilityState` | — |
+
+**Related:** [CapabilityState](/reference/studio-sdk/hooks#capabilitystate)
+
+
+## CapabilityProvider
+
+```ts
+function CapabilityProvider(
+  props: { children: ReactNode },
+): FunctionComponentElement<ProviderProps<CapabilityContextValue | null>>
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+**Related:** [CapabilityContextValue](/reference/studio-sdk/hooks#capabilitycontextvalue)
+
+
+## CapabilityState
+
+```ts
+type CapabilityState = { status: "loading" } | { projection: MeProjection; status: "ready" } | { error: unknown; status: "failed" }
+```
+
+
+## InteractionsStreamState
+
+```ts
+interface InteractionsStreamState
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `backlogLoaded` | `boolean` | — |
+| `connected` | `boolean` | — |
+| `error` | `Error \| null` | — |
+| `interactions` | `StreamInteraction[]` | — |
+
+**Related:** [StreamInteraction](/reference/studio-sdk/hooks#streaminteraction)
+
+
+## StreamInteraction
+
+```ts
+type StreamInteraction = Interaction & { answered: boolean }
+```
+
+A live interaction plus the client-maintained `answered` flag.
+
+
+## Theme
+
+```ts
+type Theme = "light" | "dark"
+```
+
+
+## ThemeProvider
+
+```ts
+function ThemeProvider(
+  props: { children: ReactNode },
+): FunctionComponentElement<ProviderProps<ThemeState | null>>
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+**Related:** [ThemeState](/reference/studio-sdk/hooks#themestate)
+
+
+## ThemeState
+
+```ts
+interface ThemeState
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `setTheme` | `(theme: Theme) => void` | — |
+| `theme` | `Theme` | — |
+| `toggle` | `() => void` | — |
+
+**Related:** [Theme](/reference/studio-sdk/hooks#theme)
+
+
+## UnauthorizedProvider
+
+```ts
+const UnauthorizedProvider: Provider<() => void>
+```
+
+
+## coversAnyRoute
+
+```ts
+function coversAnyRoute(
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  prefixes: readonly string[],
+): boolean
+```
+
+Whether the projection reaches ANY route under one of `prefixes` — the
+declarative test behind nav filtering and plugin `requiredCapabilities`. A
+concrete `routes[].path` covers a prefix when it is that prefix or a
+segment-nested descendant of it; a dynamic `route_patterns[].pattern` covers a
+prefix only when it is a simple anchored open-wildcard pattern (`^<literal>.*$`)
+whose open literal overlaps the prefix at a segment boundary.
+
+Under-showing is safe (projection is UX; the server is the authority);
+over-showing is the bug. So any non-anchored or otherwise complex pattern
+(alternation, char class, bounded quantifier) is conservatively treated as NOT
+covering — its matched set is not a clean prefix, so we never infer reach from
+it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `prefixes` | `readonly string[]` | — | — |
+
+
+## coversRoute
+
+```ts
+function coversRoute(
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  path: string,
+  method: string,
+): boolean
+```
+
+Whether the projection reaches a specific WRITE route — an EXACT `path` whose
+admitted `methods` include `method`. This is the method-aware companion to
+`coversAnyRoute`: a read/nav surface gates path-only (any method reaching a
+prefix means the surface is navigable), but an action that issues `method path`
+must gate on the method too, or a caller whose jq fence admits only GET on `path`
+would be shown a control that 403s on submit (projection ⊆ gate).
+
+Only concrete `routes` are consulted: dynamic `route_patterns` carry no method, so
+no write capability can be soundly inferred from them, and a synthetic TOTAL
+(admin) projection carries no concrete `routes` at all — callers short-circuit it
+with `isFullProjection` before reaching here. Under-showing is safe (the
+server stays the authority); over-showing an action the gate denies is the bug.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `path` | `string` | — | — |
+| `method` | `string` | — | — |
+
+
+## coversWrite
+
+```ts
+function coversWrite(state: CapabilityState, path: string, method: string): boolean
+```
+
+Whether a WRITE control may be shown/enabled for this caller — the fail-closed,
+method-aware gate the features fold together with any deployment-level read-only flag
+(the projection ⊆ gate invariant, in one place). It is `true` ONLY once the projection
+is `ready` AND either it is a full (admin / gate-off) projection or it reaches
+`method path`. While the projection is loading/failed it is `false` — a write control
+never enables before the gate is known (fail closed; not-ready ⇒ disabled/read-only).
+
+Only concrete `routes` carry methods, so a DYNAMIC (templated) write route — one the
+projection can represent only as a method-less `route_patterns` row — reads `false` for
+every non-admin caller and degrades that control to read-only. Under-showing is safe
+(the server stays the authority); over-showing a write the gate denies is the bug.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `CapabilityState` | — | — |
+| `path` | `string` | — | — |
+| `method` | `string` | — | — |
+
+**Related:** [CapabilityState](/reference/studio-sdk/hooks#capabilitystate)
+
+
+## isFullProjection
+
+```ts
+function isFullProjection(
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+): boolean
+```
+
+Whether the projection is the synthetic TOTAL projection — the admin session
+(the condition-free ownerless `"*"` discriminator) and the gate-off local-dev
+projection alike. This is `projection.admin === true` and NOTHING else: a
+seeded editor/viewer carries `["*"]` scopes PLUS a jq fence, so keying on `"*"`
+scopes would hand every editor/viewer the unfiltered nav and a wall of 403s on
+the admin routes their fence denies. Keying on `admin` makes editor/viewer
+SCOPED sessions whose nav is filtered by their jq-exact `routes`, which is
+exactly right — and the gate-off synthetic projection (`admin: true`, empty
+`routes`) still reads as full, so an AC-disabled deployment shows everything.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+
+
+## useApi
+
+```ts
+function useApi(): ApiClient
+```
+
+**Related:** [ApiClient](/reference/studio-sdk/utilities#apiclient)
+
+
+## useAuth
+
+```ts
+function useAuth(): AuthState
+```
+
+**Related:** [AuthState](/reference/studio-sdk/hooks#authstate)
+
+
+## useCanWrite
+
+```ts
+function useCanWrite(path: string, method: string): boolean
+```
+
+Whether a WRITE control may be shown for the current caller — the single boundary
+primitive a feature calls to hide a control whose `method path` the caller's
+projection cannot reach. It reads the live capability state and folds it through
+`coversWrite`: `true` only once the projection is `ready` AND it is a full
+(admin / gate-off) projection or it reaches `method path`; while the projection is
+loading/failed it is `false` (fail closed — no write control before the gate is
+known). `method` defaults to `POST`, the common write verb; pass the exact verb for
+a PUT/PATCH/DELETE control.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `string` | — | — |
+| `method` | `string` | `'POST'` | — |
+
+
+## useCapabilities
+
+```ts
+function useCapabilities(): CapabilityContextValue
+```
+
+**Related:** [CapabilityContextValue](/reference/studio-sdk/hooks#capabilitycontextvalue)
+
+
+## useInteractionsStream
+
+```ts
+function useInteractionsStream(): InteractionsStreamState
+```
+
+**Related:** [InteractionsStreamState](/reference/studio-sdk/hooks#interactionsstreamstate)
+
+
+## useOnUnauthorized
+
+```ts
+function useOnUnauthorized(): () => void
+```
+
+
+## useTheme
+
+```ts
+function useTheme(): ThemeState
+```
+
+**Related:** [ThemeState](/reference/studio-sdk/hooks#themestate)
+

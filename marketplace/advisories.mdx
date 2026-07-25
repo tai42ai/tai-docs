@@ -1,0 +1,53 @@
+---
+title: "Advisories"
+description: "How a server hears about bad versions, and the poll setting."
+icon: "triangle-exclamation"
+---
+
+An advisory flags affected versions of a listing with a severity and a
+summary. Your server checks advisories for the plugins it has installed — at
+install time, on demand, and on a background poll you control.
+
+## Check on demand
+
+```bash
+tai plugins advisories
+```
+
+Lists the advisories affecting your installed plugins, from the server's
+cached advisory state.
+
+## At install time
+
+Every install and update checks the registry before anything changes: a killed
+version cannot be resolved at all, and a non-withdrawn critical advisory
+against the requested version refuses the install. Lesser advisories ride the
+install response rather than blocking it.
+
+## The background poll
+
+A running server polls the registry for advisories affecting its installed
+plugins. The poll is deliberately visible:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MARKETPLACE_ADVISORIES_POLL` | `true` | Poll the registry for advisories on installed plugins. |
+| `MARKETPLACE_ADVISORIES_INTERVAL_S` | `3600` | Seconds between polls. |
+| `MARKETPLACE_URL` | `https://marketplace.tai42.ai` | The registry the server talks to. |
+
+At startup the server logs the poll target URL, so the outbound call is never
+silent. The poll fetches advisories only — nothing about your server is sent
+beyond the request itself. Disable it with one env var:
+
+```bash
+MARKETPLACE_ADVISORIES_POLL=false
+```
+
+With the poll off, install-time checks and `tai plugins advisories` still work —
+they are direct requests you make, not background traffic.
+
+## See also
+
+- [The marketplace model](/concepts/marketplace) — advisories and the kill switch.
+- [Install a plugin](/marketplace/install) — the install-time check.
+- [Config and secrets](/concepts/config-and-secrets) — how settings resolve.

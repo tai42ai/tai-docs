@@ -1,0 +1,357 @@
+# Documentation freshness pipeline.
+#
+# This workflow keeps the generated reference (HTTP API, CLI, Python SDK, the
+# ecosystem catalog, the settings reference, and the Studio SDK) in lockstep with
+# the source repositories. It runs
+# entirely in the hosted CI runner -- it needs the source checkouts, `uv`, and
+# the Mintlify CLI (`mint`), none of which are available in an offline
+# checkout, so it does not execute locally; the generators and the drift /
+# registry checks it invokes are the same scripts run locally under `scripts/`.
+#
+# Two jobs, selected by trigger:
+#
+#   * `gate` runs on every pull request and on push to `main`. It re-runs the
+#     generators against a snapshot and FAILS if the committed reference has
+#     drifted (`scripts/check_drift.py`), then runs the registry cross-check,
+#     the examples type-check, and a Mintlify build + link check. It never
+#     mutates the tree. While a pending regeneration PR (below) is unmerged the
+#     drift gate stays red; merging that PR clears it.
+#
+#   * `regenerate` runs on the source-repo push hook (repository_dispatch), on
+#     manual dispatch, and on a daily schedule. It regenerates every reference
+#     section against the source repos' `main` HEAD and, when the output
+#     differs from the committed files, opens an AUTOMATED pull request carrying
+#     the regenerated MDX. It NEVER pushes to `main` -- the deployed site always
+#     builds from committed files.
+
+name: docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # daily safety net, independent of any source push
+  repository_dispatch:
+    types: [source-repo-push] # fired by each source repo's CI hook on push to main
+
+# Permissions are scoped per JOB (below), not workflow-wide: the read-only `gate`
+# job never needs write, and only `regenerate` may open a PR.
+
+env:
+  # The generators resolve the source repositories as siblings of this checkout.
+  # Regeneration pins the source repositories at their `main` HEAD.
+  SOURCE_REF: main
+
+jobs:
+  checks:
+    # Lint and format this repo's own tooling under `scripts/`. The test suite
+    # runs in `gate`, which provisions the generator toolchain those tests drive.
+    # Type-checking is deliberately absent: the shipped `examples/` are
+    # type-checked by the `gate` job from the synced tai42-skeleton env, where the
+    # real runtime deps resolve.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # lint/test only: never mutates the tree
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out the sibling source repositories
+        # `[tool.uv.sources]` floats these as editable siblings of this checkout,
+        # so `uv sync` needs them on disk. Some are still private, so the clones
+        # authenticate with TAI_CI_TOKEN via a git url.insteadOf rewrite.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          for repo in tai-skeleton tai-contract tai-kit tai-identity-redis; do
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/tai42ai/${repo}.git" "$repo"
+          done
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync the tooling environment
+        working-directory: tai-docs
+        run: uv sync
+
+      - name: Lint
+        working-directory: tai-docs
+        run: uv run ruff check .
+
+      - name: Format check
+        working-directory: tai-docs
+        run: uv run ruff format --check .
+
+  gate:
+    # Drift / registry / examples / build gate. Fails on drift; never mutates.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # read-only gate: it validates, never mutates the tree
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # Some source repositories are still private, so the clones authenticate
+        # with TAI_CI_TOKEN via a git url.insteadOf rewrite.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          for repo in tai-contract tai-kit tai-skeleton tai-studio tai-toolbox \
+                      tai-connector-google tai-connector-atlassian tai-config-k8s \
+                      tai-agents tai-storage-s3 tai-storage-github tai-storage-local \
+                      tai-webhook-verifier-github tai-identity-redis \
+                      tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
+                      tai-channel-telegram tai-channel-slack tai-channel-twilio \
+                      tai-channel-whatsapp \
+                      tai-backend-arq tai-backend-celery tai-backend-rq \
+                      tai-monitoring-langfuse tai-distribution; do
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/tai42ai/${repo}.git" "$repo"
+          done
+          # Confine the source-clone credential rewrite to this step so it does
+          # not shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync the generator environment
+        working-directory: tai-skeleton
+        # Installs tai42_skeleton + tai42_contract + tai42_kit + griffe so the SDK,
+        # CLI, catalog, and OpenAPI generators resolve their inputs.
+        run: uv sync --all-extras
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "22"
+
+      - name: Install the Studio SDK docs toolchain
+        # gen_studio_sdk.py (run by check_drift.py) shells out to a pinned TypeDoc
+        # (tai-docs/scripts/studio_sdk_typedoc) over tai-studio's @tai42/studio-sdk
+        # source. TypeDoc resolves @tai42/api-client through tsconfig path aliases,
+        # so tai-studio's node_modules must be installed for source resolution.
+        run: |
+          corepack enable
+          # Activate the pnpm version tai-studio pins (its package.json
+          # `packageManager` field) so `pnpm -C tai-studio install` matches the
+          # lockfile. corepack does not auto-switch for an out-of-tree `-C`
+          # install, so read the pin and activate it explicitly (no hardcoded
+          # version to drift).
+          corepack prepare "pnpm@$(node -p "require('./tai-studio/package.json').packageManager.split('@')[1]")" --activate
+          pnpm -C tai-studio install --frozen-lockfile
+          # Build the tai-studio workspace packages so the composite TypeScript
+          # project references (@tai42/api-client and the other referenced
+          # packages) emit their dist/*.d.ts. TypeDoc over @tai42/studio-sdk
+          # resolves those declarations and fails with TS6305 if they are absent.
+          pnpm -C tai-studio build
+          npm --prefix tai-docs/scripts/studio_sdk_typedoc ci
+
+      - name: Drift gate (committed reference must be fresh)
+        working-directory: tai-skeleton
+        run: uv run python ../tai-docs/scripts/check_drift.py
+
+      - name: Test the generator tooling
+        working-directory: tai-skeleton
+        run: uv run pytest ../tai-docs -q
+
+      - name: Registry cross-check (catalog packages resolve to repos)
+        working-directory: tai-skeleton
+        run: uv run python ../tai-docs/scripts/check_registry.py
+
+      - name: Docs integrity check (nav pages and redirects resolve)
+        working-directory: tai-skeleton
+        run: uv run python ../tai-docs/scripts/check_docs.py
+
+      - name: Docs reference drift-check (hand-written package/repo/config refs)
+        working-directory: tai-skeleton
+        # Fails if a hand-written tai42-<name> distribution, a
+        # github.com/tai42ai/tai-<repo> URL, or the documented
+        # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES example has drifted from its
+        # source of truth (the packaged ecosystem.yml, the tai42ai repos, and the
+        # tai-distribution compose default). This job clones tai-distribution (in
+        # the sibling loop above), so the ALWAYS_PUBLIC compose comparison runs
+        # STRICTLY here — removing tai-distribution from that loop would downgrade
+        # it to a non-failing note, so keep it there.
+        run: uv run python ../tai-docs/scripts/check_docs_refs.py
+
+      - name: Examples type-check and snippet sync (both required)
+        working-directory: tai-skeleton
+        # examples/ and scripts/sync_examples.py are shipped by the examples
+        # generator. Both checks run UNCONDITIONALLY from the SYNCED skeleton env
+        # (the step above ran `uv sync --all-extras`, which installs pyright and
+        # the runtime deps the examples import -- tai42_contract/tai42_kit/starlette/
+        # makefun/pydantic). Running `uvx pyright` in an ephemeral env instead
+        # cannot resolve those imports and would fail with reportMissingImports;
+        # `uv run pyright` here type-checks the examples against the REAL contract.
+        # An absent examples/ makes pyright error; a present-but-EMPTY examples/
+        # (zero files) is caught by sync_examples.py's zero-file guard, which
+        # exits non-zero -- so a dropped or emptied examples tree can never pass
+        # the gate silently.
+        run: |
+          uv run pyright ../tai-docs/examples/
+          uv run python ../tai-docs/scripts/sync_examples.py --check
+
+      - name: Executable examples (run CLI/curl/YAML against a live app)
+        working-directory: tai-skeleton
+        # The Python examples are type-checked above, but a `tai` command, a
+        # `curl`, or a manifest/preset YAML that only renders as prose can rot
+        # silently. run_examples.py RUNS every executable example
+        # (examples/**/*.sh and *.yaml) and asserts a declared outcome: CLI/curl
+        # snippets run against a live minimal tai app booted in-process (the
+        # access-control walkthrough's allowed key must return 200, the denied key
+        # 403 — from the REAL access-control code path over the skeleton's own
+        # test doubles, no external Postgres/Redis), and YAML manifests/presets
+        # validate against the landed contract models. A wrong command, a changed
+        # status, or a malformed manifest fails this step. `curl` and `bash` ship
+        # on ubuntu-latest; the SYNCED skeleton env above provides uvicorn +
+        # starlette + the tai packages the fixture boots.
+        run: uv run python ../tai-docs/scripts/run_examples.py
+
+      - name: Install Mintlify CLI
+        run: npm i -g mint
+
+      - name: Mintlify build + link check
+        working-directory: tai-docs
+        run: |
+          mint broken-links
+
+  regenerate:
+    # Regenerate against source `main` HEAD and open an automated PR on drift.
+    if: >-
+      github.event_name == 'repository_dispatch' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the regeneration branch
+      pull-requests: write # open the automated regeneration PR
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # Some source repositories are still private, so the clones authenticate
+        # with TAI_CI_TOKEN via a git url.insteadOf rewrite.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          for repo in tai-contract tai-kit tai-skeleton tai-studio tai-toolbox \
+                      tai-connector-google tai-connector-atlassian tai-config-k8s \
+                      tai-agents tai-storage-s3 tai-storage-github tai-storage-local \
+                      tai-webhook-verifier-github tai-identity-redis \
+                      tai-accounts-postgres tai-accounts-oidc tai-identity-oidc \
+                      tai-channel-telegram tai-channel-slack tai-channel-twilio \
+                      tai-channel-whatsapp \
+                      tai-backend-arq tai-backend-celery tai-backend-rq \
+                      tai-monitoring-langfuse tai-distribution; do
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/tai42ai/${repo}.git" "$repo"
+          done
+          # Confine the source-clone credential rewrite to this step so it does
+          # not shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync the generator environment
+        working-directory: tai-skeleton
+        run: uv sync --all-extras
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "22"
+
+      - name: Install the Studio SDK docs toolchain
+        # gen_studio_sdk.py shells out to a pinned TypeDoc
+        # (tai-docs/scripts/studio_sdk_typedoc) over tai-studio's @tai42/studio-sdk
+        # source. TypeDoc resolves @tai42/api-client through tsconfig path aliases,
+        # so tai-studio's node_modules must be installed for source resolution.
+        run: |
+          corepack enable
+          # Activate the pnpm version tai-studio pins (its package.json
+          # `packageManager` field) so `pnpm -C tai-studio install` matches the
+          # lockfile. corepack does not auto-switch for an out-of-tree `-C`
+          # install, so read the pin and activate it explicitly (no hardcoded
+          # version to drift).
+          corepack prepare "pnpm@$(node -p "require('./tai-studio/package.json').packageManager.split('@')[1]")" --activate
+          pnpm -C tai-studio install --frozen-lockfile
+          # Build the tai-studio workspace packages so the composite TypeScript
+          # project references (@tai42/api-client and the other referenced
+          # packages) emit their dist/*.d.ts. TypeDoc over @tai42/studio-sdk
+          # resolves those declarations and fails with TS6305 if they are absent.
+          pnpm -C tai-studio build
+          npm --prefix tai-docs/scripts/studio_sdk_typedoc ci
+
+      - name: Regenerate every reference section
+        working-directory: tai-skeleton
+        run: |
+          uv run python ../tai-docs/scripts/gen_openapi.py
+          uv run python ../tai-docs/scripts/gen_cli.py
+          uv run python ../tai-docs/scripts/gen_sdk.py
+          uv run python ../tai-docs/scripts/gen_studio_sdk.py
+          uv run python ../tai-docs/scripts/gen_catalog.py
+          uv run python ../tai-docs/scripts/generate-settings-reference.py
+          uv run python ../tai-docs/scripts/gen_toolbox_table.py
+
+      - name: Registry cross-check (catalog packages resolve to repos)
+        working-directory: tai-skeleton
+        run: uv run python ../tai-docs/scripts/check_registry.py
+
+      - name: Install Mintlify CLI
+        run: npm i -g mint
+
+      - name: Mintlify build + link check
+        working-directory: tai-docs
+        run: mint broken-links
+
+      - name: Open an automated PR when the reference drifted
+        # Never pushes to main; a differing regeneration lands as a bot PR that a
+        # human merges. If the regeneration matches the committed files this is a
+        # no-op.
+        #
+        # `token` is a PAT/App token (secret TAI_DOCS_PR_TOKEN), NOT the default
+        # GITHUB_TOKEN: a PR opened with GITHUB_TOKEN does not trigger further
+        # workflows, so the `gate` job would never run on the regen PR. The PAT
+        # makes the bot PR trigger `gate` like a human PR.
+        #
+        # Required hosted-CI secret (alongside TAI_DOCS_DISPATCH_TOKEN in each
+        # source repo's notify hook): TAI_DOCS_PR_TOKEN -- a PAT/App token with
+        # `contents: write` + `pull-requests: write` on tai-docs.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          token: ${{ secrets.TAI_DOCS_PR_TOKEN }}
+          path: tai-docs
+          branch: docs/regenerate-reference
+          commit-message: "docs: regenerate reference from source main"
+          title: "docs: regenerate reference from source main"
+          body: |
+            Automated regeneration of the generated reference sections
+            (HTTP API, CLI, Python SDK, ecosystem catalog, settings reference,
+            Studio SDK) against the source repositories' `main` HEAD.
+
+            Merge to clear the drift gate. The deployed site always builds from
+            committed files, so it is unaffected until this merges.
+          labels: documentation, automated
+          delete-branch: true

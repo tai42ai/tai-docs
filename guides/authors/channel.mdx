@@ -1,0 +1,60 @@
+---
+title: "Author a channel"
+description: "Build a channel plugin."
+icon: "paper-plane"
+---
+
+import EchoChannel from '/snippets/examples/channel/echo_channel.mdx';
+
+Author a channel plugin.
+
+A channel delivers a pending [interaction](/concepts/interactions) question to a person on a specific medium (Telegram, Slack, SMS/WhatsApp) and bridges the reply back through the public callback door. It implements the `Channel` protocol — a `deliver` method for a question that expects an answer, and a `notify` method for a fire-and-forget message. Neither returns a bool: both return `None` on success or raise `ChannelDeliveryError` on any failure. An undeliverable question must not read as a silent pass, because the asking tool is blocked waiting on an answer that would never come.
+
+## Implement deliver
+
+`deliver` receives a frozen `ChannelDelivery`: the question text, the answer format, the options for a select, the optional caller-requested `recipient`, the public `callback_url` that accepts the answer, and the deadline. The plugin sends the question to its medium and hands the human a way to answer. Credentials and the operator's own recipient addresses are the plugin's settings, resolved from the environment — never tool parameters, so no secret or address ever rides an LLM-visible value.
+
+The `recipient` is an address only (a chat id, a phone number), never a secret. When the caller supplies one, validate it against the operator's allowlist and refuse an unlisted address — fail closed, send nothing. When the caller supplies none, send to the operator-configured default.
+
+<EchoChannel />
+
+Every failure path raises `ChannelDeliveryError` (or lets the underlying error propagate as one) — a send that fails must surface loudly so the platform prunes the question instead of blocking forever. Send once: no medium API offers an idempotency key, so a blind retry risks a double-send.
+
+## Two answer tiers
+
+The answer format decides how the human answers, and so how much the channel must do:
+
+- **Tier 1 — `confirm` / `external`:** the answer is recorded at the callback door itself (a confirm is a tap, an external is a structured POST), neither a value a human types. Deliver the `callback_url` as a tappable link and you are done — no inbound route, no correlation state.
+- **Tier 2 — `text` / `select`:** the human types the answer on the medium. The channel accepts that typed reply on its own inbound route, correlates it to the pending question, and forwards it to the stored `callback_url`.
+
+`form` has no single-reply mapping and is rejected before delivery.
+
+## Implement notify
+
+`notify` receives a `ChannelNotification` — just a message and an optional recipient. It sends one fire-and-forget message with no interaction, no ticket, no callback, and no reply path, under the same loud-failure rule. A channel that cannot notify raises `NotImplementedError`.
+
+## Register through the handle
+
+Register the channel under a name through the handle, as the last line of the example does. Registering a name already taken raises loudly — a silent overwrite could swap a channel out from under a live ask.
+
+## Load it
+
+The host loads a channel by naming its import-only module under `channel_modules`; a tool then targets it by name: `ask_user(question, channel="echo")`. With no channel named, the question surfaces in the Studio inbox as usual.
+
+```yaml manifest.yml
+channel_modules:
+  - your_package
+```
+
+## Inbound replies
+
+A Tier-2 channel registers its own public inbound route, verifies each delivery is genuinely from the provider — failing closed on a missing or mismatched credential — correlates the reply to the pending question, and forwards the answer to the stored `callback_url`. The shipped channel packages show the full pattern per provider.
+
+## Shipped implementations
+
+Provider channels ship as their own packages — Telegram, Slack, and Twilio (SMS/WhatsApp); see the [ecosystem catalog](/reference/catalog).
+
+## See also
+
+- [Interactions](/concepts/interactions) — the human-in-the-loop model a channel delivers for.
+- [Python SDK reference](/reference/python-sdk) — the `Channel` protocol.

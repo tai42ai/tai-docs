@@ -1,0 +1,45 @@
+---
+title: "Back up and restore"
+description: "Back up and restore stored state."
+icon: "floppy-disk"
+---
+
+Back up and restore a server's stored state.
+
+The runtime exports its stored state as a backup document and imports it back. Each backup is composed of named **sections** — access-control policies, presets, and whatever else the host and its plugins register. You choose which sections to export and which to import; nothing is all-or-nothing.
+
+## List the sections
+
+See which sections are registered and can be exported or imported.
+
+```bash
+tai backup sections
+```
+
+## Export
+
+Export the named sections as a backup document. The document prints to stdout — redirect it to a file to save it. `--section` is repeatable.
+
+```bash
+tai backup export --section access_control > backup.json
+```
+
+## Import
+
+Import selected sections from a backup document file. Name each section to apply; a section in the file that you do not name is left untouched.
+
+```bash
+tai backup import backup.json --section access_control
+```
+
+<Warning>
+Importing a section applies its payload over the live state. Export the current state first so you have a document to roll back to, and import only the sections you mean to overwrite.
+</Warning>
+
+Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
+
+## See also
+
+- [Access control](/guides/access-control) — one of the sections you back up.
+- [Create and version a preset](/guides/create-and-version-a-preset) — presets are a backed-up section.
+- [CLI reference](/reference/cli) — the full `tai backup` surface.
