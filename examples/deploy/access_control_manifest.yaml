@@ -1,0 +1,21 @@
+#| validate: manifest
+# A deployment-shaped manifest. Entries are Python import paths — naming a module
+# here imports it at boot so its registration decorators run.
+#
+# `lifecycle_modules` carries the identity provider. The skeleton ships NO concrete
+# provider, so a deployment with access control enabled MUST name one. This default
+# registers itself as the "redis" identity provider at import; ACCESS_CONTROL_AUTH_PROVIDER
+# (default "redis") selects it. Swap this line to change the authn backend.
+lifecycle_modules:
+  - tai42_identity_redis.redis_api_key_provider
+# A durable store backend for tools/config and a task backend for background,
+# scheduled, and distributed runs. A registered backend requires the worker bus
+# (the backend-runtime and server processes converge on reloads through it), so
+# set TAI_BUS_REDIS_URL (an env var, not a manifest key; placeholder host):
+#
+#   TAI_BUS_REDIS_URL=redis://redis.internal:6379/0
+storage_module: tai42_storage_local
+backend_module: tai42_backend_arq
+# The core API routers and the Studio SPA mount by default (`default_routers`
+# defaults to `all`), so a UI-driven server needs no router list here — add only
+# extras or plugin routers under `routers_modules`.

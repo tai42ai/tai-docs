@@ -1,0 +1,65 @@
+---
+title: "Installation"
+description: "Install the tai runtime and its packages."
+icon: "download"
+---
+
+Install the runtime from source. Nothing is published to PyPI yet, so you clone
+the three packages side by side and let `uv` resolve them from the sibling
+checkouts.
+
+## Requirements
+
+- **Python 3.13 or newer.**
+- **[`uv`](https://docs.astral.sh/uv/)** to resolve and sync dependencies.
+- **Redis 7.0+ and Postgres** only for the features that need them — access
+  control, connectors, and interactions. Local tools and mounted MCP servers
+  need no services at all.
+
+## Install from source
+
+`tai42-skeleton`'s `[tool.uv.sources]` points at `../tai-contract` and
+`../tai-kit`, so the three repositories must sit next to each other. Clone them,
+then sync the skeleton:
+
+```bash
+git clone https://github.com/tai42ai/tai-contract
+git clone https://github.com/tai42ai/tai-kit
+git clone https://github.com/tai42ai/tai-skeleton
+cd tai-skeleton
+uv sync
+```
+
+<Note>
+Once the packages are published, `pip install tai42-skeleton` replaces the
+from-source flow. Until then, install from the side-by-side checkouts.
+</Note>
+
+## Add the standard toolbox
+
+The `toolbox` extra pulls in the `tai42-toolbox` contrib package — its generic
+tools and its composition extensions (`chain`, `batch`) load straight from a
+manifest:
+
+```bash
+uv sync --extra toolbox
+```
+
+Once the packages are published, `pip install tai42-skeleton[toolbox]` works too.
+See the [standard toolbox guide](/guides/standard-toolbox) for what ships in it.
+
+## The `tai` command
+
+Installing the package puts the entrypoint on your path under two names, `tai`
+and `tai42`. Both run the same command tree — `tai` is the documented one, and
+`tai42` is an alias for environments where an unrelated `tai` already sits on
+your PATH. Three subcommands run the long-lived processes:
+
+- `tai serve` — run the MCP server.
+- `tai backend` — run the agent / worker backend process.
+- `tai metrics` — serve the Prometheus metrics endpoint.
+
+Run `tai --help` for the full command tree, or browse the
+[CLI reference](/reference/cli/index).
+
+Next, boot a server and call a tool in the [quickstart](/getting-started/quickstart).

@@ -1,0 +1,48 @@
+[project]
+name = "tai-docs"
+version = "0.1.0.post1"
+description = "Reference generators and freshness checks for the tai documentation site."
+requires-python = ">=3.13"
+
+# tai-docs is a Mintlify site, not a distributable package; it ships no runtime
+# package of its own. This file gives the reference generators and freshness
+# checks under `scripts/` a lint/format home aligned with the source
+# repositories' ruff config, and makes the scripts' own test suite runnable
+# straight from this project: the `dev` dependency group installs pytest plus the
+# source packages the generators and checks import (`tai42_contract`, `tai42_kit`,
+# `tai42_skeleton`, and the default identity provider), and `[tool.uv.sources]`
+# floats those packages as editable siblings so they resolve to the neighbouring
+# checkouts. `uv run pytest` therefore exercises `scripts/` natively. Running the
+# same tests inside a source repository's own virtualenv
+# (`cd tai-skeleton && uv run python -m pytest ../tai-docs/scripts/...`) stays a
+# supported alternative, which is how CI's docs job invokes them alongside the
+# generators.
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "griffe>=1",
+    "PyYAML>=6.0",
+    "tai42-skeleton>=0.1,<0.2",
+    "tai42-contract>=0.1,<0.2",
+    "tai42-kit[llm,jq,uvicorn,redis,postgres]>=0.1,<0.2",
+    "tai42-identity-redis>=0.1,<0.2",
+]
+
+[tool.uv.sources]
+tai42-skeleton = { path = "../tai-skeleton", editable = true }
+tai42-contract = { path = "../tai-contract", editable = true }
+tai42-kit = { path = "../tai-kit", editable = true }
+tai42-identity-redis = { path = "../tai-identity-redis", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["scripts"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["scripts"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "PIE", "PT", "RUF"]

@@ -1,0 +1,45 @@
+---
+title: "tai serve"
+description: "Run the tai MCP server (FastMCP + Starlette), serving the Studio SPA too."
+icon: "terminal"
+---
+
+Run the tai MCP server (FastMCP + Starlette), serving the Studio SPA too.
+
+
+Worker / transport combinations:
+  | transport              | workers=1                | workers&gt;1                          |
+  |------------------------|--------------------------|------------------------------------|
+  | stdio                  | ok (no --stateless-http) | refused                            |
+  | sse                    | ok (no --stateless-http) | refused                            |
+  | http / streamable-http | ok (stateful default)    | refused unless --stateless-http    |
+
+
+Worker-bus boot rules (set TAI_BUS_REDIS_URL to enable the bus):
+  - more than one worker is refused without the bus — sibling workers would
+    serve stale config after a reload with no channel to converge on;
+  - TAI_CONFIG_MODE=k8s is refused without the bus — a pod cannot see its own
+    replica count;
+  - a manifest that registers a task backend is refused without the bus — the
+    backend-runtime and server processes must converge on reloads.
+The workers rule lives in this CLI only: an external process manager driving
+the ASGI factory with its own --workers bypasses it, so set TAI_BUS_REDIS_URL
+in any multi-process deployment.
+
+```console
+$ tai serve [OPTIONS] [EXTRA_ARGS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `[EXTRA_ARGS]...` | _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--manifest-path` `TEXT` | Path to a YAML manifest file. |
+| `-t` / `--transport` `[stdio\|http\|sse\|streamable-http]` | Transport mechanism. |
+| `--host` `TEXT` | Host to bind the server to. |
+| `--port` `INTEGER` | Port number to bind the server to. |
+| `--uds` `TEXT` | Unix Domain Socket path. |
+| `-w` / `--workers` `INTEGER` | Number of worker processes. More than one requires the worker bus (set TAI_BUS_REDIS_URL). _(default: `1`)_ |
+| `--stateless-http` / `--no-stateless-http` | Run an http/streamable-http transport in fastmcp's stateless mode, which lifts the single-worker restriction for those transports. Refused with 'sse'/'stdio'. _(default: `False`)_ |

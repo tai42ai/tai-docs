@@ -1,0 +1,88 @@
+---
+title: "HTTP API"
+description: "The operator HTTP surface served under /api/*, with API-key auth and a data/error envelope."
+icon: "cloud"
+---
+
+The HTTP API is the operator surface of a running server. Every route lives
+under `/api/*`, takes and returns JSON, and authenticates with an API key. The
+per-endpoint pages in this section render directly from the server's OpenAPI 3.1
+specification, so they never drift from the code.
+
+## Base URL
+
+The API is served by the running server, alongside the MCP endpoint and the
+Studio. Prefix every path with the server's address:
+
+```
+https://<your-server>/api
+```
+
+A local server started with `tai serve` answers at `http://127.0.0.1:8000/api`.
+
+## Authentication
+
+Every request carries an API key in the `x-api-key` header. Mint and manage keys
+with `tai keys` or the `/api/auth/api-keys` routes.
+
+```bash
+curl https://<your-server>/api/tools \
+  -H "x-api-key: $TAI_API_KEY"
+```
+
+A missing or invalid key returns `401` with the error envelope below.
+
+<Note>
+  A key's access-control condition scopes what it may call. See
+  [access control](/concepts/access-control) for the policy model.
+</Note>
+
+## Response envelope
+
+Successful responses wrap their payload in a `data` field:
+
+```json
+{
+  "data": { "...": "the endpoint's result" }
+}
+```
+
+Errors return an `error` field carrying a human-readable message:
+
+```json
+{
+  "error": "missing or invalid api key"
+}
+```
+
+The two envelopes never mix — a response carries `data` or `error`, never both.
+
+## Error model
+
+| Status | Meaning |
+| --- | --- |
+| `400` | The request body or parameters failed validation. |
+| `401` | The `x-api-key` header is missing or invalid. |
+| `404` | The addressed resource does not exist. |
+| `503` | The server is applying a config reload — retry shortly. |
+
+## The reload-gated 503
+
+When the server applies a configuration reload, routes that mutate state return
+`503` until the reload completes. The body sets `reloading` to `true` and the
+response carries a `Retry-After` header with the seconds to wait:
+
+```json
+{
+  "error": "reloading — the server is applying a config reload; retry shortly",
+  "reloading": true
+}
+```
+
+Retry the request after the `Retry-After` interval. Read-only routes stay
+available throughout a reload.
+
+<Tip>
+  Regenerate this reference from the running code with `tai openapi --out
+  openapi.json` — the same offline emitter the docs pipeline runs.
+</Tip>

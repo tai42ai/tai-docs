@@ -1,0 +1,49 @@
+---
+title: "Author a config provider"
+description: "Implement the config-manager contract."
+icon: "key"
+---
+
+import VaultConfig from '/snippets/examples/config_provider/vault_config.mdx';
+
+Author a config provider plugin behind the config-manager contract.
+
+A config provider is where the server reads its environment and manifest. It implements the `ConfigManager` ABC — **eight** abstract methods — and exposes a `build_config_manager()` factory. The skeleton's config seam loads a provider by dynamic import of that factory, so there is no static edge in either direction.
+
+## Implement the contract
+
+Subclass `ConfigManager` and implement all eight abstract methods:
+
+- **Env surface** — `read_env` and `write_env`. `write_env` merges, preserving keys absent from the new config.
+- **Manifest reads** — `read_manifest` (the resolved view), `read_manifest_preserved` (the same document with every `!ENV <expr>` kept as its literal marker string, never resolved to a secret), and `read_defaults_manifest`.
+- **Manifest writes** — `write_manifest` (a three-way merge reserved for config-layer internals such as bootstrap and the defaults merge; it preserves YAML `!ENV` tags), plus the two transactional write seams feature code uses: `mutate_manifest` and `replace_manifest`.
+
+`mutate_manifest(mutator)` reads the persisted preserved view, runs `mutator` to edit it in place, and persists the result — untouched keys keep their values. `replace_manifest(document)` swaps the whole stored document, dropping any key absent from `document`. Both hold exclusive access across the entire read-modify-write span, so a concurrent writer cannot interleave: a file-backed manager takes a lock, an API-backed one retries on an optimistic-concurrency conflict (which is why `mutator` must be re-runnable). Both are abstract — a subclass that implements only one cannot be instantiated. A missing source raises loudly (`FileNotFoundError`) — never a silent empty.
+
+<VaultConfig />
+
+This example keeps its backing in memory; a real provider implements the same eight methods over its own store — a secrets vault, a database, or a cluster's secret and config objects.
+
+## Expose the factory
+
+Expose a module-level `build_config_manager()` that returns your manager — the selection convention every config provider follows. The example ends with exactly this factory.
+
+## Wire the config mode
+
+A config provider is selected by `TAI_CONFIG_MODE`, not by a manifest module — it must be resolved before the manifest is read. The skeleton maps a mode name to your factory's import path and loads it by dynamic import. Install your package, then set the mode:
+
+```bash
+export TAI_CONFIG_MODE=vault   # your provider's mode name
+```
+
+Depend on `tai42-contract` (the interface) and `tai42-kit` (settings and manifest yaml helpers) only; never import the skeleton. Keep any client driver behind an optional extra. Document your provider's own settings in your repository's README.
+
+## Shipped implementations
+
+- [`tai42-config-k8s`](https://github.com/tai42ai/tai-config-k8s) — the Kubernetes `ConfigManager` (env via Secrets, manifest via ConfigMaps).
+
+## See also
+
+- [Config and secrets](/concepts/config-and-secrets) — the config-provider seam and the built-in file provider.
+- [Deploy](/guides/deploy) — selecting a config provider at runtime.
+- [Python SDK reference](/reference/python-sdk) — the `ConfigManager` contract surface.

@@ -1,0 +1,74 @@
+---
+title: "Author an agent"
+description: "Author an agent against the contract."
+icon: "robot"
+---
+
+Author an agent against the `Agent` contract and load it from the manifest.
+
+An agent is an LLM-driven capability registered alongside tools. You implement one interface — the `Agent` contract — and the runtime derives two faces from it: a JSON `run` tool (LLM, MCP, and flow-engine facing) and an in-process `astream` method (API and SSE facing). You write only the `Agent` class; no hand-written tool wrapper.
+
+## Implement the Agent contract
+
+Subclass `Agent`, declare the three class attributes that drive tool generation, and implement `run`. `run` is the primitive; the base class provides a default `astream` that runs once and emits one terminal event, which streaming agents override.
+
+```python myapp/agents.py
+from pydantic import BaseModel
+from tai42_contract.agent import Agent
+from tai42_contract.app import tai42_app
+
+
+class EchoInput(BaseModel):
+    text: str
+
+
+@tai42_app.agents.agent("echo")
+class EchoAgent(Agent):
+    tool_name = "echo"
+    tool_description = "Echo the input text back."
+    ToolInput = EchoInput
+
+    async def run(self, *, user_message: str = "", **kwargs) -> str:
+        return user_message
+```
+
+`ToolInput` is a JSON-able pydantic model of the tool parameters — a non-JSON field fails loudly when its schema is generated. The `@tai42_app.agents.agent(name)` decorator registers the agent and auto-registers its JSON `run` tool.
+
+## Load it from the manifest
+
+Name the module under `agents[]`. Importing it runs the decorator.
+
+```yaml manifest.yml
+agents:
+  - title: my_agents
+    module: myapp.agents
+    include: []
+```
+
+## Run it
+
+<Steps>
+  <Step title="List registered agents">
+    ```bash
+    tai agents list
+    ```
+  </Step>
+  <Step title="Stream a run">
+    Stream a run one event frame at a time, passing the input as a JSON object.
+
+    ```bash
+    tai agents run echo --input '{"text":"hello"}'
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Author a saved variant of an agent — an authored agent — by baking `fixed_kwargs` into a [preset](/concepts/presets) over the agent: `tai presets create`, then run it with `tai agents authored-run`. Which fields you may bake is a **per-field** capability the agent declares. Mark `spec_runnable = True` to make every `ToolInput` field bakeable, or list individual field names in `preset_bakeable_fields` to bake just those. Baking a field the agent does not declare bakeable is rejected at author time with a `400` (see [Author an agent plugin](/guides/authors/agent-plugin) for the gate and its errors).
+</Tip>
+
+## See also
+
+- [Agents](/concepts/agents) — the two faces of one `Agent` class.
+- [Deep agents](/concepts/deep-agents) — sub-agents, skills, and strategies.
+- [Author an agent plugin](/guides/authors/agent-plugin) — ship an agent as a distributable plugin.
+- [Python SDK reference](/reference/python-sdk) — the `Agent` contract surface.

@@ -1,0 +1,102 @@
+---
+title: "Transports (tai42_kit.transport)"
+description: "UDS transports and the MCP transport factory."
+icon: "route"
+---
+
+
+MCP client transports over a unix-domain socket + the transport selector.
+
+The UDS transports implement the contract ``Transport`` Protocol; ``get_mcp_transport``
+picks between them (or a plain dict-config for non-UDS servers).
+
+## BaseUDSTransport
+
+`tai42_kit.transport.base_uds_transport.BaseUDSTransport`
+
+```python
+class BaseUDSTransport(ClientTransport)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `socket_path` | — |
+
+
+## HTTPUDSTransport
+
+`tai42_kit.transport.http_uds_transport.HTTPUDSTransport`
+
+```python
+class HTTPUDSTransport(BaseUDSTransport)
+```
+
+### Members
+
+#### connect_session
+
+`tai42_kit.transport.http_uds_transport.HTTPUDSTransport.connect_session`
+
+```python
+async connect_session(self, **session_kwargs: Any) -> AsyncGenerator[ClientSession]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `session_kwargs` | `Any` | `{}` | — |
+
+
+
+## SSEUDSTransport
+
+`tai42_kit.transport.sse_uds_transport.SSEUDSTransport`
+
+```python
+class SSEUDSTransport(BaseUDSTransport)
+```
+
+### Members
+
+#### connect_session
+
+`tai42_kit.transport.sse_uds_transport.SSEUDSTransport.connect_session`
+
+```python
+async connect_session(self, **session_kwargs: Any) -> AsyncGenerator[ClientSession]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `session_kwargs` | `Any` | `{}` | — |
+
+
+
+## get_mcp_transport
+
+`tai42_kit.transport.utils.get_mcp_transport`
+
+```python
+get_mcp_transport(config: TaiMCPConfig, *, uds_protocol: str = 'http') -> HTTPUDSTransport | SSEUDSTransport | dict[str, Any]
+```
+
+Build the fastmcp transport for one MCP server config.
+
+A UDS server connects over a unix socket; ``uds_protocol`` selects the MCP
+wire protocol carried on it (``http`` = streamable-http, ``sse`` = SSE) — the
+caller (which owns the runtime/CLI) supplies it, so it arrives unvalidated and
+any other value raises. A non-UDS server returns a plain fastmcp dict-config
+and ignores ``uds_protocol``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `TaiMCPConfig` | — | — |
+| `uds_protocol` | `str` | `'http'` | — |
+

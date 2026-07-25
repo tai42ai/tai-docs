@@ -1,0 +1,69 @@
+---
+title: "Bring an MCP server"
+description: "Mount an external MCP server's tools."
+icon: "plug"
+---
+
+Mount an existing external MCP server so its tools appear in your running server.
+
+The runtime mounts other MCP servers and re-presents their tools as its own. You declare each server in the manifest's `mcp` section; the runtime probes it at startup and binds its tools alongside your local ones.
+
+## Declare a server in the manifest
+
+Each `mcp` entry names one server. Set exactly one transport per entry — the runtime infers the transport from whichever field you set:
+
+- `url` for a remote HTTP or SSE server (with optional `headers`),
+- `uds` for a Unix domain socket,
+- `command` (plus `args` / `env`) for a stdio server the runtime launches.
+
+```yaml manifest.yml
+mcp:
+  - title: example-http
+    config:
+      url: https://mcp.example.com/mcp
+      headers: {}
+  - title: example-stdio
+    config:
+      command: uvx
+      args: [some-mcp-server]
+      env: {}
+```
+
+Use `include` / `exclude` on an entry to expose only a subset of the mounted server's tools.
+
+## Inspect and reload
+
+<Steps>
+  <Step title="Check binding status">
+    Snapshot the live MCP binding state — which servers attached and which were skipped by a failed viability probe.
+
+    ```bash
+    tai mcp status
+    ```
+  </Step>
+  <Step title="Replace the set at runtime">
+    Write the full replacement `mcp` list to a JSON file, then apply it. This hot-reloads the section without restarting the server.
+
+    ```bash
+    tai mcp set --file mcp.json
+    ```
+  </Step>
+  <Step title="Reload one server">
+    Re-probe a single server by its manifest title and re-attach it if it is viable.
+
+    ```bash
+    tai mcp reload example-http
+    ```
+  </Step>
+</Steps>
+
+<Note>
+A server that fails its viability probe is skipped, not fatal — the rest of the manifest still loads. Inspect skipped servers under `tai mcp status`.
+</Note>
+
+## See also
+
+- [Transports](/concepts/transports) — the HTTP, SSE, stdio, and UDS paths a mounted server can use.
+- [The manifest](/concepts/manifest) — the `mcp` section and its selection fields.
+- [Live operations](/concepts/live-operations) — hot-reload and deregister at runtime.
+- [CLI reference](/reference/cli) — the full `tai mcp` surface.

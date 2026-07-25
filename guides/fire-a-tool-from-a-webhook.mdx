@@ -1,0 +1,162 @@
+---
+title: "Fire a tool from a webhook"
+description: "Bind a tool to an inbound webhook."
+icon: "bolt"
+---
+
+Bind a tool to an inbound webhook behind a verifier and a condition filter.
+
+The runtime fires a tool when a signed webhook arrives. A hook binds a topic to a tool; a verifier authenticates each delivery over its raw bytes before the payload is parsed; an optional condition filters which deliveries fire the tool. This guide covers the platform wiring — the hook, the verifier binding, and the filter. Provider-specific signature schemes live in that verifier plugin's own repository README.
+
+## Register a hook
+
+A hook names the topic to listen on and the tool to fire. Register it from a `HookParams` JSON body. Add a `condition` (a jq expression over the delivery) to fire the tool only on matching deliveries.
+
+```bash
+tai hooks register --params '{"name":"deploy-notify","topic":"github","tool":"notify"}'
+```
+
+List the registered hooks:
+
+```bash
+tai hooks list
+```
+
+## Bind a verifier to the topic
+
+An inbound webhook door is public — bind a verifier so every delivery on the topic is signature-verified before the tool fires. Name a registered verifier and pass its per-binding config. Verification fails closed: a signature failure rejects the delivery and the tool never runs.
+
+```bash
+tai hooks set-verifier github --verifier shared_secret --config '{"header":"X-Hub-Signature","secret_env":"GITHUB_WEBHOOK_SECRET"}'
+```
+
+The verifier config never holds a secret value — only the name of the environment variable that holds it, resolved at verify time.
+
+<Steps>
+  <Step title="Load the verifier">
+    A verifier registers when the manifest imports its module. Load the built-in shared-secret verifier — or a provider verifier package — under `lifecycle_modules`.
+
+    ```yaml manifest.yml
+    lifecycle_modules:
+      - tai42_skeleton.webhooks.builtin.shared_secret
+    ```
+  </Step>
+  <Step title="Register the hook">
+    Bind the topic to the tool with `tai hooks register`.
+  </Step>
+  <Step title="Bind the verifier">
+    Lock the topic's door with `tai hooks set-verifier`. Remove a binding with `tai hooks delete-verifier`.
+  </Step>
+</Steps>
+
+<Warning>
+A topic with no verifier bound accepts unauthenticated deliveries — the door is open. Bind a verifier to any topic reachable from the internet. A body-signature verifier rejects GET delivery, so the raw payload cannot ride the URL unauthenticated.
+</Warning>
+
+## Trigger links (QR)
+
+A **trigger link** is a minted, public URL — `GET /trigger/<token>` — that resolves to a hook topic and fires its registered hooks, exactly as the ingress door does. The token in the path *is* the capability: whoever holds the URL fires the topic. Print the URL as a **QR code** — a picture of the URL — on a wall, a sticker, or a slide, and every scan fires the topic. A link is **timed** (you pick the lifetime in seconds; the store expires it) or **permanent**, and **revocable** by name at any moment.
+
+Trigger links belong to the hooks surface: any role granted hooks `write` mints and revokes them; hooks `read` lists them.
+
+### Mint a link and fire it
+
+Mint a timed link for a topic. Exactly one of `--ttl SECONDS` or `--permanent` is required — expiry is an explicit choice, with no default:
+
+```bash
+tai hooks create-trigger-link orders --ttl 3600
+```
+
+The command prints the absolute URL and the expiry. Present that URL as a QR; a scan is a bare `GET`, so a scan fires the topic:
+
+```bash
+curl https://your-host.example/trigger/trg-<token>
+```
+
+Every miss answers the *same* `404` — an unknown, expired, or revoked token, or a topic that has since gained a verifier, are all indistinguishable, so the public door gives no oracle to probe. A successful response never names the topic either: the URL holder fires a topic without learning which one.
+
+Mint a link that never expires with `--permanent`, and name it so you can revoke it later:
+
+```bash
+tai hooks create-trigger-link orders --permanent --name lobby-poster
+```
+
+Carry per-link tool arguments with `--params` (a JSON object). They are merged into every hook the link fires, so one hook can back many QRs, each with different inputs:
+
+```bash
+tai hooks create-trigger-link orders --ttl 3600 --params '{"flow_graph_kwargs": {"region": "eu"}}'
+```
+
+Revoke a link by name — immediate and durable:
+
+```bash
+tai hooks delete-trigger-link lobby-poster
+```
+
+### What reaches the tool
+
+Each fired hook runs its tool with a **shallow, top-level merge** of three sources, strongest last:
+
+1. the hook's `expr` output over the scan payload (weakest — the scan influences it),
+2. the hook's static `tool_kwargs`,
+3. the link's `--params` (strongest — the most specific operator intent).
+
+A scan's query string reaches the tool **only** when the hook opts in with an `expr` that maps it. Register a hook whose `expr` lifts `?name=` into the tool input:
+
+```bash
+tai hooks register --params '{"name":"greet","topic":"orders","tool":"notify","expr":"{who: .name}"}'
+```
+
+Now `GET /trigger/<token>?name=Ada` fires `notify` with `{"who":"Ada"}` — unless the hook's `tool_kwargs` or the link's `--params` also set `who`, which win over the scanned value.
+
+<Warning>
+**Treat the URL — and its QR — as a capability.** Anyone who holds it fires the topic, for as long as the link lives. Revoke on any leak, and "leak" is broader than a copied link: the token rides the URL **path**, so it lands in reverse-proxy and server **access logs** — a log reader gains fire-capability. Automated URL fetchers leak it by *firing* it: chat and mail **link-preview unfurlers** and security scanners issue exactly the bare `GET` that fires the link, so pasting the URL into a chat can fire the topic before a human ever scans it. Mitigate with short `--ttl` and prompt revocation.
+</Warning>
+
+<Warning>
+**Verified topics and trigger links are mutually exclusive, both ways.** Minting a link for a verifier-bound topic is refused, and a link fired against a topic that *gained* a verifier after minting answers the uniform `404`. A trigger link is unauthenticated; routing it into a signature-verified topic would silently bypass that guarantee. If you need both, use two topics.
+</Warning>
+
+<Note>
+**The token is shown once**, in the create response. It is never stored and cannot be listed or re-read — a listed link's QR is unrecoverable by design. To rotate a code, revoke the link and create a new one.
+</Note>
+
+<Warning>
+**Revoking a link does not close the topic.** The topic name itself stays firable through `POST /universal_webhook/<topic>` regardless of any link's state — revocation kills the *token*, not the topic. Choose **unguessable topic names** for trigger-linked topics.
+</Warning>
+
+<Warning>
+**Link params reach every hook on the topic.** The `--params` fan out per event to *all* hooks bound to the topic, including hooks registered later by anyone holding hooks `write`. If a link carries sensitive params, mind who holds hooks `write` on that topic.
+</Warning>
+
+### Rate limits and merge behavior
+
+The public `/trigger/<token>` door is **rate-limited** from the start — a public door must not ship without flood control. Its own family of knobs, on by default, governs it: `TAI_RATE_LIMIT_TRIGGER_ENABLED`, `TAI_RATE_LIMIT_TRIGGER_LIMIT` (60 per minute), and `TAI_RATE_LIMIT_TRIGGER_BURST` (10 per 10 seconds). Over the limit answers `429`.
+
+The bucket is **per client IP**. Two facts follow for a shared wall QR:
+
+- A crowd behind one NAT shares a single budget — the 11th scan in 10 seconds from behind that NAT gets a `429`.
+- Behind a reverse proxy with `TAI_RATE_LIMIT_TRUSTED_PROXIES` **unset** (the default), *every* scanner collapses into the proxy's single peer-IP bucket. For crowd-scale deployments set both `TAI_RATE_LIMIT_TRUSTED_PROXIES` and the `TAI_RATE_LIMIT_TRIGGER_*` knobs.
+
+Two more behaviors to know:
+
+- **Params merge as a shallow, whole-value replace.** A link's `flow_graph_kwargs` replaces the hook's *entire* `flow_graph_kwargs` value — there is no deep merge of nested keys.
+- **Revocation survives a backup restore.** A revoked link stays dead even after its record is restored from a backup, so restoring an old backup cannot re-arm a link you already revoked.
+
+### Manage links in the Studio
+
+The Studio's hooks page carries a trigger-links section: a table of live links (name, topic, expiry, a params indicator, and the token's hash prefix) each with a revoke-confirm, plus a **Create trigger link** button. The create flow takes a topic, an optional name, an expiry (permanent, 1 hour, 1 day, 7 days, or custom seconds), and an optional params JSON. On success a dialog renders the **QR code** with a copy field for the URL and a shown-once caption — revoke and re-create to get a new code.
+
+<Frame caption="Creating a trigger link on the Studio hooks page — the QR is shown once.">
+  <img className="block dark:hidden" src="/images/studio/hooks-trigger-link-light.png" alt="The Studio hooks page create-trigger-link dialog showing the generated QR code." />
+  <img className="hidden dark:block" src="/images/studio/hooks-trigger-link-dark.png" alt="The Studio hooks page create-trigger-link dialog showing the generated QR code." />
+</Frame>
+
+## See also
+
+- [Triggers and webhooks](/concepts/triggers-and-webhooks) — the hook and verifier model.
+- [Author a webhook verifier](/guides/authors/webhook-verifier) — build a verifier plugin.
+- [Interactions](/concepts/interactions) — external human-in-the-loop answers arrive through the same callback machinery.
+- [`tai hooks` reference](/reference/cli/hooks) — the full command surface, including the trigger-link commands.
+- [Share an owned key by QR claim link](/guides/owned-keys#share-it-by-qr-claim-link) — the other QR in the platform, and the opposite job: a claim link logs a device **in**, a trigger link fires a **topic**.
+- [CLI reference](/reference/cli) — the full `tai` surface.

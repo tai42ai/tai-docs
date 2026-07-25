@@ -1,0 +1,160 @@
+# Studio screenshot regeneration pipeline.
+#
+# Regenerates the Studio docs screenshots (images/studio/*.png) by building the
+# Studio SPA, booting a docs-demo tai42-skeleton, and driving it with Playwright
+# (tai-studio/e2e/scripts/docs-screenshots.sh); it then opens an automated PR when
+# any shot changed. Kept SEPARATE from the reference regeneration (docs.yml)
+# because capturing screenshots is heavier -- it boots a real backend (docker for
+# its Redis/Postgres) and a browser -- and is only meaningful when the Studio UI
+# changes, so it is NOT on the daily schedule the reference regeneration uses.
+#
+# Triggers: manual (workflow_dispatch) and a repository_dispatch fired by
+# tai-studio's notify hook ONLY when its UI paths change (notify-docs-screenshots).
+#
+# Secrets: TAI_CI_TOKEN (clone the private source repos) and TAI_DOCS_PR_TOKEN
+# (open the PR as a PAT so the PR triggers the docs `gate`, unlike GITHUB_TOKEN).
+#
+# NOTE on churn: the shots embed live demo data (seeded IDs, counters). The demo
+# seed is pinned (fixed tokens/fingerprints in boot.sh), but if a regeneration PR
+# shows only noise diffs (a timestamp, a counter) rather than a real UI change,
+# the demo seed needs further pinning. Review the image diffs before merging.
+
+name: docs-screenshots
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [studio-screenshots] # fired by tai-studio on UI-path pushes to main
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REF: main
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the regeneration branch
+      pull-requests: write # open the automated PR
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # docs-screenshots.sh resolves these as flat siblings of the tai-studio
+        # checkout (../tai-skeleton, ../tai-docs, ../tai-agents, ...). tai-skeleton's
+        # `[tool.uv.sources]` links tai-contract/tai-kit/tai-toolbox/tai-identity-redis
+        # editable, so `uv sync` needs them on disk; boot.sh additionally installs the
+        # agents/storage-local/toolbox/monitoring/accounts-postgres/webhook-verifier
+        # plugins into the skeleton venv. Some are private, so authenticate via a git
+        # url.insteadOf rewrite with TAI_CI_TOKEN.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          for repo in tai-studio tai-skeleton tai-contract tai-kit \
+                      tai-identity-redis tai-webhook-verifier-github \
+                      tai-toolbox tai-agents tai-storage-local \
+                      tai-accounts-postgres; do
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/tai42ai/${repo}.git" "$repo"
+          done
+          # Confine the source-clone credential rewrite to this step so it does not
+          # shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "0.11.26"
+          enable-cache: true
+
+      - run: uv python install 3.13
+
+      - name: Sync the skeleton env (the backend the boot recipe runs)
+        working-directory: tai-skeleton
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: tai-studio/pnpm-lock.yaml
+
+      - name: Install JS deps
+        working-directory: tai-studio
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the Studio workspace packages
+        # Build ALL workspace packages so their gitignored dist/ output is fresh
+        # before the SPA bundles them -- a source change left unbuilt would be
+        # silently absent from the captured shots. The SPA (studio-app) and the
+        # docs-demo reference plugin are (re)built by boot.sh below, from these
+        # fresh package dists; SKIP_SPA_BUILD is deliberately NOT set, since it would
+        # also skip the reference-plugin build (@tai42/e2e has no plain `build`).
+        working-directory: tai-studio
+        run: pnpm -r build
+
+      - name: Install the Playwright browser
+        working-directory: tai-studio
+        run: pnpm --filter @tai42/e2e exec playwright install --with-deps chromium
+
+      - name: Regenerate the Studio screenshots
+        working-directory: tai-studio
+        # docs-screenshots.sh builds the SPA + reference plugin (from the fresh
+        # package dists above), boots a docs-demo skeleton (docker brings up its own
+        # loopback Redis + Postgres -- both preinstalled on ubuntu-latest), seeds the
+        # demo, and captures every screen into ../tai-docs/images/studio, failing
+        # (never shipping a broken shot) if a screen does not render. One retry absorbs
+        # a transient Playwright/boot flake.
+        #
+        # SKIP_NONDETERMINISTIC_SHOTS skips the QR screens, whose QR encodes a freshly-
+        # minted random token each run and would otherwise churn every regeneration;
+        # they are recaptured only on a manual full run when their dialog UI changes.
+        env:
+          SKIP_NONDETERMINISTIC_SHOTS: "1"
+        run: |
+          set -o pipefail
+          cleanup() {
+            pkill -f "tai serve" 2>/dev/null || true
+            docker ps -aq --filter "name=tai-studio-e2e" | xargs -r docker rm -f
+            docker network rm tai-studio-e2e_default 2>/dev/null || true
+          }
+          if ! bash e2e/scripts/docs-screenshots.sh; then
+            echo "::warning::first screenshot attempt failed -- cleaning up and retrying once"
+            cleanup
+            bash e2e/scripts/docs-screenshots.sh
+          fi
+
+      - name: Open an automated PR when a screenshot changed
+        # Never pushes to main; a differing capture lands as a bot PR a human merges
+        # after eyeballing the image diffs. A no-op when nothing changed.
+        #
+        # `token` is TAI_DOCS_PR_TOKEN (a PAT), NOT GITHUB_TOKEN: a PR opened with
+        # GITHUB_TOKEN does not trigger further workflows, so the docs `gate` (link
+        # check) would never run on the regen PR.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          token: ${{ secrets.TAI_DOCS_PR_TOKEN }}
+          path: tai-docs
+          branch: docs/regenerate-screenshots
+          commit-message: "docs: regenerate Studio screenshots"
+          title: "docs: regenerate Studio screenshots"
+          body: |
+            Automated regeneration of the Studio docs screenshots
+            (`images/studio/*.png`) from tai-studio's `main` UI.
+
+            **Review the image diffs before merging.** If the only diffs are noise
+            (a timestamp or a counter) rather than a real UI change, the docs-demo
+            seed needs further pinning.
+          labels: documentation, automated, screenshots
+          delete-branch: true
