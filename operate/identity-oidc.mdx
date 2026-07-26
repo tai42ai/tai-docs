@@ -1,0 +1,86 @@
+---
+title: "OIDC machine identity"
+description: "Authenticate API callers with JWTs from your own OIDC issuer instead of minted API keys."
+icon: "id-badge"
+---
+
+`tai42-identity-oidc` lets machines authenticate with a JWT your identity
+provider already issues, rather than with an API key the runtime minted. It is a
+[user type](/concepts/permissions) source for
+[access control](/concepts/access-control): it verifies a presented token and
+resolves it to a user id, and the policy attached to that id decides what the
+call may reach.
+
+<Note>
+This provider **verifies** tokens; it never issues them. There is no
+authorization-code flow, no client id or secret, and no key-minting surface here.
+Your issuer mints tokens; the runtime checks them. For human sign-in, see
+[Accounts](/operate/accounts).
+</Note>
+
+## Install and register it
+
+```bash
+pip install git+https://github.com/tai42ai/tai-identity-oidc
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_identity_oidc
+```
+
+```bash
+ACCESS_CONTROL_ENABLE=true
+ACCESS_CONTROL_AUTH_PROVIDERS=["identity-oidc","redis"]
+```
+
+The provider registers itself under the name `identity-oidc`, which is the value
+`ACCESS_CONTROL_AUTH_PROVIDERS` selects. Listing `redis` alongside it keeps
+minted API keys working next to issuer-signed JWTs.
+
+<Note>
+`tai42-identity-oidc` is not on PyPI yet, so install it from the repository.
+</Note>
+
+## Configure the issuer
+
+```bash
+TAI_IDENTITY_OIDC_ISSUER=https://issuer.example.com
+TAI_IDENTITY_OIDC_AUDIENCE=https://tai.example.com
+TAI_IDENTITY_OIDC_ALLOWED_ALGS=["RS256"]
+TAI_IDENTITY_OIDC_CLAIM=sub
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_IDENTITY_OIDC_ISSUER` | unset | Issuer URL. Discovery is read from `{issuer}/.well-known/openid-configuration`. Required. |
+| `TAI_IDENTITY_OIDC_AUDIENCE` | unset | Value the token's `aud` must contain. Required. |
+| `TAI_IDENTITY_OIDC_ALLOWED_ALGS` | `["RS256"]` | Signing algorithms accepted, checked before any key lookup. At least one. |
+| `TAI_IDENTITY_OIDC_CLAIM` | `sub` | Claim whose value becomes the user id. |
+| `TAI_IDENTITY_OIDC_JWKS_TTL_SECONDS` | `3600` | How long the fetched JWKS is cached. |
+
+The issuer must publish standard discovery metadata and a JWKS endpoint. Startup
+fetches both, so a misconfigured issuer fails at boot rather than on the first
+call.
+
+## Write the policy
+
+A verified token resolves to the user id `idp:{issuer}:{claim value}`. Nothing is
+provisioned automatically: until a policy exists for that exact id, every
+protected route denies the call.
+
+```bash
+tai keys --help          # API-key identities
+tai roles --help         # the policies an identity resolves to
+```
+
+Write the policy for the id shape your issuer produces, then hand the client a
+token and point it at the server. The `owner_user_id` claim is stripped from the
+claims the runtime keeps, so it cannot be used to escalate.
+
+## See also
+
+- [Access control](/concepts/access-control) — the policy model this feeds.
+- [User types and permissions](/concepts/permissions) — how each identity type is judged.
+- [Accounts](/operate/accounts) — human sign-in, sessions, and invites.
+- [Author an identity provider](/guides/authors/identity-provider) — write your own.

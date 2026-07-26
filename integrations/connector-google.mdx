@@ -1,0 +1,101 @@
+---
+title: "Google connector"
+description: "Connect Gmail, Calendar, and Drive through the Google OAuth connector."
+icon: "google"
+---
+
+`tai42-connector-google` registers the `google`
+[connector](/concepts/connectors): one OAuth connection per user that unlocks
+three MCP sub-services — Gmail, Calendar, and Drive. The connector package is
+pure descriptor data; the runtime's connector engine runs the OAuth flow, seals
+the tokens, and launches the sub-services.
+
+<Note>
+`tai42-connector-google` is not on PyPI yet, so install it from the repository.
+</Note>
+
+## Install and register it
+
+```bash
+pip install git+https://github.com/tai42ai/tai-connector-google
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_connector.google.core.connector
+```
+
+## Create the Google OAuth client
+
+Create a **Web application** OAuth 2.0 client in the Google Cloud console and
+enable the APIs behind the services you intend to offer — Gmail API, Google
+Calendar API, and Google Drive API.
+
+Add this exact redirect URI, where `{origin}` is your deployment's public origin
+(or `CONNECTORS_OAUTH_BRIDGE_URL` when you run a shared bridge):
+
+```
+{origin}/oauth-bridge.html
+```
+
+Then set the client credentials on the API process:
+
+```bash
+CONNECTORS_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+CONNECTORS_GOOGLE_CLIENT_SECRET=...
+```
+
+## Configure the connector engine
+
+The engine's own settings apply to every connector, not just this one:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CONNECTORS_KEK` | unset | Base64 32-byte key encrypting stored tokens. Required. |
+| `CONNECTORS_KEK_PREVIOUS` | unset | Previous key, for rotation. |
+| `CONNECTORS_STATE_HMAC_KEY` | unset | Base64 key of at least 32 bytes signing the OAuth `state`. Required. |
+| `CONNECTORS_REDIRECT_URI_ALLOWLIST` | empty | Comma-separated origins allowed to receive the callback. Empty rejects every connect flow. |
+| `CONNECTORS_OAUTH_BRIDGE_URL` | unset | Shared bridge origin, when the callback does not live on this deployment. |
+| `CONNECTORS_MAX_SESSION_TTL` | 180 days | Longest a stored connection stays valid. |
+
+The origin you registered with Google must appear in
+`CONNECTORS_REDIRECT_URI_ALLOWLIST`, and it must be https for anything but a
+local host.
+
+## Services and scopes
+
+Each service requests its own scope set, so a user consents only to what the
+service they connect actually needs.
+
+| Service | Scopes |
+| --- | --- |
+| `gmail` | `openid`, `email`, `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.send` |
+| `calendar` | `openid`, `email`, `https://www.googleapis.com/auth/calendar.events` |
+| `drive` | `openid`, `email`, `https://www.googleapis.com/auth/drive.readonly`, `https://www.googleapis.com/auth/drive.file` |
+
+The authorize request adds `access_type=offline`, `prompt=consent`, and
+`include_granted_scopes=true`, so a refresh token comes back and previously
+granted scopes are carried forward.
+
+<Warning>
+Google classifies two of these scopes as **restricted** — `gmail.readonly` and
+`drive.readonly` — which means app verification plus an annual third-party
+security assessment before external users may consent. `gmail.send` and
+`calendar.events` are **sensitive** and need app verification.
+`openid`, `email`, and `drive.file` need neither.
+</Warning>
+
+## Connect a user
+
+Once the client is registered, the connect flow runs from the Studio or the CLI
+exactly as the [OAuth provider guide](/guides/connect-an-oauth-provider)
+describes. Each sub-service is launched by the engine as a stdio MCP server, so
+nothing extra runs on your side.
+
+Disconnecting revokes the token at Google's revocation endpoint.
+
+## See also
+
+- [Connectors](/concepts/connectors) — the model and the token lifecycle.
+- [Connect an OAuth provider](/guides/connect-an-oauth-provider) — the end-to-end walkthrough.
+- [Atlassian connector](/integrations/connector-atlassian) — the other shipped connector.

@@ -69,9 +69,15 @@ nouns, capitalised product names.
 ## The impl-docs boundary
 
 The site documents the **platform** — concepts, contracts, and how to build
-each plugin type. It never documents a concrete plugin implementation's
-specifics (its env vars, provider setup, or quirks); those live in that
-plugin's own repository README. A shipped implementation appears here only as
-a catalog row and as a link in an author guide's "shipped implementations"
-line. Plain hyperlinks out to a repository are always fine — a link is not
+each plugin type. It does not document a third-party plugin's specifics; those
+live in that plugin's own repository README, and it appears here only as a
+catalog row and as a link in an author guide's "shipped implementations" line.
+Plain hyperlinks out to a repository are always fine — a link is not
 documentation.
+
+The one carve-out is **operator setup for a first-party shipped
+implementation**: the channel guides under Guides and the setup pages under
+Operate and Integrations do carry a plugin's env vars, its manifest wiring, and
+the provider-side console steps, because an operator cannot stand the platform
+up without them. Those pages document setup only — behaviour, internals, and
+API surface stay in the plugin's own repository.

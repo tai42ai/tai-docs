@@ -1,0 +1,212 @@
+---
+title: "Operate"
+description: "Self-host the platform from the distribution bundle, then run it: deploy, observe, back up, and wire the plugins an install needs."
+icon: "server"
+---
+
+Everything an operator does after the runtime works on a laptop: self-host it
+from the distribution bundle, run and observe it, and wire the shipped plugins
+an install needs.
+
+<CardGroup cols={2}>
+  <Card title="Deploy" icon="cloud-arrow-up" href="/operate/deploy">
+    Run a server for real.
+  </Card>
+  <Card title="Observe" icon="chart-line" href="/operate/observe">
+    Collect metrics and traces.
+  </Card>
+  <Card title="Manage a fleet" icon="server" href="/operate/manage-a-fleet">
+    Read the worker census and drive fleet-wide operations.
+  </Card>
+  <Card title="Plugin setup" icon="puzzle-piece" href="/operate/backends">
+    Backends, storage, accounts, identity, and monitoring.
+  </Card>
+</CardGroup>
+
+## Self-host with the distribution bundle
+
+[`tai-distribution`](https://github.com/tai42ai/tai-distribution) packages the
+whole platform as one batteries-included container image plus a Docker Compose
+bundle and a Helm chart. The image installs the first-party plugin set and bakes
+the built [Studio](/studio) in, so a self-hosted install is one image and the
+services it talks to.
+
+The image entrypoint is `tai` and its default command is `serve`. Three
+long-lived processes come out of the same image:
+
+| Process | Command | What it does |
+| --- | --- | --- |
+| serve | `tai serve` | The HTTP API, the MCP endpoint, and the Studio, on one origin. |
+| backend worker | `tai backend worker` | Runs queued, scheduled, and agent work. |
+| metrics | `tai metrics` | Serves the Prometheus multiprocess endpoint. |
+
+A one-shot `db-init` step runs `tai db apply` before either long-lived process
+starts. The DDL is additive and `IF NOT EXISTS`, so re-running it is safe.
+
+<Note>
+The distribution's first release is in preparation, so the published
+`docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is not on the
+registries yet. Build it locally from the repo with the source build below until
+it is.
+</Note>
+
+### Boot the Compose bundle
+
+```bash
+git clone https://github.com/tai42ai/tai-distribution
+cd tai-distribution/compose
+cp .env.example .env                          # fill in POSTGRES_PASSWORD
+mkdir -p config
+cp manifest.example.yml config/manifest.yml
+touch config/.env
+docker compose up -d
+```
+
+`config/` is bind-mounted at `/app` in every app service, so `config/manifest.yml`
+is the [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
+app-side environment. Create `config/.env` even when it is empty — the
+config-reload path treats a missing file as an error.
+
+Only `serve` publishes a port (`${TAI_SERVE_PORT:-8000}`). Postgres, Redis, and
+the optional MinIO and RabbitMQ services stay on the Compose network.
+
+### Build the image from source
+
+`compose/docker-compose.local.yml` layers a `SOURCE=local` build onto every app
+service, building the image from sibling checkouts instead of pulling it:
+
+```bash
+# with every tai-* repo cloned beside tai-distribution
+TAI_VERSION=local docker compose \
+  -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+The `siblings` build context defaults to the parent of the checkouts (`../..`)
+and is overridable with `TAI_SIBLINGS`. Because that context can hold untracked
+secrets, the source build is for a local builder only — never CI, never a shared
+registry.
+
+## Configure the bundle
+
+The Compose bundle reads a small set of variables from `.env`; everything else is
+fixed in the file and points the services at each other.
+
+```bash
+TAI_VERSION=latest                    # image tag; pin a release in production
+TAI_SERVE_PORT=8000                   # host port for serve
+POSTGRES_USER=tai
+POSTGRES_DB=tai
+POSTGRES_PASSWORD=                    # required — openssl rand -hex 24
+ACCESS_CONTROL_ENABLE=false           # the auth-free quickstart shape
+TAI_BACKEND_MODULE=tai42_backend_arq  # which backend the worker runs
+```
+
+`POSTGRES_PASSWORD` has no default: Compose refuses to start until it is set.
+The `minio` and `celery` service profiles add `MINIO_ROOT_USER`,
+`MINIO_ROOT_PASSWORD`, `STORAGE_S3_BUCKET`, `RABBITMQ_USER`, and
+`RABBITMQ_PASSWORD`.
+
+Five Postgres-backed stores and every Redis-backed feature store are already
+pointed at the bundled `postgres` and `redis` services, so the schema-admin
+connection, the access-control store, the connector store, the marketplace store,
+and the versioning store all resolve without further configuration.
+
+<Warning>
+`.env.example` ships `ACCESS_CONTROL_ENABLE=false` — the quickstart shape. Turn
+it on before anything but a laptop, and register an identity provider in the same
+change: with access control on and no provider, the runtime refuses to boot.
+</Warning>
+
+## Turn on access control
+
+Set `ACCESS_CONTROL_ENABLE=true` and register a provider in the manifest. The
+bundled default is the Redis-backed API-key provider, which the image already
+installs:
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_identity_redis.redis_api_key_provider
+```
+
+Then mint the first key with [`tai keys`](/reference/cli/keys) and write the
+policy that key resolves to — [access control](/concepts/access-control) covers
+the policy model, and the [access-control guide](/guides/access-control) walks
+the first key end to end.
+
+`ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` selects the paths served without a
+key. The bundle's default covers the login route and the Studio's static assets:
+
+```bash
+ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='["/api/login", "/assets", "/vendor", "/favicon.ico", "/tai42-logo-icon.png", "/apple-touch-icon.png", "/"]'
+```
+
+Setting it replaces the app's own default wholesale rather than adding to it.
+`/health` and `/ready` are deliberately absent: the app already serves them
+public by route-level declaration, and listing them here is rejected at boot as a
+conflict.
+
+For human sign-in — sessions, roles, invites, and the first admin — add the
+accounts provider described in [Accounts](/operate/accounts).
+
+## Run on Kubernetes
+
+The repo ships a real Helm chart at `charts/tai`, published as an OCI artifact:
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai --version 0.1.0
+helm test tai
+```
+
+The chart deploys `serve` and `backend` as separate Deployments, each with the
+metrics endpoint as a native sidecar, and installs Postgres and Redis
+StatefulSets by default. Point it at managed datastores instead by disabling
+both:
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai \
+  --set postgresql.enabled=false \
+  --set postgresql.host=db.internal \
+  --set postgresql.auth.existingSecret=tai-db \
+  --set redis.enabled=false \
+  --set redis.host=cache.internal
+```
+
+`serve.replicaCount` scales the API; running `serve.workers` above one requires
+`serve.statelessHttp=true`, because a stateful HTTP transport refuses a
+multi-worker boot. A `schemaInit` hook Job runs `tai db apply` around install and
+upgrade.
+
+The chart integrates with cluster add-ons but never installs them: an Ingress
+controller, cert-manager for `ingress.tls`, the prometheus-operator for
+`metrics.serviceMonitor`, and a StorageClass for persistence.
+
+## TLS and the front door
+
+`serve` speaks plain HTTP on its published port, and the Compose bundle puts
+nothing in front of it. Terminate TLS at your own reverse proxy or load balancer
+and forward to that port.
+
+On Kubernetes the chart's Ingress is single-host, single-path — the Studio and
+the `/api` surface share one origin, so there is nothing to split — and passes
+`ingress.tls` straight through to the Ingress resource:
+
+```yaml values.yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: tai.example.com
+  tls:
+    - secretName: tai-tls
+      hosts:
+        - tai.example.com
+```
+
+Some features need the public origin spelled out rather than inferred:
+[connectors](/concepts/connectors) resolve their OAuth redirect against it, and
+`tai42-accounts-oidc` requires an https `PUBLIC_BASE_URL`.
+
+## See also
+
+- [Deploy](/operate/deploy) — transports, workers, and the serving modes.
+- [Back up and restore](/operate/backup-and-restore) — what state to capture.
+- [The layering](/concepts/layering) — what the image actually contains.
