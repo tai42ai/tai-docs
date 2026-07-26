@@ -167,9 +167,9 @@ Two hosted-CI secrets are required:
 
 ## Brand assets
 
-The logo, favicon, and colour palette are neutral placeholders. Replace the
-files in `logo/` (`icon.png` is the favicon; `light.png` / `dark.png` the logos)
-and the `colors` block in `docs.json` when final brand assets are available.
+`logo/` holds the TAI42 brand art: `icon.png` is the favicon, `light.png` and
+`dark.png` are the header logos (329×130), and `images/og-image.svg` is the
+social card. The `colors` block in `docs.json` carries the crimson accent.
 
 ## License
 

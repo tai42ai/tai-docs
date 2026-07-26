@@ -4,36 +4,29 @@ description: "Install the tai runtime and its packages."
 icon: "download"
 ---
 
-Install the runtime from source. Nothing is published to PyPI yet, so you clone
-the three packages side by side and let `uv` resolve them from the sibling
-checkouts.
+Install the runtime from PyPI. `tai42-skeleton` pulls `tai42-contract` and
+`tai42-kit` with it, so one install puts the whole runtime and the `tai` command
+on your path.
 
 ## Requirements
 
 - **Python 3.13 or newer.**
-- **[`uv`](https://docs.astral.sh/uv/)** to resolve and sync dependencies.
 - **Redis 7.0+ and Postgres** only for the features that need them — access
   control, connectors, and interactions. Local tools and mounted MCP servers
   need no services at all.
 
-## Install from source
-
-`tai42-skeleton`'s `[tool.uv.sources]` points at `../tai-contract` and
-`../tai-kit`, so the three repositories must sit next to each other. Clone them,
-then sync the skeleton:
+## Install the runtime
 
 ```bash
-git clone https://github.com/tai42ai/tai-contract
-git clone https://github.com/tai42ai/tai-kit
-git clone https://github.com/tai42ai/tai-skeleton
-cd tai-skeleton
-uv sync
+pip install tai42-skeleton
 ```
 
-<Note>
-Once the packages are published, `pip install tai42-skeleton` replaces the
-from-source flow. Until then, install from the side-by-side checkouts.
-</Note>
+[`uv`](https://docs.astral.sh/uv/) works the same way and is what every
+repository in the ecosystem uses:
+
+```bash
+uv add tai42-skeleton
+```
 
 ## Add the standard toolbox
 
@@ -42,11 +35,45 @@ tools and its composition extensions (`chain`, `batch`) load straight from a
 manifest:
 
 ```bash
-uv sync --extra toolbox
+pip install 'tai42-skeleton[toolbox]'
 ```
 
-Once the packages are published, `pip install tai42-skeleton[toolbox]` works too.
 See the [standard toolbox guide](/guides/standard-toolbox) for what ships in it.
+
+## Add an identity provider before turning on access control
+
+Access control is off by default, and the runtime refuses to boot with
+`ACCESS_CONTROL_ENABLE=true` and no identity provider registered. Install the
+Redis-backed API-key provider and name it in the manifest — that is the pairing
+every access-controlled install starts from:
+
+```bash
+pip install tai42-identity-redis
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_identity_redis.redis_api_key_provider
+```
+
+The provider stores key hashes in Redis, so an access-controlled server needs a
+reachable Redis instance. [Access control](/concepts/access-control) explains the
+policy model, and the [access-control guide](/guides/access-control) mints the
+first key.
+
+## Work from the source checkouts
+
+Contributors run against side-by-side clones instead. `tai42-skeleton`'s
+`[tool.uv.sources]` points at `../tai-contract` and `../tai-kit`, so the three
+repositories must sit next to each other:
+
+```bash
+git clone https://github.com/tai42ai/tai-contract
+git clone https://github.com/tai42ai/tai-kit
+git clone https://github.com/tai42ai/tai-skeleton
+cd tai-skeleton
+uv sync --extra dev
+```
 
 ## The `tai` command
 
