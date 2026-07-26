@@ -65,7 +65,8 @@ TAI_ACCOUNTS_PG_PG_PASSWORD=...
 | `TAI_ACCOUNTS_PG_PG_CONNECT_TIMEOUT` | `10` | Connect timeout in seconds. |
 | `TAI_ACCOUNTS_PG_PG_STATEMENT_TIMEOUT_SECONDS` | `60` | Per-statement timeout in seconds. |
 
-Sessions and login backoff live in Redis, which arrives from the access-control
+Sessions live in Postgres, in the `accounts_sessions` table below. Login backoff
+and the bootstrap token live in Redis, which arrives from the access-control
 configuration rather than from a variable of this package's own.
 
 ### Apply the schema
@@ -91,8 +92,8 @@ TAI_ACCOUNTS_BOOTSTRAP_TOKEN=a-secret-you-choose
 
 Set the token yourself, or leave it unset and let the server mint one at startup
 — it is generated once, stored in Redis, and logged by the process that wins the
-race, so read it from that process's logs. Either way the token is required:
-there is no path that opens the route without one.
+race, so read it from that process's logs. Either way the route is token-gated;
+the one way to open it is the development switch below.
 
 ```bash
 curl https://your-server/api/login/bootstrap \
@@ -178,11 +179,12 @@ TAI_ACCOUNTS_OIDC_PROVIDERS='[{"name":"google","preset":"google","client_id":"..
 | `TAI_ACCOUNTS_OIDC_SESSION_IDLE_SECONDS` | `86400` | Sliding idle timeout. |
 | `TAI_ACCOUNTS_OIDC_SESSION_ABSOLUTE_SECONDS` | `2592000` | Hard lifetime from mint. |
 
-Each provider row takes a `name` (lowercase slug, unique), a `preset`, the client
-credentials, and optionally `scopes`, `claim`, and a `display` label and icon.
-The presets are `google`, `auth0`, `okta`, `keycloak`, `azure`, and `github`;
-`google` and `github` carry fixed endpoints, and the others need a per-tenant
-`issuer`.
+Each provider row takes a `name` (lowercase slug, unique) and the client
+credentials, plus optionally `preset`, `issuer`, `scopes`, `claim`, and a
+`display` label and icon. The presets are `google`, `auth0`, `okta`, `keycloak`,
+`azure`, and `github`; `google` and `github` carry fixed endpoints, and the
+others need a per-tenant `issuer`. A row with no `preset` at all is a raw OIDC
+provider and needs its own `issuer`.
 
 ### Register the redirect URI
 

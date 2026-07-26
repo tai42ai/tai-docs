@@ -60,7 +60,7 @@ provides:
 | `categories` | yes | One to three category slugs from the registry's vocabulary. |
 | `provides` | yes | At least one item; each `(kind, name)` pair unique. |
 | `display_name` | no | One line, 80 characters at most. |
-| `icon` | no | An `https://` URL, or a relative path inside the repository. |
+| `icon` | no | An `https://` URL, or a packaged image path relative to the package root. |
 | `homepage`, `repository` | no | http(s) URLs. |
 | `tags` | no | Up to ten lowercase slugs. |
 | `permissions` | no | `network`, `subprocess`, `filesystem` booleans. |
@@ -81,8 +81,9 @@ not a sandbox.
 
 ## Cut a release
 
-The registry resolves a version's artifact from PyPI, so the release order is:
-publish the distribution, then push the tag the registry watches.
+The registry resolves a version's artifact from PyPI when the distribution is
+there, so the release order is: publish the distribution, then push the tag the
+registry watches.
 
 1. Bump `version` in both `pyproject.toml` and `tai-plugin.yml` to the same value.
 2. Push tag `v<version>`. The shipped release workflow asserts the tag matches
@@ -112,8 +113,10 @@ and no scheduled crawl.
     namespace.
   </Step>
   <Step title="Resolve the artifact">
-    The distribution is looked up on PyPI for that exact version, and the
-    artifact reference and its SHA-256 are recorded.
+    The distribution is looked up on PyPI. When it is there, the version's
+    artifact reference and its SHA-256 are recorded and the listing's source is
+    `pypi`; when it is not, the source is `github` and the version carries no
+    artifact pointer.
   </Step>
   <Step title="Render and store">
     The README is rendered to sanitised HTML, the version row is written with its
@@ -124,9 +127,10 @@ and no scheduled crawl.
 
 Ingest refuses, loudly, when the descriptor fails validation, when a category is
 outside the registry's vocabulary, when `contract` is not a parseable specifier
-set, when the distribution or version is missing from PyPI, when the tag does not
-normalise to the descriptor's version, or when that version has been killed. A
-killed version is terminal: re-pushing the tag does not resurrect it.
+set, when the tag does not normalise to the descriptor's version, or when that
+version has been killed. A killed version is terminal: re-pushing the tag does
+not resurrect it. A distribution absent from PyPI is not a refusal — the version
+is simply recorded as a `github` source.
 
 ## Advisories
 

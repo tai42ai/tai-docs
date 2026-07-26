@@ -5,7 +5,7 @@ icon: "google"
 ---
 
 `tai42-connector-google` registers the `google`
-[connector](/concepts/connectors): one OAuth connection per user that unlocks
+[connector](/concepts/connectors): one OAuth connection per alias, each unlocking
 three MCP sub-services — Gmail, Calendar, and Drive. The connector package is
 pure descriptor data; the runtime's connector engine runs the OAuth flow, seals
 the tokens, and launches the sub-services.
@@ -85,12 +85,17 @@ security assessment before external users may consent. `gmail.send` and
 `openid`, `email`, and `drive.file` need neither.
 </Warning>
 
-## Connect a user
+## Connect an account
 
 Once the client is registered, the connect flow runs from the Studio or the CLI
 exactly as the [OAuth provider guide](/guides/connect-an-oauth-provider)
-describes. Each sub-service is launched by the engine as a stdio MCP server, so
-nothing extra runs on your side.
+describes. Each sub-service is launched by the engine as a **stdio MCP server**
+— a local child process of the API process, run through `uvx` against the
+entry points `tai-mcp-google-gmail`, `-calendar`, and `-drive`.
+
+<Note>
+`uvx` must therefore be on the `PATH` of the process that launches sub-services.
+</Note>
 
 Disconnecting revokes the token at Google's revocation endpoint.
 

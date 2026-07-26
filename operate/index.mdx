@@ -40,8 +40,9 @@ long-lived processes come out of the same image:
 | backend worker | `tai backend worker` | Runs queued, scheduled, and agent work. |
 | metrics | `tai metrics` | Serves the Prometheus multiprocess endpoint. |
 
-A one-shot `db-init` step runs `tai db apply` before either long-lived process
-starts. The DDL is additive and `IF NOT EXISTS`, so re-running it is safe.
+A one-shot `db-init` step runs `tai db apply`, and `serve` and `backend` wait for
+it to complete before they start. The DDL is additive and `IF NOT EXISTS`, so
+re-running it is safe.
 
 <Note>
 The distribution's first release is in preparation, so the published
@@ -62,7 +63,7 @@ touch config/.env
 docker compose up -d
 ```
 
-`config/` is bind-mounted at `/app` in every app service, so `config/manifest.yml`
+`config/` is bind-mounted at `/app` in the three long-lived services, so `config/manifest.yml`
 is the [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
 app-side environment. Create `config/.env` even when it is empty — the
 config-reload path treats a missing file as an error.
@@ -206,8 +207,9 @@ ingress:
 ```
 
 Some features need the public origin spelled out rather than inferred:
-[connectors](/concepts/connectors) resolve their OAuth redirect against it, and
-`tai42-accounts-oidc` requires an https `PUBLIC_BASE_URL`.
+[connectors](/concepts/connectors) accept an OAuth redirect only when its origin
+is listed in `CONNECTORS_REDIRECT_URI_ALLOWLIST`, and `tai42-accounts-oidc`
+requires an https `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL`.
 
 ## See also
 
