@@ -8,6 +8,7 @@ import EnableInteractions from '/snippets/examples/interactions/enable_interacti
 import InteractionsAnswerHelp from '/snippets/examples/interactions/interactions_answer_help.mdx';
 import AttachAskExternal from '/snippets/examples/interactions/attach_ask_external.mdx';
 import AskWithMedia from '/snippets/examples/interactions/ask_with_media.mdx';
+import ChargeThroughStripe from '/snippets/examples/interactions/charge_through_stripe.mdx';
 
 Pause a run to ask a person a question and block until they answer.
 [Interactions](/concepts/interactions) explains the model this configures.
@@ -168,6 +169,431 @@ External questions (and any `channel`-delivered question) require
 bearer capability — and Redis. Callback payloads arrive through an
 unauthenticated door, so treat every delivered answer as untrusted input.
 </Note>
+
+## Charge through Stripe
+
+A payment ask is an `external` question whose outside surface is a Stripe Checkout
+page. The composed `create_stripe_checkout_ask_external` tool opens the ask, the
+payer pays on Stripe's hosted page, Stripe signs a `checkout.session.completed`
+webhook, and a bridge hook answers the blocked caller. Two per-question locks make
+that flow safe to hand an LLM, and a preset makes the money un-forgeable by the
+agent. Everything below is what an operator deploys, in order.
+
+### The two per-question locks
+
+An ask that merely "waits for a Stripe payment" is not amount-bound. Two locks
+bind it, both declared per question:
+
+- **The verifier binding** authenticates the signed callback. Under the composed
+  tool it is author-bound extension config (`verifier`), closed over at build time
+  and never a call argument, so a calling agent can neither drop nor forge the
+  callback authentication.
+- **The const-pinned answer `schema` IS the amount binding.** The callback door
+  validates the delivered payload against it *before* it claims the ticket, and a
+  mismatch returns 400 without consuming the ticket. Pin `amount_total` and
+  `currency` to consts:
+
+  ```json
+  {
+    "type": "object",
+    "required": ["amount_total", "currency"],
+    "properties": {"amount_total": {"const": 50000},
+                   "currency": {"const": "usd"}}
+  }
+  ```
+
+  Under the composed tool this is the `answer_schema` argument; under a direct
+  `ask_user` call it is `schema=`. **An ask without it is not amount-bound.**
+
+`status` is deliberately NOT pinned: the answer builder hard-codes `"paid"`, so a
+`status` const would constrain nothing and would read like a control that is not
+really there.
+
+### The money-pinning preset is required, not optional
+
+Every money and payer-facing parameter — `amount`, `currency`, `product_name`,
+`success_url`, `cancel_url` AND `answer_schema` — is an agent-suppliable argument
+on the composed `create_stripe_checkout_ask_external` tool. An agent that reads an
+injected instruction can therefore charge what it likes, redirect a backing-out
+payer to an attacker page, or drop the pin entirely (`answer_schema` defaults to
+`None`, leaving the ask claiming whatever the bridge posts).
+
+The fix is a preset that bakes all six as hidden fixed constants — removed from
+the exposed schema, and rejected outright if a caller passes one. `amount_total`'s
+const is written from the SAME literal as `amount`, and `currency`'s const from
+the same literal as `currency`, so the price and the pin cannot disagree (both
+lowercase). **Give agents the preset and never the raw composed tool.**
+
+```json
+{
+  "name": "buy_pro_licence",
+  "base_tool": "create_stripe_checkout_ask_external",
+  "description": "Ask the customer to pay for a Pro licence.",
+  "fixed_kwargs": {
+    "amount": 50000,
+    "currency": "usd",
+    "product_name": "Pro licence",
+    "success_url": "https://acme.example/thanks",
+    "cancel_url": "https://acme.example/cancelled",
+    "answer_schema": {
+      "type": "object",
+      "required": ["amount_total", "currency"],
+      "properties": {"amount_total": {"const": 50000},
+                     "currency": {"const": "usd"}}
+    }
+  }
+}
+```
+
+Note what is NOT there: an `extensions` key. An explicit `"extensions": []` is
+rejected with a 400 (omit the field for no extensions). `currency` and its const
+are lowercase — the builder rejects anything else and Stripe answers lowercase, so
+an uppercase pin would 400 every real payment.
+
+<Warning>
+**This preset JSON is the reviewed artifact.** The platform never validates a
+schema's *shape*, so a human reading this body is where the pin's correctness
+actually lives — and it holds only for as long as nobody rewrites the stored body
+through `POST /api/presets/{name}/versions`, which is a plain `write` door that
+replaces `fixed_kwargs` wholesale. On a deployment that takes payments, `write`
+can rewrite the money pin itself.
+</Warning>
+
+### Manifest wiring
+
+Three pieces compose the flow: the `stripe` verifier under the canonical
+`webhook_verifier_modules` field for the `webhook-verifier` kind; the built-in
+`shared_secret` verifier under `lifecycle_modules` (it authenticates the *bridge*
+at the callback door, and loads only through the manifest — without it the
+per-question binding fails closed); and `ask_external` under `extensions_modules`,
+ATTACHED to `create_stripe_checkout` through the `extensions` map. The attachment
+map is the piece that actually composes the agent-facing tool — loading the
+extension module without it gives the bare builder and no composed tool at all.
+
+<ChargeThroughStripe />
+
+When not on the distribution image (which ships the extra), install the Stripe
+tools with `pip install 'tai42-toolbox[stripe]'`.
+
+### Operator prerequisites
+
+Beyond the manifest, a payments deployment needs:
+
+- **`STRIPE_SECRET_KEY`** — a secret key OR a restricted key.
+- **A dashboard webhook endpoint with its API version pinned explicitly**, plus
+  its signing secret in the env var the topic binding names (`secret_env`).
+- **`INTERACTIONS_PUBLIC_BASE_URL`** — an `https://` origin. It is both the
+  reachability requirement for the minted callback URL and the ground truth the
+  bridge's SSRF pin compares against.
+- **`TAI_BRIDGE_CALLBACK_SECRET`** — one value read by BOTH the door's
+  `shared_secret` verifier and the bridge tool. It must be present on **every**
+  process that answers (app and worker), rotated in a **coordinated** change
+  across them, and note the **read asymmetry**: the door reads it to authenticate
+  the bridge, the bridge reads it to sign. Missing on the door, the verifier
+  raises and the door 500s; the bridge then sees a retryable 5xx and burns its
+  whole retry ladder against it — an operator fix (set the secret), not a code
+  one.
+- **A configured versioned-document store.** Without it no preset can be created
+  at all — the money pin itself cannot exist.
+- **PUBLIC route rows** for `/universal_webhook/*` and
+  `/api/interactions/callback/*` on an access-control-enabled deployment. Both
+  doors are unauthenticated by nature (Stripe carries no API key; the bridge
+  authenticates with the question's own verifier header). An unconfigured route
+  403s, and a 403 is on the bridge's fail-fast list — i.e. paid-but-unanswered.
+
+### Bind, register, bake — in this order
+
+Order matters: **bind the verifier FIRST.** Between registering the hook and
+binding the verifier, the topic is an open unauthenticated door straight into the
+bridge — ingress verification runs only when a binding exists. There is a second,
+stronger reason: a `/trigger/{token}` link cannot be minted on a verifier-bound
+topic at all (the mint is refused 400), so binding first shuts that door before it
+can be opened; bind late and any holder of `hooks` write can mint a link on the
+still-unbound payments topic in the gap.
+
+```bash
+# 1. bind the verifier to the topic (admin-fenced route) — ALWAYS FIRST
+curl -X PUT .../api/hooks/topics/payments/verifier \
+  -d '{"verifier": "stripe", "config": {"secret_env": "STRIPE_WEBHOOK_SECRET"}}'
+
+# 2. register the bridge hook — the expr is REQUIRED, the condition is required too
+curl -X POST .../api/hooks -d '{
+  "name": "stripe-payments",
+  "topic": "payments",
+  "tool": "confirm_stripe_payment",
+  "execution_key": "<key user_id>",
+  "condition": ".type == \"checkout.session.completed\"",
+  "expr": "{event: {type: .type, id: .id, session: (.data.object | {id, payment_intent, payment_status, amount_total, currency, livemode, customer_email: (.customer_details.email? // null), metadata})}}"
+}'
+
+# 3. bake the money-pinning preset over the composed ask tool — the agent-facing
+#    tool. amount and answer_schema.properties.amount_total.const are the SAME
+#    number, written once; same for currency.
+curl -X POST .../api/presets -d '{
+  "name": "buy_pro_licence",
+  "base_tool": "create_stripe_checkout_ask_external",
+  "description": "Ask the customer to pay for a Pro licence.",
+  "fixed_kwargs": {
+    "amount": 50000,
+    "currency": "usd",
+    "product_name": "Pro licence",
+    "success_url": "https://acme.example/thanks",
+    "cancel_url": "https://acme.example/cancelled",
+    "answer_schema": {
+      "type": "object",
+      "required": ["amount_total", "currency"],
+      "properties": {"amount_total": {"const": 50000},
+                     "currency": {"const": "usd"}}
+    }
+  }
+}'
+```
+
+The `expr` is not optional: hook dispatch passes the tool NOTHING without one, so
+`confirm_stripe_payment` would be called with no `event` and fail on every
+delivery. It is deliberately narrow to keep the payload small — but it necessarily
+carries `metadata` (holding `tai_callback_url`, a live answer capability) and
+`customer_email`. Treat hook traces on a payments topic as holding a live ticket
+plus a customer address, and restrict read access accordingly. The `condition`
+gates the hook so only `checkout.session.completed` events fire it; without it
+every event on the topic fires the bridge, which raises loudly on the wrong type
+and floods the only failure surface this design has.
+
+The hook fires under its bound `execution_key`'s identity. That key is identity
+and liveness only — for a capability tool the authorization layer never runs a
+per-tool check — so bind a key the operator owns and control the surface by
+restricting who may WRITE hooks. Binding a key is mandatory: a hook with none is
+refused before it fires.
+
+### The channel constraint
+
+A payment ask can never be channel-forwarded — `verifier` is forbidden together
+with `channel`, because a channel's forward is unsigned and would 401 every reply.
+Payment questions live on the inbox / API surfaces only.
+
+### The livemode rule
+
+The tools reject a session whose `livemode` disagrees with the configured key's
+mode, over four prefixes — `sk_live_`/`rk_live_` and `sk_test_`/`rk_test_`, with
+anything else raising. **A test-mode webhook endpoint must never point at a topic
+carrying the production payments hook.** Test keys are held far more widely than
+live keys, and a test-mode session satisfies a const pin exactly as a real one
+would. This assert catches a deployment mistake, not an attacker — an attacker who
+reaches the bridge authors the event and writes `livemode: true`.
+
+### The reconciliation schedule
+
+The webhook path is **single-delivery**: the ingress ACKs 200 before the hook
+runs, hook failures are only logged, and Stripe never re-delivers. A bare hook is
+therefore not a fulfillment guarantee — deploy the recovery layer as part of
+deploying payments, not as an optional extra. A deployment without it has exactly
+the old single-delivery failure story and nothing more.
+
+`reconcile_stripe_payments` lists recent Checkout Sessions from Stripe
+(`created[gte]` plus a server-side `status=complete` narrowing), selects the ones
+that are `paid` AND carry `metadata.tai_callback_url`, and answers each through the
+same pinned bridge path. It reads Stripe rather than platform state, so it recovers
+a crashed hook, an app restart mid-dispatch, and a webhook that never arrived.
+Re-answering an already-answered ask is free.
+
+Create the schedule through the authed schedules door:
+
+```bash
+curl -X POST .../api/schedules -d '{
+  "tool_name": "reconcile_stripe_payments",
+  "tool_kwargs": {},
+  "schedule_kwargs": {"<keys the installed backend defines>": "..."}
+}'
+```
+
+`schedule_kwargs` is passed through to the installed backend's scheduling tool, so
+its exact keys are the backend's. **When no scheduling backend is installed the
+door 501s** — there is no schedule to create, and reconciliation runs only as a
+manual authed tool call, so the fulfillment story is back to single delivery.
+
+The worker that runs the schedule needs three things the app already has: its own
+manifest must load the stripe tools module (a tool the worker never imported
+cannot run by name); its Python environment must carry `tai42-toolbox[stripe]`
+(free on the distribution image and where app and worker share one venv, a
+separate worker image must add it); and its environment must carry
+`STRIPE_SECRET_KEY`, `TAI_BRIDGE_CALLBACK_SECRET` and `INTERACTIONS_PUBLIC_BASE_URL`
+with the callback door dialable FROM the worker. The worker's key must be the SAME
+MODE as the app's, or the livemode assert makes every run raise.
+
+**Cadence and lookback are a coupled pair — document them together, never one
+alone.** A 15-minute cadence bounds recovery lag to well under any realistic ask
+`timeout`, and overlapping runs stay safe because every answer is idempotent. It is
+not free: at 15 minutes against the default 26-hour lookback each paid session is
+re-scanned and re-POSTed on roughly **104 consecutive runs** — ~104× the door
+traffic, Stripe list calls and log volume of a single delivery. Tightening the
+cadence multiplies the overlap; shortening the lookback shrinks the recovery
+window. Answers are serial and paced (`STRIPE_RECONCILE_ANSWER_INTERVAL_SECONDS`,
+default 1.2s) because a run is one worker IP against a door that rate-limits per IP;
+a deployment that lowers the interval to clear a bigger window must raise the
+limiter knobs (`TAI_RATE_LIMIT_INTERACTIONS_CALLBACK_LIMIT` / `…_BURST`) in the
+same change.
+
+**Runbook — an outage longer than the lookback is not recovered automatically.**
+Each run sees only sessions created inside `lookback_hours` of that run, so
+sessions from a longer outage have aged out of every subsequent window. After any
+outage longer than the reconciliation lookback, run `reconcile_stripe_payments`
+once by hand with a `lookback_hours` large enough to cover it (the tool accepts
+1–168 and raises outside that).
+
+### The confused deputy, and the rules that close it
+
+Stripe's signature is verified at the topic ingress. The interaction callback door
+verifies something else entirely — the `X-TAI-Bridge-Secret` header, i.e. "this
+POST came from the bridge". `confirm_stripe_payment` holds that secret and answers
+with whatever `event` dict it is invoked with. So the real trust boundary is:
+**anything in-process that can call `confirm_stripe_payment` with a crafted event
+and a live ticket can answer a payment ask** — and the blast radius is one notch
+wider still, because neither tool knows which question a callback URL belongs to.
+The capability is "answer ANY live external interaction whose ticket it is handed".
+Payment asks are the protected case precisely because they bind the verifier and
+pin the const schema; an ordinary unbound external ask has nothing that refuses a
+forged answer.
+
+There is no lever that keeps a registered tool off "every surface an LLM or API
+caller can reach": `POST /api/tool-runs`, `POST /api/schedules`,
+`POST /api/agents/{name}/run` and the MCP edge are all run-any-registered-tool
+doors at `write`, a capability tool carries no per-call authorization decision, and
+the preset version doors are `write` too. The hard requirements, stated to what
+actually enforces them:
+
+1. **Restrict `write`** on any deployment carrying a payments topic — the
+   tool-runs, schedules, agent-runs and preset-version doors, and the MCP edge.
+   ANY holder of `write` can `POST /api/tool-runs` with a crafted `event` and forge
+   an answer for any ticket they know — no Stripe access, no signing secret, no
+   hook — and can rewrite the money pin through the preset version door. `write`
+   IS the ability to forge a payment answer.
+2. **Restrict `hooks` write** — a separate, equally hard requirement. Hook register
+   is an UPSERT by name and `POST /api/hooks` is plain `write`, so a `hooks`-write
+   holder can register a hook on a topic they name themselves — which has no
+   verifier bound and so an unauthenticated ingress — set
+   `tool="confirm_stripe_payment"`, bake the forged event into the hook's own
+   `tool_kwargs` (author kwargs merge strongest), bind their OWN execution key, and
+   fire it with one anonymous POST. The same upsert-by-name also lets them rewrite
+   the real payments hook's `expr` in place. Verifier binding fences DELIVERY, never
+   hook authorship; only restricting `hooks` write does that.
+3. **Exclude four names** from `user_tools` and every agent toolset:
+   `confirm_stripe_payment`, `reconcile_stripe_payments`, `create_stripe_checkout`
+   AND the un-preset composed `create_stripe_checkout_ask_external`. Agents are
+   given the money-pinned PRESET and nothing else. This is caller discipline with no
+   enforcing lever — an agent's toolset is what the run request names, not what the
+   manifest says — so its backstop is rule 1 on the agent-runs door.
+4. **Treat tickets as secret.** The bridge secret is required in addition to the
+   ticket, so a stolen ticket alone forges nothing — but a ticket plus a `write`
+   grant does. Treat hook traces, tool-run records and logs on a payments topic as
+   holding live answer capabilities and restrict read access accordingly.
+5. **Never unbind the verifier while the topic is live.** The binding is the ONLY
+   thing between the registered bridge hook and the open internet; unbinding turns
+   that hook into an anonymous forge endpoint instantly. Retiring a payments topic
+   means deleting the HOOK first.
+
+The const-pinned schema is the control that survives a breach of rules 1–4, and its
+limit is worth stating: a forged answer must carry exactly the amount and currency
+the ask declared, or the door 400s it and leaves the ticket unconsumed. That
+defeats an attacker who cannot choose the payload — someone minting a cheap
+self-consistent session with the account's Stripe key. It does NOT defeat an
+attacker who writes the payload directly, because the pinned values are public (the
+amount is on the Stripe page the payer sees and in the session metadata).
+
+### Failure paths, stated honestly
+
+**The bridge retries transient door failures.** Connection errors, HTTP 5xx, 408
+and 429 retry with bounded exponential backoff (5 attempts, ~0.5s base, doubling,
+jittered); a `Retry-After` on a 429 is honoured in full up to a 90-second ceiling,
+because the callback door's limiter is a fixed-window counter whose `Retry-After`
+is the seconds left in that window. **400, 401, 403 and 404 fail fast** — a schema
+mismatch, a wrong secret, a refused caller (an unpinned access-control route answers
+exactly this) and an expired ticket are verdicts no retry changes. Exhaustion
+raises.
+
+**Read the reconcile run summary as five disjoint outcomes:**
+`selected == answered + already_answered + expired + rejected + len(failed)`.
+
+- `answered` is a recovered payment; `already_answered` is the healthy norm.
+- **`expired`** means the ticket no longer resolves — read it as exactly that,
+  nothing narrower: the tool cannot distinguish an ask that DIED from one answered
+  long ago whose ticket has since aged out of its `idle_ttl_seconds` (24h default).
+- **`rejected`** is the door's 400 and nothing else — the ask's own schema pin
+  refusing THIS payload — reported and never raised, so a permanently unanswerable
+  session does not fail every run. The remedy: an operator inspects the named
+  session; preset drift (a stored `fixed_kwargs` no longer matching the session's
+  amount) is the usual cause.
+- **`failed`** is everything that is not a verdict on one session — transport
+  failures, 5xx exhaustion, and the three refusals that read per-session but are
+  really deployment-wide breakage arriving one session at a time: a **403** (no
+  PUBLIC route row), a **livemode mismatch** (the wrong-mode key on the whole
+  process) and an **SSRF-pin refusal** (`INTERACTIONS_PUBLIC_BASE_URL` disagreeing
+  with every callback URL). All of `failed` is collected and raised at the END of
+  the run.
+
+TTL, lookback and cadence are three coupled numbers. The claimed-ticket TTL
+refreshes to `idle_ttl_seconds` (default **24h**) while the reconciler's default
+lookback is **26h**, so a healthy answered session reports `already_answered` for
+its first 24h in the window and `expired` for at most the last ~2h — a steady
+`expired` count on a healthy deployment is that overhang, not lost money.
+
+<Warning>
+**One deployment-wide failure slips into `expired`.** If the callback ROUTE stops
+being served at all — a dropped ingress rule, a proxy pointed at the wrong upstream,
+the door unmounted — the origin still matches `INTERACTIONS_PUBLIC_BASE_URL`, so
+every POST draws a route-level 404, every session lands in `expired`, `failed` stays
+empty, and the run does NOT raise. Nothing in the response distinguishes it from an
+aged-out ticket; what does is the SHAPE of the summary — `expired == selected` on a
+run that should have answered something. Alert on that shape, not just on `failed`.
+</Warning>
+
+**Abandoned and expired payments.** A payer who never pays blocks the ask until its
+own `timeout`, then it raises — there is no other end state. A Stripe Checkout link
+expires on Stripe's own schedule (~24h by default), which can outlive or undercut
+the ask's `timeout`; authors must choose the ask `timeout` with the link's lifetime
+in mind. A webhook that lands after the interaction was pruned gets the door's
+uniform 404 and the bridge raises loudly on it (a typed error carrying `.status ==
+404`) — the money is captured at Stripe and the agent never learns of it;
+reconciliation counts it `expired` rather than failing the run. `cancel_url` is
+where a backing-out payer lands and has NO platform effect — it is baked into the
+preset only because it is a payer-facing redirect and an agent-suppliable one is a
+prompt-injection target. `payment_status` has three values — `paid`, `unpaid`, and
+`no_payment_required` (a zero-total session) — and the bridge accepts ONLY `paid`,
+rejecting the other two loudly.
+
+**A captured signed delivery replays successfully inside the verifier's tolerance
+window** — there is no `event.id` dedupe. Impact is bounded to duplicate hook fires
+plus the callback door's idempotent 200; accepted residual.
+
+### The callback doors and the ticket-state oracle
+
+For a verifier-bound payment question the doors give a caller without the bridge
+secret nothing to read: **the GET door answers one constant 404** whether the ticket
+is unknown, expired, live or answered, and **the POST door verifies BEFORE it reports
+`already_answered`**, so a caller without the secret sees the same 401 either way. A
+genuine provider retry still passes verification and gets its idempotent 200. One
+residual stays: on the POST door a bound-ticket holder can still tell a resolvable
+ticket (401) from a dead one (404), because the binding lives in the interaction
+state and cannot be read before that state is — "this ticket existed recently", not
+"there is an unanswered payment worth attacking".
+
+One behaviour to know: an answered bound question whose verifier cannot RUN — an
+unregistered verifier name, a malformed binding, or a verifier raising something
+other than a verification failure — answers **500** where an unbound question would
+answer the idempotent 200. That is correct (a door that cannot authenticate must not
+report state) but a bridge sees a retryable 5xx and burns its whole ladder against
+it, so the fix is an operator one: register the verifier module (and, for the
+built-in, set the `secret_env` it reads).
+
+### Doctrine and residuals
+
+The signed webhook is the only answer path from OUTSIDE; the author's `success_url`
+page is pure UX; the payer never sees the callback URL; and the callback door
+authenticates the BRIDGE, not Stripe. A payment is lost to the agent only when both
+the webhook and reconciliation fail inside the ask's own `timeout` window — most
+realistically because reconciliation was never scheduled, or the scheduler was down
+longer than both the ask and the lookback. Then the customer paid, the ask dies at
+its `timeout`, and the surface is the hook-failure log line plus its monitoring
+span. The recovery layer is only real once it is installed.
 
 ## Deliver to a channel instead
 

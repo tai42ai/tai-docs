@@ -1,0 +1,41 @@
+{/* Generated from examples/interactions/charge_through_stripe.yaml by scripts/sync_examples.py. Do not edit. */}
+
+```yaml examples/interactions/charge_through_stripe.yaml
+# Wire a Stripe payment ask end to end. Three pieces compose it:
+#   * the stripe webhook verifier, under the canonical webhook_verifier_modules
+#     field for the webhook-verifier kind — it authenticates the signed
+#     checkout.session.completed delivery at the topic ingress;
+#   * the built-in shared_secret verifier, loaded via lifecycle_modules — it
+#     authenticates the BRIDGE at the interaction callback door (the X-TAI-Bridge-Secret
+#     header), and it loads only through the manifest;
+#   * ask_external, loaded via extensions_modules and ATTACHED to
+#     create_stripe_checkout through the extensions map below — the attachment is
+#     what composes the agent-facing create_stripe_checkout_ask_external tool.
+# Loading the extension module WITHOUT the attachment map gives the bare builder
+# and no composed tool at all. Give agents the money-pinning preset baked over
+# the composed tool, never the composed tool itself.
+webhook_verifier_modules:
+  - tai42_webhook_verifier_stripe
+lifecycle_modules:
+  - tai42_skeleton.webhooks.builtin.shared_secret
+extensions_modules:
+  - tai42_skeleton.extensions.builtin.ask_external
+tools:
+  - title: create-stripe-checkout
+    module: tai42_toolbox.tools.create_stripe_checkout
+    # The verifier here is author-bound extension config — it authenticates the
+    # bridge's callback POST, and is never an LLM-facing tool parameter.
+    extensions:
+      create_stripe_checkout:
+        - - name: ask_external
+            config:
+              verifier:
+                name: shared_secret
+                config:
+                  header: X-TAI-Bridge-Secret
+                  secret_env: TAI_BRIDGE_CALLBACK_SECRET
+  - title: confirm-stripe-payment
+    module: tai42_toolbox.tools.confirm_stripe_payment
+  - title: reconcile-stripe-payments
+    module: tai42_toolbox.tools.reconcile_stripe_payments
+```
