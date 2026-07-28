@@ -5,13 +5,23 @@ icon: "rocket"
 ---
 
 Boot a working server from the shipped hello-world example, then list and call a
-tool over MCP. The example is one local `greet` tool — no agents, no external
-services, nothing to configure.
+tool over MCP. The example is one local `greet` tool — no agents, no services to
+stand up, nothing to configure. The server does make one outbound call of its
+own: it polls the marketplace for security advisories on a timer, and
+`MARKETPLACE_ADVISORIES_POLL=false` turns that off.
 
 <Steps>
   <Step title="Install the runtime">
-    Follow the [installation guide](/getting-started/installation) to clone the
-    three packages side by side and run `uv sync` in `tai-skeleton`.
+    The example ships in the `tai-skeleton` repository, so run it from a
+    checkout — clone it and install it into a fresh environment, as the
+    [installation guide](/getting-started/installation) describes:
+
+    ```bash
+    git clone https://github.com/tai42ai/tai-skeleton
+    cd tai-skeleton
+    uv venv --python 3.13
+    uv pip install --no-sources --editable .
+    ```
   </Step>
 
   <Step title="Boot the hello example">
@@ -20,14 +30,16 @@ services, nothing to configure.
     ```bash
     ACCESS_CONTROL_ENABLE=false \
     PYTHONPATH=examples/hello \
-    uv run tai serve --manifest-path examples/hello/manifest.yml --port 8765
+    uv run --no-sync tai serve --manifest-path examples/hello/manifest.yml --port 8765
     ```
 
     `ACCESS_CONTROL_ENABLE=false` turns off the request-auth gate, which is on
     by default and checks every request against Redis — this example does not
     use it. `PYTHONPATH=examples/hello` makes the example's `myapp` package
-    importable, because the manifest loads tools by import path. The server
-    reports startup:
+    importable, because the manifest loads tools by import path.
+
+    Startup is chatty — most of it is the operations projection reporting which
+    of the server's own operations it did and did not expose. The log ends with:
 
     ```
     INFO:     Application startup complete.
@@ -36,11 +48,13 @@ services, nothing to configure.
   </Step>
 
   <Step title="Call the tool">
-    The MCP endpoint is `http://127.0.0.1:8765/mcp`. From a second terminal,
-    list the tools and call `greet`:
+    The MCP endpoint is `http://127.0.0.1:8765/mcp`. From a second terminal —
+    inside the same checkout, because `uv run --no-sync` runs against the
+    environment installed there — list the tools and call `greet`:
 
     ```bash
-    uv run python - <<'EOF'
+    cd /path/to/tai-skeleton
+    uv run --no-sync python - <<'EOF'
     import asyncio
     from fastmcp import Client
 
@@ -54,12 +68,19 @@ services, nothing to configure.
     EOF
     ```
 
-    Expected output:
+    The first line prints 94 tool names, `greet` among them; the second is the
+    call result:
 
     ```
-    tools: ['greet']
+    tools: [..., 'greet', ...]
     greet -> Hello, World!
     ```
+
+    Only one of those 94 came from the manifest. The other 93 are **operation
+    tools**: the server projects its own management operations onto the MCP
+    surface, and the manifest's `api_tools` block — which governs that
+    projection — is on by default. Add `api_tools: {enabled: false}` to the
+    manifest to switch it off and leave `greet` on its own.
   </Step>
 </Steps>
 
@@ -79,8 +100,9 @@ def greet(name: str) -> str:
 ```
 
 The [manifest](/concepts/manifest) is the only thing that decides what a server
-loads. An empty manifest (`{}`) boots a bare server with no tools; adding
-sections adds capabilities.
+loads from your app. An empty manifest (`{}`) still boots, serving the 93
+projected operation tools and nothing of yours; adding sections adds your
+capabilities.
 
 ## Next steps
 

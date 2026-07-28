@@ -16,6 +16,23 @@ For local development against tools that need no auth, turn the gate off with
 does exactly this.
 </Note>
 
+Every request the gate admits also writes one **audit line** to the server log:
+the principal the gate resolved (`anonymous` when the request carried no identity
+— a public route, or the gate turned off), the method, the route, the response
+status, how long it took, and a timestamp. It is on by default and turns off with
+`AUDIT_LOG_ENABLE=false`. The route is the only request text on the line, and it is
+the path *template*: a path parameter is written as its `{name}`, so a door that
+carries its credential in the path (a trigger link's `/trigger/{token}`) records the
+shape and never the secret. A stray path matches too on a deployment that serves the
+Studio, where the SPA catch-all takes it: the line reads `/{spa_path}`, again never
+the tail. A path nothing matched at all has no template to record, so the line reads
+`<unmatched>` and carries no part of that path — as does a path handed on to a
+mounted sub-server (`/app/{slug}`), which records the mount's own prefix and then
+that same constant, `/app/<unmatched>`, because what the sub-server made of the rest
+is not visible from here. Nothing else reaches the
+line — never a request or response body, a query string, a header, or a token — so
+the trail is safe to ship wherever your logs already go.
+
 ## Identity, policy, route
 
 The gate has three moving parts, resolved on every request:

@@ -17,6 +17,11 @@ default is the code-level default and is safe to publish; a secret field that
 nonetheless ships a non-empty default is a LOUD error (it exits non-zero and
 writes nothing) rather than being published.
 
+The same refuse-rather-than-publish rule guards the page's shape: an empty settings
+registry, or a field that is neither an environment variable nor a reference to a
+nested group, likewise names what it found on stderr and exits non-zero instead of
+writing a page.
+
 Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
     cd tai-skeleton && uv run python ../tai-docs/scripts/generate-settings-reference.py
@@ -188,8 +193,52 @@ def render_env_var(field: dict) -> str:
     return code_cell(env_var)
 
 
+def count_rows(groups: list[dict]) -> tuple[int, int]:
+    """The table's row split: (variable rows, nested-group reference rows).
+
+    Every field renders one row, but a field with an empty ``env_var`` is a
+    reference to a nested settings group rather than an environment variable, so
+    the two are counted apart and never summed into a "variables" total.
+
+    A field that is neither — no ``env_var`` and no ``nested_group`` — cannot be
+    rendered as either row kind and fails LOUDLY: it matches neither branch, so it
+    would otherwise be counted in neither total while ``render`` still emits a row
+    for it — leaving the summary's entry count short of the rows actually on the
+    page, and that row naming nothing: an em-dash Env var cell (with Default and
+    Description em dashes too when unset) beside a filled-in Type and Required.
+    """
+    variables = 0
+    references = 0
+    offenders: list[str] = []
+    for group in groups:
+        for field in group["fields"]:
+            if field.get("env_var"):
+                variables += 1
+            elif field.get("nested_group"):
+                references += 1
+            else:
+                offenders.append(f"{group['name']}.{field['name']}")
+    if offenders:
+        print(
+            "generate-settings-reference: field(s) carry neither an env var nor a nested "
+            "group — refusing to publish a row that names nothing:\n  " + "\n  ".join(offenders),
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return variables, references
+
+
+def count_noun(count: int, singular: str, plural: str) -> str:
+    """A count with the noun form that agrees with it: ``1 variable``, ``3 variables``.
+
+    Both forms are spelled out rather than derived by appending ``s``, so an
+    irregular noun (``entry``/``entries``) reads correctly too.
+    """
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def render(groups: list[dict]) -> str:
-    total_fields = sum(len(g["fields"]) for g in groups)
+    variables, references = count_rows(groups)
     ordered = sorted(groups, key=lambda g: g["name"])
 
     lines: list[str] = [
@@ -205,10 +254,16 @@ def render(groups: list[dict]) -> str:
         "</Note>",
         "",
         f"Every registered settings group and the environment variables it reads — "
-        f"{total_fields} variables across {len(ordered)} groups. Each row lists the "
-        "variable, its type, its default, and whether it is required. Values shown are "
-        "code-level defaults; a running server resolves each variable from the "
-        "environment, then any stored override, then this default.",
+        f"{count_noun(variables + references, 'entry', 'entries')} across "
+        f"{count_noun(len(ordered), 'group', 'groups')} "
+        f"({count_noun(variables, 'variable', 'variables')} and "
+        f"{count_noun(references, 'nested-group reference', 'nested-group references')}). Each variable "
+        "row lists the variable, its type, its default, whether it is required, and a "
+        "description where one exists; each nested-group reference row carries no variable "
+        "of its own and links to that sub-group's section instead. "
+        "Values shown are code-level defaults; "
+        "a running server resolves each variable from the environment, then any stored "
+        "override, then this default.",
         "",
     ]
 
@@ -283,10 +338,12 @@ def main() -> int:
     OUT_FILE.write_text(page, encoding="utf-8")
     update_nav()
 
-    total_fields = sum(len(g["fields"]) for g in groups)
+    variables, references = count_rows(groups)
     print(
         f"generate-settings-reference: wrote {OUT_FILE.relative_to(DOCS_ROOT)} "
-        f"({len(groups)} groups, {total_fields} variables)"
+        f"({count_noun(len(groups), 'group', 'groups')}, "
+        f"{count_noun(variables, 'variable', 'variables')}, "
+        f"{count_noun(references, 'nested-group reference', 'nested-group references')})"
     )
     return 0
 

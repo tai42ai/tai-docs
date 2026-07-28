@@ -4,36 +4,33 @@ description: "Install the tai runtime and its packages."
 icon: "download"
 ---
 
-Install the runtime from source. Nothing is published to PyPI yet, so you clone
-the three packages side by side and let `uv` resolve them from the sibling
-checkouts.
+Install the runtime from PyPI. The `tai42-skeleton` package pulls in the
+`tai42-contract` and `tai42-kit` packages it builds on.
 
 ## Requirements
 
 - **Python 3.13 or newer.**
-- **[`uv`](https://docs.astral.sh/uv/)** to resolve and sync dependencies.
+- **[`uv`](https://docs.astral.sh/uv/)** for the `uv add`, `uv venv`, and
+  `uv pip install` commands below. The `pip` install needs no uv; the
+  from-source flow does.
 - **Redis 7.0+ and Postgres** only for the features that need them — access
   control, connectors, and interactions. Local tools and mounted MCP servers
   need no services at all.
 
-## Install from source
-
-`tai42-skeleton`'s `[tool.uv.sources]` points at `../tai-contract` and
-`../tai-kit`, so the three repositories must sit next to each other. Clone them,
-then sync the skeleton:
+## Install
 
 ```bash
-git clone https://github.com/tai42ai/tai-contract
-git clone https://github.com/tai42ai/tai-kit
-git clone https://github.com/tai42ai/tai-skeleton
-cd tai-skeleton
-uv sync
+pip install tai42-skeleton
 ```
 
-<Note>
-Once the packages are published, `pip install tai42-skeleton` replaces the
-from-source flow. Until then, install from the side-by-side checkouts.
-</Note>
+Run that inside an activated virtual environment — a stock system Python refuses
+a bare `pip install` with `error: externally-managed-environment`.
+
+Or, in a `uv` project:
+
+```bash
+uv add tai42-skeleton
+```
 
 ## Add the standard toolbox
 
@@ -42,11 +39,34 @@ tools and its composition extensions (`chain`, `batch`) load straight from a
 manifest:
 
 ```bash
-uv sync --extra toolbox
+pip install "tai42-skeleton[toolbox]"
 ```
 
-Once the packages are published, `pip install tai42-skeleton[toolbox]` works too.
 See the [standard toolbox guide](/guides/standard-toolbox) for what ships in it.
+
+## Install from source
+
+To run the checkout itself — to read the code, run the shipped examples, or
+build on an unreleased change — clone the repository and install it into a fresh
+environment with `--no-sources`:
+
+```bash
+git clone https://github.com/tai42ai/tai-skeleton
+cd tai-skeleton
+uv venv --python 3.13
+uv pip install --no-sources --editable .
+```
+
+`--no-sources` is what makes the clone stand on its own. `tai42-skeleton`'s
+`[tool.uv.sources]` points its sibling `tai42-*` dependencies at local checkouts
+for development; the flag ignores those overrides and resolves them from PyPI
+instead. Install `".[toolbox]"` instead of `.` for the standard toolbox, or
+`".[dev]"` for the test and lint tooling.
+
+Run the checkout's commands with `uv run --no-sync`, which uses the environment
+exactly as installed. A bare `uv run` re-syncs the project first, which puts the
+`[tool.uv.sources]` overrides back and fails in a clone that has no sibling
+checkouts beside it.
 
 ## The `tai` command
 

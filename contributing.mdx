@@ -40,16 +40,33 @@ Every repository holds to the same rules, enforced in each repo's CI:
 
 ## Develop
 
-Each repo's dev venv resolves its `tai42-*` dependencies from sibling checkouts. The standard loop is the same across repos:
+Every clone stands alone: a repo's dev venv installs it editable and resolves its `tai42-*` dependencies from PyPI, so no other checkout has to be present. Repos declare dev dependencies either as the `dev` extra or the `dev` dependency group — check which one the repo's own `pyproject.toml` uses.
+
+Repos with a `dev` extra (`[project.optional-dependencies]`):
 
 ```bash
-uv sync --extra dev
-uv run ruff check .
-uv run pyright
-uv run pytest
+uv venv --python 3.13
+uv pip install --no-sources --editable ".[dev]"
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pyright
+uv run --no-sync pytest
 ```
 
-See the target repository's `CONTRIBUTING` guide for its specifics — the sibling checkouts it expects, any secret scan, and its licensing statement.
+Repos with a `dev` dependency group (`[dependency-groups]`):
+
+```bash
+uv venv --python 3.13
+uv pip install --no-sources --group dev --editable .
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pyright
+uv run --no-sync pytest
+```
+
+`--no-sources` ignores the `[tool.uv.sources]` overrides so the dependencies come from the index; `--no-sync` runs each gate against that environment instead of re-resolving.
+
+See the target repository's `README` for the exact extras or dependency group it installs, and its `CONTRIBUTING` guide for the rest of its specifics — any secret scan, and its licensing statement.
 
 ## See also
 
