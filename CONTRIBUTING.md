@@ -80,10 +80,10 @@ distribution.
 | --- | --- |
 | Distribution — PyPI, `pip install`, dependency pins | `tai42-<name>` |
 | Import package | `tai42_<name>` |
-| GitHub repository and sibling checkout directory | `tai-<name>` |
+| GitHub repository | `tai-<name>` |
 
-So a dependency is declared as `tai42-<name>` but resolved from `../tai-<name>`
-during local development, and both spellings are correct in their own context.
+So a dependency is declared as `tai42-<name>` while its repository is named
+`tai-<name>`, and both spellings are correct in their own context.
 
 Some surfaces are deliberately neither, and must not be renamed: the `tai` CLI
 command (`tai42` is an alias), the Prometheus metric namespace (`tai_tool_*`),
@@ -102,17 +102,14 @@ The `scripts/` directory carries the site's helper tooling and its own tests; if
 you change it, keep it green:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+uv venv --python 3.13
+uv pip install --no-sources --group dev
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pytest
 ```
 
-For local cross-repo work, `make dev` editable-installs the sibling `tai-*`
-checkouts this package builds on into the venv. While `[tool.uv.sources]` pins
-those siblings to local paths, `uv sync` already installs them editable and
-`make dev` changes nothing; once the lock resolves them from the registry,
-`uv sync` / `uv run` installs the published builds instead, so re-run
-`make dev` afterward to restore the editable links.
+`make dev` installs the sibling `tai-contract`, `tai-kit`, `tai-skeleton`, and `tai-identity-redis` repos as editable installs for local cross-repo development.
 
 Before any commit, run a secret scan over `scripts/` and `examples/` (e.g.
 `detect-secrets scan`).

@@ -19,6 +19,32 @@ For local development against tools that need no auth, turn the gate off with
 does exactly this.
 </Note>
 
+Every request the gate admits also writes one **audit line** to the server log:
+the principal the gate resolved (`anonymous` when the request carried no identity
+— a public route, or the gate turned off), the method, the route, the response
+status, how long it took, and a timestamp. It is on by default and turns off with
+`TAI_AUDIT_LOG_ENABLE=false`. The route is the only request text on the line, and it is
+the path *template*: a path parameter is written as its `{name}`, so a door that
+carries its credential in the path (a trigger link's `/trigger/{token}`) records the
+shape and never the secret. A stray path matches too on a deployment that serves the
+Studio, where the SPA catch-all takes it: the line reads `/{spa_path}`, again never
+the tail. A path nothing matched at all has no template to record, so the line reads
+`<unmatched>` and carries no part of that path — as does a path handed on to a
+mounted sub-server (`/app/{slug}`), which records the mount's own prefix and then
+that same constant, `/app/<unmatched>`, because what the sub-server made of the rest
+is not visible from here. Nothing else reaches the
+line — never a request or response body, a query string, a header, or a token — so
+the trail is safe to ship wherever your logs already go.
+
+A refusal is on the same trail, so failed access is visible, not just granted
+access. A request the gate turns away writes its own line: a `401` when it carried
+no usable identity, a `403` when a known identity is not permitted, or a `429` when
+the flood limiter sheds it. A denial line adds a `reason=` naming the cause it can
+state (a permission miss, an unconfigured route), and its principal is the real
+caller when the request was authenticated-but-denied, otherwise the marker
+`unauthenticated`. A refusal records the same path *template* (or `<unmatched>`), so
+it never leaks a path-borne secret either.
+
 ## Identity, policy, route
 
 The gate has three moving parts, resolved on every request:
