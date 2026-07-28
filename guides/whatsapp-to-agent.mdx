@@ -138,7 +138,48 @@ tai conversations create support-line \
   --channel whatsapp --identity 109999888877776
 ```
 
-## The 24-hour window failure
+## Rich messages (Meta Cloud API)
+
+The Meta Cloud API channel sends more than plain text: interactive controls for a
+`select` ask, images on a notification, and pre-approved templates. Twilio sends
+and receives text only.
+
+### Interactive select asks
+
+When a `select` question is delivered on this channel, its options render as
+**native WhatsApp controls** instead of numbered text. A short option set becomes
+tappable **reply buttons**; a longer set becomes a **list** message. Past
+WhatsApp's row cap — or when any option's text is longer than WhatsApp allows on a
+button or row — the ask falls back to the original numbered-text prompt ("Reply
+with the text of one option."), so the person always sees every option in full
+rather than a truncated one.
+
+Either way the answer is the option **text**: tapping a button or picking a list
+row answers exactly as typing that option's text would, and a person can always
+type instead of tap. See
+[Interactions](/concepts/interactions#delivering-to-a-channel) for the answer
+contract.
+
+### Media on a notification
+
+`notify_user` (the `tai notifications notify` tool) can attach **media** to a
+message on this channel — a product photo in the conversation, for instance. Pass
+a list of media items alongside the text:
+
+- each **image** item sends as a WhatsApp image message: a public **`https`** URL
+  with an optional caption. A `data:image/*` URI is refused loudly — WhatsApp's
+  link-sourced image send takes a public URL only, so an inline image fails up
+  front rather than as a confusing provider-side error.
+- each **link** item is appended to the message body as a text line.
+
+`media` is one of two rich notification inputs; the other is `template` (see
+[the 24-hour window](#the-24-hour-window)), and the two are **mutually exclusive**
+on one send. The capability is guarded centrally: a channel that does not
+advertise support for a rich input rejects the send with `501 not supported`
+rather than silently downgrading it to text, and `media` or `template` supplied
+with no channel — a notification recorded only to the internal sink — is a `400`.
+
+## The 24-hour window
 
 WhatsApp only lets you send freeform messages inside a **24-hour service window**
 opened by the client's last message. Outside it, a freeform reply is rejected and
@@ -157,6 +198,30 @@ retained as `failed` and listed on the admin failed-delivery door.
 ```bash
 tai conversations failed
 ```
+
+### Send a template outside the window
+
+On the Meta Cloud API, a **pre-approved template** is the one message WhatsApp
+delivers outside the window. Send one with `notify_user`'s `template` input — a
+template `name`, a `language`, and a positional list of body-text `parameters`
+that fill the template's placeholders. `message` stays required: it is the
+human-readable text recorded for the send. Header-media, button, and typed
+(currency, date) template parameters are out of scope — author templates with
+body-text placeholders only, and create and approve them in Meta's console.
+
+Because a template is the one message WhatsApp delivers **cold** — and bills for —
+the channel fences who may receive one. A **freeform** send (a reply, a question,
+media) goes to any recipient: WhatsApp itself is the fence there, rejecting it
+outside the window. A **template** send is allowed only when the recipient is
+either:
+
+- on `CHANNEL_WHATSAPP_ALLOWED_RECIPIENTS` — the operator's explicit allowlist, or
+- a **known contact** — a number the inbound webhook has received a message from
+  within `CHANNEL_WHATSAPP_TEMPLATE_CONTACT_WINDOW_DAYS` (default `30`; `0` means
+  allowlist-only). Every authenticated inbound message refreshes that number's
+  window, for any message type.
+
+A template send to a cold, unlisted number is refused loudly rather than sent.
 
 ## Test it and add more numbers
 
