@@ -77,6 +77,43 @@ drive the success or failure branch and assert the settled UI. Each call
 returns a fresh, independent deferred.
 
 
+## flushResizeObservers
+
+```ts
+function flushResizeObservers(): void
+```
+
+Fires every live `ResizeObserver` stub's callback for the elements it is
+observing. Pair it with `setElementOverflow` to drive a component that
+measures itself (`ScrollRegion` and `useProseScrollRegions` re-read
+`scrollWidth`/`clientWidth` from their observer callbacks):
+
+    setElementOverflow(region, true);
+    flushResizeObservers();
+
+Only meaningful once `installJsdomStubs` has installed the stub; with a real
+`ResizeObserver` present (a browser environment) there is nothing to flush.
+
+
+## flushResizeObserversFor
+
+```ts
+function flushResizeObserversFor(target: Element): void
+```
+
+Delivers a resize for ONE element, to every stub observing it — the narrow
+form of `flushResizeObservers`. Use it to prove which element a
+component is watching: a measurement driven by a resize of a CHILD only
+arrives if that child is observed, so the assertion fails the moment a
+component narrows its observation to its own box.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `target` | `Element` | — | the element whose resize to deliver. |
+
+
 ## getContributions
 
 ```ts
@@ -115,6 +152,14 @@ components instead of mocking them out:
 - Export/download paths create and revoke object URLs.
 - File-import flows read the picked file via `Blob.text()`.
 - Router scroll restoration calls `scrollTo` on navigation.
+
+The `ResizeObserver` stub is a WORKING observer, not an inert one: it keeps a
+registry of the observers still in use, delivers an entry to the callback as
+each element is observed (as a real observer does for its initial
+observation), and lets a test re-deliver on demand via
+`flushResizeObservers`. Components that size themselves — `ScrollRegion` and
+`useProseScrollRegions` — are therefore exercised for real, with
+`setElementOverflow` supplying the scroll metrics jsdom cannot compute.
 
 Each stub only fills a MISSING API, so installing the whole set everywhere is
 harmless — the one exception is `window.scrollTo`, which jsdom ships as a "Not
@@ -155,6 +200,26 @@ committed, and fail loudly.
 | `entry` | `PluginEntry` | — | — |
 
 **Related:** [PluginEntry](/reference/studio-sdk/plugin-api#pluginentry)
+
+
+## setElementOverflow
+
+```ts
+function setElementOverflow(element: HTMLElement, overflowing: boolean): void
+```
+
+Makes `element` report itself as horizontally overflowing (or not). jsdom runs
+no layout, so `scrollWidth` and `clientWidth` are both 0 and every
+overflow test reads as "fits"; this shadows the prototype getters with own,
+configurable values so a test can drive either state. Call it again with the
+opposite flag to flip the element back.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `element` | `HTMLElement` | — | the element whose scroll metrics to fake. |
+| `overflowing` | `boolean` | — | true to report content wider than the box. |
 
 
 ## setPluginHostState

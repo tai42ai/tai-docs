@@ -36,6 +36,20 @@ A channel plugin registers an instance under a name
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
 
+A channel MAY advertise richer ``notify`` support with two OPTIONAL,
+class-level capability flags — ``supports_media_notifications`` and
+``supports_template_notifications`` — set as plain class attributes.
+They are a documented convention, NOT Protocol members: a channel that
+supports the richer notify form sets the matching attribute to ``True``; a
+channel that omits it advertises no support (absent = ``False``). Because
+they are not part of the Protocol, a text-only channel that declares
+neither is still a valid ``Channel`` (both structurally and under runtime
+``isinstance``). The central ``notify_user`` helper reads them defensively
+with ``getattr(channel, "<flag>", False)`` and refuses a media or template
+notification to a channel that does not advertise the matching flag, so a
+sibling channel that reads only ``notification.message`` can never silently
+drop the extra content.
+
 ### Members
 
 #### deliver
@@ -166,6 +180,18 @@ address only, never a secret or credential.
 several operator identities: an internal routing control set by the sending side,
 never caller-supplied, and an address only — never a secret.
 
+``media`` and ``template`` are OPTIONAL richer-send forms reusing the same
+``message`` as the human-readable equivalent. ``media`` is display media the
+channel sends alongside the message (reusing `MediaItem`); a present
+list is non-empty. ``template`` sends a pre-approved `ChannelTemplate`
+for out-of-window delivery. The two are MUTUALLY EXCLUSIVE — a template is the
+out-of-window send and a companion standalone media item would be rejected by
+the medium there, so setting both is refused rather than partially delivered.
+A channel that does not advertise the matching capability flag
+(``supports_media_notifications`` / ``supports_template_notifications``, the
+OPTIONAL class-attribute convention documented on `Channel`) never
+receives these fields.
+
 **Attributes**
 
 | Attribute | Type |
@@ -174,4 +200,35 @@ never caller-supplied, and an address only — never a secret.
 | `message` | `str` |
 | `recipient` | `str \| None` |
 | `sender_identity` | `str \| None` |
+| `media` | `list[MediaItem] \| None` |
+| `template` | `ChannelTemplate \| None` |
+
+
+## ChannelTemplate
+
+`tai42_contract.channels.ChannelTemplate`
+
+```python
+class ChannelTemplate(BaseModel)
+```
+
+A pre-approved, named template a channel sends outside its freeform window.
+
+Some media only accept arbitrary text inside a bounded conversation window
+(e.g. WhatsApp's 24-hour customer-service window); outside it, the sole
+accepted send is an operator-authored template referenced by ``name`` in an
+approved ``language`` — both required and non-blank. ``parameters`` is the
+POSITIONAL list of body-text values substituted into the template's body
+placeholders in order; it is empty when the template has no placeholders.
+Body text only — templates with header media, button parameters, or typed
+parameters (currency, date-time) are out of scope for this contract.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `name` | `str` |
+| `language` | `str` |
+| `parameters` | `list[str]` |
 

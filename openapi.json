@@ -223,6 +223,32 @@
         "title": "BackupImport",
         "type": "object"
       },
+      "ChannelTemplate": {
+        "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window\n(e.g. WhatsApp's 24-hour customer-service window); outside it, the sole\naccepted send is an operator-authored template referenced by ``name`` in an\napproved ``language`` — both required and non-blank. ``parameters`` is the\nPOSITIONAL list of body-text values substituted into the template's body\nplaceholders in order; it is empty when the template has no placeholders.\nBody text only — templates with header media, button parameters, or typed\nparameters (currency, date-time) are out of scope for this contract.",
+        "properties": {
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Parameters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "language"
+        ],
+        "title": "ChannelTemplate",
+        "type": "object"
+      },
       "ClaimExchange": {
         "description": "Exchange a one-time claim token for its API key.",
         "properties": {
@@ -780,6 +806,44 @@
         "title": "McpTargets",
         "type": "object"
       },
+      "MediaItem": {
+        "description": "One media item shown WITH a question — display-only, never part of the answer.\n\n``kind`` selects how it renders: an ``image`` inline, a ``link`` as a labelled\nanchor. ``url`` is the source — an ``image`` must be an absolute ``https`` URL or a\n``data:image/*`` URI (remote images are https-only: the inbox CSP ``img-src`` admits\n``https:``/``data:`` but not ``http:``, so an ``http:`` image would be an unrenderable\nrecord), while a ``link`` must be an absolute ``http(s)`` URL (anchors are not governed\nby ``img-src``; the human clicks through). A remote url names a host directly\n(an embedded ``user@`` credential form is rejected — it spoofs the authority) and\nis always a single line — raw whitespace and control/format characters are\nrejected. ``caption`` is the accessibility text — the image's alt text or the\nlink's display label.",
+        "properties": {
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Caption"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MediaKind"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "url"
+        ],
+        "title": "MediaItem",
+        "type": "object"
+      },
+      "MediaKind": {
+        "enum": [
+          "image",
+          "link"
+        ],
+        "title": "MediaKind",
+        "type": "string"
+      },
       "NotifyUser": {
         "description": "A notification to send: the ``message`` text, an optional named ``channel``\nthat carries it (omit to record to the internal sink), an optional per-call\n``recipient`` delivery address, and an optional ``audience`` identity whose in-app\ninbox shows it (honored even with a channel set; distinct from ``recipient``).",
         "properties": {
@@ -807,6 +871,22 @@
             ],
             "default": null,
             "title": "Channel"
+          },
+          "media": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MediaItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional display media sent WITH the message on the named channel. Requires a channel that advertises media support (else a 501) and a named channel at all (else a 400); mutually exclusive with template.",
+            "title": "Media"
           },
           "message": {
             "title": "Message",
@@ -836,6 +916,18 @@
             "default": null,
             "description": "Reserved: the sending identity a channel message leaves FROM, set by the conversation bridge on the notification it builds to answer a route. Callers MUST NOT supply it here — a set value is rejected with a 400, never forwarded.",
             "title": "Sender Identity"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChannelTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional pre-approved template for an out-of-window send on the named channel. Requires a channel that advertises template support (else a 501) and a named channel at all (else a 400); mutually exclusive with media."
           }
         },
         "required": [
@@ -2140,7 +2232,7 @@
   "info": {
     "description": "The operator HTTP surface served under /api/*.",
     "title": "tai42-skeleton API",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -8387,7 +8479,7 @@
         ]
       },
       "post": {
-        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message, an unknown channel name, a blank recipient/audience, or a\n  caller-supplied ``sender_identity`` → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify → 501;\n* a channel delivery failure → 502.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
+        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message, an unknown channel name, a blank recipient/audience, a\n  caller-supplied ``sender_identity``, or ``media``/``template`` with no named\n  channel → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify, or does not advertise the ``media``/``template``\n  capability the send needs → 501;\n* a channel delivery failure → 502.\n\n``media`` (display media sent with the message) and ``template`` (a pre-approved\nout-of-window send) are OPTIONAL richer-send forms carried to the channel; the\ncontract enforces they are mutually exclusive. Each needs a channel that advertises\nthe matching capability — otherwise the send is refused as a 501, never downgraded\nto a silent freeform send.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
         "operationId": "post_api_notifications",
         "requestBody": {
           "content": {
