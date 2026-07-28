@@ -109,9 +109,7 @@ uv run --no-sync ruff format --check .
 uv run --no-sync pytest
 ```
 
-`--no-sources` ignores the overrides in `[tool.uv.sources]`, so the `tai42-*`
-packages the generators import come from PyPI and the clone stands alone;
-`--no-sync` runs each gate against that environment instead of re-resolving.
+`make dev` installs the sibling `tai-contract`, `tai-kit`, `tai-skeleton`, and `tai-identity-redis` repos as editable installs for local cross-repo development.
 
 Before any commit, run a secret scan over `scripts/` and `examples/` (e.g.
 `detect-secrets scan`).
