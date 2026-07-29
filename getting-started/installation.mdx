@@ -1,0 +1,108 @@
+---
+title: "Installation"
+description: "Install the tai runtime and its packages."
+icon: "download"
+---
+
+Install the runtime from PyPI. `tai42-skeleton` pulls in the `tai42-contract`
+and `tai42-kit` packages it builds on, so one install puts the whole runtime and
+the `tai` command on your path.
+
+## Requirements
+
+- **Python 3.13 or newer.**
+- **[`uv`](https://docs.astral.sh/uv/)** for the `uv add`, `uv venv`, and
+  `uv pip install` commands below. The `pip` install needs no uv; the
+  from-source flow does.
+- **Redis 7.0+ and Postgres** only for the features that need them — access
+  control, connectors, and interactions. Local tools and mounted MCP servers
+  need no services at all.
+
+## Install
+
+```bash
+pip install tai42-skeleton
+```
+
+Run that inside an activated virtual environment — a stock system Python refuses
+a bare `pip install` with `error: externally-managed-environment`.
+
+Or, in a `uv` project:
+
+```bash
+uv add tai42-skeleton
+```
+
+## Add the standard toolbox
+
+The `toolbox` extra pulls in the `tai42-toolbox` contrib package — its generic
+tools and its composition extensions (`chain`, `batch`) load straight from a
+manifest:
+
+```bash
+pip install "tai42-skeleton[toolbox]"
+```
+
+See the [standard toolbox guide](/guides/standard-toolbox) for what ships in it.
+
+## Add an identity provider
+
+Access control is **on by default**, and the runtime refuses to boot when no
+identity provider is registered — the skeleton ships none of its own. Install the
+Redis-backed API-key provider and name it in the manifest — that is the pairing
+every install starts from:
+
+```bash
+pip install tai42-identity-redis
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_identity_redis.redis_api_key_provider
+```
+
+The provider stores key hashes in Redis, so an access-controlled server needs a
+reachable Redis instance. [Access control](/concepts/access-control) explains the
+policy model, and the [access-control guide](/guides/access-control) mints the
+first key. For local work against tools that need no auth, turn the gate off with
+`ACCESS_CONTROL_ENABLE=false` instead.
+
+## Install from source
+
+To run the checkout itself — to read the code, run the shipped examples, or
+build on an unreleased change — clone the repository and install it into a fresh
+environment with `--no-sources`:
+
+```bash
+git clone https://github.com/tai42ai/tai-skeleton
+cd tai-skeleton
+uv venv --python 3.13
+uv pip install --no-sources --editable .
+```
+
+`--no-sources` is what makes the clone stand on its own. `tai42-skeleton`'s
+`[tool.uv.sources]` points its sibling `tai42-*` dependencies at local checkouts
+for development; the flag ignores those overrides and resolves them from PyPI
+instead. Install `".[toolbox]"` instead of `.` for the standard toolbox, or
+`".[dev]"` for the test and lint tooling.
+
+Run the checkout's commands with `uv run --no-sync`, which uses the environment
+exactly as installed. A bare `uv run` re-syncs the project first, which puts the
+`[tool.uv.sources]` overrides back and fails in a clone that has no sibling
+checkouts beside it.
+
+## The `tai` command
+
+Installing the package puts the entrypoint on your path under two names, `tai`
+and `tai42`. Both run the same command tree — `tai` is the documented one, and
+`tai42` is an alias for environments where an unrelated `tai` already sits on
+your PATH. Three subcommands run the long-lived processes:
+
+- `tai serve` — run the MCP server.
+- `tai backend` — run the agent / worker backend process.
+- `tai metrics` — serve the Prometheus metrics endpoint.
+
+Run `tai --help` for the full command tree, or browse the
+[CLI reference](/reference/cli/index).
+
+Next, boot a server and call a tool in the [quickstart](/getting-started/quickstart).

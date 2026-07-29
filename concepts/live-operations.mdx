@@ -1,0 +1,151 @@
+---
+title: "Live operations"
+description: "Operate a server without a restart."
+icon: "gauge-high"
+---
+
+You operate a running server without a restart. Reloading a tool, replacing the
+manifest, re-probing a failed MCP server, or removing a capability all happen live,
+through the operations layer — one surface that projects to an HTTP route, a CLI
+command, and (curated) an MCP tool.
+
+## The operations layer
+
+Every management capability is an **operation** — one decorated async function
+that carries its own metadata: a name, a summary, the typed errors it may raise,
+and flags such as `destructive`. An operation is the single source, and three
+surfaces project from it:
+
+- an **HTTP route** under `/api/*`, the door the CLI and the Studio drive;
+- a **CLI command** in the [`tai` groups](/reference/cli/index);
+- an **MCP tool**, registered through the normal tool binding so an
+  [extension](/concepts/tools-and-extensions) wraps it, a [preset](/concepts/presets)
+  bakes over it, and `tai tools run` or an agent dispatches it — subject to
+  curation (below).
+
+Because the three surfaces come from one declaration they cannot drift. The
+management operations cover the live-ops families:
+
+- **Tools** — re-register one app tool from its stored definition (`reload_tool`),
+  drop a tool from the live registry (`remove_tool`), and run a registered tool by
+  name (`run_tool`).
+- **Config** — soft-restart in place by refreshing the environment and reloading
+  the manifest registries (`reload_config`).
+- **Manifest** — replace the whole persisted manifest, fleet-wide
+  (`update_manifest`). The change is written through to durable config and then
+  broadcast, so it survives a restart and reaches every worker.
+- **MCP servers** — list the servers a viability check skipped (`list_failed_mcps`),
+  re-probe and re-attach one server or every failed one (`reload_mcp`,
+  `reload_failed_mcps`), and detach a server's tools by title (`deregister_mcp`).
+
+Drive them from the CLI:
+
+```bash
+tai tools run <name> --kw name=World
+tai mcp reload <title>
+tai mcp failed
+```
+
+## Curating the MCP surface
+
+Which operations project as MCP tools is set by the manifest's
+[`api_tools`](/concepts/manifest#the-api_tools-block) block. Two exclusion tiers
+guard the surface regardless of what a manifest asks for:
+
+- **Tier 1 — never projectable.** A meta-executor — an operation that runs any
+  tool by name, `run_tool` — is a universal authorization bypass, so it is
+  hardcode-blocked from the MCP surface even when named in `api_tools.include`.
+  It stays a route, the `tai tools run` command, and an internal dispatch target.
+- **Tier 2 — off by default, includable.** An authority-changing operation — one
+  that mints or scopes keys, edits policy, replaces the manifest
+  (`update_manifest`), or restores unshipped state (a backup import) — is off the
+  default MCP surface but projects when an `api_tools.include` names it explicitly.
+
+A **destructive** operation carries a `destructiveHint` annotation on its
+projected tool (and an `x-destructive` marker on its route in the
+[OpenAPI spec](/reference/api/index)); it only projects when
+`api_tools.expose_destructive` is on.
+
+## Authorization on every MCP surface
+
+`AuthzMiddleware` authorizes every projected-operation dispatch. It runs at tool
+call time — before the extension chain, so before any backend enqueue — on every
+MCP-serving instance: the main server and each [sub-MCP](/concepts/private-tool-sets)
+mount. It resolves the dispatched tool to its base operation and, for a projected
+operation, runs the access-control check; a denial raises a loud tool error. A
+tool that is not a projected operation passes straight through — its authorization
+is a separate concern.
+
+## The mutation pipeline
+
+A mutating operation runs one pipeline: it **validates** the change, **persists**
+it transactionally to durable config, **reloads** the calling process, then
+**broadcasts** it on the [worker bus](/concepts/worker-bus) and awaits a per-origin
+outcome from every worker sharing the manifest. Persist-before-broadcast is why a
+mutation survives a restart and why the persisted state and the live state cannot
+drift apart through a supported path.
+
+The broadcast reaches every process on the bus — serving HTTP workers and any
+backend runtime alike — not just the one that received the request. Fan-out is the
+app's own concern, carried by the bus; it is not a
+[backend](/concepts/backends) capability. Every mutation response embeds the fleet
+report, so a worker the change did not converge is named — `departed`,
+`timed_out`, or `missing` — never a fake success. A failed **local** apply raises;
+a remote miss is reported and logged. Inspect the fleet and re-drive a reload with
+the [`tai fleet` group](/operate/manage-a-fleet).
+
+Because a mutation reaches every worker, the deployment shapes that run more
+than one process need the bus: the boot rules refuse a multi-worker server, a
+registered backend, or k8s mode without `TAI_BUS_REDIS_URL`.
+
+## Reloading is a first-class state
+
+While a reload is in flight, the routes that dispatch a run or mutate live
+registries return a retriable `503` carrying a reloading marker and a `Retry-After`
+header, rather than serving against a half-swapped registry. A client treats it as
+a transient condition and retries — the reload is a state the API describes, not an
+error.
+
+## Soft restart
+
+`reload_config` is the soft restart: it refreshes environment values and reloads the
+manifest registries in place. Combined with [live config](/concepts/config-and-secrets)
+and manifest updates, it lets a server pick up configuration and capability changes
+without dropping its process. Across a fleet, `tai fleet reload-config`
+soft-restarts every worker on the bus (or only `--target` ones) and returns the
+per-origin report — see [Manage a fleet](/operate/manage-a-fleet).
+
+## The kinds summary
+
+A server reports which pluggable kinds it actually resolved at startup. Every
+kind — [identity and accounts](/concepts/accounts) providers, monitoring,
+storage, backend, channels, webhook verifiers, config, and Studio plugins — gets
+one status row, in three states:
+
+- **active** — a real plugin is registered and serving the kind.
+- **default** — nothing is configured, but a built-in fallback is serving in its
+  place (the no-op monitoring recorder, or the file config provider). The kind
+  works; it is just running on the built-in.
+- **off** — nothing is registered and the kind has no built-in fallback. This is
+  a legal, reported state, not an error.
+
+The same rows surface three ways: printed as a `[kinds]` summary block in the
+server's startup log (and again after any in-place reload), served at the authed
+`GET /api/system/kinds` route, and rendered in the Studio's [System kinds
+table](/studio/admin-console#the-kinds-table). Read them from a terminal with:
+
+```bash
+tai system kinds
+```
+
+One state carries an explicit heads-up: when monitoring is running on its
+**default** (the no-op recorder — no monitoring plugin installed), the startup
+summary logs a **one-time** warning that runs are not being recorded and
+observability dashboards will read zeros. It fires at most once per process — the
+point where "monitoring not configured" becomes distinguishable from "no traffic
+yet" — so a monitoring-less deployment is flagged without spamming the log on
+every reload.
+
+See the [observe guide](/operate/observe) for watching a live server and the
+[HTTP API reference](/reference/api/index) and [CLI reference](/reference/cli/index)
+for the management routes and commands.

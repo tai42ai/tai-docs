@@ -1,0 +1,213 @@
+---
+title: "Accounts and sign-in"
+description: "Give humans logins: the Postgres accounts provider, the first admin, invites, and OIDC single sign-on."
+icon: "user-lock"
+---
+
+[Accounts](/concepts/accounts) are the human half of identity: an email and
+password, a session, and a role. `tai42-accounts-postgres` provides them on
+Postgres and contributes the Studio's Users screen;
+`tai42-accounts-oidc` adds single sign-on through your own OIDC providers.
+
+## Postgres accounts
+
+### Install and wire it
+
+```bash
+pip install tai42-accounts-postgres
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_accounts_postgres
+routers_modules:
+  - tai42_accounts_postgres.routes_login
+  - tai42_accounts_postgres.routes_users
+studio_plugins:
+  - tai42_accounts_postgres
+```
+
+```bash
+ACCESS_CONTROL_ENABLE=true
+ACCESS_CONTROL_AUTH_PROVIDERS=["accounts-postgres","redis"]
+```
+
+Mounting the routes without registering the provider raises at boot, naming both
+settings — the two halves are never half-wired.
+
+### Connect the database
+
+There is no single database URL. The connection is composed from discrete
+fields, and the prefix stacks on the inherited field names, which is why each
+name carries `PG_` twice:
+
+```bash
+TAI_ACCOUNTS_PG_PG_HOST=localhost
+TAI_ACCOUNTS_PG_PG_PORT=5432
+TAI_ACCOUNTS_PG_PG_DB=tai
+TAI_ACCOUNTS_PG_PG_USER=postgres
+TAI_ACCOUNTS_PG_PG_PASSWORD=...
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_ACCOUNTS_PG_PG_HOST` | `localhost` | Postgres host. |
+| `TAI_ACCOUNTS_PG_PG_PORT` | `5432` | Postgres port. |
+| `TAI_ACCOUNTS_PG_PG_DB` | `tai` | Database name. |
+| `TAI_ACCOUNTS_PG_PG_USER` | `postgres` | Role the provider connects as. |
+| `TAI_ACCOUNTS_PG_PG_PASSWORD` | empty | Password for that role. |
+| `TAI_ACCOUNTS_PG_PG_MIN_CONNECTIONS` | `2` | Pool floor. |
+| `TAI_ACCOUNTS_PG_PG_MAX_CONNECTIONS` | `10` | Pool ceiling. |
+| `TAI_ACCOUNTS_PG_PG_CONNECT_TIMEOUT` | `10` | Connect timeout in seconds. |
+| `TAI_ACCOUNTS_PG_PG_STATEMENT_TIMEOUT_SECONDS` | `60` | Per-statement timeout in seconds. |
+
+Sessions live in Postgres, in the `accounts_sessions` table below. Login backoff
+and the bootstrap token live in Redis, which arrives from the access-control
+configuration rather than from a variable of this package's own.
+
+### Apply the schema
+
+Three tables — users, sessions, and invites — are created by an idempotent apply
+step. The provider's health check asserts the schema at boot and never applies it
+for you:
+
+```bash
+python -m tai42_accounts_postgres.db apply
+python -m tai42_accounts_postgres.db tables
+```
+
+### Create the first admin
+
+The first owner is created through `POST /api/login/bootstrap`, and the Studio's
+login screen offers it while no user exists. The call is gated by a bootstrap
+token:
+
+```bash
+TAI_ACCOUNTS_BOOTSTRAP_TOKEN=a-secret-you-choose
+```
+
+Set the token yourself, or leave it unset and let the server mint one at startup
+— it is generated once, stored in Redis, and logged by the process that wins the
+race, so read it from that process's logs. Either way the route is token-gated;
+the one way to open it is the development switch below.
+
+```bash
+curl https://your-server/api/login/bootstrap \
+  -H 'content-type: application/json' \
+  -d '{"email":"admin@example.com","password":"a-long-passphrase","bootstrap_token":"..."}'
+```
+
+The call creates the owner with the `admin` role and refuses with a conflict once
+any user exists. Passwords are at least ten characters.
+
+<Warning>
+`TAI_ACCOUNTS_BOOTSTRAP_OPEN=true` disables the token gate entirely. It exists for
+local development. Never set it on a reachable deployment.
+</Warning>
+
+### Invite the rest of the team
+
+There is no outbound email. Creating a user returns a one-time invite link you
+deliver yourself. `role` names an existing
+[access-control role](/reference/cli/roles) template — an unknown name is
+rejected and no user is created:
+
+```bash
+curl https://your-server/api/auth/users \
+  -H "x-api-key: $TAI_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"email":"dev@example.com","role":"admin"}'
+```
+
+The response carries an invite token and a `/login?invite=...` path relative to
+your origin. The invitee sets a password through `POST /api/login/invite/accept`,
+which consumes the token and mints a session in one step. Re-issue an invite with
+`POST /api/auth/users/{user_id}/invite` — it refuses once that user has a
+password.
+
+The Studio's Users screen drives the same routes, and the last enabled admin
+cannot be demoted, disabled, or deleted.
+
+### Tune sessions and login limits
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_ACCOUNTS_SESSION_IDLE_SECONDS` | `86400` | Sliding idle timeout. |
+| `TAI_ACCOUNTS_SESSION_ABSOLUTE_SECONDS` | `2592000` | Hard lifetime from mint. |
+| `TAI_ACCOUNTS_INVITE_TTL_SECONDS` | `259200` | Invite validity. |
+| `TAI_ACCOUNTS_LOGIN_BACKOFF_THRESHOLD` | `5` | Consecutive per-account failures before backoff. |
+| `TAI_ACCOUNTS_LOGIN_BACKOFF_CAP_SECONDS` | `900` | Longest backoff lock. |
+| `TAI_ACCOUNTS_LOGIN_IP_MAX_ATTEMPTS` | `30` | Failures allowed per IP per window. |
+| `TAI_ACCOUNTS_LOGIN_IP_WINDOW_SECONDS` | `900` | Length of that window. |
+| `TAI_ACCOUNTS_LOGIN_HASH_CONCURRENCY` | twice the CPU count, floor 2 | Concurrent password hashes before login sheds load. |
+| `TAI_ACCOUNTS_LOGIN_HASH_WAIT_SECONDS` | `2.0` | Wait before shedding. |
+| `TAI_ACCOUNTS_REDIS_KEY_PREFIX` | the database name | Redis namespace for sessions and counters. |
+
+## OIDC single sign-on
+
+`tai42-accounts-oidc` adds "sign in with…" buttons to the login screen. It runs
+the authorization-code flow with PKCE, then hands the browser a short-lived code
+the Studio exchanges for a session.
+
+```bash
+pip install tai42-accounts-oidc
+```
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_accounts_oidc
+routers_modules:
+  - tai42_accounts_oidc.routes
+```
+
+```bash
+ACCESS_CONTROL_AUTH_PROVIDERS=["accounts-postgres","accounts-oidc","redis"]
+TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL=https://tai.example.com
+TAI_ACCOUNTS_OIDC_STATE_KEY=a-random-secret
+TAI_ACCOUNTS_OIDC_PROVIDERS='[{"name":"google","preset":"google","client_id":"...","client_secret":"..."}]'
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_ACCOUNTS_OIDC_PROVIDERS` | `[]` | JSON array of provider rows. |
+| `TAI_ACCOUNTS_OIDC_STATE_KEY` | unset | Key that signs the OAuth `state`. Required. |
+| `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL` | unset | This deployment's public origin. Required, and https unless it is a loopback host. |
+| `TAI_ACCOUNTS_OIDC_SESSION_IDLE_SECONDS` | `86400` | Sliding idle timeout. |
+| `TAI_ACCOUNTS_OIDC_SESSION_ABSOLUTE_SECONDS` | `2592000` | Hard lifetime from mint. |
+
+Each provider row takes a `name` (lowercase slug, unique) and the client
+credentials, plus optionally `preset`, `issuer`, `scopes`, `claim`, and a
+`display` label and icon. The presets are `google`, `auth0`, `okta`, `keycloak`,
+`azure`, and `github`; `google` and `github` carry fixed endpoints, and the
+others need a per-tenant `issuer`. A row with no `preset` at all is a raw OIDC
+provider and needs its own `issuer`.
+
+### Register the redirect URI
+
+Every provider row uses one callback URL, built from the public base URL and the
+row's name:
+
+```
+{TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL}/api/login/oidc/{name}/callback
+```
+
+Register that exact URL in the provider's console. The authorize request always
+sends PKCE with `S256`, and OIDC presets additionally send a nonce.
+
+<Warning>
+Signing in does not create an account. A successful sign-in resolves to the user
+id `oidc:{provider}:{subject}`, and until a policy exists for that id every
+protected route denies the request. Provision the policy first, then invite the
+person to sign in.
+</Warning>
+
+Both providers mint sessions with the same token prefix and are told apart by a
+store lookup, so the order of `ACCESS_CONTROL_AUTH_PROVIDERS` matters: an outage
+in an earlier member fails closed for the members after it.
+
+## See also
+
+- [Accounts](/concepts/accounts) — the model behind these routes.
+- [Access control](/concepts/access-control) — the policy every identity resolves to.
+- [OIDC machine identity](/operate/identity-oidc) — JWT auth for machines.
+- [The admin console](/studio/admin-console) — where the Users screen lives.

@@ -1,0 +1,88 @@
+---
+title: "Running tools"
+description: "Synchronous runs versus detached background runs, and the trade-off between them."
+icon: "play"
+---
+
+The Tools screen offers two ways to run a tool, with a deliberate trade-off. A
+synchronous **Run** is simple and immediate; a **Run in background** survives a
+dropped connection. Pick by how long the tool takes and whether the result must
+outlive the browser tab.
+
+<Frame caption="The run panel: a synchronous result, with Run and Run in background above it.">
+  <img className="block dark:hidden" src="/images/studio/tool-run-light.png" alt="A tool run panel showing a synchronous result." />
+  <img className="hidden dark:block" src="/images/studio/tool-run-dark.png" alt="A tool run panel showing a synchronous result." />
+</Frame>
+
+## Run (synchronous)
+
+**Run** issues a single `POST /api/run-tool` held open until the tool finishes,
+then renders the typed result inline. It is the right choice for a fast tool
+whose result you want immediately.
+
+The catch is that the result lives only on that one open connection. If the
+browser closes, a proxy times out, or the client-side timeout fires, the result
+is gone — even though the tool may still be executing server-side, side effects
+and all.
+
+<Warning>
+The panel marks a client-side timeout as a distinct **still executing
+server-side** state, never a generic failure. Do not retry: the original run's
+side effects may still be completing.
+</Warning>
+
+## Run in background
+
+**Run in background** issues `POST /api/tool-runs`, which returns a `run_id`
+immediately and runs the tool as a detached task. The Studio then polls for the
+outcome and keeps a per-tool **Recent background runs** list. Use this for long
+or interactive [human-in-the-loop](/concepts/interactions) tools.
+
+<Steps>
+  <Step title="Start the run">
+    `POST /api/tool-runs` returns a `run_id` and the skeleton runs the tool
+    detached.
+  </Step>
+  <Step title="Poll for the result">
+    The Studio polls `GET /api/tool-runs/{run_id}` every two seconds, stopping on
+    a terminal state.
+  </Step>
+  <Step title="Read the outcome">
+    The result is retrievable from the record until it expires — the skeleton's
+    `TAI_TOOL_RUNS_RESULT_TTL_SECONDS`, 24 hours by default.
+  </Step>
+</Steps>
+
+A background run reaches one of four states:
+
+| State | Meaning |
+| --- | --- |
+| `running` | The tool is still executing. |
+| `succeeded` | The tool returned; its result is on the record. |
+| `failed` | The tool raised; its error string is on the record. |
+| `lost` | The skeleton restarted mid-run — the result is unrecoverable. |
+
+<Note>
+**`lost`** means the skeleton restarted while the run was executing. The Studio
+says so plainly rather than pretending the run failed or never happened.
+</Note>
+
+## What background runs are not
+
+- **Not streaming.** Progress is observed by polling, not a live feed — there is
+  no partial-output stream for a tool run.
+- **TTL-bounded.** Run records live in the skeleton's Redis with a TTL; there is
+  no permanent run history, and an expired `run_id` is a plain `404`.
+- **Not durable across a restart mid-run.** An in-flight run whose process dies
+  becomes `lost`. Background execution buys disconnect-survival for the *client*,
+  not crash-recovery of the run itself.
+
+<Note>
+Background runs require the skeleton's Redis-backed run store. A server without
+it still runs tools synchronously; the **Recent background runs** list reports
+the store as unavailable rather than faking a history.
+</Note>
+
+See the [HTTP API reference](/reference/api/index) for the run and tool-run
+routes, and [live operations](/concepts/live-operations) for reloading tools on
+a running server.

@@ -1,0 +1,154 @@
+---
+title: "Task backends"
+description: "Wire arq, Celery, or RQ as the backend that runs queued, scheduled, and agent work."
+icon: "server"
+---
+
+A [backend](/concepts/backends) is where work runs when it does not run inline:
+queued tool calls, schedules, and agent turns. Three shipped backends implement
+the same contract — pick one, name its package in the manifest, and run a worker
+process against it.
+
+| Backend | Package | Broker | Extra processes |
+| --- | --- | --- | --- |
+| arq | `tai42-backend-arq` | Redis | `worker` |
+| Celery | `tai42-backend-celery` | RabbitMQ (broker) + Redis (results, schedule) | `worker`, `beat`, `flower` |
+| RQ | `tai42-backend-rq` | Redis | `worker`, `beat`, `dashboard` |
+
+<Note>
+Every registered backend needs the [worker bus](/concepts/worker-bus):
+`TAI_BUS_REDIS_URL` must be set, or boot is refused. Stacks
+sharing one Redis must also diverge on `TAI_BUS_NAMESPACE` (default `tai`).
+</Note>
+
+## arq
+
+The default. Redis-only, no separate broker, and the backend the distribution
+bundle selects.
+
+```bash
+pip install tai42-backend-arq
+```
+
+```yaml manifest.yml
+backend_module: tai42_backend_arq
+```
+
+```bash
+ARQ_REDIS_URL=redis://localhost:6379/0
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ARQ_REDIS_URL` | `redis://localhost:6379/0` | Queue, results, and the schedule hashes. |
+| `ARQ_REDIS_MAX_CONNECTIONS` | unset | Caps the arq pool; uncapped when unset. |
+| `ARQ_CALLBACK_TIMEOUT` | `5` | Seconds a callback job waits for its predecessor. |
+| `ARQ_TASK_TIMEOUT` | `300` | Seconds a `sync_task` branch waits for a result. |
+| `ARQ_MANIFEST_KEY` | `MANIFEST_KEY` | Env var the host exports the live manifest JSON under. |
+| `ARQ_TOOL_NAME_ARG` | `backend_tool_name` | Kwargs key carrying the target tool name into a queued job. |
+
+Run the worker:
+
+```bash
+tai backend worker --max-jobs 10 --job-timeout 300
+```
+
+The worker's queue name, burst mode, result retention, and poll delay are CLI
+flags, not environment variables. `worker` is the only `tai backend` subcommand
+this backend accepts — there is no beat or dashboard process, and anything else
+exits.
+
+<Warning>
+`ARQ_MANIFEST_KEY`, `ARQ_TASK_TIMEOUT`, and `ARQ_TOOL_NAME_ARG` mirror the host's
+own `BACKEND_` group. Change them in lockstep or the worker and the server stop
+agreeing.
+</Warning>
+
+## Celery
+
+Choose Celery when you already run RabbitMQ, or when you need beat and flower.
+
+```bash
+pip install tai42-backend-celery
+```
+
+```yaml manifest.yml
+backend_module: tai42_backend_celery
+```
+
+```bash
+CELERY_BROKER_URL=amqp://guest:guest@localhost:5672//
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+CELERY_REDBEAT_REDIS_URL=redis://localhost:6379/0
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CELERY_BROKER_URL` | `amqp://localhost:5672//` | The broker. RabbitMQ by default. |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/0` | Result backend. |
+| `CELERY_REDBEAT_REDIS_URL` | `redis://localhost:6379/0` | Redis holding the RedBeat schedule store. |
+| `CELERY_REDBEAT_KEY_PREFIX` | `redbeat:` | Key prefix for the schedule store. |
+| `CELERY_BEAT_MAX_LOOP_INTERVAL` | `60` | Maximum seconds between beat ticks. |
+| `CELERY_WORKER_CONCURRENCY` | `1` | Prefork pool size. |
+| `CELERY_TASK_TIMEOUT` | `300` | Seconds a `sync_task` branch waits for a result. |
+| `CELERY_MANIFEST_KEY` | `MANIFEST_KEY` | Env var the live manifest JSON is written into for prefork inheritance. |
+| `CELERY_TOOL_NAME_ARG` | `backend_tool_name` | Dispatch kwarg naming the target tool. |
+
+```bash
+tai backend worker
+tai backend beat
+tai backend flower
+```
+
+<Warning>
+The concurrency cap of one is load-bearing. Celery's pool restart is advisory, so
+a wider prefork pool can miss the turnover confirmation that follows a
+[live config change](/concepts/live-operations) and turn a bus operation into a
+failure. Raise `CELERY_WORKER_CONCURRENCY` only on a deployment that never
+live-reloads, or move to a `threads`/`gevent` pool. `TAI_BUS_APPLY_TIMEOUT`
+(default `30.0`) sets the confirmation budget.
+</Warning>
+
+On macOS, prefer the `solo` or `threads` pool — forking around the system
+resolver deadlocks. `backend_list_failed_tasks` is not implemented here: Celery
+keeps no queryable failed-task index.
+
+## RQ
+
+Redis-only like arq, with a worker, a scheduler, and the RQ dashboard.
+
+```bash
+pip install tai42-backend-rq
+```
+
+```yaml manifest.yml
+backend_module: tai42_backend_rq
+```
+
+```bash
+RQ_REDIS_URL=redis://localhost:6379/0
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `RQ_REDIS_URL` | `redis://localhost:6379/0` | Broker and results. |
+| `RQ_RQ_PREFIX` | `rq:` | Key prefix for every RQ structure in Redis. |
+| `RQ_TASK_TIMEOUT` | `300` | Seconds a `sync_task` branch waits for a result. |
+| `RQ_MANIFEST_KEY` | `MANIFEST_KEY` | Env var the worker stores the manifest JSON under, inherited by forked work-horses. |
+| `RQ_TOOL_NAME_ARG` | `backend_tool_name` | Queued-job kwarg naming the target tool. |
+
+```bash
+tai backend worker --pool prefork
+tai backend beat
+tai backend dashboard
+```
+
+RQ has no disabled-schedule state, so `backend_list_schedules` always reports a
+schedule as enabled, and disabling one deletes it.
+`backend_registered_tasks` and `backend_list_failed_tasks` are not implemented.
+
+## See also
+
+- [Backends](/concepts/backends) — the contract all three implement.
+- [Manage a fleet](/operate/manage-a-fleet) — read the live worker census.
+- [Schedule a tool](/guides/schedule-a-tool) — put work on a schedule.

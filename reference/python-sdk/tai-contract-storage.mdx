@@ -1,0 +1,223 @@
+---
+title: "Storage (tai42_contract.storage)"
+description: "The Storage protocol a storage provider implements."
+icon: "database"
+---
+
+
+The base content-store contract.
+
+``Storage`` is "where content is stored" — distinct from
+`tai42_contract.template` ("what we do with it", the render mixins). The store
+exposes the text surface ``load`` / ``list`` / ``upload`` / ``delete`` /
+``delete_dir`` plus the binary/media surface ``load_bytes`` / ``upload_bytes`` /
+``stat``, with the module-level ``assert_not_root`` guarding deletes against the
+store root. The binary methods ship text-bridging defaults so a text-only backend
+satisfies the whole contract with no new code; binary-native backends override.
+
+## ObjectStat
+
+`tai42_contract.storage.ObjectStat`
+
+```python
+class ObjectStat(BaseModel)
+```
+
+Metadata for a stored object, returned by `Storage.stat`.
+
+Carries only ``content_type`` — the MIME type consumed here for image/audio
+media gating (a backend that stores no metadata infers it from the path, a
+metadata-bearing backend returns the stored type). Frozen: a stat snapshot is
+a value, not a mutable handle.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `content_type` | `str \| None` |
+
+
+## Storage
+
+`tai42_contract.storage.Storage`
+
+```python
+class Storage(ABC)
+```
+
+### Members
+
+#### load
+
+`tai42_contract.storage.Storage.load`
+
+```python
+async load(self, path: str) -> str
+```
+
+Return the content at ``path``.
+
+Must raise ``FileNotFoundError`` when the item does not exist — the
+manager relies on that exact type to map a missing ``{% include %}`` /
+``{% extends %}`` dependency to Jinja's ``TemplateNotFound`` (so
+``{% include ... ignore missing %}`` works). Any other failure (auth,
+network) must propagate as its own error.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### list
+
+`tai42_contract.storage.Storage.list`
+
+```python
+async list(self) -> builtins.list[str]
+```
+
+
+#### upload
+
+`tai42_contract.storage.Storage.upload`
+
+```python
+async upload(self, path: str, content: str) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `content` | `str` | — | — |
+
+
+#### delete
+
+`tai42_contract.storage.Storage.delete`
+
+```python
+async delete(self, path: str) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### delete_dir
+
+`tai42_contract.storage.Storage.delete_dir`
+
+```python
+async delete_dir(self, path: str) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### load_bytes
+
+`tai42_contract.storage.Storage.load_bytes`
+
+```python
+async load_bytes(self, path: str) -> bytes
+```
+
+Return the raw bytes at ``path``, with the same ``FileNotFoundError``
+contract as `load`.
+
+Text-bridge default: reads the text via `load` and UTF-8 encodes it,
+so a text-only backend serves bytes for free. A binary-native backend
+(e.g. S3) overrides to return the stored bytes unaltered.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### upload_bytes
+
+`tai42_contract.storage.Storage.upload_bytes`
+
+```python
+async upload_bytes(self, path: str, data: bytes, content_type: str | None = None) -> None
+```
+
+Store raw ``data`` at ``path``, optionally tagging ``content_type``.
+
+Text-bridge default: STRICT-decodes ``data`` as UTF-8 and stores it via
+`upload`; ``content_type`` is ignored (a text backend keeps no MIME
+metadata). The decode never passes ``errors=`` — non-UTF-8 bytes raise
+``UnicodeDecodeError`` loudly rather than corrupting the stored content. A
+binary-native backend overrides to store ``data`` and ``content_type`` as-is.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `data` | `bytes` | — | — |
+| `content_type` | `str \| None` | `None` | — |
+
+
+#### stat
+
+`tai42_contract.storage.Storage.stat`
+
+```python
+async stat(self, path: str) -> ObjectStat
+```
+
+Return metadata for the object at ``path``.
+
+Path-inference default: guesses ``content_type`` from the path suffix via
+``mimetypes.guess_type`` — it does NOT verify existence (it answers from
+the path string), so a standalone ``stat`` on a metadata-less backend is
+best-effort metadata; existence for a real read is enforced by the paired
+`load_bytes`. A metadata-bearing backend (e.g. S3) overrides to
+return the stored content-type and maps a missing object to
+``FileNotFoundError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+
+## assert_not_root
+
+`tai42_contract.storage.assert_not_root`
+
+```python
+assert_not_root(path: str) -> None
+```
+
+Reject a directory path that resolves to the storage root.
+
+A blank path, one consisting only of slashes and dots (``""``, ``"."``,
+``"/"``, ``"  "``), or one whose normalized form escapes to or above the
+root (``"a/.."``, ``"./x/../.."``) would target every stored item, so
+deleting it is refused. Shared by all storage backends to keep the guard
+identical.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+

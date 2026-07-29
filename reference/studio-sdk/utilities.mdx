@@ -1,0 +1,231 @@
+---
+title: "Utilities"
+description: "Shared helpers and re-exported types the SDK exposes."
+icon: "wrench"
+---
+
+
+Shared helpers and re-exported types the SDK exposes.
+
+## ApiClient
+
+```ts
+type ApiClient = ReturnType<typeof createApiClient>
+```
+
+
+## SchemaEditor
+
+```ts
+function SchemaEditor(props: SchemaEditorProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `description?` | `string` | — |
+| `disabled?` | `boolean` | — |
+| `idPrefix?` | `string` | — |
+| `label?` | `string` | — |
+| `onChange` | `(change: SchemaEditorChange) => void` | Fired on every edit with the parsed schema (or `null`) and its validity. |
+| `requireTitle` | `boolean` | When true, a top-level `"title"` is required (the `response_format` contract). |
+| `value` | `Record<string, unknown> \| null` | The schema dict to seed the editor with, or `null` for an empty editor. |
+
+**Related:** [SchemaEditorProps](/reference/studio-sdk/utilities#schemaeditorprops)
+
+
+## SchemaEditorChange
+
+```ts
+interface SchemaEditorChange
+```
+
+What `SchemaEditor` reports up on every edit.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `schema` | `Record<string, unknown> \| null` | The authored schema dict when valid and non-empty; `null` when the editor is empty. |
+| `valid` | `boolean` | False when the text is non-empty but unparseable or failing lint — gate submit on this. |
+
+
+## SchemaEditorProps
+
+```ts
+interface SchemaEditorProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `description?` | `string` | — |
+| `disabled?` | `boolean` | — |
+| `idPrefix?` | `string` | — |
+| `label?` | `string` | — |
+| `onChange` | `(change: SchemaEditorChange) => void` | Fired on every edit with the parsed schema (or `null`) and its validity. |
+| `requireTitle` | `boolean` | When true, a top-level `"title"` is required (the `response_format` contract). |
+| `value` | `Record<string, unknown> \| null` | The schema dict to seed the editor with, or `null` for an empty editor. |
+
+**Related:** [SchemaEditorChange](/reference/studio-sdk/utilities#schemaeditorchange)
+
+
+## SchemaLintResult
+
+```ts
+interface SchemaLintResult
+```
+
+The parse/lint outcome for one editor text buffer.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `error` | `string \| undefined` | A loud, human-readable message when valid is false; else `undefined`. |
+| `schema` | `Record<string, unknown> \| null` | The parsed schema dict when the text is a syntactically valid JSON object, or `null` when the text is empty or does not parse. Carries the parsed object even when a lint (e.g. a missing `title`) fails, so the preview can still show the authored shape — the consumer gates on valid, never on this alone. |
+| `valid` | `boolean` | True when the text is empty or a valid schema. False when the text is non-empty but fails to parse or fails a structural lint — the consumer blocks submit. |
+
+
+## comboElementNames
+
+```ts
+function comboElementNames(
+  combo: readonly (string | { config: Record<string, unknown>; name: string })[],
+): string[]
+```
+
+Project a combo's elements to their bare extension names (drops any `config`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `combo` | `readonly (string \| { config: Record<string, unknown>; name: string })[]` | — | — |
+
+
+## downloadBlob
+
+```ts
+function downloadBlob(blob: Blob, filename: string): void
+```
+
+Stream a `Blob` (an export- or content-route response) to the user as a file
+download via a transient object URL. The object URL is revoked on the next tick —
+revoking it synchronously can cancel the download before the browser commits it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `blob` | `Blob` | — | — |
+| `filename` | `string` | — | — |
+
+
+## errorMessage
+
+```ts
+function errorMessage(error: unknown): string
+```
+
+Normalize an unknown thrown/rejected value (a TanStack Query `error`, a
+rejected mutation, a zod/`ApiError`) into a human-readable string for the loud
+`ErrorState` / `Field` surfaces. This only turns a caught value into
+displayable text — it never swallows the failure; the caller decides where to
+show it, and the message is always shown, never blank.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `unknown` | — | — |
+
+
+## extensionElementName
+
+```ts
+function extensionElementName(
+  element: string | { config: Record<string, unknown>; name: string },
+): string
+```
+
+The bare extension name of one combo element (drops any `config`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `element` | `string \| { config: Record<string, unknown>; name: string }` | — | — |
+
+
+## extensionsQueryKey
+
+```ts
+const extensionsQueryKey: readonly ["extensions"]
+```
+
+The extension catalog (`GET /api/extensions`). The extensions feature keys its
+read-only catalog on it; a tool's extension-combo save (in the tools feature)
+creates or tears down branch tools, so it invalidates this key too — a
+cross-feature reference that must resolve to one authoritative constant.
+
+
+## lintSchemaText
+
+```ts
+function lintSchemaText(text: string, requireTitle: boolean): SchemaLintResult
+```
+
+Parse and structurally lint a JSON-Schema editor buffer.
+
+ - Empty text is VALID (an unset, optional schema) with a `null` schema.
+ - Malformed JSON is INVALID; the parser message is surfaced verbatim.
+ - A top-level value that is not a JSON object (an array or a scalar) is INVALID.
+ - When `requireTitle`, a top-level string `"title"` is REQUIRED (the
+   `response_format` contract the backend enforces); its absence is INVALID.
+
+The parsed object is returned untouched — no key is normalized, reordered, or
+dropped — so a schema carrying `$defs`/`anyOf` round-trips exactly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `text` | `string` | — | — |
+| `requireTitle` | `boolean` | — | — |
+
+**Related:** [SchemaLintResult](/reference/studio-sdk/utilities#schemalintresult)
+
+
+## subMcpKey
+
+```ts
+const subMcpKey: readonly ["sub-mcp"]
+```
+
+The discovered sub-MCP mounts (`GET /api/sub-mcp`). The settings feature reads
+this map (its scope mapper lists the mounts) while the manifest feature owns the
+create/delete controls that mutate it; both must key and invalidate the exact
+same tuple, so it lives here rather than as a literal duplicated across the two
+features (which cannot import each other).
+
+
+## tokensPayloadKey
+
+```ts
+const tokensPayloadKey: readonly ["auth-tokens-payload"]
+```
+
+The api-key payloads; read by settings AND the hooks execution-key picker.
+
+
+## toolsListKey
+
+```ts
+const toolsListKey: readonly ["tools"]
+```
+
+The registered-tool master list (`GET /api/tools`).
+

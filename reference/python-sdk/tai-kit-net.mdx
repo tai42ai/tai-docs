@@ -1,0 +1,143 @@
+---
+title: "Network guard (tai42_kit.net)"
+description: "The URL guard and safe fetch helpers."
+icon: "shield-halved"
+---
+
+
+SSRF-guarded server-side URL fetching.
+
+The SSRF guard (`tai42_kit.net.url_guard`) resolves and validates each target
+host, and `fetch_url` is the httpx download built on it: while the guard is
+enabled (the default) that download is DNS-rebinding-safe, redirect-safe, and
+size-capped. The guard is reusable on its own by any caller that fetches a
+caller-supplied URL server-side over its own HTTP client.
+
+## UrlGuardError
+
+`tai42_kit.net.url_guard.UrlGuardError`
+
+```python
+class UrlGuardError(Exception)
+```
+
+Raised when a target host cannot be resolved or is rejected as non-public, or when a
+response exceeds the guard's size cap or its redirect chain exceeds ``max_redirects``.
+
+
+## UrlGuardSettings
+
+`tai42_kit.net.url_guard.UrlGuardSettings`
+
+```python
+class UrlGuardSettings(TaiBaseSettings)
+```
+
+Policy for the SSRF guard on server-side URL fetches.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `enabled` | `bool` |
+| `allow_cidrs` | `list[str]` |
+| `max_response_bytes` | `int` |
+| `max_redirects` | `int` |
+
+
+## enforce_size
+
+`tai42_kit.net.url_guard.enforce_size`
+
+```python
+enforce_size(nbytes: int) -> None
+```
+
+Raise `UrlGuardError` when ``nbytes`` exceeds the configured cap.
+A no-op when the guard is disabled. Never truncates — an over-cap response is
+refused loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `nbytes` | `int` | — | — |
+
+
+## fetch_url
+
+`tai42_kit.net.fetch_url.fetch_url`
+
+```python
+async fetch_url(url: str) -> tuple[bytes, str | None]
+```
+
+Fetch the URL's body and return ``(bytes, mime)``.
+
+``mime`` is the response ``Content-Type`` header (``None`` when absent). When
+the guard is enabled the request runs over `_PinningTransport`, which
+validates and pins every connection (initial request and each redirect hop
+that opens a new connection), and the body is size-capped while streaming.
+Raises rather than truncating an over-cap body or reaching a non-public host.
+When the guard is disabled a plain client is used, which caps nothing, pins
+nothing, and lets httpx follow redirects.
+
+Under the guard, redirects are followed one hop at a time rather than by
+httpx, which reads each intermediate body into memory in full before chasing
+``Location``. A hop carrying a body large enough to exhaust memory would slip
+past the cap that way, so each redirect response is closed unread — forgoing
+connection reuse for that hop — and only the terminal body is streamed and
+counted.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str` | — | — |
+
+
+## guard_enabled
+
+`tai42_kit.net.url_guard.guard_enabled`
+
+```python
+guard_enabled() -> bool
+```
+
+Return whether the SSRF guard is enabled (``TAI_URL_GUARD_ENABLED``).
+
+
+## resolve_and_validate
+
+`tai42_kit.net.url_guard.resolve_and_validate`
+
+```python
+async resolve_and_validate(host: str) -> str
+```
+
+Resolve ``host``, reject it if any resolved address is non-public, and
+return the first validated address to connect to (the "pin").
+
+Resolving once and connecting to the returned address closes DNS-rebinding:
+the same lookup that is validated is the one the connection uses, so an
+attacker cannot answer public during the check and internal at connect time.
+Raises `UrlGuardError` if resolution fails or any address is blocked.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | — | — |
+
+
+## url_guard_settings
+
+`tai42_kit.net.url_guard.url_guard_settings`
+
+```python
+url_guard_settings() -> UrlGuardSettings
+```
+
+Return the process-wide `UrlGuardSettings`, cached after first load.
+

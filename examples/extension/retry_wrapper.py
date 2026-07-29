@@ -1,0 +1,56 @@
+"""A minimal fictional extension: a ``retry`` wrapper.
+
+A WRAPPER presents the wrapped tool's input schema unchanged, apart from its own
+declared control kwargs. This one branches any tool into a ``<tool>_retry``
+variant that re-invokes the tool a few times before giving up, and adds one
+control kwarg — ``attempts`` — declared as a reserved param so the apply site
+still treats the branch as schema-preserving.
+"""
+
+import inspect
+
+from makefun import create_function
+from tai42_contract.app import tai42_app
+from tai42_contract.extensions import ExtensionKind
+
+
+@tai42_app.extensions.extension(kind=ExtensionKind.WRAPPER, name="retry")
+def retry(func, name, description):
+    """Branch ``func`` into a re-invoking ``<name>_retry`` variant."""
+
+    async def wrapper(*args, **kwargs):
+        attempts = kwargs.pop("attempts", 3)
+        last_error: Exception | None = None
+        for _ in range(max(1, attempts)):
+            try:
+                if inspect.iscoroutinefunction(func):
+                    return await func(*args, **kwargs)
+                return func(*args, **kwargs)
+            except Exception as error:
+                last_error = error
+        raise last_error if last_error is not None else RuntimeError("retry exhausted")
+
+    # Present the wrapped tool's signature plus the reserved ``attempts`` kwarg,
+    # inserted before any ``**kwargs`` so the synthesized signature stays valid.
+    signature = inspect.signature(func)
+    params = list(signature.parameters.values())
+    attempts_param = inspect.Parameter("attempts", inspect.Parameter.KEYWORD_ONLY, default=3, annotation=int)
+    insert_at = next(
+        (i for i, p in enumerate(params) if p.kind is inspect.Parameter.VAR_KEYWORD),
+        len(params),
+    )
+    params.insert(insert_at, attempts_param)
+
+    new_name = f"{name}_{retry.__name__}"
+    return create_function(
+        func_signature=signature.replace(parameters=params),
+        func_impl=wrapper,
+        func_name=new_name,
+        qualname=new_name,
+        doc=description,
+    )
+
+
+# The apply site subtracts these reserved control kwargs from the branch's input
+# schema before checking that a WRAPPER preserves the wrapped tool's schema.
+retry.reserved_params = frozenset({"attempts"})

@@ -1,0 +1,126 @@
+---
+title: "tai conversations"
+description: "Manage conversation routes."
+icon: "terminal"
+---
+
+Manage conversation routes.
+
+```console
+$ tai conversations [OPTIONS] COMMAND [ARGS]...
+```
+
+## `tai conversations create`
+
+Create or replace a conversation route.
+
+An UPSERT — a name that already exists is REPLACED, rebinding its `execution_key`
+along with everything else (`created` is `false` for a replace). A `door=api`
+route's `callback_secret` is minted server-side and shown ONCE in the result; it
+signs the delivery callback and is never re-readable. There is no check that you can
+run the agent — the execution key's live grants bound the turn.
+
+Example: `tai conversations create support-line --door channel --agent triage \
+--execution-key svc --channel twilio --identity +15550001111`
+
+```console
+$ tai conversations create [OPTIONS] ROUTE_NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `ROUTE_NAME` | Route name — a slug [a-z0-9-]+ (the thread-key handle). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--door` `TEXT` | Inbound door: 'api' or 'channel'. _(required)_ |
+| `--agent` `TEXT` | The agent the turn runs (must exist). _(required)_ |
+| `--execution-key` `TEXT` | The api-key user id the turn runs AS; you must own it (or be admin), tokenless-evaluable. _(required)_ |
+| `--channel` `TEXT` | door=channel: the channel registry name (e.g. twilio). |
+| `--identity` `TEXT` | door=channel: the medium address we are texted at. |
+| `--callback-url` `TEXT` | door=api: the https answer-delivery URL. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations delete`
+
+Delete a conversation route by name.
+
+Example: `tai conversations delete support-line`
+
+```console
+$ tai conversations delete [OPTIONS] ROUTE_NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `ROUTE_NAME` | Route name (slug). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations failed`
+
+List answer records whose delivery ended failed (admin only).
+
+Example: `tai conversations failed`
+
+```console
+$ tai conversations failed [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations get`
+
+Show one conversation route by name (its callback_secret is withheld).
+
+Example: `tai conversations get support-line`
+
+```console
+$ tai conversations get [OPTIONS] ROUTE_NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `ROUTE_NAME` | Route name (slug). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations get-message`
+
+Read one conversation answer record (caller-scoped: your own records, or any as
+admin; channel records are admin-only).
+
+Example: `tai conversations get-message support-line 4f1c...`
+
+```console
+$ tai conversations get-message [OPTIONS] ROUTE_NAME MESSAGE_ID
+```
+
+| Argument | Description |
+| --- | --- |
+| `ROUTE_NAME` | Route name (slug). _(required)_ |
+| `MESSAGE_ID` | Answer record message id (uuid4). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations list`
+
+List conversation routes (each row's callback_secret is withheld).
+
+Example: `tai conversations list`
+
+```console
+$ tai conversations list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |

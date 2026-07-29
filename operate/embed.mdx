@@ -1,0 +1,96 @@
+---
+title: "Embed in your own ASGI process"
+description: "Serve the runtime from a factory you own — a plain uvicorn run, or mounted inside an existing app."
+icon: "server"
+---
+
+Serve the runtime from an ASGI app you own, instead of the `tai serve` CLI.
+
+`tai42_skeleton.asgi.create_app` returns the same ASGI app `tai serve` runs. You own the process, the uvicorn flags, and the hosting — run it with your own `uvicorn main:app`, or mount it inside an existing FastAPI/Starlette service.
+
+There are two entry modes, and they trade the same way. The tai CLI is the managed path: its command family — `tai serve`, `tai backend`, `tai metrics` — owns the worker fleet, the metrics sidecar, the backend worker processes, UDS binding, and logging, a full ops surface across a few commands. The factory is the embedded path: you drop the runtime into a service you already run and keep your own process manager, uvicorn invocation, and logging story. Pick the CLI for a standalone server; pick the factory to embed the runtime in an existing process.
+
+## Serve directly
+
+The minimal host is a module that builds the app and a uvicorn command that serves it.
+
+```python main.py
+from tai42_skeleton.asgi import create_app
+
+app = create_app(manifest_path="manifest.yml")
+```
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+The MCP endpoint stays under `/mcp`, and the Studio SPA and API routes serve exactly as they do under `tai serve` — the factory returns the same app, so nothing about the request surface changes.
+
+## Mount inside an existing FastAPI or Starlette app
+
+Mounting the app is not enough on its own. Starlette does **not** run a mounted sub-app's lifespan, so the runtime never boots unless the host runs the tai app's lifespan itself. The `lifespan` helper returns the tai app's lifespan context manager; compose it into the host's lifespan, then mount the app:
+
+```python main.py
+import contextlib
+
+from fastapi import FastAPI
+from tai42_skeleton.asgi import create_app, lifespan
+
+tai = create_app(manifest_path="manifest.yml")
+
+
+@contextlib.asynccontextmanager
+async def host_lifespan(app: FastAPI):
+    async with lifespan(tai):
+        yield
+
+
+host = FastAPI(lifespan=host_lifespan)
+host.mount("/tai", tai)
+```
+
+<Warning>
+Skip the composed lifespan and the runtime never boots. Every request to the mounted app answers `503 Service Unavailable` with `Initializing...`, and the `tai42_app` handle raises `AttributeError: ... before bind()` in any plugin code that touches it at import. The mount succeeds; the app just never starts.
+</Warning>
+
+## One app per process
+
+The `tai42_app` handle is a process-global singleton, and so is the built app. A second `create_app` lifespan entered **while another is still active** in the same process raises `RuntimeError` rather than silently rebinding the handle. Sequential lifespans in one process — enter, exit, then enter again — stay legal. Two different apps means two processes.
+
+## Multi-worker and fleet sync
+
+Run several workers with `uvicorn main:app --workers 4`, and the HTTP transports need `create_app(..., stateless_http=True)` — the same session-pinning rule the CLI enforces, because a stateful session is pinned to the worker that created it and a second worker would not see it. The factory cannot see your worker count, so this matrix is yours to get right. See [Transports](/concepts/transports) for the statefulness and worker rules in full.
+
+<Warning>
+**The worker bus is yours to enable when you embed.** The [worker-bus boot rules](/concepts/worker-bus#boot-rules) live in the `tai serve` CLI, and an external process manager driving the factory with its own `--workers` bypasses them — in-process code cannot count sibling processes. So a `uvicorn main:app --workers 4` embed passes no rule yet runs busless-stale unless you set `TAI_BUS_REDIS_URL` yourself. Set it in any multi-process embed.
+</Warning>
+
+<Warning>
+The embedded app serves no `/metrics` route of its own, so metrics are a separate concern under `--workers N`. For correct multi-worker metrics, point every worker at a shared `PROMETHEUS_MULTIPROC_DIR` (the Prometheus multiproc opt-in described below): each worker writes its counters into that directory, and a separate reader — the `tai metrics` server, or your own reader over the same directory — aggregates them across the fleet.
+</Warning>
+
+Fleet convergence — a config reload reaching every worker — rides the app's own [worker bus](/concepts/worker-bus), internal infrastructure you enable with `TAI_BUS_REDIS_URL`. It is not a backend capability and not a CLI feature, so an embedded worker joins the fleet the moment the bus is configured, exactly like a `tai serve` worker. With no bus configured a mutation applies in that one process and reaches no sibling — the correct behavior only for a genuinely single-process embed.
+
+## What the CLI owns that embedding does not
+
+Some of what `tai serve` sets up, the factory deliberately leaves to you.
+
+- **Root logging.** The factory configures no logging — bring your own. A tai config reload that changes `TAI_LOG_LEVEL` does **not** re-apply logging in an embedded process; that re-apply is CLI-owned.
+- **Prometheus metrics.** The embedded app serves no `/metrics` route — exposing metrics is a separate concern you run yourself. Export `PROMETHEUS_MULTIPROC_DIR` before the first import; the app's workers write their counters into that directory, and a separate reader — the `tai metrics` server, or your own reader pointed at the same directory — reads and exposes them. You own that directory's lifecycle, including wiping stale files between runs.
+- **The metrics sidecar, backend worker processes (`tai backend`), and UDS handling.** These are fleet-orchestration concerns the CLI owns; the factory does none of them.
+
+The runtime still makes four process-global changes inside your process. Know them before you embed:
+
+1. **Manifest env stamp.** When you pass `manifest_path`, the app writes `TAI_MANIFEST_PATH` into the process environment for the lifespan's duration, and restores the prior value on exit. Host code reading that variable during the tai app's life sees the tai-set value.
+2. **Config env store.** On every config reload — first reload onward, since boot-time `.env` loading is a CLI-only `load_dotenv` the factory never runs — tai's config engine applies its managed `.env` store to the process environment: `os.environ` gains every key in the store and drops keys removed from it. Host code reading those keys sees tai-managed values. Keep tai env keys namespaced away from your host app's, and never put `TAI_MANIFEST_PATH` or `PROMETHEUS_MULTIPROC_DIR` in the tai env store of an embedded deployment — the factory's own lifespan stamp and the multiproc opt-in own those.
+3. **Default metrics registry.** Without `PROMETHEUS_MULTIPROC_DIR`, tai's counters register into the process-wide `prometheus_client` default registry. tai exposes no `/metrics` route itself, but because that registry is shared, a host that serves its own default-registry `/metrics` includes tai's counters. This is inherent `prometheus_client` behavior; setting `PROMETHEUS_MULTIPROC_DIR` moves tai's counters into the multiproc directory and separates them.
+4. **Log-record redactor.** The app installs a `logging.setLogRecordFactory` wrapper that redacts secret-bearing connector-meta patterns from log records. In embed mode it applies **only to the records tai's operation feeds** — the `tai` logger family (`tai42_skeleton`, `tai42_kit`, `tai42_contract`, and the rest) plus the `mcp` / `fastmcp` library loggers the runtime drives, whose session layers are the primary token-carrying path — so an embedded tai app cannot leak connector secrets through the logs its operation produces, while your app's own records pass through untouched. Under the `tai` CLI, where tai owns the whole process, the wrapper covers every record in the process instead. It is fail-closed: a record the redactor cannot process is still emitted, but its message is replaced by an error marker and its args, exception, and stack are blanked — content is scrubbed rather than leaked.
+
+These effects do not share a lifetime. The manifest env stamp (1) is lifespan-scoped and restored on exit — the exit restore reinstates the pre-app value even if a mid-life config reload wrote that variable, because the `manifest_path` parameter is authoritative for the lifespan. The other three persist for the **process** lifetime: after a tai lifespan exits — sequential re-init is legal — reload-applied env keys linger, registered counters remain in the default registry, and the redactor's factory wrapper stays installed, still inspecting every record the process creates and redacting the in-scope ones.
+
+## See also
+
+- [Deploy](/operate/deploy) — running a standalone server with `tai serve`.
+- [Transports](/concepts/transports) — the statefulness and worker rules the multi-worker matrix follows.
+- [Config and secrets](/concepts/config-and-secrets) — the config engine whose env store the runtime applies on reload.
+- [`tai42_skeleton.asgi`](/reference/python-sdk/tai-skeleton-asgi) — the `create_app` and `lifespan` signatures and parameters.

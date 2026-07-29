@@ -1,0 +1,87 @@
+---
+title: "The marketplace"
+description: "The plugin index: listings, items, versions, and advisories."
+icon: "store"
+---
+
+The marketplace is the ecosystem's plugin index. A running server browses it,
+installs a plugin from it in one command, and hears from it when a published
+version turns out to be bad.
+
+This page explains the model. To search it and install from it, start at
+[Marketplace](/marketplace).
+
+## A metadata index
+
+The registry stores metadata, never packages. A **listing** points at the
+plugin's real distribution channel — its pip package and its source
+repository — and installing resolves that pointer and installs by source: a
+GitHub-sourced release is downloaded and its SHA-256 verified against the
+digest the registry recorded at ingest, while a PyPI-sourced release pins the
+exact version and relies on PyPI's file immutability. The registry's catalog is
+curated: it lists the ecosystem's
+first-party plugins, and every listing carries an `official` trust tier.
+
+## Listings and items
+
+One installable plugin carries many capabilities: a single package can ship
+tools, extensions, and agents together. The registry indexes each contained
+capability as its own **item** row with a kind, categories, and tags — because
+an item is what you search for. You search at item level and install at plugin
+level: finding the `generate_uuid` tool leads you to install the listing that
+carries it.
+
+## Versions
+
+Each listing publishes **versions**. A version records the exact release, its
+artifact, and the [tai42-contract](/concepts/layering) compatibility range it
+declares, so a server can tell whether a release fits its contract before
+installing. The registry validates every release's artifact against its
+listing before publishing it — a release that fails validation is never
+served.
+
+## Advisories and the kill switch
+
+An **advisory** flags affected versions of a listing with a severity and a
+summary. Separately, a version can be **killed** — a registry-side kill switch
+that refuses to resolve that version at all, so it can never be installed. The
+two are distinct: an advisory is a published warning that can later be
+withdrawn, while a killed version is pinned out of resolution.
+
+See [Advisories](/marketplace/advisories) for how a server checks.
+
+## The plugin descriptor: tai-plugin.yml
+
+Every plugin describes itself with a `tai-plugin.yml` — the plugin descriptor —
+at its repository root and inside its built wheel. It names the listing, the
+package, the version, the contract range, and the `provides` list of every
+item the plugin carries.
+
+The registry indexes a plugin from this file and validates the artifact against
+it; the installer uses the `provides` list to patch the server
+[manifest](/concepts/manifest) per provided item. It is a different file from the
+server manifest: `tai-plugin.yml` describes what a plugin *offers*, the server
+manifest declares what a server *loads*.
+
+See [The plugin descriptor](/guides/authors/plugin-descriptor) to author one.
+
+## Installing into a server
+
+Install is a server-side operation: the server resolves the listing, installs
+the verified package into its own environment, patches its manifest per
+provided item, and reloads. The server records the marketplace ref and installed
+version locally, so `installed`, update checks, and advisories answer from
+local truth. The whole flow is one CLI command or one Studio click — see
+[Install a plugin](/marketplace/install).
+
+Because the install writes into the server's own environment and manifest, a
+self-hosted deployment keeps both on persistent storage — the plugin-prefix
+directory and the manifest file — so a container recreation does not lose the
+plugin. See [Persist runtime installs](/operate#persist-runtime-installs).
+
+## See also
+
+- [Browse and search](/marketplace/browse) — find plugins and items.
+- [Install a plugin](/marketplace/install) — install, update, uninstall.
+- [The manifest](/concepts/manifest) — the server-side file the installer patches.
+- [Ecosystem catalog](/reference/catalog) — the packaged offline catalog.

@@ -1,0 +1,92 @@
+---
+title: "Create and version a preset"
+description: "Save and evolve a configured tool."
+icon: "layer-group"
+---
+
+import MinimalPreset from '/snippets/examples/presets/minimal_preset.mdx';
+import PresetsHelp from '/snippets/examples/presets/presets_help.mdx';
+
+Save a configured tool as a named preset and evolve it across versions.
+
+A preset is a versioned, named wrap of a tool. It bakes some of a base tool's arguments as fixed constants and exposes the rest under a new name. Every preset is versioned — it rides the platform's [versioning spine](/concepts/versioning-spine), so every save appends a version, one version is active, and you can roll back. A preset is always a durable, store-backed record.
+
+A preset body is small — a base tool and the fields to bake:
+
+<MinimalPreset />
+
+## Create a preset
+
+Name the base tool and the fixed kwargs to bake. The baked keys are removed from the exposed schema; the remaining arguments keep the base tool's real typed schema. Create writes the durable store row and then registers the live tool.
+
+```bash
+tai presets create greet --base-tool echo --kwargs '{"prefix":"hi"}'
+```
+
+List presets and read one back:
+
+```bash
+tai presets list
+tai presets get greet
+```
+
+To check a draft before committing it — the same pre-write validation the create route runs, but without writing — dry-run it with `validate`:
+
+```bash
+tai presets validate greet --base-tool echo --kwargs '{"prefix":"hi"}'
+```
+
+## Save a new version
+
+Save a new version when the configuration changes. Omitted fields carry forward from the active version; `--clear-tags` and `--extensions '[]'` send the explicit clear sentinel.
+
+```bash
+tai presets save-version greet --kwargs '{"prefix":"hey"}'
+```
+
+Inspect the history and one version:
+
+```bash
+tai presets versions greet
+tai presets get-version greet 1
+```
+
+## Roll back
+
+Make a prior version active again. Rollback appends a new version pointing at the target body — it never rewrites history.
+
+```bash
+tai presets rollback greet 1
+```
+
+## Tag a version
+
+Label an immutable version body without rebinding the tool. Passing no tags clears them to `[]`.
+
+```bash
+tai presets set-version-tags greet 2 stable reviewed
+```
+
+## Rename a preset
+
+A preset's name is its live tool name, so renaming it rebinds the tool — the new name binds before the old is torn down. First check whether other presets compose this one (their authored-agent specs name it as a tool); a rename **blocks with a `409` listing every referee** until you update them:
+
+```bash
+tai presets referees greet
+tai presets rename greet greeter
+```
+
+<Note>
+The versioning spine is one mechanism, shared by many kinds. Presets, access-control policies, and authored agents all ride it — append-only versions, an active pointer, rollback, per-version tags, and rename over an opaque body.
+</Note>
+
+The full subcommand set — including `validate`, `referees`, `set-version-tags`, and `rename`:
+
+<PresetsHelp />
+
+## See also
+
+- [Presets](/concepts/presets) — what a preset is and how binding works.
+- [The versioning spine](/concepts/versioning-spine) — the shared append-only version model.
+- [Author an agent](/guides/author-an-agent) — an authored agent is a preset over a spec-runnable agent.
+- [CLI reference](/reference/cli) — the full `tai presets` surface.

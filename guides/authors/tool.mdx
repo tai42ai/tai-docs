@@ -1,0 +1,53 @@
+---
+title: "Author a tool"
+description: "Build a tool plugin."
+icon: "wrench"
+---
+
+import ForecastTool from '/snippets/examples/tool/forecast_tool.mdx';
+
+Author a tool plugin — a package of tools that registers through the contract handle and loads from a manifest.
+
+A tool plugin is a package whose modules register tools through the `tai42_app` handle. It depends only on `tai42-contract` (and `tai42-kit` for shared helpers) — never on the skeleton — so it stays a pure, contract-facing package the host loads from the manifest. The reference implementation is [`tai42-toolbox`](https://github.com/tai42ai/tai-toolbox), the ecosystem's contrib tool set.
+
+## Register through the handle
+
+Decorate each function with `@tai42_app.tools.tool`. The function's signature becomes the input schema and its docstring the description. Keep one tool per module so a manifest can enable them one at a time.
+
+<ForecastTool />
+
+An async tool works the same way — the runtime awaits it. A tool that returns a structured object returns a `dict` (or a pydantic model), and its return annotation becomes the output schema.
+
+## Gate heavy dependencies
+
+Keep the base install light. Gate a module that needs a heavy dependency behind an optional extra, and fail loudly at import if the extra is missing — never a silent skip. Gate an HTTP tool behind an `[http]` extra, for example, and have the module raise an `install <package>[http]` hint at import when the extra is absent.
+
+## Package layout
+
+- Ship each tool in its own module under your package (`your_package.tools.<name>`).
+- Depend on `tai42-contract` only (plus `tai42-kit` for shared clients or helpers).
+- Never import the skeleton — a tool plugin is contract-facing.
+- Type the package (`py.typed`) and keep the type-checker clean.
+
+## Load it
+
+The host enables a tool module by naming it under `tools[].module`:
+
+```yaml manifest.yml
+tools:
+  - title: weather
+    module: your_package.tools.forecast
+```
+
+See [Build a tool](/guides/build-a-tool) for the loading and run flow end to end.
+
+## Shipped implementations
+
+- [`tai42-toolbox`](https://github.com/tai42ai/tai-toolbox) — the reference tool set (utility, HTTP, and embedding tools).
+
+## See also
+
+- [Tools and extensions](/concepts/tools-and-extensions) — the tool model.
+- [The standard toolbox](/guides/standard-toolbox) — using the shipped tool set.
+- [Python SDK reference](/reference/python-sdk) — the `tai42_app.tools` surface.
+- [Ecosystem catalog](/reference/catalog) — every shipped tool.

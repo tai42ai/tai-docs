@@ -1,0 +1,183 @@
+---
+title: "Deploy"
+description: "Run a server for real."
+icon: "cloud-arrow-up"
+---
+
+import ServeWorkersHelp from '/snippets/examples/deploy/serve_workers_help.mdx';
+import AccessControlManifest from '/snippets/examples/deploy/access_control_manifest.mdx';
+
+Run a server for real — transport selection, environment, and the config-provider swap point.
+
+A production server is `tai serve` with a transport, a bound address, a manifest, and the environment its tools need. This page covers those choices. Provider-specific settings (a config provider's own environment variables) live in that provider's repository README.
+
+<Note>
+Running inside your own ASGI process instead of `tai serve` — a plain uvicorn run or a mount in an existing FastAPI/Starlette app? See [Embed in your own ASGI process](/operate/embed).
+</Note>
+
+## Choose a transport
+
+`tai serve` runs the MCP server over one transport. Select it with `-t/--transport`:
+
+| Transport | Use it for |
+| --- | --- |
+| `stdio` | a local client that launches the server as a subprocess |
+| `http` / `streamable-http` | a network endpoint; stateful by default |
+| `sse` | a network endpoint over server-sent events |
+
+```bash
+tai serve --transport http --host 0.0.0.0 --port 8000
+```
+
+For a fast same-machine path, bind a Unix domain socket with `--uds /path/to/socket` instead of a host and port.
+
+## Scale workers
+
+Run multiple worker processes with `-w/--workers`. The transport constrains the worker count:
+
+- `stdio` and `sse` run a single worker.
+- `http` / `streamable-http` run a single stateful worker by default; pass `--stateless-http` to lift the single-worker restriction and run several.
+
+More than one worker also **requires the [worker bus](/concepts/worker-bus)**: `tai serve --workers N` (`N > 1`) is refused without `TAI_BUS_REDIS_URL`, because sibling workers would serve stale config after a reload with no channel to converge on.
+
+```bash
+export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
+tai serve --transport streamable-http --workers 4 --stateless-http
+```
+
+The full worker and transport option surface:
+
+<ServeWorkersHelp />
+
+<Warning>
+`--workers > 1` is refused for `stdio` and `sse`, and for `http` / `streamable-http` unless `--stateless-http` is set. A stateful HTTP server keeps session state a second worker would not see. It is refused again without `TAI_BUS_REDIS_URL` — a multi-worker fleet needs the bus to stay converged.
+</Warning>
+
+<Note>
+**Multiple workers need a shared sub-MCP store.** Running more than one worker (`-w N`, `N > 1`) **requires** `SUB_MCP_REDIS_URL`. Sub-MCP app registrations are per-process in-memory routing state; without a shared Redis a registration made on one worker is invisible to its siblings and no worker rehydrates another's routes. Point it at a plain Redis:
+
+```bash
+export SUB_MCP_REDIS_URL="redis://localhost:6379/0"
+tai serve --transport streamable-http --workers 4 --stateless-http
+```
+
+A single-worker deployment may run on the default in-memory store.
+</Note>
+
+## Point at a manifest and environment
+
+The server loads a manifest and reads its environment at startup. Point at the manifest with `--manifest-path`, or set `TAI_MANIFEST_PATH` as the flag's default. Provide the environment your tools need — see the repository's `.env.example`.
+
+```bash
+export TAI_MANIFEST_PATH="$(pwd)/manifest.yml"
+tai serve --transport http
+```
+
+The default config directory the `file` provider anchors `.env`, `manifest.yml`, and templates under is `/app`; override it with `TAI_CONFIG_DIR_PATH`.
+
+## HTTP routers and headless mode
+
+Out of the box the server serves the **full Studio surface** — every built-in page and its API — with no router list in the manifest. The `default_routers` field controls this:
+
+- **`all`** (the default) — serve the whole Studio UI plus its API. A bare manifest gives you the full surface; you never enumerate the core routers, and no page is left dark for want of a listing.
+- **`api`** — a **headless** deployment: mount the core JSON API (`/api/*`) but do not serve the browser SPA. Use it for an API-only backend with no UI.
+- **`none`** — mount nothing by default and list every router in `routers_modules` yourself. For a fully manual or MCP-only surface.
+
+`routers_modules` adds extras — your own routers, a plugin's — on top of the selected set; the loader keeps the Studio SPA catch-all last. See [the manifest](/concepts/manifest#http-routers) for the field reference.
+
+## Run mode and logging
+
+`TAI_RUN_MODE` selects how `tai serve` runs. Leave it unset (or empty) for the normal multi-worker server; set it to `debug` for a single in-process server, which ignores `--workers`. Any other value is **rejected loudly** at startup rather than silently falling through — a typo never selects a mode.
+
+```bash
+export TAI_RUN_MODE=debug   # single in-process server; --workers is ignored
+tai serve --transport http
+```
+
+Set the log level with `TAI_LOG_LEVEL` (default `INFO`). A config reload that changes it re-applies logging under `tai serve`.
+
+```bash
+export TAI_LOG_LEVEL=DEBUG
+tai serve --transport http
+```
+
+See [Config and secrets](/concepts/config-and-secrets#settings-reference) for the full environment-variable reference, including the timeout and limit knobs.
+
+## Swap the config provider
+
+Where the server reads its env and manifest is a swappable provider. The default `file` provider reads from disk with zero dependencies. Select a different provider — for example a Kubernetes-backed one — with `TAI_CONFIG_MODE`:
+
+```bash
+export TAI_CONFIG_MODE=k8s   # requires the k8s config provider plugin installed
+```
+
+A config provider is a plugin; its own settings live in its repository README. See [Config and secrets](/concepts/config-and-secrets) and [Author a config provider](/guides/authors/config-provider).
+
+<Warning>
+`TAI_CONFIG_MODE=k8s` **requires the [worker bus](/concepts/worker-bus)**. k8s mode exists for multi-pod shared config, and a pod cannot see its own replica count, so a busless k8s boot is refused — set `TAI_BUS_REDIS_URL`. The refusal names the missing bus, not a later kubeconfig error.
+</Warning>
+
+## Access control at deploy
+
+Enabling access control (`ACCESS_CONTROL_ENABLE`, on by default) adds three deploy requirements.
+
+**Postgres for the policy store.** The access-control policy and route tables are Postgres-backed, with their own `ACCESS_CONTROL_STORE_*` connection namespace (defaulting to the same `tai` database as the other stores). Supply the password via `ACCESS_CONTROL_STORE_PG_PASSWORD`.
+
+```bash
+export ACCESS_CONTROL_STORE_PG_HOST=postgres.internal
+export ACCESS_CONTROL_STORE_PG_DB=tai
+export ACCESS_CONTROL_STORE_PG_PASSWORD="$PGPASSWORD"
+```
+
+**Any plain Redis.** The auth gate reads its live context (`ACCESS_CONTROL_REDIS_URL`, default `redis://localhost:6379/0`) and the identity records from plain Redis hashes. Any standard, module-less `redis-server` runs the whole ecosystem, access control included — `redis:7`, `redis:8`, or `valkey`. No RedisJSON, no redis-stack, no Redis modules are required anywhere.
+
+**An identity provider in the manifest.** The skeleton ships no concrete identity provider, so a deployment with access control enabled **must** name one as a `lifecycle_modules` entry — its module registers the provider at import. The default is the Redis-backed api-key provider, which registers itself as the `"redis"` provider; `ACCESS_CONTROL_AUTH_PROVIDERS` — an ordered JSON list, default `["redis"]` — names the chain the verifier tries. Swap the module to change the authn backend.
+
+<AccessControlManifest />
+
+**Serving the Studio needs no SPA public prefixes.** With access control on, an unmatched non-`/api` GET is served the **dataless Studio SPA shell** — `index.html` and its static assets — so a deep-link refresh reaches the login page and the app boots. This is on by default (the `spa_shell_public` setting), so you do **not** pin `/`, `/assets`, `/vendor`, or any SPA path public; the shell leaks nothing, because all data sits behind authenticated `/api/*` calls. The login API namespace `/api/login` is public by code default, and everything else under `/api/*` stays authed. A headless (no-Studio) deployment can set `spa_shell_public` to `false` to turn the fallback off.
+
+See the [access-control guide](/guides/access-control) for the end-to-end walkthrough.
+
+## Liveness and readiness
+
+The server exposes two operational routes for orchestrators and load balancers. Both are `GET`, unauthenticated, and served outside the OpenAPI surface — there is no CLI command for them.
+
+| Route | Probes | Response |
+| --- | --- | --- |
+| `/health` | nothing — pure liveness | `200 OK` |
+| `/ready` | every backing store this deployment has wired (Redis/Postgres), each pinged once under a 5s budget | `200` `{"status":"ready", ...}` when all pass; `503` `{"status":"not_ready", ...}` if any fails |
+
+`/health` stays green as long as the process is up. `/ready` lets an orchestrator hold traffic off a worker whose Redis or Postgres is unreachable — such a worker would 500 every real request but stay live.
+
+**The probe routes are public by default — no manual step.** With access control enabled, unknown routes are denied, but `/health` and `/ready` are served public by the app's own route-level declaration: they ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so a probe carrying no key reaches them with nothing to configure. Do **not** also list them in `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` — an acknowledged route that overlaps an always-public prefix is rejected at boot.
+
+<Warning>
+When the access-control Redis itself is down, `ResourceGuardMiddleware` **fails closed with `403`** before the `/ready` handler runs. A probe still sees a non-`200` and rotates or drains the worker either way — the readiness signal is preserved even when the gate's own store is unreachable.
+</Warning>
+
+## Preflight check
+
+Run read-only health diagnostics before serving — Python version, config mode, Postgres and Redis connectivity, and whether the schema is applied. It exits non-zero when any check fails, and redacts credentials.
+
+```bash
+tai doctor
+```
+
+<Note>
+Requires Python 3.13+. `tai` ships with the runtime — `pip install tai42-skeleton`. To run it against an unreleased change instead, install from the repository: `pip install git+https://github.com/tai42ai/tai-skeleton`.
+</Note>
+
+## Self-host the whole stack
+
+Running the platform as containers — the minimal-core image, Postgres and
+Redis, the Compose bundle, and the Helm chart — is covered in
+[Operate](/operate). Datastores are never host-published there; only serve's
+port is, and access control gates it exactly as above.
+
+## See also
+
+- [Transports](/concepts/transports) — the HTTP, SSE, stdio, and UDS paths in depth.
+- [Config and secrets](/concepts/config-and-secrets) — the config-provider seam.
+- [Integrations](/integrations) — point an MCP client at the running server.
+- [CLI reference](/reference/cli) — the full `tai serve` surface.

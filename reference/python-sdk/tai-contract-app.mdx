@@ -1,0 +1,2333 @@
+---
+title: "App facade (tai42_contract.app)"
+description: "The assembled TaiApp facade and its per-feature namespaces."
+icon: "layer-group"
+---
+
+
+The assembled ``TaiApp`` facade.
+
+One ``Protocol`` per feature (see `tai42_contract.app.facets`), composed into
+a single ``TaiApp`` protocol that exposes them as namespaces (``app.tools``,
+``app.agents``, ...). The app members are partitioned across the
+sub-protocols — each lives in exactly one, save the shared leaf names
+``store`` (``versioning`` + ``presets``) and ``register``/``get``
+(``webhook_verifiers`` + ``channels``). The runtime forwarding handle is
+``tai42_app`` (see `tai42_contract.app.handle`).
+
+## AppAdmin
+
+`tai42_contract.app.facets.AppAdmin`
+
+```python
+class AppAdmin(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `live_manifest` *(property)* | `dict[str, Any]` |
+
+### Members
+
+#### reload_mcp
+
+`tai42_contract.app.facets.AppAdmin.reload_mcp`
+
+```python
+reload_mcp(self, title: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `title` | `str` | — | — |
+
+
+#### deregister_mcp
+
+`tai42_contract.app.facets.AppAdmin.deregister_mcp`
+
+```python
+deregister_mcp(self, title: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `title` | `str` | — | — |
+
+
+#### reload_config
+
+`tai42_contract.app.facets.AppAdmin.reload_config`
+
+```python
+reload_config(self) -> dict[str, Any]
+```
+
+
+#### tool_reloader
+
+`tai42_contract.app.facets.AppAdmin.tool_reloader`
+
+```python
+tool_reloader(self, kind: str) -> Callable[..., Any]
+```
+
+Register an async ``(action, name) -> dict`` reloader for ``kind``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+
+
+#### run_tool_reload
+
+`tai42_contract.app.facets.AppAdmin.run_tool_reload`
+
+```python
+async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+| `action` | `str` | — | — |
+| `name` | `str` | — | — |
+
+
+#### reload_failed_mcps
+
+`tai42_contract.app.facets.AppAdmin.reload_failed_mcps`
+
+```python
+reload_failed_mcps(self) -> list[dict[str, Any]]
+```
+
+
+#### list_failed_mcps
+
+`tai42_contract.app.facets.AppAdmin.list_failed_mcps`
+
+```python
+list_failed_mcps(self) -> list[dict[str, Any]]
+```
+
+
+#### live_mcp_status
+
+`tai42_contract.app.facets.AppAdmin.live_mcp_status`
+
+```python
+live_mcp_status(self) -> dict[str, Any]
+```
+
+Snapshot the in-process MCP-binding state.
+
+
+
+## AppAgents
+
+`tai42_contract.app.facets.AppAgents`
+
+```python
+class AppAgents(Protocol)
+```
+
+### Members
+
+#### agent
+
+`tai42_contract.app.facets.AppAgents.agent`
+
+```python
+agent(self, name: str) -> Callable[[type[_AgentT]], type[_AgentT]]
+```
+
+Register an `Agent` subclass under ``name`` and auto-register
+its JSON ``run`` tool.
+
+The decorator returns the class unchanged, so the decorated symbol keeps
+its concrete subclass type.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### get_agent
+
+`tai42_contract.app.facets.AppAgents.get_agent`
+
+```python
+get_agent(self, name: str) -> Agent
+```
+
+Fetch a registered agent instance by name; raise if missing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### all_agents
+
+`tai42_contract.app.facets.AppAgents.all_agents`
+
+```python
+all_agents(self) -> dict[str, Agent]
+```
+
+Every registered agent keyed by registration name (a shallow copy, so a
+caller iterating it cannot mutate the live registry). The preset bind kernel
+reads the keys to detect an agent base (the run tool binds under the
+registration name).
+
+
+
+## AppBackends
+
+`tai42_contract.app.facets.AppBackends`
+
+```python
+class AppBackends(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `backend` *(property)* | `Backend \| None` |
+
+### Members
+
+#### register_backend
+
+`tai42_contract.app.facets.AppBackends.register_backend`
+
+```python
+register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backend]], type[Backend]] | type[Backend]
+```
+
+
+
+## AppBackup
+
+`tai42_contract.app.facets.AppBackup`
+
+```python
+class AppBackup(Protocol)
+```
+
+Registry for named backup sections and the run of one section's
+export/import.
+
+A plugin (or the host itself, the first consumer) registers a section under
+``name`` by supplying an ``exporter()`` that returns a JSON-safe payload and
+an ``importer(payload)`` that applies it and returns a section report.
+``sections()`` lists the registered sections for the UI. ``export_section``
+/ ``import_section`` run one section's exporter/importer by name and raise
+loudly on an unknown name — never a silent no-op.
+
+### Members
+
+#### register_section
+
+`tai42_contract.app.facets.AppBackup.register_section`
+
+```python
+register_section(
+    self,
+    name: str,
+    exporter: Callable[[], Any],
+    importer: Callable[[Any], Any],
+    *,
+    secret: bool = False,
+) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `exporter` | `Callable[[], Any]` | — | — |
+| `importer` | `Callable[[Any], Any]` | — | — |
+| `secret` | `bool` | `False` | — |
+
+
+#### sections
+
+`tai42_contract.app.facets.AppBackup.sections`
+
+```python
+sections(self) -> list[BackupSectionInfo]
+```
+
+
+#### export_section
+
+`tai42_contract.app.facets.AppBackup.export_section`
+
+```python
+export_section(self, name: str) -> Any
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### import_section
+
+`tai42_contract.app.facets.AppBackup.import_section`
+
+```python
+import_section(self, name: str, payload: Any) -> Any
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `payload` | `Any` | — | — |
+
+
+
+## AppChannels
+
+`tai42_contract.app.facets.AppChannels`
+
+```python
+class AppChannels(Protocol)
+```
+
+### Members
+
+#### register
+
+`tai42_contract.app.facets.AppChannels.register`
+
+```python
+register(self, name: str, channel: Channel) -> None
+```
+
+Register a `Channel` under ``name``.
+
+A channel plugin calls this through the ``tai42_app`` handle when its
+import-only ``channel_modules`` entry loads. Registering a name already
+taken raises loudly — a silent overwrite could swap the medium a live
+ask is delivered on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `channel` | `Channel` | — | — |
+
+
+#### get
+
+`tai42_contract.app.facets.AppChannels.get`
+
+```python
+get(self, name: str) -> Channel
+```
+
+Fetch a registered channel by name; raise loudly on an unknown name.
+
+Resolution happens when ``ask_user`` is called with ``channel=name``,
+BEFORE any interaction state is written, so an unknown name surfaces as
+a loud failure, never a question silently delivered nowhere.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### names
+
+`tai42_contract.app.facets.AppChannels.names`
+
+```python
+names(self) -> list[str]
+```
+
+Every registered channel name, for the channels catalog route.
+
+
+
+## AppClients
+
+`tai42_contract.app.facets.AppClients`
+
+```python
+class AppClients(Protocol)
+```
+
+### Members
+
+#### client_ctx
+
+`tai42_contract.app.facets.AppClients.client_ctx`
+
+```python
+client_ctx(
+    self,
+    client_cls: type[BaseClient[ClientT]],
+    settings: Any = None,
+    *,
+    fresh: bool = False,
+    **kwargs: Any,
+) -> AbstractAsyncContextManager[ClientT]
+```
+
+Async context manager yielding a connected client, pooled per loop +
+connection params (or one-shot when ``fresh=True``). ``settings`` is a kit
+``ClientSettings`` whose ``client_kwargs()`` supplies the connection key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `client_cls` | `type[BaseClient[ClientT]]` | — | — |
+| `settings` | `Any` | `None` | — |
+| `fresh` | `bool` | `False` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### shutdown_clients
+
+`tai42_contract.app.facets.AppClients.shutdown_clients`
+
+```python
+async shutdown_clients(self) -> None
+```
+
+Close every live client pool for the running loop.
+
+
+
+## AppConfig
+
+`tai42_contract.app.facets.AppConfig`
+
+```python
+class AppConfig(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `config_manager` *(property)* | `ConfigManager` |
+
+
+## AppConnectors
+
+`tai42_contract.app.facets.AppConnectors`
+
+```python
+class AppConnectors(Protocol)
+```
+
+### Members
+
+#### register_connector
+
+`tai42_contract.app.facets.AppConnectors.register_connector`
+
+```python
+register_connector(self, descriptor: ProviderDescriptor) -> None
+```
+
+Register an OAuth connector provider from its pure descriptor data. A
+provider plugin calls this through the ``tai42_app`` handle when the manifest
+loads it (a connector is pure data, so this is a plain call, not a decorator).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `descriptor` | `ProviderDescriptor` | — | — |
+
+
+#### token_store
+
+`tai42_contract.app.facets.AppConnectors.token_store`
+
+```python
+token_store: ConnectorTokenStore
+```
+
+The connector token store (single-namespace, keyed by ``connection_id``).
+
+
+
+## AppConversations
+
+`tai42_contract.app.facets.AppConversations`
+
+```python
+class AppConversations(Protocol)
+```
+
+The conversation bridge's entry surface for medium adapters: inbound messages
+via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
+Routing-row CRUD, the turn engine and the API door are not part of this facet.
+
+### Members
+
+#### accept
+
+`tai42_contract.app.facets.AppConversations.accept`
+
+```python
+async accept(
+    self,
+    channel: str,
+    our_identity: str,
+    client_address: str,
+    text: str,
+    provider_message_id: str,
+) -> str
+```
+
+Accept one inbound channel message, persist it, and return its
+``message_id`` (a uuid4).
+
+Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
+turn runs as that route's execution key and answers back over the same channel.
+Idempotent on ``(channel, provider_message_id)`` — a redelivery returns the
+existing ``message_id`` and starts no second turn. Raises when no route matches.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `our_identity` | `str` | — | — |
+| `client_address` | `str` | — | — |
+| `text` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+
+
+#### record_delivery_status
+
+`tai42_contract.app.facets.AppConversations.record_delivery_status`
+
+```python
+async record_delivery_status(self, channel: str, provider_message_id: str, status: DeliveryReceipt) -> None
+```
+
+Ingest a channel's out-of-band delivery receipt for an outbound message.
+
+``provider_message_id`` is one of the ids a prior ``notify`` returned, resolved
+to the answer record through the outbound-id reverse index. ``FAILED`` marks the
+record failed; ``DELIVERED`` confirms a ``provisional`` record. Raises when the
+id resolves to no record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+| `status` | `DeliveryReceipt` | — | — |
+
+
+
+## AppExtensions
+
+`tai42_contract.app.facets.AppExtensions`
+
+```python
+class AppExtensions(Protocol)
+```
+
+### Members
+
+#### extension
+
+`tai42_contract.app.facets.AppExtensions.extension`
+
+```python
+extension(
+    self,
+    f: Callable[..., Any] | None = None,
+    *,
+    kind: ExtensionKind,
+    name: str | None = None,
+    requires_body_locality: bool = False,
+) -> Callable[..., Any]
+```
+
+Register a tool-extension factory under ``name`` (default: the
+function's own name); usable bare or with arguments.
+
+``requires_body_locality`` marks an extension whose wrapper only works
+in the process running the tool body it wraps — e.g. a proxy layer that
+routes the body's egress through a task-scoped contextvar, visible only
+where the body executes. The flag is stored as registration metadata the
+apply site reads to order a stacked combo: a locality-requiring
+extension must bind INSIDE any execution-relocating extension
+(``ExtensionKind.relocates_execution``), so its wrapper travels with the
+body to the worker. Bound outside a relocating layer, the wrapper stays
+behind in the submitting process and silently does not apply.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `f` | `Callable[..., Any] \| None` | `None` | — |
+| `kind` | `ExtensionKind` | — | — |
+| `name` | `str \| None` | `None` | — |
+| `requires_body_locality` | `bool` | `False` | — |
+
+
+#### available_extensions
+
+`tai42_contract.app.facets.AppExtensions.available_extensions`
+
+```python
+available_extensions(self) -> list[dict[str, str]]
+```
+
+List registered extension modules as ``[{"name", "kind"}]``.
+
+
+
+## AppHttp
+
+`tai42_contract.app.facets.AppHttp`
+
+```python
+class AppHttp(Protocol)
+```
+
+### Members
+
+#### middleware
+
+`tai42_contract.app.facets.AppHttp.middleware`
+
+```python
+middleware(self, cls: type[Any] | None = None, **options: Any) -> Callable[..., Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `options` | `Any` | `{}` | — |
+
+
+#### custom_route
+
+`tai42_contract.app.facets.AppHttp.custom_route`
+
+```python
+custom_route(
+    self,
+    path: str,
+    methods: list[str],
+    name: str | None = None,
+    include_in_schema: bool = True,
+    *,
+    summary: str,
+    tags: list[str],
+    response_model: type[BaseModel] | None,
+    request_model: type[BaseModel] | None = None,
+    authed: bool = True,
+    destructive: bool = False,
+    action: RouteAction | None = None,
+    declared: DeclaredRouteMetadata | None = None,
+) -> Callable[[Callable[[Request], Awaitable[Response]]], Callable[[Request], Awaitable[Response]]]
+```
+
+Register a Starlette handler AND its self-describing route metadata.
+
+The metadata is the single source of truth the OpenAPI 3.1 emitter and its
+coverage gate consume, so every registration MUST describe itself:
+
+* ``summary`` — a one-line operation summary (required, non-empty).
+* ``tags`` — at least one OpenAPI tag grouping the route (required).
+* ``response_model`` — the pydantic model wrapped in the ``{"data": ...}``
+  success envelope, or ``None`` as the explicit opaque marker for a route
+  with no structured response. Required — there is no default, so a route
+  cannot silently omit it.
+* ``request_model`` — the pydantic model of the request body; required for
+  any route that reads a body, omitted (``None``) otherwise.
+* ``authed`` — whether the route requires the api key (default ``True``);
+  emitted as the ``security`` requirement.
+* ``destructive`` — whether the route mutates in a way flagged as
+  destructive (default ``False``); emitted as ``x-destructive``.
+* ``action`` — the route's authorization character (a `RouteAction`);
+  ``None`` (the default) lets the surface derive the grantable class from
+  the HTTP methods.
+* ``declared`` — the route's behavioral OpenAPI properties (a
+  `DeclaredRouteMetadata`): its ``reload_gated`` / ``reads_body`` /
+  error statuses / success status. A route in the ``/api/*`` spec surface
+  declares these (the operations adapter passes its operation's metadata, a
+  native handler passes its own); ``None`` (the default) records trivial
+  defaults for a route outside the spec surface, whose behavioral metadata
+  is never emitted.
+
+The handler's narrative docstring becomes the operation description, and
+the reload-gate ``503`` response is derived from the handler body.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `methods` | `list[str]` | — | — |
+| `name` | `str \| None` | `None` | — |
+| `include_in_schema` | `bool` | `True` | — |
+| `summary` | `str` | — | — |
+| `tags` | `list[str]` | — | — |
+| `response_model` | `type[BaseModel] \| None` | — | — |
+| `request_model` | `type[BaseModel] \| None` | `None` | — |
+| `authed` | `bool` | `True` | — |
+| `destructive` | `bool` | `False` | — |
+| `action` | `RouteAction \| None` | `None` | — |
+| `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
+
+
+
+## AppLifecycle
+
+`tai42_contract.app.facets.AppLifecycle`
+
+```python
+class AppLifecycle(Protocol)
+```
+
+### Members
+
+#### on_startup
+
+`tai42_contract.app.facets.AppLifecycle.on_startup`
+
+```python
+on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_shutdown
+
+`tai42_contract.app.facets.AppLifecycle.on_shutdown`
+
+```python
+on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_reload
+
+`tai42_contract.app.facets.AppLifecycle.on_reload`
+
+```python
+on_reload(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+Register a handler re-run after every in-place re-init (``reload_config``) —
+e.g. dynamic tool loaders that ``on_startup`` ran once.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_fleet_op_applied
+
+`tai42_contract.app.facets.AppLifecycle.on_fleet_op_applied`
+
+```python
+on_fleet_op_applied(self, func: Callable[[str], Any]) -> Callable[[str], Any]
+```
+
+Register a handler fired after any worker-bus op applies in this
+process, and after the reconnect self-resync reload.
+
+Unlike its zero-arg siblings, the handler takes ONE argument — the op
+name — so it can act on some ops and skip others (a query op carries no
+state change to react to).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[str], Any]` | — | — |
+
+
+#### wait_until_ready
+
+`tai42_contract.app.facets.AppLifecycle.wait_until_ready`
+
+```python
+async wait_until_ready(self) -> None
+```
+
+Block until this process's first boot self-resync has completed — the
+point at which the tool registry is fully built and stable for the run.
+
+A backend runtime that forks a child (or otherwise consumes queued work)
+per job awaits this before its work loop accepts anything: the boot
+self-resync rebuilds the tool registry non-atomically, so a worker that
+dequeued and forked mid-rebuild would run the job against a half-built
+registry. The latch is one-way — it resolves once and stays resolved, so
+a later bus reconnect (which re-runs the self-resync while the app is
+already live) never un-readies the process.
+
+
+
+## AppMonitoring
+
+`tai42_contract.app.facets.AppMonitoring`
+
+```python
+class AppMonitoring(Protocol)
+```
+
+### Members
+
+#### register_monitoring
+
+`tai42_contract.app.facets.AppMonitoring.register_monitoring`
+
+```python
+register_monitoring(self, builder: Callable[..., Any] | None = None) -> Callable[..., Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `builder` | `Callable[..., Any] \| None` | `None` | — |
+
+
+#### active
+
+`tai42_contract.app.facets.AppMonitoring.active`
+
+```python
+active: Monitoring
+```
+
+The active monitoring backend (impl type behind the contract protocol).
+
+
+
+## AppPresets
+
+`tai42_contract.app.facets.AppPresets`
+
+```python
+class AppPresets(Protocol)
+```
+
+The presets namespace (``app.presets``) — the typed view + the bind kernel.
+
+``store`` is the `PresetStore`-typed view over
+``app.versioning.store`` (``kind="preset"``). ``bind`` is the kernel BOTH tiers
+(ephemeral and versioned) build their live tool through, so its typed-schema
+behavior reaches both.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `PresetStore` |
+
+### Members
+
+#### bind
+
+`tai42_contract.app.facets.AppPresets.bind`
+
+```python
+async bind(
+    self,
+    base_tool: str,
+    fixed_kwargs: dict[str, Any],
+    *,
+    name: str,
+    description: str = '',
+    tags: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
+) -> Tool
+```
+
+Return a FastMCP tool transform of ``base_tool`` as a new named tool.
+
+Built in ONE ``Tool.from_tool`` call: each ``fixed_kwargs`` key is baked as
+a HIDDEN, FIXED constant (removed from the exposed schema; a caller that
+passes it is rejected — it cannot be overridden at runtime) while the
+REMAINING arguments keep the base tool's real typed schema (names, types,
+descriptions). ``tags`` sets the transformed tool's native tags. An
+``output_schema`` (an object JSON Schema) is baked into an agent base's
+``response_format`` (forcing structured output) or advertised + validated on
+a plain tool base. ``bind`` is async because it must resolve the base
+``Tool`` object (via ``app.tools.get_tool(base_tool)``) to feed the
+transform.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any]` | — | — |
+| `name` | `str` | — | — |
+| `description` | `str` | `''` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+
+
+
+## AppStorage
+
+`tai42_contract.app.facets.AppStorage`
+
+```python
+class AppStorage(Protocol)
+```
+
+### Members
+
+#### register_storage
+
+`tai42_contract.app.facets.AppStorage.register_storage`
+
+```python
+register_storage(self, cls: type[Storage] | None = None) -> Callable[[type[Storage]], type[Storage]] | type[Storage]
+```
+
+
+#### resource_manager
+
+`tai42_contract.app.facets.AppStorage.resource_manager`
+
+```python
+resource_manager: Any
+```
+
+The active resource manager (impl type; loads/renders content over storage).
+
+
+
+## AppSubApp
+
+`tai42_contract.app.facets.AppSubApp`
+
+```python
+class AppSubApp(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `mcp_sub_app_router` *(property)* | `SubMcpAppRouter` |
+
+
+## AppTools
+
+`tai42_contract.tools.AppTools`
+
+```python
+class AppTools(Protocol)
+```
+
+Tool + toolkit registration / lookup surface.
+
+### Members
+
+#### tool_title
+
+`tai42_contract.tools.AppTools.tool_title`
+
+```python
+tool_title(self, func: Callable[..., object]) -> str
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[..., object]` | — | — |
+
+
+#### get_tool
+
+`tai42_contract.tools.AppTools.get_tool`
+
+```python
+async get_tool(self, key: str) -> Tool
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `str` | — | — |
+
+
+#### get_tools
+
+`tai42_contract.tools.AppTools.get_tools`
+
+```python
+async get_tools(self) -> dict[str, Tool]
+```
+
+
+#### get_client_tools
+
+`tai42_contract.tools.AppTools.get_client_tools`
+
+```python
+async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `names` | `list[str] \| None` | `None` | — |
+
+
+#### run_tool
+
+`tai42_contract.tools.AppTools.run_tool`
+
+```python
+async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool = False) -> Any
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `str` | — | — |
+| `arguments` | `dict[str, Any]` | — | — |
+| `offload_sync` | `bool` | `False` | — |
+
+
+#### remove_tool
+
+`tai42_contract.tools.AppTools.remove_tool`
+
+```python
+remove_tool(self, name: str) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### register_tool_info
+
+`tai42_contract.tools.AppTools.register_tool_info`
+
+```python
+register_tool_info(self, name: str, combos: Sequence[Sequence[ExtensionElement]] | None = None) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `combos` | `Sequence[Sequence[ExtensionElement]] \| None` | `None` | — |
+
+
+#### unregister_tool_info
+
+`tai42_contract.tools.AppTools.unregister_tool_info`
+
+```python
+unregister_tool_info(self, name: str) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### unregister_tool_base
+
+`tai42_contract.tools.AppTools.unregister_tool_base`
+
+```python
+unregister_tool_base(self, tool_name: str) -> list[str]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool_name` | `str` | — | — |
+
+
+
+## AppVersioning
+
+`tai42_contract.app.facets.AppVersioning`
+
+```python
+class AppVersioning(Protocol)
+```
+
+The generic versioned-document store namespace (``app.versioning``).
+
+This is the platform persistence primitive — append-only versions + an active
+pointer + rollback over an opaque JSONB body, discriminated by ``kind``. Direct
+consumers (e.g. AC policies under ``kind="ac_policy"``) reach it here; presets
+reach it through `AppPresets`, never as a new kind.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `VersionedStore` |
+
+
+## AppWebhookVerifiers
+
+`tai42_contract.app.facets.AppWebhookVerifiers`
+
+```python
+class AppWebhookVerifiers(Protocol)
+```
+
+### Members
+
+#### register
+
+`tai42_contract.app.facets.AppWebhookVerifiers.register`
+
+```python
+register(self, name: str, verifier: WebhookVerifier) -> None
+```
+
+Register a `WebhookVerifier` under ``name``.
+
+A provider plugin calls this through the ``tai42_app`` handle when its
+import-only ``webhook_verifier_modules`` entry loads. Registering a name
+already taken raises loudly — a silent overwrite could swap a topic's
+verifier out from under a live binding.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `verifier` | `WebhookVerifier` | — | — |
+
+
+#### get
+
+`tai42_contract.app.facets.AppWebhookVerifiers.get`
+
+```python
+get(self, name: str) -> WebhookVerifier
+```
+
+Fetch a registered verifier by name; raise loudly on an unknown name.
+
+Resolution happens when a verifier is bound to a public webhook door, so
+an unknown name surfaces at bind time as a loud failure, never a
+silently-unverified door.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+
+## DeclaredRouteMetadata
+
+`tai42_contract.app.facets.DeclaredRouteMetadata`
+
+```python
+class DeclaredRouteMetadata
+```
+
+The behavioral OpenAPI properties a route DECLARES.
+
+A route registered through the operations adapter supplies this
+from its operation's metadata + declared error classes; a native ``/api/*``
+handler passes it explicitly at its ``custom_route`` registration. Its
+``reload_gated`` / ``reads_body`` / error statuses / success status feed the
+emitted spec and the coverage/parity gates.
+
+``additional_success_statuses`` names further 2xx codes one method may answer
+besides ``success_status``; each is emitted as its own success response.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `reload_gated` | `bool` |
+| `reads_body` | `bool` |
+| `error_statuses` | `tuple[int, ...]` |
+| `success_status` | `int` |
+| `additional_success_statuses` | `tuple[int, ...]` |
+
+
+## RouteAction
+
+`tai42_contract.app.facets.RouteAction`
+
+```python
+RouteAction = Literal['read', 'write', 'fenced', 'secret']
+```
+
+
+## TaiApp
+
+`tai42_contract.app.TaiApp`
+
+```python
+class TaiApp(Protocol)
+```
+
+The assembled facade — per-feature sub-protocols exposed as namespaces.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tools` *(property)* | `AppTools` |
+| `agents` *(property)* | `AppAgents` |
+| `backends` *(property)* | `AppBackends` |
+| `storage` *(property)* | `AppStorage` |
+| `connectors` *(property)* | `AppConnectors` |
+| `webhook_verifiers` *(property)* | `AppWebhookVerifiers` |
+| `channels` *(property)* | `AppChannels` |
+| `conversations` *(property)* | `AppConversations` |
+| `monitoring` *(property)* | `AppMonitoring` |
+| `extensions` *(property)* | `AppExtensions` |
+| `http` *(property)* | `AppHttp` |
+| `clients` *(property)* | `AppClients` |
+| `lifecycle` *(property)* | `AppLifecycle` |
+| `admin` *(property)* | `AppAdmin` |
+| `config` *(property)* | `AppConfig` |
+| `backup` *(property)* | `AppBackup` |
+| `sub_app` *(property)* | `AppSubApp` |
+| `versioning` *(property)* | `AppVersioning` |
+| `presets` *(property)* | `AppPresets` |
+
+
+## tai42_app
+
+`tai42_contract.app.tai42_app`
+
+```python
+tai42_app: _TaiAppRuntime = cast('_TaiAppRuntime', _tai_app_handle)
+```
+
+
+## RouteAction
+
+`tai42_contract.app.facets.RouteAction`
+
+```python
+RouteAction = Literal['read', 'write', 'fenced', 'secret']
+```
+
+
+## DeclaredRouteMetadata
+
+`tai42_contract.app.facets.DeclaredRouteMetadata`
+
+```python
+class DeclaredRouteMetadata
+```
+
+The behavioral OpenAPI properties a route DECLARES.
+
+A route registered through the operations adapter supplies this
+from its operation's metadata + declared error classes; a native ``/api/*``
+handler passes it explicitly at its ``custom_route`` registration. Its
+``reload_gated`` / ``reads_body`` / error statuses / success status feed the
+emitted spec and the coverage/parity gates.
+
+``additional_success_statuses`` names further 2xx codes one method may answer
+besides ``success_status``; each is emitted as its own success response.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `reload_gated` | `bool` |
+| `reads_body` | `bool` |
+| `error_statuses` | `tuple[int, ...]` |
+| `success_status` | `int` |
+| `additional_success_statuses` | `tuple[int, ...]` |
+
+
+## AppAgents
+
+`tai42_contract.app.facets.AppAgents`
+
+```python
+class AppAgents(Protocol)
+```
+
+### Members
+
+#### agent
+
+`tai42_contract.app.facets.AppAgents.agent`
+
+```python
+agent(self, name: str) -> Callable[[type[_AgentT]], type[_AgentT]]
+```
+
+Register an `Agent` subclass under ``name`` and auto-register
+its JSON ``run`` tool.
+
+The decorator returns the class unchanged, so the decorated symbol keeps
+its concrete subclass type.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### get_agent
+
+`tai42_contract.app.facets.AppAgents.get_agent`
+
+```python
+get_agent(self, name: str) -> Agent
+```
+
+Fetch a registered agent instance by name; raise if missing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### all_agents
+
+`tai42_contract.app.facets.AppAgents.all_agents`
+
+```python
+all_agents(self) -> dict[str, Agent]
+```
+
+Every registered agent keyed by registration name (a shallow copy, so a
+caller iterating it cannot mutate the live registry). The preset bind kernel
+reads the keys to detect an agent base (the run tool binds under the
+registration name).
+
+
+
+## AppBackends
+
+`tai42_contract.app.facets.AppBackends`
+
+```python
+class AppBackends(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `backend` *(property)* | `Backend \| None` |
+
+### Members
+
+#### register_backend
+
+`tai42_contract.app.facets.AppBackends.register_backend`
+
+```python
+register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backend]], type[Backend]] | type[Backend]
+```
+
+
+
+## AppStorage
+
+`tai42_contract.app.facets.AppStorage`
+
+```python
+class AppStorage(Protocol)
+```
+
+### Members
+
+#### register_storage
+
+`tai42_contract.app.facets.AppStorage.register_storage`
+
+```python
+register_storage(self, cls: type[Storage] | None = None) -> Callable[[type[Storage]], type[Storage]] | type[Storage]
+```
+
+
+#### resource_manager
+
+`tai42_contract.app.facets.AppStorage.resource_manager`
+
+```python
+resource_manager: Any
+```
+
+The active resource manager (impl type; loads/renders content over storage).
+
+
+
+## AppMonitoring
+
+`tai42_contract.app.facets.AppMonitoring`
+
+```python
+class AppMonitoring(Protocol)
+```
+
+### Members
+
+#### register_monitoring
+
+`tai42_contract.app.facets.AppMonitoring.register_monitoring`
+
+```python
+register_monitoring(self, builder: Callable[..., Any] | None = None) -> Callable[..., Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `builder` | `Callable[..., Any] \| None` | `None` | — |
+
+
+#### active
+
+`tai42_contract.app.facets.AppMonitoring.active`
+
+```python
+active: Monitoring
+```
+
+The active monitoring backend (impl type behind the contract protocol).
+
+
+
+## AppExtensions
+
+`tai42_contract.app.facets.AppExtensions`
+
+```python
+class AppExtensions(Protocol)
+```
+
+### Members
+
+#### extension
+
+`tai42_contract.app.facets.AppExtensions.extension`
+
+```python
+extension(
+    self,
+    f: Callable[..., Any] | None = None,
+    *,
+    kind: ExtensionKind,
+    name: str | None = None,
+    requires_body_locality: bool = False,
+) -> Callable[..., Any]
+```
+
+Register a tool-extension factory under ``name`` (default: the
+function's own name); usable bare or with arguments.
+
+``requires_body_locality`` marks an extension whose wrapper only works
+in the process running the tool body it wraps — e.g. a proxy layer that
+routes the body's egress through a task-scoped contextvar, visible only
+where the body executes. The flag is stored as registration metadata the
+apply site reads to order a stacked combo: a locality-requiring
+extension must bind INSIDE any execution-relocating extension
+(``ExtensionKind.relocates_execution``), so its wrapper travels with the
+body to the worker. Bound outside a relocating layer, the wrapper stays
+behind in the submitting process and silently does not apply.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `f` | `Callable[..., Any] \| None` | `None` | — |
+| `kind` | `ExtensionKind` | — | — |
+| `name` | `str \| None` | `None` | — |
+| `requires_body_locality` | `bool` | `False` | — |
+
+
+#### available_extensions
+
+`tai42_contract.app.facets.AppExtensions.available_extensions`
+
+```python
+available_extensions(self) -> list[dict[str, str]]
+```
+
+List registered extension modules as ``[{"name", "kind"}]``.
+
+
+
+## AppWebhookVerifiers
+
+`tai42_contract.app.facets.AppWebhookVerifiers`
+
+```python
+class AppWebhookVerifiers(Protocol)
+```
+
+### Members
+
+#### register
+
+`tai42_contract.app.facets.AppWebhookVerifiers.register`
+
+```python
+register(self, name: str, verifier: WebhookVerifier) -> None
+```
+
+Register a `WebhookVerifier` under ``name``.
+
+A provider plugin calls this through the ``tai42_app`` handle when its
+import-only ``webhook_verifier_modules`` entry loads. Registering a name
+already taken raises loudly — a silent overwrite could swap a topic's
+verifier out from under a live binding.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `verifier` | `WebhookVerifier` | — | — |
+
+
+#### get
+
+`tai42_contract.app.facets.AppWebhookVerifiers.get`
+
+```python
+get(self, name: str) -> WebhookVerifier
+```
+
+Fetch a registered verifier by name; raise loudly on an unknown name.
+
+Resolution happens when a verifier is bound to a public webhook door, so
+an unknown name surfaces at bind time as a loud failure, never a
+silently-unverified door.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+
+## AppChannels
+
+`tai42_contract.app.facets.AppChannels`
+
+```python
+class AppChannels(Protocol)
+```
+
+### Members
+
+#### register
+
+`tai42_contract.app.facets.AppChannels.register`
+
+```python
+register(self, name: str, channel: Channel) -> None
+```
+
+Register a `Channel` under ``name``.
+
+A channel plugin calls this through the ``tai42_app`` handle when its
+import-only ``channel_modules`` entry loads. Registering a name already
+taken raises loudly — a silent overwrite could swap the medium a live
+ask is delivered on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `channel` | `Channel` | — | — |
+
+
+#### get
+
+`tai42_contract.app.facets.AppChannels.get`
+
+```python
+get(self, name: str) -> Channel
+```
+
+Fetch a registered channel by name; raise loudly on an unknown name.
+
+Resolution happens when ``ask_user`` is called with ``channel=name``,
+BEFORE any interaction state is written, so an unknown name surfaces as
+a loud failure, never a question silently delivered nowhere.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### names
+
+`tai42_contract.app.facets.AppChannels.names`
+
+```python
+names(self) -> list[str]
+```
+
+Every registered channel name, for the channels catalog route.
+
+
+
+## AppConversations
+
+`tai42_contract.app.facets.AppConversations`
+
+```python
+class AppConversations(Protocol)
+```
+
+The conversation bridge's entry surface for medium adapters: inbound messages
+via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
+Routing-row CRUD, the turn engine and the API door are not part of this facet.
+
+### Members
+
+#### accept
+
+`tai42_contract.app.facets.AppConversations.accept`
+
+```python
+async accept(
+    self,
+    channel: str,
+    our_identity: str,
+    client_address: str,
+    text: str,
+    provider_message_id: str,
+) -> str
+```
+
+Accept one inbound channel message, persist it, and return its
+``message_id`` (a uuid4).
+
+Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
+turn runs as that route's execution key and answers back over the same channel.
+Idempotent on ``(channel, provider_message_id)`` — a redelivery returns the
+existing ``message_id`` and starts no second turn. Raises when no route matches.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `our_identity` | `str` | — | — |
+| `client_address` | `str` | — | — |
+| `text` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+
+
+#### record_delivery_status
+
+`tai42_contract.app.facets.AppConversations.record_delivery_status`
+
+```python
+async record_delivery_status(self, channel: str, provider_message_id: str, status: DeliveryReceipt) -> None
+```
+
+Ingest a channel's out-of-band delivery receipt for an outbound message.
+
+``provider_message_id`` is one of the ids a prior ``notify`` returned, resolved
+to the answer record through the outbound-id reverse index. ``FAILED`` marks the
+record failed; ``DELIVERED`` confirms a ``provisional`` record. Raises when the
+id resolves to no record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel` | `str` | — | — |
+| `provider_message_id` | `str` | — | — |
+| `status` | `DeliveryReceipt` | — | — |
+
+
+
+## AppConnectors
+
+`tai42_contract.app.facets.AppConnectors`
+
+```python
+class AppConnectors(Protocol)
+```
+
+### Members
+
+#### register_connector
+
+`tai42_contract.app.facets.AppConnectors.register_connector`
+
+```python
+register_connector(self, descriptor: ProviderDescriptor) -> None
+```
+
+Register an OAuth connector provider from its pure descriptor data. A
+provider plugin calls this through the ``tai42_app`` handle when the manifest
+loads it (a connector is pure data, so this is a plain call, not a decorator).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `descriptor` | `ProviderDescriptor` | — | — |
+
+
+#### token_store
+
+`tai42_contract.app.facets.AppConnectors.token_store`
+
+```python
+token_store: ConnectorTokenStore
+```
+
+The connector token store (single-namespace, keyed by ``connection_id``).
+
+
+
+## AppHttp
+
+`tai42_contract.app.facets.AppHttp`
+
+```python
+class AppHttp(Protocol)
+```
+
+### Members
+
+#### middleware
+
+`tai42_contract.app.facets.AppHttp.middleware`
+
+```python
+middleware(self, cls: type[Any] | None = None, **options: Any) -> Callable[..., Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `options` | `Any` | `{}` | — |
+
+
+#### custom_route
+
+`tai42_contract.app.facets.AppHttp.custom_route`
+
+```python
+custom_route(
+    self,
+    path: str,
+    methods: list[str],
+    name: str | None = None,
+    include_in_schema: bool = True,
+    *,
+    summary: str,
+    tags: list[str],
+    response_model: type[BaseModel] | None,
+    request_model: type[BaseModel] | None = None,
+    authed: bool = True,
+    destructive: bool = False,
+    action: RouteAction | None = None,
+    declared: DeclaredRouteMetadata | None = None,
+) -> Callable[[Callable[[Request], Awaitable[Response]]], Callable[[Request], Awaitable[Response]]]
+```
+
+Register a Starlette handler AND its self-describing route metadata.
+
+The metadata is the single source of truth the OpenAPI 3.1 emitter and its
+coverage gate consume, so every registration MUST describe itself:
+
+* ``summary`` — a one-line operation summary (required, non-empty).
+* ``tags`` — at least one OpenAPI tag grouping the route (required).
+* ``response_model`` — the pydantic model wrapped in the ``{"data": ...}``
+  success envelope, or ``None`` as the explicit opaque marker for a route
+  with no structured response. Required — there is no default, so a route
+  cannot silently omit it.
+* ``request_model`` — the pydantic model of the request body; required for
+  any route that reads a body, omitted (``None``) otherwise.
+* ``authed`` — whether the route requires the api key (default ``True``);
+  emitted as the ``security`` requirement.
+* ``destructive`` — whether the route mutates in a way flagged as
+  destructive (default ``False``); emitted as ``x-destructive``.
+* ``action`` — the route's authorization character (a `RouteAction`);
+  ``None`` (the default) lets the surface derive the grantable class from
+  the HTTP methods.
+* ``declared`` — the route's behavioral OpenAPI properties (a
+  `DeclaredRouteMetadata`): its ``reload_gated`` / ``reads_body`` /
+  error statuses / success status. A route in the ``/api/*`` spec surface
+  declares these (the operations adapter passes its operation's metadata, a
+  native handler passes its own); ``None`` (the default) records trivial
+  defaults for a route outside the spec surface, whose behavioral metadata
+  is never emitted.
+
+The handler's narrative docstring becomes the operation description, and
+the reload-gate ``503`` response is derived from the handler body.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `methods` | `list[str]` | — | — |
+| `name` | `str \| None` | `None` | — |
+| `include_in_schema` | `bool` | `True` | — |
+| `summary` | `str` | — | — |
+| `tags` | `list[str]` | — | — |
+| `response_model` | `type[BaseModel] \| None` | — | — |
+| `request_model` | `type[BaseModel] \| None` | `None` | — |
+| `authed` | `bool` | `True` | — |
+| `destructive` | `bool` | `False` | — |
+| `action` | `RouteAction \| None` | `None` | — |
+| `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
+
+
+
+## AppClients
+
+`tai42_contract.app.facets.AppClients`
+
+```python
+class AppClients(Protocol)
+```
+
+### Members
+
+#### client_ctx
+
+`tai42_contract.app.facets.AppClients.client_ctx`
+
+```python
+client_ctx(
+    self,
+    client_cls: type[BaseClient[ClientT]],
+    settings: Any = None,
+    *,
+    fresh: bool = False,
+    **kwargs: Any,
+) -> AbstractAsyncContextManager[ClientT]
+```
+
+Async context manager yielding a connected client, pooled per loop +
+connection params (or one-shot when ``fresh=True``). ``settings`` is a kit
+``ClientSettings`` whose ``client_kwargs()`` supplies the connection key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `client_cls` | `type[BaseClient[ClientT]]` | — | — |
+| `settings` | `Any` | `None` | — |
+| `fresh` | `bool` | `False` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### shutdown_clients
+
+`tai42_contract.app.facets.AppClients.shutdown_clients`
+
+```python
+async shutdown_clients(self) -> None
+```
+
+Close every live client pool for the running loop.
+
+
+
+## AppLifecycle
+
+`tai42_contract.app.facets.AppLifecycle`
+
+```python
+class AppLifecycle(Protocol)
+```
+
+### Members
+
+#### on_startup
+
+`tai42_contract.app.facets.AppLifecycle.on_startup`
+
+```python
+on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_shutdown
+
+`tai42_contract.app.facets.AppLifecycle.on_shutdown`
+
+```python
+on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_reload
+
+`tai42_contract.app.facets.AppLifecycle.on_reload`
+
+```python
+on_reload(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+Register a handler re-run after every in-place re-init (``reload_config``) —
+e.g. dynamic tool loaders that ``on_startup`` ran once.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_fleet_op_applied
+
+`tai42_contract.app.facets.AppLifecycle.on_fleet_op_applied`
+
+```python
+on_fleet_op_applied(self, func: Callable[[str], Any]) -> Callable[[str], Any]
+```
+
+Register a handler fired after any worker-bus op applies in this
+process, and after the reconnect self-resync reload.
+
+Unlike its zero-arg siblings, the handler takes ONE argument — the op
+name — so it can act on some ops and skip others (a query op carries no
+state change to react to).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[str], Any]` | — | — |
+
+
+#### wait_until_ready
+
+`tai42_contract.app.facets.AppLifecycle.wait_until_ready`
+
+```python
+async wait_until_ready(self) -> None
+```
+
+Block until this process's first boot self-resync has completed — the
+point at which the tool registry is fully built and stable for the run.
+
+A backend runtime that forks a child (or otherwise consumes queued work)
+per job awaits this before its work loop accepts anything: the boot
+self-resync rebuilds the tool registry non-atomically, so a worker that
+dequeued and forked mid-rebuild would run the job against a half-built
+registry. The latch is one-way — it resolves once and stays resolved, so
+a later bus reconnect (which re-runs the self-resync while the app is
+already live) never un-readies the process.
+
+
+
+## AppAdmin
+
+`tai42_contract.app.facets.AppAdmin`
+
+```python
+class AppAdmin(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `live_manifest` *(property)* | `dict[str, Any]` |
+
+### Members
+
+#### reload_mcp
+
+`tai42_contract.app.facets.AppAdmin.reload_mcp`
+
+```python
+reload_mcp(self, title: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `title` | `str` | — | — |
+
+
+#### deregister_mcp
+
+`tai42_contract.app.facets.AppAdmin.deregister_mcp`
+
+```python
+deregister_mcp(self, title: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `title` | `str` | — | — |
+
+
+#### reload_config
+
+`tai42_contract.app.facets.AppAdmin.reload_config`
+
+```python
+reload_config(self) -> dict[str, Any]
+```
+
+
+#### tool_reloader
+
+`tai42_contract.app.facets.AppAdmin.tool_reloader`
+
+```python
+tool_reloader(self, kind: str) -> Callable[..., Any]
+```
+
+Register an async ``(action, name) -> dict`` reloader for ``kind``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+
+
+#### run_tool_reload
+
+`tai42_contract.app.facets.AppAdmin.run_tool_reload`
+
+```python
+async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+| `action` | `str` | — | — |
+| `name` | `str` | — | — |
+
+
+#### reload_failed_mcps
+
+`tai42_contract.app.facets.AppAdmin.reload_failed_mcps`
+
+```python
+reload_failed_mcps(self) -> list[dict[str, Any]]
+```
+
+
+#### list_failed_mcps
+
+`tai42_contract.app.facets.AppAdmin.list_failed_mcps`
+
+```python
+list_failed_mcps(self) -> list[dict[str, Any]]
+```
+
+
+#### live_mcp_status
+
+`tai42_contract.app.facets.AppAdmin.live_mcp_status`
+
+```python
+live_mcp_status(self) -> dict[str, Any]
+```
+
+Snapshot the in-process MCP-binding state.
+
+
+
+## AppConfig
+
+`tai42_contract.app.facets.AppConfig`
+
+```python
+class AppConfig(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `config_manager` *(property)* | `ConfigManager` |
+
+
+## AppBackup
+
+`tai42_contract.app.facets.AppBackup`
+
+```python
+class AppBackup(Protocol)
+```
+
+Registry for named backup sections and the run of one section's
+export/import.
+
+A plugin (or the host itself, the first consumer) registers a section under
+``name`` by supplying an ``exporter()`` that returns a JSON-safe payload and
+an ``importer(payload)`` that applies it and returns a section report.
+``sections()`` lists the registered sections for the UI. ``export_section``
+/ ``import_section`` run one section's exporter/importer by name and raise
+loudly on an unknown name — never a silent no-op.
+
+### Members
+
+#### register_section
+
+`tai42_contract.app.facets.AppBackup.register_section`
+
+```python
+register_section(
+    self,
+    name: str,
+    exporter: Callable[[], Any],
+    importer: Callable[[Any], Any],
+    *,
+    secret: bool = False,
+) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `exporter` | `Callable[[], Any]` | — | — |
+| `importer` | `Callable[[Any], Any]` | — | — |
+| `secret` | `bool` | `False` | — |
+
+
+#### sections
+
+`tai42_contract.app.facets.AppBackup.sections`
+
+```python
+sections(self) -> list[BackupSectionInfo]
+```
+
+
+#### export_section
+
+`tai42_contract.app.facets.AppBackup.export_section`
+
+```python
+export_section(self, name: str) -> Any
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### import_section
+
+`tai42_contract.app.facets.AppBackup.import_section`
+
+```python
+import_section(self, name: str, payload: Any) -> Any
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `payload` | `Any` | — | — |
+
+
+
+## AppSubApp
+
+`tai42_contract.app.facets.AppSubApp`
+
+```python
+class AppSubApp(Protocol)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `mcp_sub_app_router` *(property)* | `SubMcpAppRouter` |
+
+
+## AppVersioning
+
+`tai42_contract.app.facets.AppVersioning`
+
+```python
+class AppVersioning(Protocol)
+```
+
+The generic versioned-document store namespace (``app.versioning``).
+
+This is the platform persistence primitive — append-only versions + an active
+pointer + rollback over an opaque JSONB body, discriminated by ``kind``. Direct
+consumers (e.g. AC policies under ``kind="ac_policy"``) reach it here; presets
+reach it through `AppPresets`, never as a new kind.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `VersionedStore` |
+
+
+## AppPresets
+
+`tai42_contract.app.facets.AppPresets`
+
+```python
+class AppPresets(Protocol)
+```
+
+The presets namespace (``app.presets``) — the typed view + the bind kernel.
+
+``store`` is the `PresetStore`-typed view over
+``app.versioning.store`` (``kind="preset"``). ``bind`` is the kernel BOTH tiers
+(ephemeral and versioned) build their live tool through, so its typed-schema
+behavior reaches both.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `PresetStore` |
+
+### Members
+
+#### bind
+
+`tai42_contract.app.facets.AppPresets.bind`
+
+```python
+async bind(
+    self,
+    base_tool: str,
+    fixed_kwargs: dict[str, Any],
+    *,
+    name: str,
+    description: str = '',
+    tags: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
+) -> Tool
+```
+
+Return a FastMCP tool transform of ``base_tool`` as a new named tool.
+
+Built in ONE ``Tool.from_tool`` call: each ``fixed_kwargs`` key is baked as
+a HIDDEN, FIXED constant (removed from the exposed schema; a caller that
+passes it is rejected — it cannot be overridden at runtime) while the
+REMAINING arguments keep the base tool's real typed schema (names, types,
+descriptions). ``tags`` sets the transformed tool's native tags. An
+``output_schema`` (an object JSON Schema) is baked into an agent base's
+``response_format`` (forcing structured output) or advertised + validated on
+a plain tool base. ``bind`` is async because it must resolve the base
+``Tool`` object (via ``app.tools.get_tool(base_tool)``) to feed the
+transform.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any]` | — | — |
+| `name` | `str` | — | — |
+| `description` | `str` | `''` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+
+

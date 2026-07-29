@@ -1,0 +1,66 @@
+---
+title: "Manage a fleet"
+description: "Read the live worker census, inspect the backend, and drive fleet-wide operations."
+icon: "server"
+---
+
+import FleetHelp from '/snippets/examples/fleet/fleet_help.mdx';
+import BackendManifest from '/snippets/examples/fleet/backend_manifest.mdx';
+
+Read the live worker census, inspect the execution backend, and soft-restart the fleet — all without dropping a process.
+
+A fleet is every process that shares one manifest. A single-worker server is a fleet of one: a live change (a tool reload, a preset rebind, a manifest update) applies in that process and there are no siblings to reach. Run more than one process — multiple `tai serve` workers, or a `tai serve` fleet alongside a `tai backend` runtime — and the same mutation must reach every one of them. The [worker bus](/concepts/worker-bus) is what carries it there; the `tai fleet` group is the operator's window onto the fleet the bus coordinates.
+
+## The bus is what makes a fleet, not a backend
+
+Fleet convergence rides the app's own worker bus — internal infrastructure you enable with `TAI_BUS_REDIS_URL`, not a plugin you wire in the manifest. Any multi-process deployment needs it:
+
+```bash
+export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
+```
+
+The boot rules refuse a multi-worker server, a k8s-mode server, or a server with a registered backend when the bus is off — see [the worker bus](/concepts/worker-bus#boot-rules). A single-worker, `file`-mode, backend-free process is the one supported busless shape; it runs on a no-op local bus and is its own whole fleet.
+
+## Wire a backend
+
+A [backend](/concepts/backends) is a separate concern: a task runtime for background, scheduled, and distributed runs. It is optional, and it does **not** supply the fleet bus. Name a backend module to add that runtime:
+
+<BackendManifest />
+
+`tai fleet info` reports the registered backend's identity, or the empty state (`present: false`, a `200`) when none is wired. That empty state is about the backend only — the worker census and fleet reload work through the bus whether or not a backend is registered.
+
+## Read the fleet
+
+`tai fleet` is a thin wrapper over the authed backend and fleet routes — `info` reads `/api/backend` for the backend's identity, while `workers` (`/api/fleet/workers`) and `reload-config` (`/api/fleet/reload-config`) live under `/api/fleet/*` for the census and the soft restart:
+
+```bash
+tai fleet info      # the registered backend's identity, or the empty state
+tai fleet workers   # the live worker census — every process on the bus
+```
+
+`workers` lists every process subscribed to the bus — serving HTTP workers and any backend runtime alike — read from the presence census. It fails loudly: a store it cannot read is a `500`, never a silently empty fleet. The full subcommand set:
+
+<FleetHelp />
+
+## Soft-restart the fleet
+
+`reload-config` is the fleet-wide soft restart: every worker refreshes its environment values and reloads the manifest registries in place, picking up configuration and capability changes without dropping its process. Restart the whole fleet, or restrict it to named workers with a repeatable `--target`:
+
+```bash
+tai fleet reload-config
+tai fleet reload-config --target serve-abc123 --target serve-def456
+```
+
+The response is the per-origin fleet report — one row per worker with its reload outcome. A worker the reload did not cleanly reach is named, never hidden: `departed` (it went away), `timed_out` (it acknowledged but has not finished), or `missing`. A failed local apply raises; a remote miss is reported and logged. Re-run `reload-config` to converge the named workers.
+
+## How a change reaches the fleet
+
+Fleet reach is not a separate command — it rides every mutating operation. When a tool is reloaded or a capability is removed, the route persists the change, applies it locally, and then broadcasts it on the bus so every worker re-reads the durable state and rebinds; that response embeds the per-origin fleet report, so a propagation that did not converge is visible on the flow that caused it. A [preset](/concepts/presets) mutation broadcasts the same way, but its response is the plain preset record — a preset broadcast that does not converge is surfaced server-side as a loud non-convergence ERROR log rather than embedded in the response, and a fleet `reload_config` reconverges the named workers. See [live operations](/concepts/live-operations) for the mutation surface the bus backs.
+
+## See also
+
+- [The worker bus](/concepts/worker-bus) — the internal fan-out primitive and its boot rules.
+- [Backends](/concepts/backends) — the optional task-execution runtime.
+- [Live operations](/concepts/live-operations) — the reload/remove/update surface that broadcasts across the fleet.
+- [Deploy](/operate/deploy) — scaling to multiple workers and the durable stores a fleet needs.
+- [CLI reference](/reference/cli) — the full `tai fleet` surface.

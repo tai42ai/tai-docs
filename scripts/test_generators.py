@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Fail-loud tests for the reference generators.
+
+Pins the "a broken generator FAILS, never writes a placeholder" contract:
+
+  * gen_openapi rejects a spec that is not JSON, not OpenAPI 3.1, or has no
+    paths, and never overwrites ``openapi.json`` when the emit fails.
+  * gen_cli rejects an empty command tree, exits non-zero when extraction
+    fails, and the real introspector exits non-zero when ``tai42_skeleton``
+    cannot be imported (the "app can't be imported" case).
+
+Runs with plain ``python3 scripts/test_generators.py`` (no pytest needed); it is
+also collectable by pytest.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import gen_cli
+import gen_openapi
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
+def _raises(fn, exc=gen_openapi.GenerationError) -> bool:
+    try:
+        fn()
+    except exc:
+        return True
+    return False
+
+
+# --- gen_openapi -----------------------------------------------------------
+
+
+def test_validate_spec_rejects_non_json():
+    assert _raises(lambda: gen_openapi.validate_spec("not json {"))
+
+
+def test_validate_spec_rejects_empty_object():
+    assert _raises(lambda: gen_openapi.validate_spec("{}"))
+
+
+def test_validate_spec_rejects_wrong_version():
+    spec = json.dumps({"openapi": "3.0.0", "paths": {"/x": {}}})
+    assert _raises(lambda: gen_openapi.validate_spec(spec))
+
+
+def test_validate_spec_rejects_no_paths():
+    spec = json.dumps({"openapi": "3.1.0", "paths": {}})
+    assert _raises(lambda: gen_openapi.validate_spec(spec))
+
+
+def test_validate_spec_accepts_valid():
+    spec = json.dumps({"openapi": "3.1.0", "paths": {"/api/x": {"get": {}}}})
+    parsed = gen_openapi.validate_spec(spec)
+    assert parsed["openapi"] == "3.1.0"
+
+
+def test_gen_openapi_leaves_output_untouched_on_failure():
+    """A failed emit must not overwrite an existing openapi.json."""
+    output = gen_openapi.OUTPUT
+    before = output.read_bytes() if output.exists() else None
+    original = gen_openapi.emit_spec
+
+    def boom(_dest):
+        raise gen_openapi.GenerationError("simulated emit failure")
+
+    gen_openapi.emit_spec = boom
+    try:
+        assert gen_openapi.main() == 1
+    finally:
+        gen_openapi.emit_spec = original
+    after = output.read_bytes() if output.exists() else None
+    assert before == after
+
+
+# --- gen_cli ---------------------------------------------------------------
+
+
+def test_validate_tree_rejects_non_dict():
+    assert _raises(lambda: gen_cli.validate_tree([]), gen_cli.GenerationError)
+
+
+def test_validate_tree_rejects_missing_commands():
+    assert _raises(lambda: gen_cli.validate_tree({"name": "tai"}), gen_cli.GenerationError)
+
+
+def test_validate_tree_rejects_empty_commands():
+    tree = {"name": "tai", "commands": []}
+    assert _raises(lambda: gen_cli.validate_tree(tree), gen_cli.GenerationError)
+
+
+def test_validate_tree_accepts_populated():
+    tree = {"name": "tai", "commands": [{"name": "x"}]}
+    assert gen_cli.validate_tree(tree) is tree
+
+
+def test_gen_cli_returns_nonzero_when_extraction_fails():
+    """When extraction raises, main() exits 1 and writes no pages / nav."""
+    docs_before = gen_cli.DOCS_JSON.read_bytes()
+    original = gen_cli.extract_tree
+
+    def boom():
+        raise gen_cli.GenerationError("simulated extraction failure")
+
+    gen_cli.extract_tree = boom
+    try:
+        assert gen_cli.main() == 1
+    finally:
+        gen_cli.extract_tree = original
+    assert gen_cli.DOCS_JSON.read_bytes() == docs_before
+
+
+def test_introspector_fails_loud_without_skeleton():
+    """The introspector exits non-zero when ``tai42_skeleton`` cannot be imported.
+
+    Deterministic across environments: rather than relying on the ambient
+    interpreter *not* having ``tai42_skeleton`` installed (false when the suite
+    runs inside the skeleton venv), we explicitly poison ``sys.modules`` so the
+    ``from tai42_skeleton.cli.app import app`` inside the introspector always
+    raises ``ImportError`` -- while leaving ``click`` and everything else
+    importable. This reproduces the real "app can't be imported" failure mode
+    regardless of what is installed.
+    """
+    introspect = SCRIPTS_DIR / "_cli_introspect.py"
+    # ``sys.modules['tai42_skeleton'] = None`` forces any ``import tai42_skeleton``
+    # (or submodule import) to raise ImportError, independent of installation.
+    bootstrap = (
+        "import sys; sys.modules['tai42_skeleton'] = None; "
+        "import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", bootstrap, str(introspect)],
+        cwd=str(SCRIPTS_DIR),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0, f"introspector must fail when tai42_skeleton is unimportable; stderr={proc.stderr}"
+    assert proc.stdout.strip() == ""  # no placeholder tree emitted
+
+
+def _run() -> int:
+    tests = sorted((name, obj) for name, obj in globals().items() if name.startswith("test_") and callable(obj))
+    failures = 0
+    for name, fn in tests:
+        try:
+            fn()
+        except Exception as exc:
+            failures += 1
+            print(f"FAIL {name}: {exc}")
+        else:
+            print(f"pass {name}")
+    print(f"\n{len(tests) - failures}/{len(tests)} passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run())

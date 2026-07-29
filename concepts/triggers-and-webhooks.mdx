@@ -1,0 +1,59 @@
+---
+title: "Triggers and webhook verifiers"
+description: "Firing tools from outside events."
+icon: "bolt"
+---
+
+A trigger fires a tool from something that happens outside the server — an inbound
+webhook or a schedule. A webhook verifier is what authenticates an inbound webhook
+over its raw bytes before its bound tool is allowed to run.
+
+## Firing a tool from a webhook
+
+The webhook path reuses two existing pillars. An external system delivers an event
+to the public `/universal_webhook/{topic}` door; a [hook](/concepts/hooks) bound to
+that topic then runs its tool in the background. So "fire a tool from a webhook" is:
+map a topic to a tool with a hook, and point the provider's webhook at that topic.
+
+## Webhook verifiers
+
+The public webhook doors — `/universal_webhook/{topic}` and the
+[interactions](/concepts/interactions) callback — authenticate an inbound request
+**over its raw bytes, before parsing**, through a named verifier resolved from the
+webhook-verifier registry. A topic with no verifier binding is open by design; you
+bind a verifier to lock it.
+
+Verification **fails closed**: a signature mismatch returns a constant `401`, and a
+missing verifier or secret returns a `500` — either way nothing is recorded and no
+tool runs.
+
+## The built-in shared-secret verifier
+
+The skeleton ships a `shared_secret` verifier that checks a named request header
+against a secret read from an environment variable, with a constant-time compare.
+Its config names the header and the env var holding the secret:
+
+```json
+{ "header": "X-Webhook-Secret", "secret_env": "MY_WEBHOOK_SECRET" }
+```
+
+The secret is referenced by env var **name**, never embedded — the binding carries
+no credential. Provider-specific verifiers (for example a signature scheme for a
+particular SaaS) ship as their own [plugin](/concepts/config-and-secrets) packages
+and register the same way.
+
+## Scheduled triggers
+
+The other trigger is time. A [backend](/concepts/backends) schedule fires a tool on
+a cadence or at a later time, naming the tool and its arguments — no external event
+required.
+
+<Note>
+The always-on public-door rate limiter guards both public families
+(`/universal_webhook/*` and the interactions callback), so an open door never ships
+without flood control. Tune it with `TAI_RATE_LIMIT_*` environment settings.
+</Note>
+
+See the [fire-a-tool-from-a-webhook guide](/guides/fire-a-tool-from-a-webhook), the
+[webhook-verifier author guide](/guides/authors/webhook-verifier), and the
+[HTTP API reference](/reference/api/index) for the webhook routes.

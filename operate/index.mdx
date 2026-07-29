@@ -1,0 +1,287 @@
+---
+title: "Operate"
+description: "Self-host the platform from the distribution bundle, then run it: deploy, observe, back up, and wire the plugins an install needs."
+icon: "server"
+---
+
+Everything an operator does after the runtime works on a laptop: self-host it
+from the distribution bundle, run and observe it, and wire the shipped plugins
+an install needs.
+
+<CardGroup cols={2}>
+  <Card title="Deploy" icon="cloud-arrow-up" href="/operate/deploy">
+    Run a server for real.
+  </Card>
+  <Card title="Observe" icon="chart-line" href="/operate/observe">
+    Collect metrics and traces.
+  </Card>
+  <Card title="Manage a fleet" icon="server" href="/operate/manage-a-fleet">
+    Read the worker census and drive fleet-wide operations.
+  </Card>
+  <Card title="Plugin setup" icon="puzzle-piece" href="/operate/backends">
+    Backends, storage, accounts, identity, and monitoring.
+  </Card>
+</CardGroup>
+
+## Self-host with the distribution bundle
+
+[`tai-distribution`](https://github.com/tai42ai/tai-distribution) packages the
+whole platform as one minimal-core container image plus a Docker Compose
+bundle and a Helm chart. The image ships the platform core plus one reference
+provider per infrastructure kind — local storage, the arq backend, redis
+identity, and the k8s config provider — and bakes the built [Studio](/studio) in,
+so a self-hosted install is one image and the services it talks to. Every other
+plugin (the channels, the S3/GitHub storages, the celery/rq backends, the
+connectors, monitoring, accounts, and the extra tools) installs at runtime
+through the [marketplace](/concepts/marketplace) or bakes into a derived image —
+see [Add plugins](#add-plugins).
+
+The image entrypoint is `tai` and its default command is `serve`. Three
+long-lived processes come out of the same image:
+
+| Process | Command | What it does |
+| --- | --- | --- |
+| serve | `tai serve` | The HTTP API, the MCP endpoint, and the Studio, on one origin. |
+| backend worker | `tai backend worker` | Runs queued, scheduled, and agent work. |
+| metrics | `tai metrics` | Serves the Prometheus multiprocess endpoint. |
+
+A one-shot `db-init` step runs `tai db apply`, and `serve` and `backend` wait for
+it to complete before they start. The DDL is additive and `IF NOT EXISTS`, so
+re-running it is safe.
+
+<Note>
+The distribution's first release is in preparation, so the published
+`docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is not on the
+registries yet. Build it locally from the repo with the source build below until
+it is.
+</Note>
+
+### Boot the Compose bundle
+
+```bash
+git clone https://github.com/tai42ai/tai-distribution
+cd tai-distribution/compose
+cp .env.example .env                          # fill in POSTGRES_PASSWORD
+mkdir -p config
+cp manifest.example.yml config/manifest.yml
+touch config/.env
+docker compose up -d
+```
+
+`config/` is bind-mounted at `/app` in the three long-lived services, so `config/manifest.yml`
+is the [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
+app-side environment. Create `config/.env` even when it is empty — the
+config-reload path treats a missing file as an error.
+
+Only `serve` publishes a port (`${TAI_SERVE_PORT:-8000}`). Postgres, Redis, and
+the optional MinIO and RabbitMQ services stay on the Compose network.
+
+### Build the image from source
+
+`compose/docker-compose.local.yml` layers a `SOURCE=local` build onto every app
+service, building the image from sibling checkouts instead of pulling it:
+
+```bash
+# with every tai-* repo cloned beside tai-distribution
+TAI_VERSION=local docker compose \
+  -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+The `siblings` build context defaults to the parent of the checkouts (`../..`)
+and is overridable with `TAI_SIBLINGS`. Because that context can hold untracked
+secrets, the source build is for a local builder only — never CI, never a shared
+registry.
+
+## Configure the bundle
+
+The Compose bundle reads a small set of variables from `.env`; everything else is
+fixed in the file and points the services at each other.
+
+```bash
+TAI_VERSION=latest                    # image tag; pin a release in production
+TAI_SERVE_PORT=8000                   # host port for serve
+POSTGRES_USER=tai
+POSTGRES_DB=tai
+POSTGRES_PASSWORD=                    # required — openssl rand -hex 24
+ACCESS_CONTROL_ENABLE=false           # the auth-free quickstart shape
+TAI_BACKEND_MODULE=tai42_backend_arq  # which backend the worker runs
+```
+
+`POSTGRES_PASSWORD` has no default: Compose refuses to start until it is set.
+The `minio` and `celery` service profiles add `MINIO_ROOT_USER`,
+`MINIO_ROOT_PASSWORD`, `STORAGE_S3_BUCKET`, `RABBITMQ_USER`, and
+`RABBITMQ_PASSWORD`. Those profiles drive the S3 storage and celery backend
+plugins, which are not in the minimal image — [add the plugin](#add-plugins)
+before enabling the profile.
+
+Five Postgres-backed stores and every Redis-backed feature store are already
+pointed at the bundled `postgres` and `redis` services, so the schema-admin
+connection, the access-control store, the connector store, the marketplace store,
+and the versioning store all resolve without further configuration.
+
+## Add plugins
+
+The image is the minimal core. A deployment adds the plugins it needs one of two
+ways.
+
+**Runtime, through the marketplace.** A running server installs, updates, and
+uninstalls plugins against itself — it `pip install`s the package into its own
+environment, patches the [manifest](/concepts/manifest), and reloads, so the
+plugin is live with no restart. See [Install a plugin](/marketplace/install). For
+those installs to survive a container recreation, the server's plugin-prefix
+setting must point at a mounted, persistent directory — see [Persist runtime
+installs](#persist-runtime-installs).
+
+**Build time, in a derived image.** Bake a fixed roster into your own image on
+top of the core, then name the added modules in your manifest:
+
+```dockerfile
+FROM docker.io/tai42/tai:latest
+# The base image ends on USER tai over a root-owned venv, so become root to
+# install, then drop back to the non-root runtime user. Use `python -m pip`
+# (the venv interpreter is first on PATH; a bare `pip` would be the base
+# image's system pip and install outside the venv, where the server never
+# looks).
+USER root
+RUN python -m pip install tai42-channel-slack tai42-storage-s3
+USER tai
+```
+
+### Persist runtime installs
+
+A marketplace install writes two things a real deployment must keep across a
+container recreation, each on its own persistent mount located by an env var the
+server reads:
+
+| What | Env var | Default | Holds |
+| --- | --- | --- | --- |
+| Plugin prefix directory | `TAI_PLUGINS_PREFIX` | image venv (ephemeral) | the installed plugin **code** |
+| Manifest file | `TAI_MANIFEST_PATH` (or `TAI_CONFIG_DIR_PATH` for the whole config dir) | `/app/manifest.yml` | the plugin's **registration** |
+
+Persist both, or a recreated container boots with the code and its registration
+out of sync. In the Compose bundle the config dir is already a bind mount, so the
+manifest persists; give the plugin prefix its own volume the same way. Without a
+persistent prefix, a marketplace install lands in the image's ephemeral venv and
+is lost when the container is replaced.
+
+<Warning>
+`.env.example` ships `ACCESS_CONTROL_ENABLE=false` — the quickstart shape. Turn
+it on before anything but a laptop, and register an identity provider in the same
+change: with access control on and no provider, the runtime refuses to boot.
+</Warning>
+
+## Turn on access control
+
+Set `ACCESS_CONTROL_ENABLE=true` and register a provider in the manifest. The
+bundled default is the Redis-backed API-key provider, which the image already
+installs:
+
+```yaml manifest.yml
+lifecycle_modules:
+  - tai42_identity_redis.redis_api_key_provider
+```
+
+Then mint the first key with [`tai keys`](/reference/cli/keys) and write the
+policy that key resolves to — [access control](/concepts/access-control) covers
+the policy model, and the [access-control guide](/guides/access-control) walks
+the first key end to end.
+
+`ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` selects the paths served without a
+key. The bundle's default covers the login route and the Studio's static assets:
+
+```bash
+ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='["/api/login", "/assets", "/vendor", "/favicon.ico", "/tai42-logo-icon.png", "/apple-touch-icon.png", "/"]'
+```
+
+Setting it replaces the app's own default wholesale rather than adding to it.
+`/health` and `/ready` are deliberately absent: the app already serves them
+public by route-level declaration, and listing them here is rejected at boot as a
+conflict.
+
+For human sign-in — sessions, roles, invites, and the first admin — add the
+accounts provider described in [Accounts](/operate/accounts).
+
+## Run on Kubernetes
+
+The repo ships a real Helm chart at `charts/tai`. The release publishes it as an
+OCI artifact alongside the image, so install it straight from the registry — helm
+resolves the latest version:
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai
+helm test tai
+```
+
+The chart deploys `serve` and `backend` as separate Deployments, each with the
+metrics endpoint as a native sidecar, and installs Postgres and Redis
+StatefulSets by default. Point it at managed datastores instead by disabling
+both:
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai \
+  --set postgresql.enabled=false \
+  --set postgresql.host=db.internal \
+  --set postgresql.auth.existingSecret=tai-db \
+  --set redis.enabled=false \
+  --set redis.host=cache.internal
+```
+
+`serve.replicaCount` scales the API; running `serve.workers` above one requires
+`serve.statelessHttp=true`, because a stateful HTTP transport refuses a
+multi-worker boot. A `schemaInit` hook Job runs `tai db apply` around install and
+upgrade.
+
+The chart requires Kubernetes 1.29 or newer, because the metrics sidecar is a
+native sidecar container. It integrates with cluster add-ons but never installs
+them: an Ingress controller, cert-manager for `ingress.tls`, the
+prometheus-operator for `metrics.serviceMonitor`, and a StorageClass for
+persistence.
+
+<Note>
+Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,
+persistent volume (a `ReadWriteMany` PVC — the chart's default) so every `serve`
+and `backend` pod sees the same installed code, plus the manifest on persistent
+storage. An install `pip install`s into the one pod that handled the request and
+broadcasts the manifest reload fleet-wide — the other pods only reload the
+manifest, so unless the prefix is shared they try to import a package they do not
+have. `serve` and `backend` are separate Deployments — two pods even at one
+replica each — so `ReadWriteOnce` suffices only when a single node holds every
+mounting pod (disable `backend`, or co-schedule the two onto one node); otherwise
+the shared `ReadWriteMany` mount is required. A restarted or freshly scaled pod
+picks the shared prefix up at boot; live pickup by ALREADY-RUNNING peer pods —
+one pod installs, the others see it with no restart — is future work. Fleets
+that want fully static rosters can bake them into a
+[derived image](#add-plugins) instead.
+</Note>
+
+## TLS and the front door
+
+`serve` speaks plain HTTP on its published port, and the Compose bundle puts
+nothing in front of it. Terminate TLS at your own reverse proxy or load balancer
+and forward to that port.
+
+On Kubernetes the chart's Ingress is single-host, single-path — the Studio and
+the `/api` surface share one origin, so there is nothing to split — and passes
+`ingress.tls` straight through to the Ingress resource:
+
+```yaml values.yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: tai.example.com
+  tls:
+    - secretName: tai-tls
+      hosts:
+        - tai.example.com
+```
+
+Some features need the public origin spelled out rather than inferred:
+[connectors](/concepts/connectors) accept an OAuth redirect only when its origin
+is listed in `CONNECTORS_REDIRECT_URI_ALLOWLIST`, and `tai42-accounts-oidc`
+requires an https `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL`.
+
+## See also
+
+- [Deploy](/operate/deploy) — transports, workers, and the serving modes.
+- [Back up and restore](/operate/backup-and-restore) — what state to capture.
+- [The layering](/concepts/layering) — what the image actually contains.
