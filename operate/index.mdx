@@ -137,7 +137,14 @@ top of the core, then name the added modules in your manifest:
 
 ```dockerfile
 FROM docker.io/tai42/tai:latest
-RUN pip install tai42-channel-slack tai42-storage-s3
+# The base image ends on USER tai over a root-owned venv, so become root to
+# install, then drop back to the non-root runtime user. Use `python -m pip`
+# (the venv interpreter is first on PATH; a bare `pip` would be the base
+# image's system pip and install outside the venv, where the server never
+# looks).
+USER root
+RUN python -m pip install tai42-channel-slack tai42-storage-s3
+USER tai
 ```
 
 ### Persist runtime installs
@@ -232,15 +239,19 @@ persistence.
 
 <Note>
 Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,
-persistent volume (a `ReadWriteMany` PVC) so every `serve` and `backend` pod
-sees the same installed code, plus the manifest on persistent storage. An
-install `pip install`s into the one pod that handled the request and broadcasts
-the manifest reload fleet-wide — the other pods only reload the manifest, so
-unless the prefix is shared they try to import a package they do not have.
-Reconciling a freshly scaled or restarted pod's installed packages from the
-manifest automatically is future work; until then, either keep a single replica
-while installing at runtime or bake the roster into a
-[derived image](#add-plugins) for multi-pod fleets.
+persistent volume (a `ReadWriteMany` PVC — the chart's default) so every `serve`
+and `backend` pod sees the same installed code, plus the manifest on persistent
+storage. An install `pip install`s into the one pod that handled the request and
+broadcasts the manifest reload fleet-wide — the other pods only reload the
+manifest, so unless the prefix is shared they try to import a package they do not
+have. `serve` and `backend` are separate Deployments — two pods even at one
+replica each — so `ReadWriteOnce` suffices only when a single node holds every
+mounting pod (disable `backend`, or co-schedule the two onto one node); otherwise
+the shared `ReadWriteMany` mount is required. A restarted or freshly scaled pod
+picks the shared prefix up at boot; live pickup by ALREADY-RUNNING peer pods —
+one pod installs, the others see it with no restart — is future work. Fleets
+that want fully static rosters can bake them into a
+[derived image](#add-plugins) instead.
 </Note>
 
 ## TLS and the front door
