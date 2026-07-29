@@ -26,10 +26,15 @@ an install needs.
 ## Self-host with the distribution bundle
 
 [`tai-distribution`](https://github.com/tai42ai/tai-distribution) packages the
-whole platform as one batteries-included container image plus a Docker Compose
-bundle and a Helm chart. The image installs the first-party plugin set and bakes
-the built [Studio](/studio) in, so a self-hosted install is one image and the
-services it talks to.
+whole platform as one minimal-core container image plus a Docker Compose
+bundle and a Helm chart. The image ships the platform core plus one reference
+provider per infrastructure kind — local storage, the arq backend, redis
+identity, and the k8s config provider — and bakes the built [Studio](/studio) in,
+so a self-hosted install is one image and the services it talks to. Every other
+plugin (the channels, the S3/GitHub storages, the celery/rq backends, the
+connectors, monitoring, accounts, and the extra tools) installs at runtime
+through the [marketplace](/concepts/marketplace) or bakes into a derived image —
+see [Add plugins](#add-plugins).
 
 The image entrypoint is `tai` and its default command is `serve`. Three
 long-lived processes come out of the same image:
@@ -105,12 +110,52 @@ TAI_BACKEND_MODULE=tai42_backend_arq  # which backend the worker runs
 `POSTGRES_PASSWORD` has no default: Compose refuses to start until it is set.
 The `minio` and `celery` service profiles add `MINIO_ROOT_USER`,
 `MINIO_ROOT_PASSWORD`, `STORAGE_S3_BUCKET`, `RABBITMQ_USER`, and
-`RABBITMQ_PASSWORD`.
+`RABBITMQ_PASSWORD`. Those profiles drive the S3 storage and celery backend
+plugins, which are not in the minimal image — [add the plugin](#add-plugins)
+before enabling the profile.
 
 Five Postgres-backed stores and every Redis-backed feature store are already
 pointed at the bundled `postgres` and `redis` services, so the schema-admin
 connection, the access-control store, the connector store, the marketplace store,
 and the versioning store all resolve without further configuration.
+
+## Add plugins
+
+The image is the minimal core. A deployment adds the plugins it needs one of two
+ways.
+
+**Runtime, through the marketplace.** A running server installs, updates, and
+uninstalls plugins against itself — it `pip install`s the package into its own
+environment, patches the [manifest](/concepts/manifest), and reloads, so the
+plugin is live with no restart. See [Install a plugin](/marketplace/install). For
+those installs to survive a container recreation, the server's plugin-prefix
+setting must point at a mounted, persistent directory — see [Persist runtime
+installs](#persist-runtime-installs).
+
+**Build time, in a derived image.** Bake a fixed roster into your own image on
+top of the core, then name the added modules in your manifest:
+
+```dockerfile
+FROM docker.io/tai42/tai:latest
+RUN pip install tai42-channel-slack tai42-storage-s3
+```
+
+### Persist runtime installs
+
+A marketplace install writes two things a real deployment must keep across a
+container recreation, each on its own persistent mount located by an env var the
+server reads:
+
+| What | Env var | Default | Holds |
+| --- | --- | --- | --- |
+| Plugin prefix directory | the server's plugin-prefix setting | image venv (ephemeral) | the installed plugin **code** |
+| Manifest file | `TAI_MANIFEST_PATH` (or `TAI_CONFIG_DIR_PATH` for the whole config dir) | `/app/manifest.yml` | the plugin's **registration** |
+
+Persist both, or a recreated container boots with the code and its registration
+out of sync. In the Compose bundle the config dir is already a bind mount, so the
+manifest persists; give the plugin prefix its own volume the same way. Without a
+persistent prefix, a marketplace install lands in the image's ephemeral venv and
+is lost when the container is replaced.
 
 <Warning>
 `.env.example` ships `ACCESS_CONTROL_ENABLE=false` — the quickstart shape. Turn
@@ -184,6 +229,19 @@ native sidecar container. It integrates with cluster add-ons but never installs
 them: an Ingress controller, cert-manager for `ingress.tls`, the
 prometheus-operator for `metrics.serviceMonitor`, and a StorageClass for
 persistence.
+
+<Note>
+Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,
+persistent volume (a `ReadWriteMany` PVC) so every `serve` and `backend` pod
+sees the same installed code, plus the manifest on persistent storage. An
+install `pip install`s into the one pod that handled the request and broadcasts
+the manifest reload fleet-wide — the other pods only reload the manifest, so
+unless the prefix is shared they try to import a package they do not have.
+Reconciling a freshly scaled or restarted pod's installed packages from the
+manifest automatically is future work; until then, either keep a single replica
+while installing at runtime or bake the roster into a
+[derived image](#add-plugins) for multi-pod fleets.
+</Note>
 
 ## TLS and the front door
 
