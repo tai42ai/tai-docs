@@ -37,7 +37,7 @@ class CarryForward
 Sentinel for a `save_version`
 editable field the caller did not provide — carry the ACTIVE value forward.
 
-``fixed_kwargs`` / ``tags`` / ``extensions`` clear with an empty container, so
+``fixed_kwargs`` / ``extensions`` clear with an empty container, so
 ``None`` is their carry-forward sentinel; ``output_schema`` has no empty
 container (its cleared state IS ``None``), so it needs a distinct sentinel to
 tell "not provided" (carry forward) apart from an explicit ``None`` (clear).
@@ -61,9 +61,6 @@ each combo element an extension name or a ``{"name", "config"}`` mapping
 binding author config (e.g. an ``ask_external`` verifier) — fed unconverted
 to the structured runtime-attach API at register (an empty outer list means
 no extensions; an empty INNER combo is rejected by the validating view).
-``tags`` is the preset's product-meaningful categorization,
-projected to the bound tool's native tags at bind — DISTINCT from the generic
-per-version `tags`.
 ``output_schema`` is an optional author-set OUTPUT JSON Schema (an object
 schema): on an AGENT base it is baked into the run tool's ``response_format``
 so the agent FORCES a structured output matching it; on a plain tool it is
@@ -73,8 +70,8 @@ against it at run time.
 Every field must survive carry-forward on a version save: dropping
 ``extensions`` would make the branch tools vanish on reload, dropping
 ``base_tool`` would break the bind, dropping ``description`` would strip the
-tool's description, dropping ``tags`` would lose the categorization, and
-dropping ``output_schema`` would silently un-enforce the structured output.
+tool's description, and dropping ``output_schema`` would silently un-enforce
+the structured output.
 
 **Attributes**
 
@@ -84,7 +81,6 @@ dropping ``output_schema`` would silently un-enforce the structured output.
 | `description` | `str` |
 | `fixed_kwargs` | `dict[str, Any]` |
 | `extensions` | `list[list[ExtensionElement]]` |
-| `tags` | `list[str]` |
 | `output_schema` | `dict[str, Any] \| None` |
 
 
@@ -176,7 +172,7 @@ The typed interface over the versioned-document store with ``kind="preset"``.
 Delegation, body validation/reshaping, and error mapping are the concrete
 (skeleton) view's job — this Protocol pins only the surface. A preset body is
 always the full `PresetBody` (``{base_tool, description, fixed_kwargs,
-extensions, tags}``); the editable-field methods reconstruct it under the
+extensions}``); the editable-field methods reconstruct it under the
 carry-forward rules documented on `save_version`.
 
 ### Members
@@ -190,17 +186,16 @@ async create_preset(
     self,
     spec: PresetSpec,
     extensions: Sequence[Sequence[ExtensionElement]],
-    tags: list[str],
     output_schema: dict[str, Any] | None = None,
 ) -> DocumentRecord
 ```
 
 Create a versioned preset. ``spec`` carries ``name``/``description``/
-``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list), the
-categorization ``tags``, and the optional ``output_schema`` ride alongside —
-all of them land in the persisted `PresetBody`. Raise
-`PresetExistsError` on a duplicate name,
-`PresetNameConflictError` if the name collides with a base tool.
+``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
+optional ``output_schema`` ride alongside — all of them land in the
+persisted `PresetBody`. Raise `PresetExistsError` on a
+duplicate name, `PresetNameConflictError` if the name collides with
+a base tool.
 
 **Parameters**
 
@@ -208,7 +203,6 @@ all of them land in the persisted `PresetBody`. Raise
 |---|---|---|---|
 | `spec` | `PresetSpec` | — | — |
 | `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
-| `tags` | `list[str]` | — | — |
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 
 
@@ -221,28 +215,33 @@ async save_version(
     self,
     name: str,
     fixed_kwargs: dict[str, Any] | None = None,
-    tags: list[str] | None = None,
     extensions: Sequence[Sequence[ExtensionElement]] | None = None,
     output_schema: dict[str, Any] | None | CarryForward = CARRY_FORWARD,
+    description: str | None = None,
 ) -> DocumentVersion
 ```
 
 Append a new version from the editable body fields.
 
 A version body is the FULL `PresetBody`, so the view reconstructs
-the new body by ALWAYS carrying ``base_tool`` and ``description`` forward
-from the ACTIVE version body, then applying each of ``fixed_kwargs``,
-``tags``, ``extensions`` under one UNIFORM sentinel: omitted/``None`` =
-carry the active value forward unchanged; an explicit empty list (``tags=[]``
-/ ``extensions=[]``) = deliberately CLEAR that field. An explicitly provided
-empty list is a value, never "not provided". ``output_schema`` follows the
-SAME rule but with a distinct `CARRY_FORWARD` sentinel (its cleared
-state is ``None``, so ``None`` cannot double as "not provided"): omitted =
-carry forward, an explicit ``None`` = clear, an explicit dict = wins. An
-empty INNER combo (``[[]]`` or any ``[]`` member of ``extensions``) is
-REJECTED. The new body never DROPS a field. ``tags`` here is the preset-body
-categorization field, NOT the generic per-version ``DocumentVersion.tags``
-label. Raise `PresetNotFoundError` if the preset is absent.
+the new body by ALWAYS carrying ``base_tool`` forward from the ACTIVE
+version body, then applying each of ``fixed_kwargs``, ``extensions`` under
+one UNIFORM sentinel: omitted/``None`` = carry the active value forward
+unchanged; an explicit empty list (``extensions=[]``) = deliberately CLEAR
+that field. An explicitly provided empty list is a value, never "not
+provided". ``output_schema`` follows the SAME rule but with a distinct
+`CARRY_FORWARD` sentinel (its cleared state is ``None``, so ``None``
+cannot double as "not provided"): omitted = carry forward, an explicit
+``None`` = clear, an explicit dict = wins. ``description`` is editable per
+version: ``None`` = carry the active description forward, an explicit
+non-empty string = set it. The RESULTING description — explicit or carried
+— is validated non-empty (raising `ValueError`, surfaced as a 400),
+so an explicit ``""`` is rejected and a carry-forward from a legacy body
+with an empty description raises rather than persisting an empty tool
+docstring. An empty INNER combo
+(``[[]]`` or any ``[]`` member of ``extensions``) is REJECTED. The new body
+never DROPS a field. Raise `PresetNotFoundError` if the preset is
+absent.
 
 **Parameters**
 
@@ -250,9 +249,9 @@ label. Raise `PresetNotFoundError` if the preset is absent.
 |---|---|---|---|
 | `name` | `str` | — | — |
 | `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
-| `tags` | `list[str] \| None` | `None` | — |
 | `extensions` | `Sequence[Sequence[ExtensionElement]] \| None` | `None` | — |
 | `output_schema` | `dict[str, Any] \| None \| CarryForward` | `CARRY_FORWARD` | — |
+| `description` | `str \| None` | `None` | — |
 
 
 #### list_presets
@@ -348,7 +347,7 @@ async get_active_body(self, name: str) -> PresetBody
 ```
 
 Return the FULL active-version body (``{base_tool, description,
-fixed_kwargs, extensions, tags}``) so reload/startup can re-register from
+fixed_kwargs, extensions}``) so reload/startup can re-register from
 the whole body, not just ``fixed_kwargs``. Raise
 `PresetNotFoundError` if absent.
 

@@ -63,14 +63,21 @@ The runtime navigation surface the shell provides through
 anchor — middle-click / open-in-new-tab work — while still driving a
 client-side transition on plain click).
 
+`navigatePlugin`/`resolvePluginPath` are the plugin-page twins: they target a
+runtime plugin path (`/plugins/{pluginId}/{pagePath}` plus an optional validated
+sub-path `params` and `search`), NOT a route token — `routes.ts` never learns
+plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
+
 **Properties**
 
 | Property | Type | Description |
 |---|---|---|
 | `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => void` | — |
+| `navigatePlugin` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => void` | — |
 | `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
+| `resolvePluginPath` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => string` | — |
 
-**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+**Related:** [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
 ## NavigationProvider
@@ -107,6 +114,18 @@ parameters. Features type their exported page as `PageProps<'tools'>` and read
 | `search` | `RouteSearch<T>` | — |
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## PluginSearch
+
+```ts
+type PluginSearch = Record<string, unknown>
+```
+
+A plugin page's deep-link search object. Plugin paths are RUNTIME contributions
+outside the compile-time `RouteToken` map, so their search is an open bag of
+serializable values (the page's own `PluginPageParamsSchema` validates it);
+this is deliberately NOT a `RouteSearch`.
 
 
 ## RouteSearch
@@ -174,6 +193,21 @@ function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search
 Imperative navigation to a shell route token with its typed search params.
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## usePluginNavigation
+
+```ts
+function usePluginNavigation(): Pick<NavigationContextValue, "navigatePlugin" | "resolvePluginPath">
+```
+
+Plugin-page navigation: `navigatePlugin` drives a client-side transition to a
+runtime plugin path, `resolvePluginPath` yields its href. These are the ONLY
+navigation methods a plugin page uses to reach its own deep-linkable sub-paths —
+the token-typed `useAppNavigate`/`useResolvePath` address the shell's
+compile-time routes and know nothing of plugin paths.
+
+**Related:** [NavigationContextValue](/reference/studio-sdk/navigation#navigationcontextvalue)
 
 
 ## useResolvePath

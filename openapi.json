@@ -502,6 +502,65 @@
         ],
         "type": "object"
       },
+      "FolderCreate": {
+        "description": "A folder-creation request — a ``name`` and an optional ``parent_id``\n(``null`` = a root folder).",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderCreate",
+        "type": "object"
+      },
+      "FolderMove": {
+        "description": "A folder-move request — the new ``parent_id`` (``null`` = move to root).",
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Id"
+          }
+        },
+        "title": "FolderMove",
+        "type": "object"
+      },
+      "FolderRename": {
+        "description": "A folder-rename request — the new ``name``.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderRename",
+        "type": "object"
+      },
       "HookRegister": {
         "description": "The client-facing register-a-hook request body: the fields a caller supplies.\n\n``execution_key_fingerprint`` is server-derived at bind and deliberately absent\nhere; :class:`HookParams` is this shape plus that one stored field.",
         "properties": {
@@ -1036,14 +1095,13 @@
         "type": "object"
       },
       "PresetCreate": {
-        "description": "A preset-creation request. ``extensions`` is the list of extension combos\n(each element an extension name or a ``{\"name\", \"config\"}`` mapping binding\nauthor config). ``output_schema`` is the optional author-set OUTPUT JSON\nSchema (an object schema).",
+        "description": "A preset-creation request. ``description`` is the bound tool's LLM-facing\ndocstring — REQUIRED non-empty on every create. ``extensions`` is the list of\nextension combos (each element an extension name or a ``{\"name\", \"config\"}``\nmapping binding author config). ``output_schema`` is the optional author-set\nOUTPUT JSON Schema (an object schema).",
         "properties": {
           "base_tool": {
             "title": "Base Tool",
             "type": "string"
           },
           "description": {
-            "default": "",
             "title": "Description",
             "type": "string"
           },
@@ -1088,19 +1146,12 @@
             ],
             "default": null,
             "title": "Output Schema"
-          },
-          "tags": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Tags",
-            "type": "array"
           }
         },
         "required": [
           "name",
-          "base_tool"
+          "base_tool",
+          "description"
         ],
         "title": "PresetCreate",
         "type": "object"
@@ -1215,21 +1266,6 @@
             ],
             "default": null,
             "title": "Output Schema"
-          },
-          "tags": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Tags"
           }
         },
         "required": [
@@ -1239,8 +1275,20 @@
         "type": "object"
       },
       "PresetVersionSave": {
-        "description": "A new-preset-version request. At least one field must be present; an\nomitted field carries forward, an explicit ``[]`` clears (the store sentinel\nrule). ``output_schema`` carries forward when omitted, clears on an explicit\n``null``, and wins on an explicit object schema.",
+        "description": "A new-preset-version request. At least one field must be present; an\nomitted field carries forward, an explicit ``[]`` clears (the store sentinel\nrule). ``output_schema`` carries forward when omitted, clears on an explicit\n``null``, and wins on an explicit object schema. ``description`` carries forward\nwhen omitted and is SET by an explicit non-empty string (an explicit ``\"\"`` is\nrejected — the resulting description is validated non-empty on every save).",
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
           "extensions": {
             "anyOf": [
               {
@@ -1292,21 +1340,6 @@
             ],
             "default": null,
             "title": "Output Schema"
-          },
-          "tags": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Tags"
           }
         },
         "title": "PresetVersionSave",
@@ -2074,6 +2107,57 @@
           "combos"
         ],
         "title": "ToolExtensionsUpdate",
+        "type": "object"
+      },
+      "ToolMetaUpsert": {
+        "description": "A merge-patch overlay edit. Only the fields PRESENT in the request are\nwritten; a present-null clears (``hidden: null`` writes the tri-state defer\nstate); a present ``tags`` array replaces the whole set. Absent fields are\nunchanged — there is no full-row replace.",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Folder Id"
+          },
+          "hidden": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hidden"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "title": "ToolMetaUpsert",
         "type": "object"
       },
       "ToolReloadRequest": {
@@ -11622,6 +11706,511 @@
         ]
       }
     },
+    "/api/tool-meta": {
+      "get": {
+        "description": "The whole overlay in one read: every folder (the flat tree) plus every\nper-tool row. The UI builds the tree and merges the rows against the live tool\nlist client-side.",
+        "operationId": "get_api_tool_meta",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List the tool-metadata overlay",
+        "tags": [
+          "tool_meta"
+        ]
+      }
+    },
+    "/api/tool-meta/folders": {
+      "post": {
+        "description": "Create a folder under ``parent_id`` (``null`` = a root folder). A blank name\nis a 400, an unknown ``parent_id`` a 400, and a sibling already holding the name\na 409.",
+        "operationId": "post_api_tool_meta_folders",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create a folder",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/tool-meta/folders/{folder_id}": {
+      "delete": {
+        "description": "Delete an EMPTY folder. An unknown folder is a 404; a folder still holding\nsubfolders or overlay rows is a 409 (empty it first).",
+        "operationId": "delete_api_tool_meta_folders_folder_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a folder",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/tool-meta/folders/{folder_id}/move": {
+      "post": {
+        "description": "Re-parent a folder (``null`` = move to root). An unknown folder or parent is a\n404, a move that would form a cycle a 400, and a sibling collision at the\ndestination a 409.",
+        "operationId": "post_api_tool_meta_folders_folder_id_move",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Move a folder",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/tool-meta/folders/{folder_id}/rename": {
+      "post": {
+        "description": "Rename a folder in place. A blank name is a 400, an unknown folder a 404, and\na sibling collision a 409.",
+        "operationId": "post_api_tool_meta_folders_folder_id_rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Rename a folder",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/tool-meta/tools/{tool_name}": {
+      "delete": {
+        "description": "Drop the overlay row for ``tool_name``. Idempotent — deleting a tool with no\nrow is a no-op, not an error (most tools never own one).",
+        "operationId": "delete_api_tool_meta_tools_tool_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tool_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a tool's overlay row",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      },
+      "patch": {
+        "description": "Merge-patch the overlay row for ``tool_name`` (create it if absent). ``patch``\nholds ONLY the fields the caller sent; each is applied over the current row (or\nthe empty defaults when none exists), absent fields unchanged. A blank\n``display_name`` is refused; a present-null clears; a present ``tags`` array\nreplaces the set. An unknown ``folder_id`` is a loud 400.",
+        "operationId": "patch_api_tool_meta_tools_tool_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tool_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolMetaUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Upsert a tool's overlay",
+        "tags": [
+          "tool_meta"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/tool-runs": {
       "get": {
         "description": "List the recent runs for one tool, newest first.\n\nA restricted caller reads its OWN per-identity index (complete within its own\nbound — never truncated by other identities' volume that saturates the shared\nwindow); an unrestricted caller reads the shared index unchanged. An empty list\nis the honest answer to \"my runs of this tool\" — this filters a collection to the\ncaller's own slice (distinct from GET-by-id, which raises ``403`` for a NAMED run\nowned by another identity).",
@@ -12074,7 +12663,7 @@
     },
     "/api/tools/tags": {
       "get": {
-        "description": "The per-tool native-``tags`` map — one ``{name, tags}`` entry per registered\ntool, ``tags`` sorted for a stable wire order. Additive to the flat names\ncontract; a tool with no tags carries an empty list.",
+        "description": "The per-tool native-``tags`` map plus the plugin-declared visibility — one\n``{name, tags, hidden}`` entry per registered tool, ``tags`` sorted for a stable\nwire order. ``hidden`` is the tool's OWN declaration, read from the FastMCP\n``meta`` under the namespaced ``tai42/hidden`` key (a tool that never declared it\nis not hidden). The tool_meta overlay's tri-state override is merged on top\nclient-side; this read exposes only the declaration. Additive to the flat names\ncontract; a tool with no tags carries an empty list.",
         "operationId": "get_api_tools_tags",
         "responses": {
           "200": {
@@ -12109,7 +12698,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List each tool's native tags",
+        "summary": "List each tool's native tags and declared visibility",
         "tags": [
           "tools"
         ]

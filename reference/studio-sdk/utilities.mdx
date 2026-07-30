@@ -124,6 +124,28 @@ revoking it synchronously can cancel the download before the browser commits it.
 | `filename` | `string` | — | — |
 
 
+## effectiveHidden
+
+```ts
+function effectiveHidden(
+  overlayHidden: boolean | null | undefined,
+  declaredHidden: boolean,
+): boolean
+```
+
+Effective hidden after the tri-state override. `overlayHidden` is the overlay's
+`hidden` (`true`/`false`), or `null`/`undefined` when the overlay defers or has
+no row; `declaredHidden` is the plugin's own `hidden`. Overlay opinion wins;
+absence defers to the declaration.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `overlayHidden` | `boolean \| null \| undefined` | — | — |
+| `declaredHidden` | `boolean` | — | — |
+
+
 ## errorMessage
 
 ```ts
@@ -170,6 +192,33 @@ The extension catalog (`GET /api/extensions`). The extensions feature keys its
 read-only catalog on it; a tool's extension-combo save (in the tools feature)
 creates or tears down branch tools, so it invalidates this key too — a
 cross-feature reference that must resolve to one authoritative constant.
+
+
+## hiddenToolNames
+
+```ts
+function hiddenToolNames(
+  tagEntries: readonly ({ hidden: boolean; name: string; tags: string[] })[],
+  overlayRows: readonly ({ display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
+): Set<string>
+```
+
+The set of tool names whose EFFECTIVE visibility is hidden, from the native
+declarations (`listToolTags`) merged with the tool_meta overlay (`listToolMeta`).
+A picker excludes exactly these names from its options; the server stays the
+authority (a slipped-through name is rejected loudly there), so a name in the set
+that is not among a picker's options is simply inert.
+
+The union of both sources is walked so an overlay row that force-hides a tool
+carrying no native tag entry is still caught, and an overlay `false` on a
+plugin-hidden tool correctly keeps it OUT of the set (unhidden).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tagEntries` | `readonly ({ hidden: boolean; name: string; tags: string[] })[]` | — | — |
+| `overlayRows` | `readonly ({ display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 
 ## lintSchemaText
