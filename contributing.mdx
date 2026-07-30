@@ -68,6 +68,20 @@ uv run --no-sync pytest
 
 See the target repository's `README` for the exact extras or dependency group it installs, and its `CONTRIBUTING` guide for the rest of its specifics — any secret scan, and its licensing statement.
 
+## How dependencies resolve
+
+A repo's `pyproject.toml` points its `tai42-*` siblings at `../tai-*` checkouts through `[tool.uv.sources]`, while its committed `uv.lock` pins those same siblings to released versions from the index. **The two disagree deliberately**, and that disagreement is what keeps the repos independent:
+
+- **CI resolves the published versions.** Every CI job sets `UV_NO_SOURCES=1`, so the sources table is ignored and `uv sync --locked` asserts against the committed lock. CI clones no siblings: a repo's gate proves the repo against the artifacts a user installs.
+- **Local development resolves the checkouts.** A plain `uv sync` honours the sources table and installs the siblings editable, so a cross-repo change is picked up without publishing.
+- **The `uv-lock` pre-commit hook passes `--no-sources`.** A bare `uv lock` run beside sibling checkouts rewrites the committed lock to path entries and stages it, which reverts the model silently.
+- **Dependabot propagates versions.** When a package publishes, Dependabot opens the bump PR — dependency range and lock together — in each dependent, and that repo's CI proves it.
+- **`tai-e2e` is the exception.** It resolves siblings from their checkouts on purpose: proving the repos against each other at `main` is the suite's job, and its `fleet-e2e` status is where cross-repo drift surfaces.
+
+A lock that records a sibling's path also records that sibling's version, so one version bump leaves every dependent's lock stale and its `main` red. Published resolution removes that coupling, and the integration suite — not each repo's own gate — is what tests the fleet together.
+
+Testing an unreleased sibling change is therefore explicit: work locally with the sources overrides, or publish a prerelease and let Dependabot carry it.
+
 ## See also
 
 - [The layering](/concepts/layering) — how contract, kit, and skeleton relate.
