@@ -32,10 +32,11 @@ HTTP API all drive the same flow.
     </CodeGroup>
 
     Pin a version with `--version` (or a `version` field in the body); with no
-    version the latest published version installs. Either way the server checks
-    the resolved version's declared contract range against its own installed
-    tai42-contract first — a version that does not fit refuses to install, and the
-    error names the mismatch.
+    version the server resolves the **newest version compatible with the core it
+    is running** — a core-aware pick, so an install never lands a version your
+    running core cannot load. A version you pin explicitly is still checked
+    against the server's installed tai42-contract — one that does not fit refuses
+    to install, and the error names the mismatch.
   </Step>
   <Step title="Verify">
     ```bash
@@ -48,11 +49,11 @@ HTTP API all drive the same flow.
 
 ## What install does
 
-1. Resolves the ref against the registry, checks the resolved version's
-   contract range against the server's installed tai42-contract, and checks
-   advisories — a version that does not fit the contract, one that is killed,
-   or one under a non-withdrawn critical advisory refuses before anything
-   changes.
+1. Resolves the ref against the registry — with no pinned version, the newest
+   version compatible with the server's installed tai42-contract (core-aware
+   resolution) — and checks advisories. A version that does not fit the
+   contract, one that is killed, or one under a non-withdrawn critical advisory
+   refuses before anything changes.
 2. Installs the resolved version by source: a GitHub-sourced plugin downloads
    the release tarball, verifies its SHA-256 against the digest the registry
    recorded at ingest, and installs only that verified file — a re-pointed tag
@@ -68,6 +69,15 @@ If any step fails, the whole install aborts and the error names the step —
 never a half-installed plugin. The manifest, registration, and install record
 fully revert; package changes the underlying pip run already made are pip's own
 boundary.
+
+Registry-dispatched items — tools, agents, extensions, storages, and a channel's
+registration and outbound delivery — are live the moment that reload lands, but
+two things wait for the next server restart: a **router** or **middleware**
+plugin, whose handlers are frozen into the ASGI app at process build, and a
+Tier-2 channel's inbound webhook route, which is part of that same build-frozen
+HTTP surface (Tier-1 confirm/external channels register no inbound route and are
+fully live). See [the plugin descriptor](/guides/authors/plugin-descriptor) and
+[self-hosted upgrades](/self-hosted/upgrades#runtime-installed-plugins).
 
 <Note>
 Install writes into the server's own environment and manifest. On a self-hosted
@@ -85,6 +95,13 @@ tai plugins update tai42/toolbox
 `tai plugins installed` shows update availability per plugin; update resolves
 the new version and runs the same install flow. Pin a target with `--version`,
 or omit it for the latest.
+
+To move the whole installed roster onto versions compatible with the running
+core in one step — the flow after a [self-hosted image upgrade](/self-hosted/upgrades#runtime-installed-plugins):
+
+```bash
+tai plugins upgrade --all
+```
 
 ## Uninstall
 

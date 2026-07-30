@@ -1,0 +1,67 @@
+---
+title: "Ops notes"
+description: "Reverse proxies, backups, and health probes for a self-hosted server."
+icon: "screwdriver-wrench"
+---
+
+Operational caveats a self-hosted deployment runs into. Each links to the deeper
+platform page where it applies.
+
+## Reverse proxy in front
+
+`serve` speaks plain HTTP on its published port and puts nothing in front of it —
+terminate TLS at your own reverse proxy or load balancer and forward to that
+port. The Studio and the `/api` surface share one origin, so there is nothing to
+split.
+
+<Warning>
+Recreating a container gives it a **new IP**. A name-based reverse proxy that
+resolves the upstream once at startup keeps forwarding to the old address after
+an upgrade or restart and starts failing. Re-resolve on each request, or reload
+the proxy when the stack is recreated. On the Compose network use the service
+name (`serve`), not a captured IP.
+</Warning>
+
+Some features need the public origin spelled out rather than inferred:
+[connectors](/concepts/connectors) accept an OAuth redirect only when its origin
+is in `CONNECTORS_REDIRECT_URI_ALLOWLIST`, and the OIDC accounts provider needs an
+https public base URL. See [TLS and the front door](/operate#tls-and-the-front-door).
+
+## Backups
+
+The application state lives in Postgres and Redis, and in the two persistent
+mounts (the config directory and the plugin prefix). Back up all of them.
+
+- **Datastores** — snapshot the Postgres and Redis volumes on your own schedule;
+  the image holds no state.
+- **Stored platform state** — the runtime exports its own state (access-control
+  policies, presets, and whatever else plugins register) as a backup document
+  with `tai backup export`. See [Back up and restore](/operate/backup-and-restore).
+- **Config** — keep `config/manifest.yml` and the plugin prefix, so a restored
+  server boots with the same manifest and the same runtime-installed plugins.
+
+## Health probes
+
+The server exposes two unauthenticated routes for orchestrators and load
+balancers:
+
+| Route | Probes |
+| --- | --- |
+| `/health` | liveness only — `200` while the process is up |
+| `/ready` | every backing store this deployment wired (Redis/Postgres), each pinged once under a 5s budget |
+
+Both are served public by the app's own route-level declaration — no manual
+allowlisting, and listing them in an always-public prefix is rejected at boot as a
+conflict. The bundle's serve healthcheck already probes `/health`. See
+[Liveness and readiness](/operate/deploy#liveness-and-readiness).
+
+## Observability
+
+`tai metrics` serves the Prometheus multiprocess endpoint on its own port; on
+Kubernetes it runs as a native sidecar in both Deployments. Query traces and
+aggregate metrics with `tai obs`. See [Observe](/operate/observe).
+
+## See also
+
+- [Deploy](/operate/deploy) — transports, workers, access control at deploy.
+- [Manage a fleet](/operate/manage-a-fleet) — the worker census and fleet-wide operations.

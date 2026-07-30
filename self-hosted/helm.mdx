@@ -1,0 +1,79 @@
+---
+title: "Helm"
+description: "Install and upgrade on Kubernetes from the published chart."
+icon: "dharmachakra"
+---
+
+The `tai` chart deploys the same image on Kubernetes. Each release publishes it
+as an OCI artifact next to the image, cosign-signed, so you install straight from
+the registry.
+
+## Install
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai --version 0.3.0
+helm test tai
+```
+
+The chart runs `serve` and `backend` as separate Deployments, each with a
+`tai metrics` native sidecar, and by default installs quickstart Postgres and
+Redis StatefulSets for a self-contained trial. A `schemaInit` hook runs
+`tai db apply` around install and upgrade.
+
+<Note>
+Pin `--version` to a chart release. The chart version and the app image version
+are cut from the same tag, so chart `X.Y.Z` targets image `X.Y.Z` by default
+(override with `image.tag`).
+</Note>
+
+## Point at your own datastores
+
+For production, disable the quickstart StatefulSets and point every dependency at
+managed Postgres and Redis:
+
+```bash
+helm install tai oci://ghcr.io/tai42ai/charts/tai --version 0.3.0 \
+  --set postgresql.enabled=false \
+  --set postgresql.host=db.internal \
+  --set postgresql.auth.existingSecret=tai-db \
+  --set redis.enabled=false \
+  --set redis.host=cache.internal
+```
+
+`serve.replicaCount` scales the API; running `serve.workers` above one also needs
+`serve.statelessHttp=true`, because the stateful HTTP transport refuses a
+multi-worker boot. The chart requires Kubernetes 1.29+ (the metrics native
+sidecar), and integrates with — but never installs — an Ingress controller,
+cert-manager, the prometheus-operator, and a StorageClass.
+
+<Note>
+Marketplace installs on Kubernetes need the plugin-prefix directory on a shared
+persistent volume so every `serve` and `backend` pod sees the same installed
+code, plus the manifest on persistent storage. See
+[Run on Kubernetes](/operate#run-on-kubernetes) for the persistence model and
+[Plugin persistence](https://github.com/tai42ai/tai-distribution/blob/main/charts/tai/README.md)
+in the chart README.
+</Note>
+
+## Upgrade
+
+```bash
+helm upgrade tai oci://ghcr.io/tai42ai/charts/tai --version 0.3.1
+```
+
+The upgrade re-runs the `tai db apply` hook and rolls the Deployments. With an
+external Postgres the hook runs `pre-upgrade` (schema first, strict ordering);
+with the quickstart Postgres it runs `post-upgrade`. The DDL is additive, and the
+data lives in your datastores, not the pods.
+
+## The values reference
+
+Every value — probes, autoscaling, ingress, the Postgres-backed feature toggles,
+secret handling, and the ServiceMonitor — is documented in the chart's own
+[`charts/tai/README.md`](https://github.com/tai42ai/tai-distribution/blob/main/charts/tai/README.md).
+[Run on Kubernetes](/operate#run-on-kubernetes) covers the platform-side setup.
+
+## See also
+
+- [Verify artifacts](/self-hosted/verify) — verify the chart signature.
+- [Deploy](/operate/deploy) — the serving modes the chart wires.

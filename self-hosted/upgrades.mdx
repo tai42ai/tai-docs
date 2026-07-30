@@ -1,0 +1,90 @@
+---
+title: "Upgrades"
+description: "Move to a new image tag: apply the schema, recreate the app services, leave the data untouched."
+icon: "arrow-up-right-dots"
+---
+
+Upgrading is a tag change plus a schema apply. The image carries no state, so the
+data volumes are never touched — only the app containers are replaced.
+
+## Upgrade the Compose bundle
+
+<Steps>
+  <Step title="Pin the new tag">
+    Set `TAI_VERSION` in `.env` to the release you are moving to.
+
+    ```bash TAI_VERSION in .env
+    TAI_VERSION=0.3.1
+    ```
+  </Step>
+  <Step title="Pull it">
+    ```bash
+    docker compose pull
+    ```
+  </Step>
+  <Step title="Apply the schema">
+    ```bash
+    docker compose run --rm db-init
+    ```
+
+    `db-init` runs `tai db apply`. The DDL is additive and `IF NOT EXISTS`
+    throughout, so re-running it is safe and a no-op when the schema is already
+    current.
+  </Step>
+  <Step title="Recreate the app services only">
+    ```bash
+    docker compose up -d --no-deps serve backend metrics
+    ```
+
+    `--no-deps` recreates the three app services against the new image without
+    restarting Postgres or Redis, so the datastores — and their volumes — stay
+    up.
+  </Step>
+</Steps>
+
+<Note>
+Read the release notes before pinning. The additive-DDL, schema-compatible
+guarantee holds within a release line; a release that says otherwise takes the
+steps it names.
+</Note>
+
+## Runtime-installed plugins
+
+An image upgrade replaces the **core** only. Plugins added at runtime through the
+[marketplace](/concepts/marketplace) live in the server's plugin prefix
+(`TAI_PLUGINS_PREFIX`), not in the image, so **they do not update with a new image
+tag** — a freshly pinned image boots with the same plugin versions the prefix
+already holds.
+
+Update them as a step of their own, after the image upgrade:
+
+```bash
+tai plugins upgrade --all
+```
+
+This resolves each installed plugin to the newest version compatible with the
+core you are now running and installs it into the same persistent prefix. A
+**router** or **middleware** plugin is the exception to live pickup — its handlers
+are frozen into the ASGI app at process build, so an upgraded router or middleware
+activates only when each container/pod restarts (`docker compose up -d` /
+`kubectl rollout restart`).
+
+<Warning>
+A plugin that is incompatible with the new core — or otherwise stale — is
+**quarantined loudly at boot**: it is not loaded, and the failure is surfaced,
+not swallowed. A quarantined plugin shows as quarantined in the Studio
+**Installed** tab and in `tai plugins installed`; run `tai plugins upgrade --all`
+to move the roster onto core-compatible versions and clear it. Keep the plugin
+prefix on persistent storage so the installed set survives the container
+recreation an upgrade performs.
+</Warning>
+
+## On Kubernetes
+
+`helm upgrade` re-runs the `tai db apply` hook and rolls the Deployments; the
+data lives in your Postgres and Redis, not the pods. See [Helm](/self-hosted/helm#upgrade).
+
+## See also
+
+- [Verify artifacts](/self-hosted/verify) — confirm the new tag before you run it.
+- [Back up and restore](/operate/backup-and-restore) — capture state before an upgrade.

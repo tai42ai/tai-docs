@@ -8,7 +8,7 @@ renames a distribution, a repository, or changes a compose default. This check
 fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a merged
 source change that the docs did not follow is caught on the docs PR.
 
-Three checks, all OFFLINE (no network); the two that depend on the
+Four checks, all OFFLINE (no network); the three that depend on the
 ``tai-distribution`` sibling are gated on that checkout being present:
 
 1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
@@ -35,6 +35,20 @@ Three checks, all OFFLINE (no network); the two that depend on the
    JSON. Gated on that compose file being present; absent -> loud note,
    present -> hard compare that names both values on mismatch.
 
+4. Core image roster -- the self-hosted overview names the packages the release
+   image bundles inside a delimited ``core-roster`` block (the ``ROSTER_MARKER_*``
+   comments). That set, by distribution name (versions and extras ignored), must
+   EQUAL the package set pinned in ``tai-distribution``'s
+   ``docker/pypi-requirements.txt`` -- the file that IS the image's manifest of
+   contents. A package added to or dropped from the image without the docs
+   following is drift. Gated on the requirements file being present; absent ->
+   loud note, present -> hard compare that names the missing/extra packages, and
+   a present requirements file with no roster block in the docs is itself a
+   failure (the sync point must exist). This is the mechanism that keeps the
+   hand-written self-hosted page in step with the distribution: the reference
+   regeneration pipeline only rebuilds generator-owned sections, never a narrative
+   page, so a drift gate -- not a dispatch -- is what enforces this page's sync.
+
 Run it where ``tai42_skeleton`` resolves (this project's dev env or the
 tai42-skeleton virtualenv)::
 
@@ -60,6 +74,19 @@ import gen_catalog  # noqa: E402
 # The tai-distribution compose bundle: the authoritative home of the
 # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES default the docs mirror.
 COMPOSE_REL = Path("tai-distribution") / "compose" / "docker-compose.yml"
+
+# The tai-distribution pinned first-party set: the file that IS the release
+# image's manifest of contents. The self-hosted overview's core-roster block
+# must name exactly this package set (by distribution name).
+PYPI_REQUIREMENTS_REL = Path("tai-distribution") / "docker" / "pypi-requirements.txt"
+
+# The delimited region in the docs that names the bundled core roster. The
+# comparison reads only the distribution tokens BETWEEN these markers, so prose
+# elsewhere naming a package (an "add it at runtime" example) never counts as a
+# claim that the image bundles it.
+ROSTER_MARKER_START = "core-roster:start"
+ROSTER_MARKER_END = "core-roster:end"
+_ROSTER_BLOCK_RE = re.compile(re.escape(ROSTER_MARKER_START) + r"(.*?)" + re.escape(ROSTER_MARKER_END), re.DOTALL)
 
 # A `tai42-<name>` distribution token. The first lookahead forces a maximal
 # token match (so no shorter prefix can be matched); the second excludes image
@@ -250,6 +277,80 @@ def check_always_public(
     return problems, notes
 
 
+def _requirement_names(text: str) -> set[str]:
+    """The distribution names pinned in a pypi-requirements file.
+
+    Strips comments, extras (``[toolbox,files]``), and version specifiers, so
+    ``tai42-skeleton[toolbox,files]==0.3.1`` yields ``tai42-skeleton``."""
+    names: set[str] = set()
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)", line)
+        if m:
+            names.add(m.group(1).lower())
+    return names
+
+
+def _roster_block(docs: list[tuple[str, str]]) -> tuple[str, int, set[str]] | None:
+    """Locate the docs' delimited core-roster block.
+
+    Returns ``(relative_path, start_lineno, distribution_tokens)`` for the first
+    block found, or ``None`` when no page carries the markers."""
+    for rel, text in docs:
+        m = _ROSTER_BLOCK_RE.search(text)
+        if not m:
+            continue
+        start_lineno = text[: m.start()].count("\n") + 1
+        tokens = set(_DIST_RE.findall(m.group(1)))
+        return rel, start_lineno, tokens
+    return None
+
+
+def check_core_roster(
+    docs: list[tuple[str, str]],
+    workspace_root: Path = WORKSPACE_ROOT,
+) -> tuple[list[str], list[str]]:
+    """Compare the docs' core-roster block against the image's pinned package set."""
+    problems: list[str] = []
+    notes: list[str] = []
+
+    requirements = workspace_root / PYPI_REQUIREMENTS_REL
+    if not requirements.is_file():
+        notes.append(
+            f"{PYPI_REQUIREMENTS_REL} not present offline; the self-hosted core-roster block "
+            f"was NOT verified against the release image's pinned package set "
+            f"(a full checkout / the hosted docs CI verifies it)."
+        )
+        return problems, notes
+
+    expected = _requirement_names(requirements.read_text(encoding="utf-8"))
+    block = _roster_block(docs)
+    if block is None:
+        problems.append(
+            f"no core-roster block found in the docs (expected the '{ROSTER_MARKER_START}' / "
+            f"'{ROSTER_MARKER_END}' markers on the self-hosted overview); the block MUST exist so "
+            f"the bundled roster stays synced with {PYPI_REQUIREMENTS_REL}"
+        )
+        return problems, notes
+
+    rel, lineno, documented = block
+    missing = expected - documented
+    extra = documented - expected
+    if missing:
+        problems.append(
+            f"{rel}:{lineno}: core-roster block is missing package(s) the image bundles: "
+            f"{', '.join(sorted(missing))} (pinned in {PYPI_REQUIREMENTS_REL})"
+        )
+    if extra:
+        problems.append(
+            f"{rel}:{lineno}: core-roster block names package(s) the image does NOT bundle: "
+            f"{', '.join(sorted(extra))} (absent from {PYPI_REQUIREMENTS_REL})"
+        )
+    return problems, notes
+
+
 def evaluate(
     docs_root: Path = DOCS_ROOT,
     workspace_root: Path = WORKSPACE_ROOT,
@@ -266,6 +367,10 @@ def evaluate(
     problems += check_repo_urls(docs, dist_map, workspace_root)
 
     p, n = check_always_public(docs, workspace_root)
+    problems += p
+    notes += n
+
+    p, n = check_core_roster(docs, workspace_root)
     problems += p
     notes += n
 
@@ -289,7 +394,10 @@ def main() -> int:
         )
         return 1
 
-    print("check_docs_refs: OK -- distribution names, repo URLs, and the ALWAYS_PUBLIC example all match source.")
+    print(
+        "check_docs_refs: OK -- distribution names, repo URLs, the ALWAYS_PUBLIC example, "
+        "and the core-roster block all match source."
+    )
     return 0
 
 

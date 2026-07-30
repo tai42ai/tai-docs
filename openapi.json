@@ -2316,7 +2316,7 @@
   "info": {
     "description": "The operator HTTP surface served under /api/*.",
     "title": "tai42-skeleton API",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7654,7 +7654,7 @@
     },
     "/api/marketplace/installed": {
       "get": {
-        "description": "The installed inventory from the local attribution store, each row enriched\nwith update availability from one registry pass.\n\nFor each row the registry's latest-published-version object gives ``latest``\n(its version string, or ``null`` when the listing has no published version)\nand ``update_available`` (``latest`` newer than the installed version). A\nper-row not-found — the upstream listing vanished or was suspended — is row\nSTATE, not a route failure: that row answers ``latest: null``,\n``update_available: false``, ``missing_upstream: true``, so one dead listing\nnever fails the whole inventory. A transport/garbled-upstream failure still\nsurfaces as a 502 — serving rows without update availability would be a silent\ndegrade of the spec'd shape.",
+        "description": "The installed inventory + the boot-quarantined plugins, in one body:\n``{\"installed\": [...], \"quarantined\": [{\"name\", \"reason\"}, ...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\n``quarantined`` mirrors the boot pass's plugin-quarantine registry — the\nplugins this worker SKIPPED (incompatible or import-broken) with the\nhuman-readable reason each.",
         "operationId": "get_api_marketplace_installed",
         "responses": {
           "200": {
@@ -7682,6 +7682,16 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal server error."
           },
           "502": {
             "content": {
@@ -8061,6 +8071,75 @@
           }
         ],
         "summary": "Update a marketplace plugin",
+        "tags": [
+          "marketplace"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/marketplace/upgrade-all": {
+      "post": {
+        "description": "Move every installed plugin onto its latest COMPATIBLE version in one\nlock-held batch, answering ``{\"results\": [{ref, outcome, detail}, ...]}``.\n\nPer-ref failures (including a ref with NO compatible version) are report\nentries, never a batch abort — the ONE operation-level failure is the\nfleet marketplace lock being held elsewhere (the retriable 503). See\n:meth:`Installer.upgrade_all` for the outcome vocabulary.",
+        "operationId": "post_api_marketplace_upgrade_all",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ReloadingError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The server is applying a config reload, or a dependency this route needs is temporarily unavailable; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; carried by the reloading answer.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Upgrade all installed marketplace plugins",
         "tags": [
           "marketplace"
         ],

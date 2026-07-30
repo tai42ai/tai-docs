@@ -164,6 +164,70 @@ def test_compose_regex_extracts_default() -> None:
     print("  compose ALWAYS_PUBLIC regex: extracts the JSON default")
 
 
+# --- core roster -----------------------------------------------------------
+
+
+def _roster_doc(tokens: str) -> str:
+    start = check_docs_refs.ROSTER_MARKER_START
+    end = check_docs_refs.ROSTER_MARKER_END
+    return f"line one\n{{/* {start} */}}\n{tokens}\n{{/* {end} */}}\n"
+
+
+def test_requirement_names_strips_extras_and_pins() -> None:
+    """Package names parse out of a requirements file, dropping extras and versions."""
+    text = "# comment\ntai42-skeleton[toolbox,files]==0.3.1\ntai42-backend-arq==0.3.1\n\n"
+    names = check_docs_refs._requirement_names(text)
+    assert names == {"tai42-skeleton", "tai42-backend-arq"}, names
+    print("  requirement names: extras and version pins stripped")
+
+
+def test_matching_roster_passes(tmp_path: Path) -> None:
+    """A roster block naming exactly the pinned set produces no problems."""
+    (tmp_path / "tai-distribution" / "docker").mkdir(parents=True)
+    (tmp_path / "tai-distribution" / "docker" / "pypi-requirements.txt").write_text(
+        "tai42-skeleton[toolbox,files]==0.3.1\ntai42-backend-arq==0.3.1\n"
+    )
+    docs = [("self-hosted/index.mdx", _roster_doc("`tai42-skeleton` and `tai42-backend-arq`"))]
+    problems, _ = check_docs_refs.check_core_roster(docs, workspace_root=tmp_path)
+    assert problems == [], problems
+    print("  matching roster: no problems")
+
+
+def test_roster_missing_and_extra_flagged(tmp_path: Path) -> None:
+    """A roster that drops a bundled package and adds a non-bundled one flags both."""
+    (tmp_path / "tai-distribution" / "docker").mkdir(parents=True)
+    (tmp_path / "tai-distribution" / "docker" / "pypi-requirements.txt").write_text(
+        "tai42-skeleton==0.3.1\ntai42-backend-arq==0.3.1\n"
+    )
+    docs = [("self-hosted/index.mdx", _roster_doc("`tai42-skeleton` and `tai42-channel-slack`"))]
+    problems, _ = check_docs_refs.check_core_roster(docs, workspace_root=tmp_path)
+    assert len(problems) == 2, problems
+    assert any("tai42-backend-arq" in p and "missing" in p for p in problems), problems
+    assert any("tai42-channel-slack" in p and "does NOT bundle" in p for p in problems), problems
+    print("  roster drift: missing and extra packages both flagged")
+
+
+def test_absent_roster_block_fails(tmp_path: Path) -> None:
+    """A present requirements file with no roster block in the docs is drift."""
+    (tmp_path / "tai-distribution" / "docker").mkdir(parents=True)
+    (tmp_path / "tai-distribution" / "docker" / "pypi-requirements.txt").write_text("tai42-skeleton==0.3.1\n")
+    docs = [("self-hosted/index.mdx", "no markers here\n")]
+    problems, _ = check_docs_refs.check_core_roster(docs, workspace_root=tmp_path)
+    assert len(problems) == 1, problems
+    assert "no core-roster block" in problems[0], problems[0]
+    print("  absent roster block: flagged")
+
+
+def test_absent_requirements_notes_not_fails() -> None:
+    """Offline (no tai-distribution checkout) the roster check notes, never fails."""
+    docs = [("self-hosted/index.mdx", _roster_doc("`tai42-skeleton`"))]
+    problems, notes = check_docs_refs.check_core_roster(docs, workspace_root=Path("/nonexistent"))
+    assert problems == [], problems
+    assert len(notes) == 1, notes
+    assert "not present offline" in notes[0], notes
+    print("  absent requirements: offline note, no failure")
+
+
 # --- whole tree ------------------------------------------------------------
 
 
@@ -187,6 +251,7 @@ def main() -> int:
     test_matching_always_public_passes()
     test_double_quoted_always_public_verified()
     test_compose_regex_extracts_default()
+    test_requirement_names_strips_extras_and_pins()
     test_current_tree_passes()
     print("test_check_docs_refs: OK")
     return 0

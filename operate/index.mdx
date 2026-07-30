@@ -50,10 +50,11 @@ it to complete before they start. The DDL is additive and `IF NOT EXISTS`, so
 re-running it is safe.
 
 <Note>
-The distribution's first release is in preparation, so the published
-`docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is not on the
-registries yet. Build it locally from the repo with the source build below until
-it is.
+The official `docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is
+what the Compose bundle and the chart run — signed, scanned, and multi-arch. Pin
+a release tag in production and verify its signature; the source build below is a
+dev-only alternative. See [Self-hosted](/self-hosted) for the image, upgrades,
+and artifact verification.
 </Note>
 
 ### Boot the Compose bundle
@@ -127,7 +128,8 @@ ways.
 **Runtime, through the marketplace.** A running server installs, updates, and
 uninstalls plugins against itself — it `pip install`s the package into its own
 environment, patches the [manifest](/concepts/manifest), and reloads, so the
-plugin is live with no restart. See [Install a plugin](/marketplace/install). For
+plugin is live with no restart (router/middleware and channel inbound routes
+activate on restart). See [Install a plugin](/marketplace/install). For
 those installs to survive a container recreation, the server's plugin-prefix
 setting must point at a mounted, persistent directory — see [Persist runtime
 installs](#persist-runtime-installs).
@@ -247,11 +249,14 @@ manifest, so unless the prefix is shared they try to import a package they do no
 have. `serve` and `backend` are separate Deployments — two pods even at one
 replica each — so `ReadWriteOnce` suffices only when a single node holds every
 mounting pod (disable `backend`, or co-schedule the two onto one node); otherwise
-the shared `ReadWriteMany` mount is required. A restarted or freshly scaled pod
-picks the shared prefix up at boot; live pickup by ALREADY-RUNNING peer pods —
-one pod installs, the others see it with no restart — is future work. Fleets
-that want fully static rosters can bake them into a
-[derived image](#add-plugins) instead.
+the shared `ReadWriteMany` mount is required. Every marketplace install/upgrade
+ends in a fleet reload broadcast on the worker bus, so already-running peer pods
+re-import the changed plugin in place — one pod installs, the others pick it up
+live with no restart. **Router** and **middleware** plugins are the exception:
+their handlers and middleware stack are frozen into the ASGI app when the process
+builds, so a router or middleware plugin — net-new or an upgrade — activates only
+after a pod restart (`kubectl rollout restart`). Fleets that want fully static
+rosters can bake them into a [derived image](#add-plugins) instead.
 </Note>
 
 ## TLS and the front door

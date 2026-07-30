@@ -1,0 +1,124 @@
+---
+title: "Quickstart"
+description: "Deploy the Compose bundle against the official image."
+icon: "docker"
+---
+
+Bring up the whole stack — serve, the backend worker, metrics, Postgres, and
+Redis — with the Compose bundle from
+[`tai-distribution`](https://github.com/tai42ai/tai-distribution), running the
+official image.
+
+## Boot the bundle
+
+<Steps>
+  <Step title="Get the bundle">
+    ```bash
+    git clone https://github.com/tai42ai/tai-distribution
+    cd tai-distribution/compose
+    ```
+  </Step>
+  <Step title="Pin the image and set the secrets">
+    ```bash
+    cp .env.example .env
+    ```
+
+    Set `POSTGRES_PASSWORD` (it has no default — Compose refuses to start until
+    it is set), and pin the image to a release rather than running `latest`:
+
+    ```bash TAI_VERSION in .env
+    TAI_VERSION=0.3.0   # pin to the release you are deploying
+    ```
+  </Step>
+  <Step title="Create the config directory">
+    ```bash
+    mkdir -p config
+    cp manifest.example.yml config/manifest.yml
+    touch config/.env
+    ```
+
+    `config/` bind-mounts at `/app`, so `config/manifest.yml` is the
+    [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
+    app-side environment. Create `config/.env` even when it is empty — the
+    config-reload path treats a missing file as an error.
+  </Step>
+  <Step title="Start it">
+    ```bash
+    docker compose up -d
+    ```
+
+    A one-shot `db-init` runs `tai db apply` first; serve and backend wait for it
+    before they start. Only serve publishes a port
+    (`${TAI_SERVE_PORT:-8000}`) — Postgres and Redis stay on the Compose network.
+  </Step>
+</Steps>
+
+<Warning>
+`.env.example` ships `ACCESS_CONTROL_ENABLE=false` — the auth-free quickstart
+shape, every route open. Turn it on before anything but a laptop, and register an
+identity provider in the same change: with access control on and no provider, the
+runtime refuses to boot. See [Turn on access control](/operate#turn-on-access-control).
+</Warning>
+
+## The persistent mounts
+
+Two directories a real deployment must keep across a container recreation, each
+located by an env var the server reads:
+
+| Mount | Env var | Holds |
+| --- | --- | --- |
+| Config directory | `TAI_MANIFEST_PATH` (in `TAI_CONFIG_DIR_PATH`) | the manifest — the **registration** of every runtime-installed plugin |
+| Plugin prefix | `TAI_PLUGINS_PREFIX` | the installed plugin **code** |
+
+The bundle bind-mounts `config/` for the first. Give the plugin prefix its own
+persistent volume the same way, or a [marketplace](/concepts/marketplace) install
+lands in the image's ephemeral venv and is lost when the container is replaced.
+Persist both, or a recreated container boots with the code and its registration
+out of sync. The bundled Postgres and Redis keep their own named data volumes.
+
+See [Persist runtime installs](/operate#persist-runtime-installs) for the full
+picture.
+
+## Profiles
+
+The core stack is arq-on-Redis with local storage. Three opt-in profiles add
+infrastructure for plugins that are **not** in the minimal image — add the plugin
+(a derived image or a marketplace install) before enabling its profile:
+
+| Profile | Adds | For |
+| --- | --- | --- |
+| `celery` | a RabbitMQ broker | the celery task backend (`tai42-backend-celery`) |
+| `minio` | MinIO + a bucket-init one-shot | the S3 storage provider (`tai42-storage-s3`) |
+| `agents-redis` | a module-capable Redis | the langgraph Redis checkpoint/store leg |
+
+```bash
+docker compose --profile minio up -d
+```
+
+Langfuse tracing runs as its own stack from `compose/langfuse/` and likewise
+needs the `tai42-monitoring-langfuse` plugin added — see
+[Monitoring with Langfuse](/operate/monitoring-langfuse).
+
+## Build the image from source (dev only)
+
+For running the stack against uncommitted local changes,
+`compose/docker-compose.local.yml` layers a `SOURCE=local` build onto every app
+service, building from sibling checkouts instead of pulling the release:
+
+```bash
+# with every tai-* repo cloned beside tai-distribution
+TAI_VERSION=local docker compose \
+  -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+<Warning>
+The source build's `siblings` context is the parent of the checkouts, which can
+hold untracked secrets. Run it on a **local builder only** — never CI, never a
+shared registry. Production runs the official image.
+</Warning>
+
+## See also
+
+- [Deploy](/operate/deploy) — transports, workers, and the serving modes.
+- [Operate](/operate) — access control, plugin setup, and the fleet view.
+- [Upgrades](/self-hosted/upgrades) — moving to a new image tag.
