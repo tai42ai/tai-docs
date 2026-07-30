@@ -17,10 +17,10 @@ A preset body is small — a base tool and the fields to bake:
 
 ## Create a preset
 
-Name the base tool and the fixed kwargs to bake. The baked keys are removed from the exposed schema; the remaining arguments keep the base tool's real typed schema. Create writes the durable store row and then registers the live tool.
+Name the base tool, a `--description` (the preset tool's LLM-facing docstring — required and non-empty on every create path), and the fixed kwargs to bake. The baked keys are removed from the exposed schema; the remaining arguments keep the base tool's real typed schema. Create writes the durable store row and then registers the live tool.
 
 ```bash
-tai presets create greet --base-tool echo --kwargs '{"prefix":"hi"}'
+tai presets create greet --base-tool echo --description 'Greet a user' --kwargs '{"prefix":"hi"}'
 ```
 
 List presets and read one back:
@@ -33,15 +33,15 @@ tai presets get greet
 To check a draft before committing it — the same pre-write validation the create route runs, but without writing — dry-run it with `validate`:
 
 ```bash
-tai presets validate greet --base-tool echo --kwargs '{"prefix":"hi"}'
+tai presets validate greet --base-tool echo --description 'Greet a user' --kwargs '{"prefix":"hi"}'
 ```
 
 ## Save a new version
 
-Save a new version when the configuration changes. Omitted fields carry forward from the active version; `--clear-tags` and `--extensions '[]'` send the explicit clear sentinel.
+Save a new version when the configuration changes. Omitted fields carry forward from the active version; `--extensions '[]'` sends the explicit clear sentinel. `description` is editable per version — pass `--description` to set new text, or omit it to carry the active one forward (it can never go empty); a rollback restores the older version's description along with the rest of its body.
 
 ```bash
-tai presets save-version greet --kwargs '{"prefix":"hey"}'
+tai presets save-version greet --kwargs '{"prefix":"hey"}' --description 'Greet a user warmly'
 ```
 
 Inspect the history and one version:
@@ -61,11 +61,13 @@ tai presets rollback greet 1
 
 ## Tag a version
 
-Label an immutable version body without rebinding the tool. Passing no tags clears them to `[]`.
+`set-version-tags` labels an immutable version body — a per-version marker like `stable` or `reviewed` — without rebinding the tool. Passing no tags clears them to `[]`.
 
 ```bash
 tai presets set-version-tags greet 2 stable reviewed
 ```
+
+These per-version tags are the only tags a preset record carries. A preset has no record-level tags, folder, or display name of its own; that organizational metadata — a display label, a folder, user tags, and visibility — lives in the [tool-organization overlay](/concepts/tool-organization), keyed by the preset's tool name and managed with `tai tool-meta`, exactly as it is for any other tool.
 
 ## Rename a preset
 

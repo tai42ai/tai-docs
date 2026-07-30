@@ -32,6 +32,28 @@ The four methods are:
 
 The context is **sealed** once `register` settles: a registration made afterward (from a deferred timer or a post-resolve microtask) throws instead of silently dropping, and a `register` that throws commits nothing. The host stamps each contribution with the plugin's identity, so a plugin never supplies its own id and two plugins may register the same `path` without colliding.
 
+## Deep-linkable pages
+
+A contributed page is mounted at `/plugins/{pluginId}/{path}`. By default it matches that path exactly and receives only its `pluginId`. To make a page **deep-linkable** — bookmarkable, shareable, back-button-correct — declare a `params` schema (a `PluginPageParamsSchema`) on the `PageContribution`:
+
+```ts
+context.registerPage({
+  path: 'flows',
+  title: 'Flows',
+  component: FlowsPage,
+  params: {
+    parseParams: (remainder) => parseFlowsParams(remainder),
+    parseSearch: (raw) => parseFlowsSearch(raw),
+  },
+});
+```
+
+When a page declares a schema it becomes addressable under its `path` **as a prefix**. The shell resolves a URL to a page by **longest registered prefix**, then hands the sub-path remainder after that prefix to `parseParams` and the raw search object to `parseSearch`. Each parser **validates and shapes** its input and **raises** on anything it rejects — the shell renders that throw as a loud error card, never a blank or partial view. The validated results arrive on the page as the optional `params` and `search` props of `PluginPageProps`.
+
+Both parsers are optional and independent. Omit the whole schema and the page keeps its exact-path-only behavior and receives neither prop; omit just `parseParams` and the page still matches only its exact `path`; omit just `parseSearch` and `search` is not forwarded. Because every part is additive, deep-linkable pages are a non-breaking addition — the plugin API version does not move.
+
+Navigate between a plugin's own pages with the `usePluginNavigation` hook, whose `navigatePlugin` drives a client-side transition and `resolvePluginPath` yields the href. These target a **runtime plugin path** — `/plugins/{pluginId}/{pagePath}` plus an optional validated sub-path and search — **not** a shell route token: the compile-time `routes.ts` never learns plugin paths, and the token-typed shell navigation (`useAppNavigate`) knows nothing of them. This is how a page derives its whole view state from the URL: it reads `params`/`search` to render, and calls `navigatePlugin` to move, so the browser's history, bookmarks, and back button all work.
+
 ## Nav entries
 
 `registerNavEntry` adds a sidebar link, and its `path` must match a page the same plugin also registers — a nav entry with no backing page is a dead link and is **rejected loudly**. The optional `icon` is a component rendering a square inline SVG that fills its box and draws with `currentColor`; the host constrains it to a fixed 1em box, `aria-hidden` (the title is the accessible name). The icon's bytes live inside the bundle, so there is no external fetch and no CSP change. Omit it for a text-only entry, exactly like the core nav.
@@ -73,7 +95,8 @@ Stylesheet injection is a **host capability**. A plugin shipping a `.css` asset 
 
 ## See also
 
-- [Plugin API reference](/reference/studio-sdk/plugin-api) — the `PluginContext`, contribution types, and the version gate, generated from the SDK.
+- [Plugin API reference](/reference/studio-sdk/plugin-api) — the `PluginContext`, contribution types, the `PluginPageParamsSchema`, and the version gate, generated from the SDK.
+- [Navigation reference](/reference/studio-sdk/navigation) — `usePluginNavigation`, `navigatePlugin`, and `resolvePluginPath`.
 - [The manifest](/concepts/manifest) — the `studio_plugins` field that turns a plugin on.
 - [The screens](/studio/screens) — the shell surfaces a plugin's pages and nav entries join.
 - [Studio SDK reference](/reference/studio-sdk/index) — the hooks and shared components a plugin builds from.
