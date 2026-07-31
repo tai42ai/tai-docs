@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 DOCS_ROOT = Path(__file__).resolve().parent.parent
-SKELETON_DIR = DOCS_ROOT.parent / "tai-skeleton"
+SKELETON_DIR = DOCS_ROOT.parent / "tai42" / "core" / "skeleton"
 INTROSPECT = Path(__file__).resolve().parent / "_cli_introspect.py"
 OUTPUT_DIR = DOCS_ROOT / "reference" / "cli"
 DOCS_JSON = DOCS_ROOT / "docs.json"

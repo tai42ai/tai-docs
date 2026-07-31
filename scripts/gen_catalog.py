@@ -7,15 +7,16 @@ reads it offline with ZERO plugin imports and renders the catalog page under
 ``reference/catalog/``.
 
 Each entry carries ``{name, kind, group, package, module, description}`` and NO
-``repo`` field. The repo column is derived at render time by joining each
-entry's ``package`` against the ``packages`` mapping in the SAME file, so the
-repo lives in one place and is never duplicated per entry. A ``package`` absent
-from that mapping is a LOUD error — the script exits non-zero and writes
-nothing, never a blank repo cell.
+``source`` field. The source column is derived at render time by joining each
+entry's ``package`` against the ``packages`` mapping in the SAME file (each value
+is the package's ``tai42`` monorepo member path) and linking it into the monorepo
+tree, so the location lives in one place and is never duplicated per entry. A
+``package`` absent from that mapping is a LOUD error — the script exits non-zero
+and writes nothing, never a blank source cell.
 
 Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/gen_catalog.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/gen_catalog.py
 """
 
 from __future__ import annotations
@@ -36,6 +37,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent
 OUT_DIR = DOCS_ROOT / "reference" / "catalog"
 DOCS_JSON = DOCS_ROOT / "docs.json"
+
+# Every mapping value is a member path (core/<name> or plugins/<name>) in the
+# tai42 monorepo; the source column links it into the repository tree at `main`.
+MONOREPO_TREE_URL = "https://github.com/tai42ai/tai42/tree/main"
 
 # Human-facing ordering + labels for the kind sections. Any kind seen in the
 # data that is not listed here is still rendered (appended under its raw name),
@@ -119,7 +124,7 @@ def render(doc: dict) -> str:
         print("gen_catalog: ecosystem.yml has no packages mapping", file=sys.stderr)
         raise SystemExit(1)
 
-    # Validate + join every row against the package->repo mapping BEFORE
+    # Validate + join every row against the package->member-path mapping BEFORE
     # rendering, so a single unmapped package fails the whole run loudly.
     normalized: list[dict] = []
     for i, entry in enumerate(entries):
@@ -134,12 +139,12 @@ def render(doc: dict) -> str:
         if pkg not in packages:
             print(
                 f"gen_catalog: package '{pkg}' (entry '{entry['name']}') is not "
-                f"in the packages mapping — cannot resolve its repo",
+                f"in the packages mapping — cannot resolve its source location",
                 file=sys.stderr,
             )
             raise SystemExit(1)
         row = dict(entry)
-        row["repo"] = packages[pkg]
+        row["source"] = packages[pkg]
         normalized.append(row)
 
     # Group rows by kind in the pinned order; append any unknown kinds last.
@@ -160,8 +165,8 @@ def render(doc: dict) -> str:
         "",
         f"The catalog lists every registration shipped across the ecosystem — "
         f"{len(normalized)} entries across {len(ordered_kinds)} kinds. Each row's "
-        "repository is the package's home; follow it for that implementation's "
-        "own documentation.",
+        "source column links to the package's directory in the tai42 monorepo; "
+        "follow it for that implementation's own documentation.",
         "",
     ]
 
@@ -183,15 +188,16 @@ def render(doc: dict) -> str:
         heading = labels.get(kind, kind)
         lines.append(f"## {heading}")
         lines.append("")
-        lines.append("| Name | Group | Package | Repo | Description |")
+        lines.append("| Name | Group | Package | Source | Description |")
         lines.append("|---|---|---|---|---|")
         for row in sorted(rows, key=lambda r: (r["group"], r["name"])):
+            source = row["source"]
             lines.append(
-                "| `{name}` | {group} | `{package}` | {repo} | {desc} |".format(
+                "| `{name}` | {group} | `{package}` | {source} | {desc} |".format(
                     name=mdx_cell(row["name"]),
                     group=mdx_cell(row["group"]),
                     package=mdx_cell(row["package"]),
-                    repo=mdx_cell(row["repo"]),
+                    source=f"[{mdx_cell(source)}]({MONOREPO_TREE_URL}/{source})",
                     desc=mdx_cell(row["description"]),
                 )
             )
@@ -229,7 +235,7 @@ def main() -> int:
     update_nav()
 
     entries = doc["entries"]
-    print(f"gen_catalog: wrote {OUT_DIR / 'index.mdx'} ({len(entries)} entries, all packages resolved to a repo)")
+    print(f"gen_catalog: wrote {OUT_DIR / 'index.mdx'} ({len(entries)} entries, all packages resolved to a source)")
     return 0
 
 

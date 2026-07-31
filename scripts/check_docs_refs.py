@@ -22,8 +22,8 @@ Four checks, all OFFLINE (no network); the three that depend on the
 
 2. Repo URLs -- every referenced repository resolves. Two shapes coexist: the
    ``tai42`` monorepo (``github.com/tai42ai/tai42``, optionally addressing a
-   member directory via ``/tree/<ref>/<member-path>``), and a surviving
-   standalone repo (``github.com/tai42ai/tai-<repo>``). The monorepo root always
+   member directory via ``/tree/<ref>/<member-path>``), and a standalone
+   repo (``github.com/tai42ai/tai-<repo>``). The monorepo root always
    resolves; a member path is checked against the monorepo checkout when present
    (absent offline -> loud note, present -> hard check that the member directory
    exists). A standalone repo resolves if it is a package repo (the values side
@@ -58,7 +58,7 @@ Run it where ``tai42_skeleton`` resolves (this project's dev env or the
 tai42-skeleton virtualenv)::
 
     uv run python scripts/check_docs_refs.py
-    cd tai-skeleton && uv run python ../tai-docs/scripts/check_docs_refs.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/check_docs_refs.py
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ MONOREPO = "tai42"
 # trailing markdown/anchor delimiter never leaks into it.
 _MONOREPO_RE = re.compile(r"github\.com/tai42ai/tai42(?:/tree/[^/\s)]+/([^\s)#]+))?")
 
-# A surviving standalone `github.com/tai42ai/tai-<repo>` reference (https,
+# A standalone `github.com/tai42ai/tai-<repo>` reference (https,
 # git+https, or bare). The monorepo's own name (`tai42`) has no `tai-` prefix, so
 # this pattern never matches it -- monorepo references go through `_MONOREPO_RE`.
 _REPO_RE = re.compile(r"github\.com/tai42ai/(tai-[a-z0-9]+(?:-[a-z0-9]+)*)")
@@ -193,11 +193,11 @@ def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str])
     return problems
 
 
-# The surviving standalone non-package repos — real repos that ship no PyPI
+# The standalone non-package repos — real repos that ship no PyPI
 # distribution, so they never appear in the ecosystem dist->repo map. A curated
 # allowlist: offline there is no other way to tell a real infra repo from a typo,
 # so an unknown tai-<repo> must fail rather than pass silently. The package repos
-# now live inside the `tai42` monorepo (validated via `_MONOREPO_RE`), so they are
+# are members of the `tai42` monorepo (validated via `_MONOREPO_RE`), so they are
 # absent here. Keep in sync when a non-package repo is added to the org (adding
 # one is far rarer than a doc typo).
 INFRA_REPOS: frozenset[str] = frozenset(
@@ -214,10 +214,9 @@ INFRA_REPOS: frozenset[str] = frozenset(
 
 def check_repo_urls(
     docs: list[tuple[str, str]],
-    dist_map: dict[str, str],
     workspace_root: Path = WORKSPACE_ROOT,
 ) -> tuple[list[str], list[str]]:
-    valid_repos = set(dist_map.values()) | INFRA_REPOS
+    valid_repos = INFRA_REPOS
     monorepo_root = workspace_root / MONOREPO
     problems: list[str] = []
     notes: list[str] = []
@@ -240,10 +239,11 @@ def check_repo_urls(
                     f"names no member directory in the {MONOREPO} checkout "
                     f"— likely a wrong or renamed member path"
                 )
-        # Surviving standalone repos: a known package repo, a known non-package
-        # repo, or present as a sibling checkout -> real. Anything else fails
-        # closed: offline a typo (github.com/tai42ai/tai-skeltn) is
-        # indistinguishable from a real repo, so reject it rather than note-and-pass.
+        # Surviving standalone repos: a known non-package repo, or present as a
+        # sibling checkout -> real. Anything else fails closed: offline a typo
+        # (github.com/tai42ai/tai-skeltn) is indistinguishable from a real repo,
+        # so reject it rather than note-and-pass. Package repos are monorepo
+        # members, resolved above via `_MONOREPO_RE`, never here.
         for lineno, repo in _iter_matches(text, _REPO_RE, group=1):
             if repo in valid_repos or (workspace_root / repo).is_dir():
                 continue
@@ -406,7 +406,7 @@ def evaluate(
 
     problems += check_distribution_names(docs, set(dist_map))
 
-    p, n = check_repo_urls(docs, dist_map, workspace_root)
+    p, n = check_repo_urls(docs, workspace_root)
     problems += p
     notes += n
 

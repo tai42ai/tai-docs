@@ -8,7 +8,7 @@ resolve the source packages the generator imports::
 
 Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/test_generate_settings_reference.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_generate_settings_reference.py
 
 Four guarantees are asserted:
 

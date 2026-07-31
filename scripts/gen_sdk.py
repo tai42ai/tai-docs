@@ -10,7 +10,7 @@ truth; every rendered symbol traces to a real object in the source.
 Run it from a context where the three source packages resolve — the
 tai42-skeleton virtualenv does::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/gen_sdk.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/gen_sdk.py
 
 Fail-loud contract: the script renders every page into memory and validates the
 required-symbol checklist BEFORE touching the output directory. If a source
@@ -42,9 +42,9 @@ DOCS_ROOT = SCRIPT_DIR.parent
 WORKSPACE_ROOT = DOCS_ROOT.parent
 
 SRC_PATHS = [
-    WORKSPACE_ROOT / "tai-contract" / "src",
-    WORKSPACE_ROOT / "tai-kit" / "src",
-    WORKSPACE_ROOT / "tai-skeleton" / "src",
+    WORKSPACE_ROOT / "tai42" / "core" / "contract" / "src",
+    WORKSPACE_ROOT / "tai42" / "core" / "kit" / "src",
+    WORKSPACE_ROOT / "tai42" / "core" / "skeleton" / "src",
 ]
 
 OUT_DIR = DOCS_ROOT / "reference" / "python-sdk"
@@ -58,77 +58,77 @@ DOCS_JSON = DOCS_ROOT / "docs.json"
 
 PAGES: list[dict] = [
     {
-        "slug": "tai-contract-app",
+        "slug": "contract-app",
         "title": "App facade (tai42_contract.app)",
         "description": "The assembled TaiApp facade and its per-feature namespaces.",
         "icon": "layer-group",
         "modules": ["tai42_contract.app", "tai42_contract.app.facets"],
     },
     {
-        "slug": "tai-contract-agent",
+        "slug": "contract-agent",
         "title": "Agents (tai42_contract.agent)",
         "description": "The Agent base class plugin authors subclass.",
         "icon": "robot",
         "modules": ["tai42_contract.agent"],
     },
     {
-        "slug": "tai-contract-versioning",
+        "slug": "contract-versioning",
         "title": "Versioning (tai42_contract.versioning)",
         "description": "The VersionedStore primitive behind presets and policies.",
         "icon": "code-branch",
         "modules": ["tai42_contract.versioning"],
     },
     {
-        "slug": "tai-contract-presets",
+        "slug": "contract-presets",
         "title": "Presets (tai42_contract.presets)",
         "description": "The PresetStore protocol and preset document models.",
         "icon": "sliders",
         "modules": ["tai42_contract.presets"],
     },
     {
-        "slug": "tai-contract-connectors",
+        "slug": "contract-connectors",
         "title": "Connectors (tai42_contract.connectors)",
         "description": "The ProviderDescriptor a connector plugin declares.",
         "icon": "plug",
         "modules": ["tai42_contract.connectors.providers"],
     },
     {
-        "slug": "tai-contract-extensions",
+        "slug": "contract-extensions",
         "title": "Extensions (tai42_contract.extensions)",
         "description": "The ExtensionKind taxonomy and extension base surface.",
         "icon": "puzzle-piece",
         "modules": ["tai42_contract.extensions"],
     },
     {
-        "slug": "tai-contract-monitoring",
+        "slug": "contract-monitoring",
         "title": "Monitoring (tai42_contract.monitoring)",
         "description": "The MonitoringReader and MonitoringWriter protocols.",
         "icon": "chart-line",
         "modules": ["tai42_contract.monitoring.reader", "tai42_contract.monitoring.writer"],
     },
     {
-        "slug": "tai-contract-storage",
+        "slug": "contract-storage",
         "title": "Storage (tai42_contract.storage)",
         "description": "The Storage protocol a storage provider implements.",
         "icon": "database",
         "modules": ["tai42_contract.storage"],
     },
     {
-        "slug": "tai-contract-backend",
+        "slug": "contract-backend",
         "title": "Backends (tai42_contract.backend)",
         "description": "The Backend protocol a compute backend implements.",
         "icon": "server",
         "modules": ["tai42_contract.backend"],
     },
     {
-        "slug": "tai-contract-channels",
+        "slug": "contract-channels",
         "title": "Channels (tai42_contract.channels)",
         "description": "The Channel protocol a delivery channel plugin implements.",
         "icon": "paper-plane",
         "modules": ["tai42_contract.channels"],
     },
     {
-        "slug": "tai-contract-accounts",
+        "slug": "contract-accounts",
         "title": "Accounts (tai42_contract.accounts)",
         "description": "The AccountsProvider contract, its registry, and the login-method metadata models.",
         "icon": "user-lock",
@@ -139,77 +139,77 @@ PAGES: list[dict] = [
         ],
     },
     {
-        "slug": "tai-contract-tools",
+        "slug": "contract-tools",
         "title": "Tools (tai42_contract.tools)",
         "description": "Tool registration types and the app tools namespace.",
         "icon": "wrench",
         "modules": ["tai42_contract.tools"],
     },
     {
-        "slug": "tai-contract-manifest",
+        "slug": "contract-manifest",
         "title": "Manifest (tai42_contract.manifest)",
         "description": "The manifest model a server loads at startup.",
         "icon": "file-lines",
         "modules": ["tai42_contract.manifest"],
     },
     {
-        "slug": "tai-contract-plugins",
+        "slug": "contract-plugins",
         "title": "Plugins (tai42_contract.plugins)",
         "description": "The PluginSpec model behind tai-plugin.yml.",
         "icon": "store",
         "modules": ["tai42_contract.plugins"],
     },
     {
-        "slug": "tai-kit-clients",
+        "slug": "kit-clients",
         "title": "Pooled clients (tai42_kit.clients)",
         "description": "Pooled Postgres/Redis clients and connection settings.",
         "icon": "network-wired",
         "modules": ["tai42_kit.clients"],
     },
     {
-        "slug": "tai-kit-llm",
+        "slug": "kit-llm",
         "title": "LLM factories (tai42_kit.llm)",
         "description": "LLM, embedding, checkpoint, and store factories.",
         "icon": "brain",
         "modules": ["tai42_kit.llm"],
     },
     {
-        "slug": "tai-kit-settings",
+        "slug": "kit-settings",
         "title": "Settings (tai42_kit.settings)",
         "description": "The base settings class and the settings registry.",
         "icon": "gear",
         "modules": ["tai42_kit.settings"],
     },
     {
-        "slug": "tai-kit-transport",
+        "slug": "kit-transport",
         "title": "Transports (tai42_kit.transport)",
         "description": "UDS transports and the MCP transport factory.",
         "icon": "route",
         "modules": ["tai42_kit.transport"],
     },
     {
-        "slug": "tai-kit-net",
+        "slug": "kit-net",
         "title": "Network guard (tai42_kit.net)",
         "description": "The URL guard and safe fetch helpers.",
         "icon": "shield-halved",
         "modules": ["tai42_kit.net"],
     },
     {
-        "slug": "tai-kit-logging",
+        "slug": "kit-logging",
         "title": "Logging (tai42_kit.logging)",
         "description": "Structured logging settings and setup.",
         "icon": "file-lines",
         "modules": ["tai42_kit.logging"],
     },
     {
-        "slug": "tai-skeleton-app",
+        "slug": "skeleton-app",
         "title": "Skeleton app (tai42_skeleton.app)",
         "description": "The concrete TaiMCP app, including the raw fastmcp escape hatch.",
         "icon": "microchip",
         "modules": ["tai42_skeleton.app.server"],
     },
     {
-        "slug": "tai-skeleton-asgi",
+        "slug": "skeleton-asgi",
         "title": "ASGI factory (tai42_skeleton.asgi)",
         "description": "The public create_app factory for embedding the server in a user-owned ASGI process.",
         "icon": "server",

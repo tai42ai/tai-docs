@@ -33,8 +33,8 @@ regression (an unasserted example) and fails loudly.
 
 Usage::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/run_examples.py
-    cd tai-skeleton && uv run python ../tai-docs/scripts/run_examples.py --list
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/run_examples.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/run_examples.py --list
 """
 
 from __future__ import annotations

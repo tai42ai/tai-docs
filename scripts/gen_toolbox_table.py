@@ -11,7 +11,7 @@ gate and is never hand-maintained.
 
 Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/gen_toolbox_table.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/gen_toolbox_table.py
 
 Fail-loud contract: if the packaged catalog cannot be read, has no matching
 toolbox entries, or the guide is missing its markers, this exits non-zero and

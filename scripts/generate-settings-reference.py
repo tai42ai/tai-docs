@@ -24,7 +24,7 @@ writing a page.
 
 Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/generate-settings-reference.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/generate-settings-reference.py
 """
 
 from __future__ import annotations

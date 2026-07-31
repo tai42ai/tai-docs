@@ -4,9 +4,8 @@
 [tai42.ai](https://tai42.ai). Pages are MDX in this repo and the navigation lives
 in `docs.json`. The site is deployed from committed files on `main`, so a merged
 change is a published change — this repo ships no released version of its own.
-The shared contribution discipline for the whole ecosystem — including where each
-repository's own guide lives — is documented on the site itself, which is the
-single source of truth:
+The shared contribution discipline for the whole ecosystem is documented on the
+site itself, which is the single source of truth:
 
 **https://tai42.ai/contributing**
 
@@ -51,8 +50,7 @@ Narrative content:
 Generated reference:
 
 - `reference/cli`, `reference/python-sdk`, `reference/studio-sdk`,
-  `reference/catalog`, `reference/settings.mdx` — generated from the source
-  repositories
+  `reference/catalog`, `reference/settings.mdx` — generated from source
 - `reference/api` — the HTTP API section, rendered from the generated
   `openapi.json`
 - `snippets/examples` — generated MDX wrappers of the `examples` tree, imported
@@ -63,28 +61,27 @@ Tooling and assets:
 - `examples` — the single source of every worked example
 - `scripts` — the reference generators, the freshness/integrity checks, and
   their own pytest suite
-- `ci` — `source-repo-docs-hook.yml`, the workflow template each source repo
-  copies in to trigger a reference rebuild
+- `ci` — `source-repo-docs-hook.yml`, the workflow template the tai42 monorepo
+  and tai-studio copy in to trigger a reference rebuild
 - `docs.json` — the Mintlify configuration: navigation, theme, and redirects
 - `images`, `logo` — static assets
 
 ## Naming
 
 PyPI is a flat namespace with no owner in the path, so distributions carry the
-`tai42-` prefix. GitHub repositories keep their `tai-` names, because the
-`tai42ai` organisation already namespaces them. Import packages follow the
-distribution.
+`tai42-` prefix. Import packages follow the distribution. Each package lives as a
+member directory of the `tai42` monorepo.
 
 | Surface | Form |
 | --- | --- |
 | Distribution — PyPI, `pip install`, dependency pins | `tai42-<name>` |
 | Import package | `tai42_<name>` |
-| GitHub repository | `tai-<name>` |
+| Monorepo member | `core/<name>` or `plugins/<name>` |
 
-So a dependency is declared as `tai42-<name>` while its repository is named
-`tai-<name>`, and both spellings are correct in their own context.
+So a dependency is declared as `tai42-<name>` while it resolves in-tree from its
+`core/<name>` or `plugins/<name>` member.
 
-Some surfaces are deliberately neither, and must not be renamed: the `tai` CLI
+Some surfaces are deliberately different, and must not be renamed: the `tai` CLI
 command (`tai42` is an alias), the Prometheus metric namespace (`tai_tool_*`),
 `TAI_*` environment variables, and the `tai-plugin.yml` descriptor filename.
 
@@ -108,7 +105,7 @@ uv run --no-sync ruff format --check .
 uv run --no-sync pytest
 ```
 
-`make dev` installs the sibling `tai-contract`, `tai-kit`, `tai-skeleton`, and `tai-identity-redis` repos as editable installs for local cross-repo development.
+`make dev` installs the `tai42` monorepo members `core/contract`, `core/kit`, `core/skeleton`, and `plugins/identity-redis` as editable installs for local cross-repo development.
 
 Before any commit, run a secret scan over `scripts/` and `examples/` (e.g.
 `detect-secrets scan`).

@@ -45,24 +45,21 @@ jobs:
           path: tai-docs
 
       - name: Check out source repositories
-        # docs-screenshots.sh resolves these as flat siblings of the tai-studio
-        # checkout (../tai-skeleton, ../tai-docs, ../tai-agents, ...). tai-skeleton's
-        # `[tool.uv.sources]` links tai-contract/tai-kit/tai-toolbox/tai-identity-redis
-        # editable, so `uv sync` needs them on disk; boot.sh additionally installs the
-        # agents/storage-local/toolbox/monitoring/accounts-postgres/webhook-verifier
-        # plugins into the skeleton venv. Some are private, so authenticate via a git
-        # url.insteadOf rewrite with TAI_CI_TOKEN.
+        # docs-screenshots.sh resolves the monorepo and tai-studio as siblings of the
+        # tai-docs checkout (../tai42, ../tai-studio). The monorepo carries the
+        # skeleton (core/skeleton) plus every plugin boot.sh installs into the
+        # workspace venv (plugins/agents, plugins/storage-local, plugins/toolbox,
+        # plugins/accounts-postgres, plugins/webhook-verifier-github); its
+        # `[tool.uv.sources]` floats the workspace members editable, so `uv sync`
+        # needs the tree on disk. The monorepo may be private, so authenticate via a
+        # git url.insteadOf rewrite with TAI_CI_TOKEN.
         env:
           TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
         run: |
           git config --global \
             url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
             "https://github.com/"
-          for repo in tai-studio tai-skeleton tai-contract tai-kit \
-                      tai-identity-redis tai-webhook-verifier-github \
-                      tai-webhook-verifier-stripe \
-                      tai-toolbox tai-agents tai-storage-local \
-                      tai-accounts-postgres; do
+          for repo in tai42 tai-studio; do
             git clone --depth 1 --branch "$SOURCE_REF" \
               "https://github.com/tai42ai/${repo}.git" "$repo"
           done
@@ -78,7 +75,7 @@ jobs:
       - run: uv python install 3.13
 
       - name: Sync the skeleton env (the backend the boot recipe runs)
-        working-directory: tai-skeleton
+        working-directory: tai42/core/skeleton
         run: uv sync --locked --python 3.13 --extra dev
 
       - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0

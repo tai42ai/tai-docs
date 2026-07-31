@@ -8,7 +8,7 @@ resolve the packaged ``ecosystem.yml`` natively::
 
 Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/test_check_docs_refs.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_check_docs_refs.py
 
 Guarantees asserted:
 
@@ -81,9 +81,8 @@ def test_slash_prefixed_bogus_distribution_flagged() -> None:
 
 def test_monorepo_url_passes() -> None:
     """The bare monorepo URL is genuinely recognized as the real repo."""
-    dist_map = _dist_map()
     docs = [("fake/x.mdx", "git clone https://github.com/tai42ai/tai42")]
-    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    problems, notes = check_docs_refs.check_repo_urls(docs, workspace_root=Path("/nonexistent"))
     assert problems == [], problems
     assert notes == [], notes
     print("  monorepo root URL: recognized, no problems")
@@ -95,12 +94,12 @@ def test_monorepo_member_path_validated(tmp_path: Path) -> None:
     (tmp_path / "tai42" / "plugins" / "toolbox").mkdir(parents=True)
 
     good = [("fake/x.mdx", "See https://github.com/tai42ai/tai42/tree/main/plugins/toolbox")]
-    problems, notes = check_docs_refs.check_repo_urls(good, {}, workspace_root=tmp_path)
+    problems, notes = check_docs_refs.check_repo_urls(good, workspace_root=tmp_path)
     assert problems == [], problems
     assert notes == [], notes
 
     bad = [("fake/x.mdx", "line one\nSee https://github.com/tai42ai/tai42/tree/main/plugins/toolbx\n")]
-    problems, _ = check_docs_refs.check_repo_urls(bad, {}, workspace_root=tmp_path)
+    problems, _ = check_docs_refs.check_repo_urls(bad, workspace_root=tmp_path)
     assert len(problems) == 1, problems
     assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
     assert "plugins/toolbx" in problems[0]
@@ -111,7 +110,7 @@ def test_monorepo_member_path_offline_notes() -> None:
     """Offline (no monorepo checkout) a member path notes, never fails —
     the checkout-present run verifies it."""
     docs = [("fake/x.mdx", "https://github.com/tai42ai/tai42/tree/main/core/skeleton")]
-    problems, notes = check_docs_refs.check_repo_urls(docs, {}, workspace_root=Path("/nonexistent"))
+    problems, notes = check_docs_refs.check_repo_urls(docs, workspace_root=Path("/nonexistent"))
     assert problems == [], problems
     assert len(notes) == 1, notes
     assert "not present offline" in notes[0], notes
@@ -120,9 +119,8 @@ def test_monorepo_member_path_offline_notes() -> None:
 
 def test_infra_repo_url_passes() -> None:
     """A known non-package repo (tai-distribution) resolves via the infra allowlist."""
-    dist_map = _dist_map()
     docs = [("fake/x.mdx", "See https://github.com/tai42ai/tai-distribution for the compose bundle.")]
-    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    problems, notes = check_docs_refs.check_repo_urls(docs, workspace_root=Path("/nonexistent"))
     assert problems == [], problems
     assert notes == [], notes
     print("  infra repo URL: recognized via allowlist")
@@ -131,9 +129,8 @@ def test_infra_repo_url_passes() -> None:
 def test_bogus_repo_url_fails() -> None:
     """A typo'd/renamed standalone repo URL fails CLOSED with its file:line —
     neither a package repo, a known non-package repo, nor a present sibling."""
-    dist_map = _dist_map()
     docs = [("fake/x.mdx", "line one\ngit clone https://github.com/tai42ai/tai-skeltn\n")]
-    problems, _ = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    problems, _ = check_docs_refs.check_repo_urls(docs, workspace_root=Path("/nonexistent"))
     assert len(problems) == 1, problems
     assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
     assert "tai-skeltn" in problems[0]

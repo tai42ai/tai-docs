@@ -8,7 +8,7 @@ resolve the three source packages natively::
 
 Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/test_gen_sdk.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_gen_sdk.py
 
 Two guarantees are asserted:
 

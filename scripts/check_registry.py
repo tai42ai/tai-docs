@@ -4,8 +4,9 @@
 The catalog page is generated from the STATIC ``ecosystem.yml`` shipped inside
 the ``tai42_skeleton`` package. This check asserts the file's own integrity so the
 "generated from the registries" claim holds offline: every catalog entry names
-a ``package`` that resolves through the file's ``package -> repo`` mapping, and
-every repo in that mapping resolves to an actual sibling repository checkout.
+a ``package`` that resolves through the file's ``package -> member-path`` mapping,
+and every member path in that mapping resolves to an actual directory in the
+``tai42`` monorepo checkout (a sibling of this repository).
 
 This is the offline half of the freshness guarantee. The deeper boot-check --
 pip-install each package from its repo's ``main``, boot an ephemeral in-process
@@ -15,7 +16,7 @@ skeleton, and assert each declared registration actually appears in the live
 
 Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/check_registry.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/check_registry.py
 """
 
 from __future__ import annotations
@@ -32,6 +33,11 @@ import gen_catalog  # noqa: E402
 
 # Every field a catalog entry must carry; the same contract gen_catalog renders.
 _ENTRY_FIELDS = ("name", "kind", "group", "package", "module", "description")
+
+# The monorepo that houses every first-party package, cloned as a sibling of this
+# repository. Each mapping value is a member path (core/<name> or plugins/<name>)
+# resolved beneath this directory.
+MONOREPO = "tai42"
 
 
 def main() -> int:
@@ -58,27 +64,32 @@ def main() -> int:
             continue
         pkg = entry["package"]
         if pkg not in packages:
-            problems.append(f"entry '{entry['name']}' names package '{pkg}', absent from the package -> repo mapping")
-
-    # (b) every repo the mapping points at resolves to a sibling checkout.
-    for pkg, repo in packages.items():
-        if not isinstance(repo, str) or not repo.strip():
-            problems.append(f"package '{pkg}' maps to an empty repo")
-            continue
-        if not (WORKSPACE_ROOT / repo).is_dir():
             problems.append(
-                f"package '{pkg}' maps to repo '{repo}', which is not a sibling checkout of this repository"
+                f"entry '{entry['name']}' names package '{pkg}', absent from the package -> member-path mapping"
+            )
+
+    # (b) every member path the mapping points at resolves to a directory in the
+    # tai42 monorepo checkout (a sibling of this repository).
+    monorepo_root = WORKSPACE_ROOT / MONOREPO
+    for pkg, member in packages.items():
+        if not isinstance(member, str) or not member.strip():
+            problems.append(f"package '{pkg}' maps to an empty member path")
+            continue
+        if not (monorepo_root / member).is_dir():
+            problems.append(
+                f"package '{pkg}' maps to member path '{member}', which is not a directory in the "
+                f"{MONOREPO} monorepo checkout ({monorepo_root})"
             )
 
     if problems:
-        print("check_registry: MISMATCH between ecosystem.yml and the repos:", file=sys.stderr)
+        print("check_registry: MISMATCH between ecosystem.yml and the monorepo:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
 
     print(
         f"check_registry: OK -- {len(entries)} entries, "
-        f"{len(packages)} packages, every package resolves to a repo checkout."
+        f"{len(packages)} packages, every package resolves to a {MONOREPO} member directory."
     )
     print("  (offline mapping-integrity check; the pip-install + in-process boot cross-check runs in hosted CI.)")
     return 0

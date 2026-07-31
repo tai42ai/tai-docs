@@ -34,9 +34,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 # The fakes live in the skeleton's test tree. The docs scripts run from the
-# skeleton virtualenv (cwd = tai42-skeleton), but resolve the skeleton root
+# skeleton member (cwd = tai42/core/skeleton), but resolve the skeleton root
 # explicitly so ``import tests…`` works regardless of the invoking cwd.
-_SKELETON_ROOT = Path(__file__).resolve().parent.parent.parent / "tai-skeleton"
+_SKELETON_ROOT = Path(__file__).resolve().parent.parent.parent / "tai42" / "core" / "skeleton"
 if _SKELETON_ROOT.is_dir() and str(_SKELETON_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKELETON_ROOT))
 

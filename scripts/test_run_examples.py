@@ -9,7 +9,7 @@ the landed contract (the YAML validation path) resolve natively::
 Running the same test inside the tai42-skeleton virtualenv is a supported
 alternative::
 
-    cd tai-skeleton && uv run python -m pytest ../tai-docs/scripts/test_run_examples.py
+    cd tai42/core/skeleton && uv run python -m pytest ../../../tai-docs/scripts/test_run_examples.py
 
 The heavy ``ac_app`` fixture (a live uvicorn server) is exercised end-to-end by
 the docs CI step, not here; these tests drive the harness core against the

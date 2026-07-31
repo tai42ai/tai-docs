@@ -8,14 +8,14 @@ resolve the packaged ``ecosystem.yml`` natively::
 
 Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
-    cd tai-skeleton && uv run python ../tai-docs/scripts/test_gen_catalog.py
+    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_gen_catalog.py
 
 Two guarantees are asserted:
 
 1. Coverage — every entry in the real packaged ecosystem.yml resolves its
-   ``package`` to a repo, and every row lands in the rendered table.
+   ``package`` to a source location, and every row lands in the rendered table.
 2. Fail-loud — an entry whose ``package`` is absent from the mapping makes the
-   generator exit non-zero and write nothing (never a blank repo cell).
+   generator exit non-zero and write nothing (never a blank source cell).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import gen_catalog  # noqa: E402
 
 
 def test_every_entry_resolves() -> None:
-    """The real packaged file renders and every entry's repo appears."""
+    """The real packaged file renders and every entry's source appears."""
     doc = gen_catalog.load_ecosystem()
     page = gen_catalog.render(doc)  # raises SystemExit on any unmapped package
 
@@ -41,12 +41,12 @@ def test_every_entry_resolves() -> None:
     packages = doc["packages"]
     for entry in entries:
         assert entry["package"] in packages, entry["package"]
-        repo = packages[entry["package"]]
+        source = packages[entry["package"]]
         assert f"`{entry['name']}`" in page, f"row missing for {entry['name']}"
-        assert repo in page, f"repo {repo} missing from page"
+        assert source in page, f"source {source} missing from page"
 
     assert page.startswith("---\n"), "catalog page missing frontmatter"
-    print(f"  coverage: {len(entries)} entries, all packages resolved to a repo")
+    print(f"  coverage: {len(entries)} entries, all packages resolved to a source")
 
 
 def test_fail_loud_unmapped_package() -> None:

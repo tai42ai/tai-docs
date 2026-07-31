@@ -25,7 +25,7 @@ import tempfile
 from pathlib import Path
 
 DOCS_ROOT = Path(__file__).resolve().parent.parent
-SKELETON_DIR = DOCS_ROOT.parent / "tai-skeleton"
+SKELETON_DIR = DOCS_ROOT.parent / "tai42" / "core" / "skeleton"
 OUTPUT = DOCS_ROOT / "openapi.json"
 
 
