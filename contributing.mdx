@@ -1,38 +1,40 @@
 ---
 title: "Contributing"
-description: "Where each repository's contributing guide lives."
+description: "How the tai42 monorepo is laid out and how to develop in it."
 icon: "code-pull-request"
 ---
 
-Each repository in the ecosystem keeps its own `CONTRIBUTING` guide; this page points to them and states the discipline every repository shares.
+The platform's first-party packages live in one repository — the `tai42`
+monorepo. The core layers define and implement the contract, the plugins build
+on it, and the `e2e` suite proves them together. Contribute in the member
+directory the change touches, under the repository's `CONTRIBUTING` guide.
 
-The platform is a multi-repo ecosystem. The core repos define and implement the contract; the plugin repos build on it. Contributions live in the repo they touch, under that repo's `CONTRIBUTING` guide.
-
-## The repositories
+## The repository
 
 <CardGroup cols={2}>
-  <Card title="tai42-contract" icon="file-contract" href="https://github.com/tai42ai/tai-contract">
-    The pure interface — the Protocols and ABCs plugins implement.
-  </Card>
-  <Card title="tai42-kit" icon="toolbox" href="https://github.com/tai42ai/tai-kit">
-    The generic leaf helpers, settings, pooled clients, and factories.
-  </Card>
-  <Card title="tai42-skeleton" icon="server" href="https://github.com/tai42ai/tai-skeleton">
-    The framework body — the concrete server and runtime engines.
-  </Card>
-  <Card title="tai42-toolbox" icon="wrench" href="https://github.com/tai42ai/tai-toolbox">
-    The reference tool set — generic tools and extensions.
+  <Card title="tai42" icon="cubes" href="https://github.com/tai42ai/tai42">
+    The monorepo — every first-party package as a workspace member.
   </Card>
   <Card title="Full ecosystem" icon="table-list" href="/reference/catalog">
-    Every shipped plugin and its repository, in the catalog.
+    Every shipped plugin and its member path, in the catalog.
   </Card>
 </CardGroup>
 
+Members resolve at these paths:
+
+| Path | What lives there |
+| --- | --- |
+| `core/contract` | The pure interface — the Protocols and ABCs plugins implement. |
+| `core/kit` | The generic leaf helpers, settings, pooled clients, and factories. |
+| `core/skeleton` | The framework body — the concrete server and runtime engines. |
+| `plugins/*` | Every shipped plugin — tools, channels, storage, connectors, backends, identity, accounts, config, and monitoring. `plugins/toolbox` is the reference tool set. |
+| `e2e` | The cross-member integration suite (published as the `e2e` plugin-testing harness). |
+
 ## The shared discipline
 
-Every repository holds to the same rules, enforced in each repo's CI:
+Every member holds to the same rules, enforced in the monorepo's CI:
 
-- **The leaf rule.** Among `tai42-*` packages, the skeleton imports `tai42-contract` and `tai42-kit` only; a plugin imports `tai42-contract` (and `tai42-kit` where it needs shared helpers) only. No plugin imports the skeleton — providers register through the `tai42_app` handle when the manifest loads them.
+- **The leaf rule.** Among `tai42-*` packages, the skeleton imports `tai42-contract` and `tai42-kit` only; a plugin imports `tai42-contract` (and `tai42-kit` where it needs shared helpers) only. No plugin imports the skeleton — providers register through the `tai42_app` handle when the manifest loads them. Each member's `ruff` `banned-api` wall enforces this: the monorepo makes the imports physically reachable, so the wall is the guard.
 - **Providers stay out of the core.** Connectors, storage, config, backends, and monitoring ship as plugins that register at manifest load — never imported by the skeleton.
 - **Optional drivers stay optional.** A heavy client driver reaches the engine through an extra; a module whose extra is missing fails loudly at import, never a silent skip.
 - **Errors surface loudly.** A missing module, a malformed config entry, or a failed sub-step raises and propagates.
@@ -40,50 +42,40 @@ Every repository holds to the same rules, enforced in each repo's CI:
 
 ## Develop
 
-Every clone stands alone: a repo's dev venv installs it editable and resolves its `tai42-*` dependencies from PyPI, so no other checkout has to be present. Repos declare dev dependencies either as the `dev` extra or the `dev` dependency group — check which one the repo's own `pyproject.toml` uses.
-
-Repos with a `dev` extra (`[project.optional-dependencies]`):
+One clone, one sync. The workspace resolves every `tai42-*` member in-tree, so no other checkout has to be present:
 
 ```bash
-uv venv --python 3.13
-uv pip install --no-sources --editable ".[dev]"
+git clone https://github.com/tai42ai/tai42
+cd tai42
+uv sync --locked
+```
+
+Work on a single member by syncing just it, then run its gates from its directory:
+
+```bash
+uv sync --locked --package tai42-<name>
+cd <member-path>
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 uv run --no-sync pyright
 uv run --no-sync pytest
 ```
 
-Repos with a `dev` dependency group (`[dependency-groups]`):
-
-```bash
-uv venv --python 3.13
-uv pip install --no-sources --group dev --editable .
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-uv run --no-sync pyright
-uv run --no-sync pytest
-```
-
-`--no-sources` ignores the `[tool.uv.sources]` overrides so the dependencies come from the index; `--no-sync` runs each gate against that environment instead of re-resolving.
-
-See the target repository's `README` for the exact extras or dependency group it installs, and its `CONTRIBUTING` guide for the rest of its specifics — any secret scan, and its licensing statement.
+The three core layers (`core/contract`, `core/kit`, `core/skeleton`) carry their dev tooling as a `dev` extra rather than the `dev` dependency group — append `--extra dev` to their sync. `--no-sync` runs each gate against the synced environment instead of re-resolving. See the member's `README` for the exact extras it installs, and the repository's `CONTRIBUTING` guide for the rest — any secret scan, and the licensing statement.
 
 ## How dependencies resolve
 
-A repo's `pyproject.toml` points its `tai42-*` siblings at `../tai-*` checkouts through `[tool.uv.sources]`, while its committed `uv.lock` pins those same siblings to released versions from the index. **The two disagree deliberately**, and that disagreement is what keeps the repos independent:
+The workspace sources **are** the resolution. `[tool.uv.workspace]` lists `core/*`, `plugins/*`, and `e2e`; each member's `[tool.uv.sources]` points its `tai42-*` siblings at `{ workspace = true }`, so `uv sync` resolves them from the in-tree members, never from the index. One `uv.lock` at the repository root pins the whole set.
 
-- **CI resolves the published versions.** Every CI job sets `UV_NO_SOURCES=1`, so the sources table is ignored and `uv sync --locked` asserts against the committed lock. CI clones no siblings: a repo's gate proves the repo against the artifacts a user installs.
-- **Local development resolves the checkouts.** A plain `uv sync` honours the sources table and installs the siblings editable, so a cross-repo change is picked up without publishing.
-- **A re-coupled lock fails CI.** A bare `uv lock` run beside sibling checkouts rewrites the committed lock to path entries; `uv sync --locked` under `UV_NO_SOURCES=1` then rejects it. Run `uv lock --no-sources` instead. Repos carrying the `uv-lock` pre-commit hook pin it to `--no-sources`, which catches the mistake before the commit.
-- **Dependabot propagates versions.** When a package publishes, Dependabot opens the bump PR — dependency range and lock together — in each dependent, and that repo's CI proves it.
-- **`tai-e2e` is the exception.** It resolves siblings from their checkouts on purpose: proving the repos against each other at `main` is the suite's job, and its `fleet-e2e` status is where cross-repo drift surfaces.
+- **A cross-member change is atomic.** Editing a member and widening a dependent's version cap land in one commit, one lock, one PR — no publish step, no propagation PR, and no per-repo lock that goes stale when a sibling bumps.
+- **CI resolves the same workspace.** Each member's gate runs `uv sync --locked --package <name>` against the committed root lock, so a repo's gate proves it against exactly the members a contributor develops with. There is no `UV_NO_SOURCES`, no sibling-clone step, and no `uv lock --no-sources`.
+- **The `e2e` suite proves the fleet together.** Cross-member drift surfaces in the integration run, not in each member's own gate.
 
-A lock that records a sibling's path also records that sibling's version, so one version bump leaves every dependent's lock stale and its `main` red. Published resolution removes that coupling, and the integration suite — not each repo's own gate — is what tests the fleet together.
+## Release
 
-Testing an unreleased sibling change is therefore explicit: work locally with the sources overrides, or publish a prerelease and let Dependabot carry it.
+The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member opens a release PR for that package alone. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 27 packages share one repository — and publishes that package to PyPI.
 
 ## See also
 
 - [The layering](/concepts/layering) — how contract, kit, and skeleton relate.
-- [Plugin authors](/guides/authors) — the author path for every plugin type.
-- [Ecosystem catalog](/reference/catalog) — every shipped repository.
+- [Ecosystem catalog](/reference/catalog) — every shipped package and its member path.

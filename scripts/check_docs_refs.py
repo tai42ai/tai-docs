@@ -20,9 +20,14 @@ Four checks, all OFFLINE (no network); the three that depend on the
    registration and so are absent from the packages map). A ``tai42-<name>``
    outside that set is drift.
 
-2. Repo URLs -- every ``github.com/tai42ai/tai-<repo>`` referenced resolves to a
-   real repository. A repo resolves if it is a package repo (the values side of
-   the same distribution->repo mapping), a known non-package repo (the
+2. Repo URLs -- every referenced repository resolves. Two shapes coexist: the
+   ``tai42`` monorepo (``github.com/tai42ai/tai42``, optionally addressing a
+   member directory via ``/tree/<ref>/<member-path>``), and a surviving
+   standalone repo (``github.com/tai42ai/tai-<repo>``). The monorepo root always
+   resolves; a member path is checked against the monorepo checkout when present
+   (absent offline -> loud note, present -> hard check that the member directory
+   exists). A standalone repo resolves if it is a package repo (the values side
+   of the distribution->repo mapping), a known non-package repo (the
    ``INFRA_REPOS`` allowlist), or present as a local sibling checkout. Anything
    else is a HARD failure naming its ``file:line`` -- offline a typo is
    indistinguishable from a real repo, so an unknown repo fails closed rather
@@ -96,7 +101,19 @@ _ROSTER_BLOCK_RE = re.compile(re.escape(ROSTER_MARKER_START) + r"(.*?)" + re.esc
 # still detected.
 _DIST_RE = re.compile(r"tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp))")
 
-# A `github.com/tai42ai/tai-<repo>` reference (https, git+https, or bare).
+# The monorepo that houses every first-party package. Its member directories are
+# addressed as `github.com/tai42ai/tai42/tree/<ref>/<member-path>`.
+MONOREPO = "tai42"
+
+# A `github.com/tai42ai/tai42` reference, optionally addressing a member directory
+# via `/tree/<ref>/<member-path>`. Group 1 is the member path when present, else
+# the bare monorepo root. The member path stops at whitespace, `)`, or `#` so a
+# trailing markdown/anchor delimiter never leaks into it.
+_MONOREPO_RE = re.compile(r"github\.com/tai42ai/tai42(?:/tree/[^/\s)]+/([^\s)#]+))?")
+
+# A surviving standalone `github.com/tai42ai/tai-<repo>` reference (https,
+# git+https, or bare). The monorepo's own name (`tai42`) has no `tai-` prefix, so
+# this pattern never matches it -- monorepo references go through `_MONOREPO_RE`.
 _REPO_RE = re.compile(r"github\.com/tai42ai/(tai-[a-z0-9]+(?:-[a-z0-9]+)*)")
 
 # A documented ALWAYS_PUBLIC assignment. The array may be single-quoted
@@ -176,22 +193,21 @@ def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str])
     return problems
 
 
-# The org's non-package repos — real repos that ship no PyPI distribution, so
-# they never appear in the ecosystem dist->repo map. A curated allowlist: offline
-# there is no other way to tell a real infra repo from a typo, so an unknown
-# tai-<repo> must fail rather than pass silently. Keep in sync when a non-package
-# repo is added to the org (adding one is far rarer than a doc typo).
+# The surviving standalone non-package repos — real repos that ship no PyPI
+# distribution, so they never appear in the ecosystem dist->repo map. A curated
+# allowlist: offline there is no other way to tell a real infra repo from a typo,
+# so an unknown tai-<repo> must fail rather than pass silently. The package repos
+# now live inside the `tai42` monorepo (validated via `_MONOREPO_RE`), so they are
+# absent here. Keep in sync when a non-package repo is added to the org (adding
+# one is far rarer than a doc typo).
 INFRA_REPOS: frozenset[str] = frozenset(
     {
         "tai-studio",
         "tai-docs",
         "tai-distribution",
-        "tai-e2e",
         "tai-marketplace",
         "tai-marketplace-web",
         "tai-website",
-        "tai-babelfish-kit",
-        "tai-babelfish-flows",
     }
 )
 
@@ -200,15 +216,35 @@ def check_repo_urls(
     docs: list[tuple[str, str]],
     dist_map: dict[str, str],
     workspace_root: Path = WORKSPACE_ROOT,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     valid_repos = set(dist_map.values()) | INFRA_REPOS
+    monorepo_root = workspace_root / MONOREPO
     problems: list[str] = []
+    notes: list[str] = []
+    unverified: list[str] = []
     for rel, text in docs:
+        # Monorepo references: the bare root always resolves; a `/tree/.../member`
+        # path is checked against the monorepo checkout when present.
+        for lineno, member in _iter_matches(text, _MONOREPO_RE, group=1):
+            if member is None:
+                continue
+            if not monorepo_root.is_dir():
+                # Offline a subpath typo is indistinguishable from a real member,
+                # and the monorepo tree is the only source of truth for it — note
+                # and defer to the checkout-present run (the hosted docs CI).
+                unverified.append(f"{rel}:{lineno}")
+                continue
+            if not (monorepo_root / member).is_dir():
+                problems.append(
+                    f"{rel}:{lineno}: github.com/tai42ai/{MONOREPO}/tree/.../{member} "
+                    f"names no member directory in the {MONOREPO} checkout "
+                    f"— likely a wrong or renamed member path"
+                )
+        # Surviving standalone repos: a known package repo, a known non-package
+        # repo, or present as a sibling checkout -> real. Anything else fails
+        # closed: offline a typo (github.com/tai42ai/tai-skeltn) is
+        # indistinguishable from a real repo, so reject it rather than note-and-pass.
         for lineno, repo in _iter_matches(text, _REPO_RE, group=1):
-            # A known package repo, a known non-package repo, or present as a
-            # sibling checkout -> real. Anything else fails closed: offline a typo
-            # (github.com/tai42ai/tai-skeltn) is indistinguishable from a real repo,
-            # so reject it rather than note-and-pass.
             if repo in valid_repos or (workspace_root / repo).is_dir():
                 continue
             problems.append(
@@ -216,7 +252,13 @@ def check_repo_urls(
                 f"(not a package repo, not a known non-package repo, and no sibling checkout) "
                 f"— likely a typo or a renamed/removed repo"
             )
-    return problems
+    if unverified:
+        notes.append(
+            f"{MONOREPO} checkout not present offline; the monorepo member path(s) at "
+            f"{', '.join(unverified)} were NOT verified against member directories "
+            f"(a full checkout / the hosted docs CI verifies them)."
+        )
+    return problems, notes
 
 
 def compare_always_public(docs: list[tuple[str, str]], default: list) -> list[str]:
@@ -364,7 +406,9 @@ def evaluate(
 
     problems += check_distribution_names(docs, set(dist_map))
 
-    problems += check_repo_urls(docs, dist_map, workspace_root)
+    p, n = check_repo_urls(docs, dist_map, workspace_root)
+    problems += p
+    notes += n
 
     p, n = check_always_public(docs, workspace_root)
     problems += p

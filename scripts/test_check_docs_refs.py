@@ -79,31 +79,61 @@ def test_slash_prefixed_bogus_distribution_flagged() -> None:
 # --- repo URLs -------------------------------------------------------------
 
 
-def test_real_repo_url_passes() -> None:
-    """A package-repo URL resolves against the distribution->repo mapping —
-    genuinely recognized, not merely un-flagged."""
+def test_monorepo_url_passes() -> None:
+    """The bare monorepo URL is genuinely recognized as the real repo."""
     dist_map = _dist_map()
-    docs = [("fake/x.mdx", "git clone https://github.com/tai42ai/tai-skeleton")]
-    problems = check_docs_refs.check_repo_urls(docs, dist_map)
+    docs = [("fake/x.mdx", "git clone https://github.com/tai42ai/tai42")]
+    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
     assert problems == [], problems
-    print("  real repo URL: recognized, no problems")
+    assert notes == [], notes
+    print("  monorepo root URL: recognized, no problems")
+
+
+def test_monorepo_member_path_validated(tmp_path: Path) -> None:
+    """With the monorepo checkout present, a member path is checked: a real one
+    passes and a typo fails CLOSED with its file:line."""
+    (tmp_path / "tai42" / "plugins" / "toolbox").mkdir(parents=True)
+
+    good = [("fake/x.mdx", "See https://github.com/tai42ai/tai42/tree/main/plugins/toolbox")]
+    problems, notes = check_docs_refs.check_repo_urls(good, {}, workspace_root=tmp_path)
+    assert problems == [], problems
+    assert notes == [], notes
+
+    bad = [("fake/x.mdx", "line one\nSee https://github.com/tai42ai/tai42/tree/main/plugins/toolbx\n")]
+    problems, _ = check_docs_refs.check_repo_urls(bad, {}, workspace_root=tmp_path)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
+    assert "plugins/toolbx" in problems[0]
+    print("  monorepo member path: verified against checkout, typo flagged")
+
+
+def test_monorepo_member_path_offline_notes() -> None:
+    """Offline (no monorepo checkout) a member path notes, never fails —
+    the checkout-present run verifies it."""
+    docs = [("fake/x.mdx", "https://github.com/tai42ai/tai42/tree/main/core/skeleton")]
+    problems, notes = check_docs_refs.check_repo_urls(docs, {}, workspace_root=Path("/nonexistent"))
+    assert problems == [], problems
+    assert len(notes) == 1, notes
+    assert "not present offline" in notes[0], notes
+    print("  monorepo member path offline: noted, no failure")
 
 
 def test_infra_repo_url_passes() -> None:
     """A known non-package repo (tai-distribution) resolves via the infra allowlist."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "See https://github.com/tai42ai/tai-distribution for the compose bundle.")]
-    problems = check_docs_refs.check_repo_urls(docs, dist_map)
+    problems, notes = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
     assert problems == [], problems
+    assert notes == [], notes
     print("  infra repo URL: recognized via allowlist")
 
 
 def test_bogus_repo_url_fails() -> None:
-    """A typo'd/renamed repo URL fails CLOSED with its file:line — neither a package
-    repo, a known non-package repo, nor a present sibling (workspace has none)."""
+    """A typo'd/renamed standalone repo URL fails CLOSED with its file:line —
+    neither a package repo, a known non-package repo, nor a present sibling."""
     dist_map = _dist_map()
     docs = [("fake/x.mdx", "line one\ngit clone https://github.com/tai42ai/tai-skeltn\n")]
-    problems = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
+    problems, _ = check_docs_refs.check_repo_urls(docs, dist_map, workspace_root=Path("/nonexistent"))
     assert len(problems) == 1, problems
     assert problems[0].startswith("fake/x.mdx:2:"), problems[0]
     assert "tai-skeltn" in problems[0]
@@ -244,7 +274,8 @@ def main() -> int:
     test_bogus_distribution_fails()
     test_logo_asset_not_mistaken_for_distribution()
     test_slash_prefixed_bogus_distribution_flagged()
-    test_real_repo_url_passes()
+    test_monorepo_url_passes()
+    test_monorepo_member_path_offline_notes()
     test_infra_repo_url_passes()
     test_bogus_repo_url_fails()
     test_mismatched_always_public_fails()

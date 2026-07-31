@@ -95,7 +95,7 @@ def test_chrome_link_makes_a_page_reachable(tmp_path, monkeypatch) -> None:
 def test_external_chrome_link_is_not_a_page(tmp_path, monkeypatch) -> None:
     """An external navbar destination resolves nothing locally and reaches nothing."""
     _rooted(monkeypatch, tmp_path)
-    docs = {"navbar": {"links": [{"label": "GitHub", "href": "https://github.com/tai42ai"}]}}
+    docs = {"navbar": {"links": [{"label": "GitHub", "href": "https://github.com/tai42ai/tai42"}]}}
 
     problems: list[str] = []
     referenced = check_docs.check_chrome_links(docs, problems)

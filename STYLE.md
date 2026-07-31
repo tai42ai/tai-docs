@@ -54,8 +54,8 @@ nouns, capitalised product names.
 
 - Every code sample is real: copied from a passing test or an example file,
   never invented. Do not write an API call that does not exist.
-- Author-guide worked examples are minimal and fictional (for example, a tiny
-  "weather" connector) — never a shipped implementation.
+- Worked examples that pages import are minimal and self-contained — never a
+  shipped implementation.
 
 ## Components
 
@@ -68,12 +68,10 @@ nouns, capitalised product names.
 
 ## The impl-docs boundary
 
-The site documents the **platform** — concepts, contracts, and how to build
-each plugin type. It does not document a third-party plugin's specifics; those
-live in that plugin's own repository README, and it appears here only as a
-catalog row and as a link in an author guide's "shipped implementations" line.
-Plain hyperlinks out to a repository are always fine — a link is not
-documentation.
+The site documents the **platform** — concepts and contracts. It does not
+document a third-party plugin's specifics; those live in that plugin's own
+repository README, and it appears here only as a catalog row. Plain hyperlinks
+out to a repository are always fine — a link is not documentation.
 
 The one carve-out is **operator setup for a first-party shipped
 implementation**: the channel guides under Guides and the setup pages under

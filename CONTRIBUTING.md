@@ -43,8 +43,7 @@ Narrative content:
   contributing page
 - `getting-started` — installation, quickstart, and the mental model
 - `concepts` — what each part of the platform is
-- `guides` — task-shaped how-tos, with `guides/authors` covering the author path
-  for every plugin type
+- `guides` — task-shaped how-tos
 - `studio` — the Studio UI: screens, login, API keys, plugins, deploy
 - `integrations` — connecting MCP clients (Claude Desktop, Cursor, and others)
 - `marketplace` — browsing, installing, and advisories

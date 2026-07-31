@@ -1,11 +1,11 @@
-"""Sync the author-guide worked examples into importable Mintlify snippets.
+"""Sync the docs' worked examples into importable Mintlify snippets.
 
-The author guides never inline a worked example as prose. Each worked example
-lives as a single source file under ``examples/<group>/…`` (the single source of
-truth, verified in CI), and this script renders each one into a snippet under
+A page never inlines a worked example as prose. Each worked example lives as a
+single source file under ``examples/<group>/…`` (the single source of truth,
+verified in CI), and this script renders each one into a snippet under
 ``snippets/examples/<same path>.mdx`` that wraps the file's exact content in a
-fenced code block. The guides import those generated snippets, so what renders on
-the page is always the real, verified file.
+fenced code block. The pages that use an example import its generated snippet, so
+what renders on the page is always the real, verified file.
 
 Three example kinds are supported, keyed by file suffix:
 

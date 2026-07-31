@@ -20,7 +20,6 @@ index.mdx              Landing page
 getting-started/       Install, quickstart, mental model
 concepts/              One page per platform pillar
 guides/                Task-shaped how-to guides
-  authors/             An author path for every plugin type
 integrations/          Connecting MCP clients to a running server
 reference/             Generated reference (API, CLI, Python SDK, Studio SDK,
                        settings, catalog)
