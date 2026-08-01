@@ -58,6 +58,10 @@ _CANONICAL_TMP_DIR = "/tmp"
 OUT_FILE = DOCS_ROOT / "reference" / "settings.mdx"
 DOCS_JSON = DOCS_ROOT / "docs.json"
 
+# The concept section defining the ``TAI_DEFAULT_*`` default connection
+# namespace, linked from every Fallback cell that names one of its variables.
+DEFAULT_NAMESPACE_DOC = "/concepts/config-and-secrets#default-connection-namespace"
+
 # The Reference-tab nav group this page lives in. The generator owns this group
 # the way gen_catalog owns "Catalog": it is created after the "CLI" group when
 # absent, and its single page is (re)pinned on every run.
@@ -193,6 +197,20 @@ def render_env_var(field: dict) -> str:
     return code_cell(env_var)
 
 
+def render_fallback(field: dict) -> str:
+    """The Fallback cell: the ``TAI_DEFAULT_*`` var this field falls back to.
+
+    A connection-identity field with a default-namespace mapping renders that
+    variable, linked to the concept section that defines the namespace; every
+    other field — behavior knobs and nested-group references — renders an em
+    dash, since only the identity fields fall back.
+    """
+    default_var = field.get("default_namespace_var")
+    if not default_var:
+        return "—"
+    return f"[{code_cell(default_var)}]({DEFAULT_NAMESPACE_DOC})"
+
+
 def count_rows(groups: list[dict]) -> tuple[int, int]:
     """The table's row split: (variable rows, nested-group reference rows).
 
@@ -258,9 +276,10 @@ def render(groups: list[dict]) -> str:
         f"{count_noun(len(ordered), 'group', 'groups')} "
         f"({count_noun(variables, 'variable', 'variables')} and "
         f"{count_noun(references, 'nested-group reference', 'nested-group references')}). Each variable "
-        "row lists the variable, its type, its default, whether it is required, and a "
-        "description where one exists; each nested-group reference row carries no variable "
-        "of its own and links to that sub-group's section instead. "
+        "row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls "
+        "back to when set (a `—` for every field that is not a shared connection identity), whether it is "
+        "required, and a description where one exists; each nested-group reference row carries no "
+        "variable of its own and links to that sub-group's section instead. "
         "Values shown are code-level defaults; "
         "a running server resolves each variable from the environment, then any stored "
         "override, then this default.",
@@ -273,8 +292,8 @@ def render(groups: list[dict]) -> str:
         lines.append("")
         lines.append(f"Module `{group['module']}`.")
         lines.append("")
-        lines.append("| Env var | Type | Default | Required | Description |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| Env var | Type | Default | Fallback | Required | Description |")
+        lines.append("|---|---|---|---|---|---|")
         for field in group["fields"]:
             required = "Required" if field.get("required") else "Optional"
             type_cell = code_cell(field["type"]) if field.get("type") else "—"
@@ -282,6 +301,7 @@ def render(groups: list[dict]) -> str:
                 render_env_var(field),
                 type_cell,
                 render_default(field),
+                render_fallback(field),
                 required,
                 render_description(field),
             )

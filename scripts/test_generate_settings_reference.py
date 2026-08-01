@@ -10,7 +10,7 @@ Running it inside the tai42-skeleton virtualenv is a supported alternative::
 
     cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_generate_settings_reference.py
 
-Four guarantees are asserted:
+The guarantees asserted are:
 
 * ``count_rows`` splits the rendered rows into environment variables and
   nested-group references;
@@ -18,7 +18,10 @@ Four guarantees are asserted:
   ``count_rows`` exit non-zero and name the offending ``Group.field`` on stderr,
   rather than falling through into neither total and being published as a row
   whose Env var cell is an em dash naming nothing;
-* the page's summary sentence carries each of those counts in its own slot, so
+* ``render_fallback`` links a field's ``default_namespace_var`` to the concept
+  section and renders an em dash for a field with no default-namespace mapping,
+  and the rendered table carries the Fallback column;
+* the page's summary sentence carries each row count in its own slot, so
   swapping two of the interpolated values fails instead of rendering plausible
   prose, and each noun is singular or plural to match the count beside it;
 * ``main`` prints the same counts to stdout in its own slots, with the same
@@ -54,7 +57,12 @@ GROUPS = [
         "name": "AlphaSettings",
         "module": "pkg.alpha",
         "fields": [
-            {"name": "url", "env_var": "ALPHA_URL", "type": "string"},
+            {
+                "name": "url",
+                "env_var": "ALPHA_URL",
+                "type": "string",
+                "default_namespace_var": "TAI_DEFAULT_REDIS_URL",
+            },
             {"name": "beta", "env_var": "", "type": "object", "nested_group": "BetaSettings"},
         ],
     },
@@ -142,6 +150,34 @@ def test_count_rows_rejects_a_field_with_no_env_var_and_no_nested_group() -> Non
     assert "GammaSettings.host" not in message
 
 
+def test_render_fallback_links_a_mapped_field_to_its_default_var() -> None:
+    """A field with a ``default_namespace_var`` renders it as a linked code cell."""
+    cell = generate_settings_reference.render_fallback({"default_namespace_var": "TAI_DEFAULT_PG_HOST"})
+
+    assert cell == ("[`TAI_DEFAULT_PG_HOST`](/concepts/config-and-secrets#default-connection-namespace)")
+
+
+def test_render_fallback_em_dash_for_an_unmapped_field() -> None:
+    """A field with no default-namespace mapping renders an em dash, not a link."""
+    assert generate_settings_reference.render_fallback({}) == "—"
+    assert generate_settings_reference.render_fallback({"default_namespace_var": None}) == "—"
+
+
+def test_render_table_carries_the_fallback_column() -> None:
+    """The rendered table header adds a Fallback column and links a mapped field."""
+    page = generate_settings_reference.render(GROUPS)
+
+    assert "| Env var | Type | Default | Fallback | Required | Description |" in page
+    assert "|---|---|---|---|---|---|" in page
+    # Pin the whole row, not just that the link appears somewhere: this catches a
+    # cell landing in the wrong column (e.g. Fallback and Required swapped).
+    assert (
+        "| `ALPHA_URL` | `string` | — | "
+        "[`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | "
+        "Optional | — |"
+    ) in page
+
+
 def test_render_summary_sentence_reports_each_count_in_its_own_slot() -> None:
     """The rendered page states 4 entries, 2 groups, 3 variables, 1 reference — singular."""
     page = generate_settings_reference.render(GROUPS)
@@ -167,6 +203,9 @@ def main() -> int:
     print("test_generate_settings_reference:")
     test_count_rows_splits_variables_from_group_references()
     test_count_rows_rejects_a_field_with_no_env_var_and_no_nested_group()
+    test_render_fallback_links_a_mapped_field_to_its_default_var()
+    test_render_fallback_em_dash_for_an_unmapped_field()
+    test_render_table_carries_the_fallback_column()
     test_render_summary_sentence_reports_each_count_in_its_own_slot()
     test_main_prints_each_count_in_its_own_slot()
     print("test_generate_settings_reference: OK")
