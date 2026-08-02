@@ -42,6 +42,7 @@ GENERATORS = [
     "gen_catalog.py",
     "generate-settings-reference.py",
     "gen_toolbox_table.py",
+    "gen_gated_features.py",
 ]
 
 GENERATED_PATHS = [
@@ -53,6 +54,7 @@ GENERATED_PATHS = [
     "reference/catalog",
     "reference/settings.mdx",
     "guides/standard-toolbox.mdx",
+    "concepts/config-and-secrets.mdx",
 ]
 
 # The example-snippet sync is owned by a separate generator (sync_examples.py).
