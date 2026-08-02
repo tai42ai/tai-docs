@@ -141,6 +141,36 @@ type StreamInteraction = Interaction & { answered: boolean }
 A live interaction plus the client-maintained `answered` flag.
 
 
+## SystemKindsProvider
+
+```ts
+function SystemKindsProvider(
+  props: { children: ReactNode },
+): FunctionComponentElement<ProviderProps<SystemKindsState | null>>
+```
+
+Fetch the kind-status table once the caller is authenticated and hold it as SDK
+state. Gated on `isAuthenticated` (the table is an authed read), so the login
+screen never fires a doomed request; a fetch failure settles into `failed`
+QUIETLY — no unauthorized routing, no loud error — because the consuming
+affordance falls back to its reactive OFF handling.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+**Related:** [SystemKindsState](/reference/studio-sdk/hooks#systemkindsstate)
+
+
+## SystemKindsState
+
+```ts
+type SystemKindsState = { status: "loading" } | { kinds: readonly KindStatus[]; status: "ready" } | { error: unknown; status: "failed" }
+```
+
+
 ## Theme
 
 ```ts
@@ -373,6 +403,26 @@ function useCapabilities(): CapabilityContextValue
 **Related:** [CapabilityContextValue](/reference/studio-sdk/hooks#capabilitycontextvalue)
 
 
+## useFeatureOff
+
+```ts
+function useFeatureOff(kind: string): boolean
+```
+
+Whether `kind` is reported OFF by the kind-status table — the single proactive
+predicate a write affordance folds in to hide itself before a doomed write. It is
+`true` ONLY once the table is `ready` AND that kind's row carries `state: 'off'`;
+while the table is loading/failed, no provider is mounted, or the kind is unknown,
+it is `false` (treat as not-off until known — under-hiding is safe, the reactive
+501 backstop still catches a genuinely-off feature).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `string` | — | — |
+
+
 ## useInteractionsStream
 
 ```ts
@@ -387,6 +437,19 @@ function useInteractionsStream(): InteractionsStreamState
 ```ts
 function useOnUnauthorized(): () => void
 ```
+
+
+## useSystemKinds
+
+```ts
+function useSystemKinds(): SystemKindsState
+```
+
+The live kind-status state. Falls back to `loading` when no provider is mounted, so
+a consumer rendered outside the shell reads every kind as not-off rather than
+throwing — the fail-open default this proactive-hiding idiom relies on.
+
+**Related:** [SystemKindsState](/reference/studio-sdk/hooks#systemkindsstate)
 
 
 ## useTheme
