@@ -86,18 +86,14 @@ plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
 type NavigationGuardHandler = () => boolean | Promise<boolean>
 ```
 
-A navigation guard's decision function. While a guard is armed, this runs before
-any navigation the SDK controls commits — a route-token `navigate`,
-a plugin `navigatePlugin`, or a browser back/forward
-(`popstate`). It returns `true` to let the navigation proceed and `false` to veto
-it; returning a promise lets the guard await a confirm dialog and resolve with the
-user's choice.
+A navigation guard's decision function, run while armed before any SDK-controlled
+navigation commits (`navigate`,
+`navigatePlugin`, or a browser back/forward). Returns
+`true` to proceed, `false` to veto; a promise lets it await a confirm dialog.
 
-Guards compose: a navigation proceeds only if every armed guard allows it, and the
-first veto blocks it (later guards are not consulted, so at most one confirm dialog
-is shown). A full-page unload (tab close / refresh) cannot await an async decision,
-so it is covered by a `beforeunload` prompt that fires whenever any guard is armed —
-independent of this handler.
+Guards compose — navigation proceeds only if every armed guard allows, and the first
+veto blocks (at most one dialog). A full-page unload can't await, so it is covered by
+a `beforeunload` prompt independent of this handler.
 
 
 ## NavigationProvider
@@ -228,9 +224,8 @@ it resolves `true`; a promise lets the handler drive a confirm dialog. A full-pa
 unload (tab close / refresh) is additionally covered by a native `beforeunload`
 prompt that fires whenever any guard is armed.
 
-Guards compose against the provider's shared registry, so a feature and a plugin
-page may each arm one and ANY veto blocks. Available to plugin pages for the same
-reason navigation is: it flows through the shared `NavigationProvider`.
+Guards compose against the provider's shared registry: a feature and a plugin page
+may each arm one, and any veto blocks.
 
 **Parameters**
 

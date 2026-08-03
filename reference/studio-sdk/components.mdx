@@ -485,11 +485,9 @@ Controlled: the caller owns `value` and receives the next window through
 `onValueChange` — a preset click emits its token immediately, while the custom
 inputs hold a working draft until Apply commits the normalized absolute range.
 
-The draft inputs track the controlled value: a NEW absolute `value` from the
-caller re-seeds both inputs, so Apply can never re-emit a range the caller has
-already superseded. Re-seeding is keyed on the incoming absolute `from`/`to`, so
-edits typed against an UNCHANGED value are preserved — only a genuinely different
-value replaces an in-progress draft, and that controlled value deliberately wins.
+The drafts track the controlled value, re-seeded on a NEW absolute `value` (keyed
+on `from`/`to`), so edits against an unchanged value are preserved but a genuinely
+different value replaces an in-progress draft.
 
 **Props**
 
@@ -1356,7 +1354,7 @@ function FormDialog(props: FormDialogProps): ReactNode
 | `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
 | `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
 | `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
-| `submitDisabled?` | `boolean` | Blocks submission — by click AND by Enter — while the form is incomplete. A disabled default button is not an implicit-submission target, so the keyboard path is closed off along with the pointer one. |
+| `submitDisabled?` | `boolean` | Blocks submission by click and by Enter while incomplete (a disabled default button is not an implicit-submission target). |
 | `submitLabel` | `string` | The submit button's resting label (e.g. `Create scope`). |
 | `submitVariant?` | `"primary" \| "danger"` | — |
 | `title` | `string` | — |
@@ -1380,7 +1378,7 @@ interface FormDialogProps
 | `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
 | `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
 | `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
-| `submitDisabled?` | `boolean` | Blocks submission — by click AND by Enter — while the form is incomplete. A disabled default button is not an implicit-submission target, so the keyboard path is closed off along with the pointer one. |
+| `submitDisabled?` | `boolean` | Blocks submission by click and by Enter while incomplete (a disabled default button is not an implicit-submission target). |
 | `submitLabel` | `string` | The submit button's resting label (e.g. `Create scope`). |
 | `submitVariant?` | `"primary" \| "danger"` | — |
 | `title` | `string` | — |
@@ -3307,15 +3305,10 @@ function normalizeCustomRange(
 ): { from: string; to: string }
 ```
 
-A raw from/to pair from the two inputs, resolved to a clean absolute range.
-
-The steps run in this order for a reason: the reversed pair is SWAPPED first so
-the earlier instant becomes the start, THEN both ends are capped at `now`.
-Capping before the swap can move a future `to` onto the start and leave the
-(originally earlier) `from` as a future `to`; swapping first makes that
-impossible. The end is then taken as INCLUSIVE of its minute — the inputs carry
-minute precision, so the window runs to `:59.999` of the selected minute, which
-is what makes an end of `23:59` reach the day's final millisecond.
+A raw from/to pair resolved to a clean absolute range. Order matters: SWAP the
+reversed pair first (earlier instant becomes start), THEN cap both ends at `now` —
+capping first can leave a future instant on the post-swap end. The end is
+INCLUSIVE of its minute, extended to `:59.999`, so `23:59` reaches the day's end.
 
 **Parameters**
 

@@ -102,10 +102,14 @@ full traceback under the same id; the internal exception text — hosts, file pa
 stack frames — never reaches the client. Quote the `error_id` when reporting a
 fault.
 
-A validation failure names **which** fields failed and **how**, never **what** you
-sent. The body lists each offending field's path and its error type only — the
-rejected input values are stripped — so a secret submitted in a rejected field can
-never ride back out in the error response.
+On the generic operation body-validation path (the adapter's `422`) and the
+connectors mutation doors, a validation failure names **which** fields failed and
+**how**, never **what** you sent: the body lists each offending field's path and
+its error type only, with the rejected input values stripped, so a secret
+submitted in a rejected field there does not ride back out. This stripping is not
+universal — some named-entity doors interpolate the raw validation error into
+their `400` body, and pydantic includes the submitted value in that text, so do
+not rely on the error response to withhold rejected input everywhere.
 
 <Tip>
   Regenerate this reference from the running code with `tai openapi --out
