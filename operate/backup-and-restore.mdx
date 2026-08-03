@@ -33,8 +33,31 @@ tai backup import backup.json --section access_control
 ```
 
 <Warning>
-Importing a section applies its payload over the live state. Export the current state first so you have a document to roll back to, and import only the sections you mean to overwrite.
+Importing a section applies its payload over the live state. Export the current state first so you have a document to roll back to, and import only the sections you mean to restore.
 </Warning>
+
+### Skip or overwrite
+
+An import runs under one **mode**, applied per record: `skip` (the default) or `overwrite`. The mode is decided against each record's **natural key** — the field that identifies it within its section:
+
+- Under `skip`, a record whose key already exists on the server is left exactly as it stands — its live value is never replaced — and only records with a new key are created.
+- Under `overwrite`, an existing record is upserted from the backup; new records are still created.
+
+The natural key is per section: a hook by its `name`, a topic verifier by its `topic`, a template by its path, a sub-MCP app by its slug, a stored connection by its id, an access-control route by its url. New records are created under both modes; the mode only decides what happens when a key collides with a live one.
+
+Mode is a property of the HTTP import door, not the CLI: `POST /api/backup/import` takes a `"mode"` field in its body (an unrecognized value is a `400`). The `tai backup import` command sends no mode, so **the CLI always restores in the default `skip`** — the non-destructive choice. To overwrite, call the door with `"mode": "overwrite"`.
+
+### The sections that ignore mode
+
+A few sections do not key per record, so mode does not apply:
+
+- **`manifest`** restores as a whole document — a single manifest always replaces the live one, through the mutation pipeline below.
+- **`env`** **merges**: every key in the backup is applied, updating a key that exists and adding one that does not. It never removes a live key the backup omits.
+- **API-key tokens** (inside `access_control`) are **never overwritten**, under either mode. A restore mints brand-new keys for absent user ids and surfaces each plaintext in `new_api_keys` to redistribute; a user id already provisioned keeps its live key and is reported as skipped. To replace one, revoke that user id's key first, then re-import — the mint refuses to overwrite an existing identity.
+
+### The import report
+
+Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized — each named in the report so one bad record never silently drops or aborts the rest.
 
 Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
 

@@ -33,12 +33,19 @@ values are injected as headers or environment instead of a token.
 ## Where tokens live
 
 The token store keeps tokens in Redis as a cache and Postgres as the source of
-truth. The connector engine loads its provider catalog from Postgres at startup
-**only when the connector token store is configured** — a supplied
-`CONNECTOR_STORE_PG_PASSWORD` (or the shared `TAI_DEFAULT_PG_PASSWORD`), the same
-store-config presence gate every other database-backed feature uses. Otherwise the
-catalog load is skipped and startup never touches Postgres. With the store
-configured and no reachable database, startup fails loudly.
+truth. It comes up **only when the connector token store is configured** — a
+supplied `CONNECTOR_STORE_PG_PASSWORD` (or the shared `TAI_DEFAULT_PG_PASSWORD`),
+the same store-config presence gate every other database-backed feature uses. That
+gate is what turns connectors on for a deployment; absent it, connectors are off
+and startup never opens Postgres for them. With the store configured and no
+reachable database, startup fails loudly.
+
+The **provider catalog is not loaded from the database**. Every provider registers
+its descriptor in-process at import time — through the `register_connector` call a
+provider plugin makes when the [manifest](/concepts/manifest) loads it (or a plugin
+installed from the marketplace) — so listing and resolving providers reads the
+in-memory registry and never touches Postgres. Only the token store, above, uses
+the database.
 
 ## Connection health
 

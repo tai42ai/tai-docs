@@ -23,7 +23,7 @@ all of them:
 
 ```json
 {
-  "topic": "order.created",
+  "topic": "order_created",
   "tool": "notify_team",
   "tool_kwargs": { "channel": "ops" }
 }
@@ -32,6 +32,18 @@ all of them:
 The condition is what makes dispatch selective — a hook fires only when its
 condition matches the event payload, so one topic can route different events to
 different tools.
+
+## Naming a hook and topic
+
+A hook's `topic` is dispatched as one path segment of the public webhook URL
+(`/universal_webhook/{topic}`), and its `name` addresses the hook on every
+management and delete door. Both must be a single URL-safe path segment: match
+`^[a-z0-9][a-z0-9_-]*$` — begin with a lowercase letter or digit, then lowercase
+letters, digits, underscores, and hyphens only. No dots, slashes, uppercase, or
+whitespace — a `/` or a stray character would mint a record no delivery could
+route to and no door could address. The value is never sanitized: a violation is
+rejected at registration with a `400`, its message naming the offending field and
+the pattern.
 
 ## The ingress door
 
@@ -57,7 +69,7 @@ CLI:
 
 ```bash
 tai hooks list
-tai hooks register --params '{"name":"notify-ops","topic":"order.created","tool":"notify_team","tool_kwargs":{"channel":"ops"}}'
+tai hooks register --params '{"name":"notify-ops","topic":"order_created","tool":"notify_team","tool_kwargs":{"channel":"ops"}}'
 tai hooks delete <name>
 ```
 

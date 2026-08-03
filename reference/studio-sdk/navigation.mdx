@@ -80,6 +80,26 @@ plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
 **Related:** [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
+## NavigationGuardHandler
+
+```ts
+type NavigationGuardHandler = () => boolean | Promise<boolean>
+```
+
+A navigation guard's decision function. While a guard is armed, this runs before
+any navigation the SDK controls commits — a route-token `navigate`,
+a plugin `navigatePlugin`, or a browser back/forward
+(`popstate`). It returns `true` to let the navigation proceed and `false` to veto
+it; returning a promise lets the guard await a confirm dialog and resolve with the
+user's choice.
+
+Guards compose: a navigation proceeds only if every armed guard allows it, and the
+first veto blocks it (later guards are not consulted, so at most one confirm dialog
+is shown). A full-page unload (tab close / refresh) cannot await an async decision,
+so it is covered by a `beforeunload` prompt that fires whenever any guard is armed —
+independent of this handler.
+
+
 ## NavigationProvider
 
 ```ts
@@ -193,6 +213,33 @@ function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search
 Imperative navigation to a shell route token with its typed search params.
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useNavigationGuard
+
+```ts
+function useNavigationGuard(when: boolean, handler: NavigationGuardHandler): void
+```
+
+Block navigation away from the current page while `when` is true. `handler` is
+consulted before any SDK-controlled navigation commits — a route-token navigate,
+a plugin navigate, or a browser back/forward — and the navigation proceeds only if
+it resolves `true`; a promise lets the handler drive a confirm dialog. A full-page
+unload (tab close / refresh) is additionally covered by a native `beforeunload`
+prompt that fires whenever any guard is armed.
+
+Guards compose against the provider's shared registry, so a feature and a plugin
+page may each arm one and ANY veto blocks. Available to plugin pages for the same
+reason navigation is: it flows through the shared `NavigationProvider`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `when` | `boolean` | — | — |
+| `handler` | `NavigationGuardHandler` | — | — |
+
+**Related:** [NavigationGuardHandler](/reference/studio-sdk/navigation#navigationguardhandler)
 
 
 ## usePluginNavigation

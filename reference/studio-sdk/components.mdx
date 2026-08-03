@@ -450,6 +450,17 @@ Copy to clipboard: a sheet duplicated behind another.
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
+## DEFAULT_DATE_RANGE_PRESETS
+
+```ts
+const DEFAULT_DATE_RANGE_PRESETS: readonly DateRangePreset[]
+```
+
+The presets a picker offers when the caller names none.
+
+**Related:** [DateRangePreset](/reference/studio-sdk/components#daterangepreset)
+
+
 ## DashboardIcon
 
 ```ts
@@ -459,6 +470,85 @@ const DashboardIcon: IconComponent
 Observability: a dial gauge — arc, base and needle.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## DateRangePicker
+
+```ts
+function DateRangePicker(props: DateRangePickerProps): ReactNode
+```
+
+The range control: a row of preset chips over the two `datetime-local` inputs and
+an Apply action, with the active window echoed as text below.
+
+Controlled: the caller owns `value` and receives the next window through
+`onValueChange` — a preset click emits its token immediately, while the custom
+inputs hold a working draft until Apply commits the normalized absolute range.
+
+The draft inputs track the controlled value: a NEW absolute `value` from the
+caller re-seeds both inputs, so Apply can never re-emit a range the caller has
+already superseded. Re-seeding is keyed on the incoming absolute `from`/`to`, so
+edits typed against an UNCHANGED value are preserved — only a genuinely different
+value replaces an in-progress draft, and that controlled value deliberately wins.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `aria-label?` | `string` | The control group's accessible name. |
+| `disabled?` | `boolean` | — |
+| `now?` | `() => Date` | The clock the absolute-range clamp reads. Defaults to the wall clock; a caller (or a test) injects a fixed instant to pin the "no future" boundary. |
+| `onValueChange` | `(value: DateRangeValue) => void` | — |
+| `presets?` | `readonly DateRangePreset[]` | The preset chips to offer. Defaults to DEFAULT_DATE_RANGE_PRESETS. |
+| `value` | `DateRangeValue` | — |
+
+**Related:** [DateRangePickerProps](/reference/studio-sdk/components#daterangepickerprops)
+
+
+## DateRangePickerProps
+
+```ts
+interface DateRangePickerProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `aria-label?` | `string` | The control group's accessible name. |
+| `disabled?` | `boolean` | — |
+| `now?` | `() => Date` | The clock the absolute-range clamp reads. Defaults to the wall clock; a caller (or a test) injects a fixed instant to pin the "no future" boundary. |
+| `onValueChange` | `(value: DateRangeValue) => void` | — |
+| `presets?` | `readonly DateRangePreset[]` | The preset chips to offer. Defaults to DEFAULT_DATE_RANGE_PRESETS. |
+| `value` | `DateRangeValue` | — |
+
+**Related:** [DateRangePreset](/reference/studio-sdk/components#daterangepreset), [DateRangeValue](/reference/studio-sdk/components#daterangevalue)
+
+
+## DateRangePreset
+
+```ts
+interface DateRangePreset
+```
+
+A relative preset: a `\d+[hdw]` token the backend resolves, plus its chip label.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `label` | `string` | — |
+| `token` | `string` | — |
+
+
+## DateRangeValue
+
+```ts
+type DateRangeValue = { kind: "relative"; token: string } | { from: string; kind: "absolute"; to: string }
+```
+
+A named time window: either a relative token the backend resolves against its
+own clock, or an absolute pair of ISO instants.
 
 
 ## Dialog
@@ -472,8 +562,11 @@ function Dialog(props: DialogProps): Element
 | Prop | Type | Description |
 |---|---|---|
 | `children?` | `ReactNode` | — |
+| `chromeless?` | `boolean` | Drop the forced visual `Title` and the `tai-stack` children wrapper, rendering `children` directly for a chrome-free content mode. The `title` is still required and still names the dialog — it renders visually-hidden — so the accessible name never depends on the visible chrome. |
+| `contentClassName?` | `string` | A class merged onto `RadixDialog.Content` after the surface classes, for a host that must reach the content element itself — e.g. a plugin hanging its CSS-scoping root on the panel so its styles apply inside the Radix portal. |
 | `defaultOpen?` | `boolean` | — |
 | `description?` | `string` | — |
+| `fullscreen?` | `boolean` | Fill the viewport edge to edge instead of centring a fixed-size panel. The overlay, the focus trap and every other Radix behaviour are unchanged. |
 | `onOpenChange?` | `(open: boolean) => void` | — |
 | `open?` | `boolean` | — |
 | `title` | `string` | — |
@@ -493,8 +586,11 @@ interface DialogProps
 | Property | Type | Description |
 |---|---|---|
 | `children?` | `ReactNode` | — |
+| `chromeless?` | `boolean` | Drop the forced visual `Title` and the `tai-stack` children wrapper, rendering `children` directly for a chrome-free content mode. The `title` is still required and still names the dialog — it renders visually-hidden — so the accessible name never depends on the visible chrome. |
+| `contentClassName?` | `string` | A class merged onto `RadixDialog.Content` after the surface classes, for a host that must reach the content element itself — e.g. a plugin hanging its CSS-scoping root on the panel so its styles apply inside the Radix portal. |
 | `defaultOpen?` | `boolean` | — |
 | `description?` | `string` | — |
+| `fullscreen?` | `boolean` | Fill the viewport edge to edge instead of centring a fixed-size panel. The overlay, the focus trap and every other Radix behaviour are unchanged. |
 | `onOpenChange?` | `(open: boolean) => void` | — |
 | `open?` | `boolean` | — |
 | `title` | `string` | — |
@@ -1244,6 +1340,52 @@ interface FolderRowProps
 **Related:** [Folder](/reference/studio-sdk/components#folder)
 
 
+## FormDialog
+
+```ts
+function FormDialog(props: FormDialogProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `cancelLabel?` | `string` | The Cancel button's label. |
+| `children` | `ReactNode` | The form body — the caller's fields. |
+| `description?` | `string` | — |
+| `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
+| `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
+| `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
+| `submitDisabled?` | `boolean` | Blocks submission — by click AND by Enter — while the form is incomplete. A disabled default button is not an implicit-submission target, so the keyboard path is closed off along with the pointer one. |
+| `submitLabel` | `string` | The submit button's resting label (e.g. `Create scope`). |
+| `submitVariant?` | `"primary" \| "danger"` | — |
+| `title` | `string` | — |
+
+**Related:** [FormDialogProps](/reference/studio-sdk/components#formdialogprops)
+
+
+## FormDialogProps
+
+```ts
+interface FormDialogProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `cancelLabel?` | `string` | The Cancel button's label. |
+| `children` | `ReactNode` | The form body — the caller's fields. |
+| `description?` | `string` | — |
+| `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
+| `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
+| `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
+| `submitDisabled?` | `boolean` | Blocks submission — by click AND by Enter — while the form is incomplete. A disabled default button is not an implicit-submission target, so the keyboard path is closed off along with the pointer one. |
+| `submitLabel` | `string` | The submit button's resting label (e.g. `Create scope`). |
+| `submitVariant?` | `"primary" \| "danger"` | — |
+| `title` | `string` | — |
+
+
 ## GridIcon
 
 ```ts
@@ -1253,6 +1395,34 @@ const GridIcon: IconComponent
 Grid: a 2x2 tile array — the card-view half of the list/card toggle.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## GuardedTabs
+
+```ts
+function GuardedTabs(props: { defaultValue?: string; items: readonly TabItem[] }): ReactNode
+```
+
+A drop-in replacement for `Tabs` that guards a switch away from a dirty
+editor. Wraps the tabs in a `DirtyGuardProvider`, so an editor rendered in
+any panel can arm the guard through `useRegisterDirty`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ defaultValue?: string; items: readonly TabItem[] }` | — | — |
+
+**Related:** [TabItem](/reference/studio-sdk/components#tabitem)
+
+
+## HeadingLevel
+
+```ts
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+```
+
+The heading levels ATX syntax can express, `#` through `######`.
 
 
 ## HooksIcon
@@ -1350,7 +1520,7 @@ One leaf difference between the two JSON values.
 ## JsonTree
 
 ```ts
-function JsonTree(props: JsonTreeProps): Element
+function JsonTree(props: JsonTreeProps): ReactElement
 ```
 
 **Props**
@@ -1358,7 +1528,7 @@ function JsonTree(props: JsonTreeProps): Element
 | Prop | Type | Description |
 |---|---|---|
 | `data` | `unknown` | — |
-| `defaultExpanded?` | `boolean` | — |
+| `defaultExpanded?` | `boolean` | Opts the whole tree out of the depth-guarded default: `true` expands every node (up to the depth cap), `false` collapses to the root. Omitted, the tree opens through AUTO_EXPAND_DEPTH and collapses everything below. |
 | `label?` | `string` | The region's accessible name, applied only while the pane actually scrolls. |
 
 **Related:** [JsonTreeProps](/reference/studio-sdk/components#jsontreeprops)
@@ -1375,7 +1545,7 @@ interface JsonTreeProps
 | Property | Type | Description |
 |---|---|---|
 | `data` | `unknown` | — |
-| `defaultExpanded?` | `boolean` | — |
+| `defaultExpanded?` | `boolean` | Opts the whole tree out of the depth-guarded default: `true` expands every node (up to the depth cap), `false` collapses to the root. Omitted, the tree opens through AUTO_EXPAND_DEPTH and collapses everything below. |
 | `label?` | `string` | The region's accessible name, applied only while the pane actually scrolls. |
 
 
@@ -1421,6 +1591,47 @@ const ManifestIcon: IconComponent
 Manifest: a document with a folded corner and its entries.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## Markdown
+
+```ts
+function Markdown(props: MarkdownProps): Element
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `className?` | `string` | Appended to `tai-prose` so a caller can position the block without losing its paint. |
+| `markdown` | `string` | The markdown source. Rendered as an escaped-by-construction React tree. |
+
+**Related:** [MarkdownProps](/reference/studio-sdk/components#markdownprops)
+
+
+## MarkdownBlock
+
+```ts
+type MarkdownBlock = { level: HeadingLevel; text: string; type: "heading" } | { text: string; type: "paragraph" } | { code: string; language: string | undefined; type: "code" } | { items: readonly string[]; ordered: boolean; start?: number; type: "list" } | { children: readonly MarkdownBlock[]; type: "blockquote" } | { type: "thematicBreak" }
+```
+
+A parsed block. Inline markup inside `text` is resolved at render time.
+
+**Related:** [HeadingLevel](/reference/studio-sdk/components#headinglevel)
+
+
+## MarkdownProps
+
+```ts
+interface MarkdownProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `className?` | `string` | Appended to `tai-prose` so a caller can position the block without losing its paint. |
+| `markdown` | `string` | The markdown source. Rendered as an escaped-by-construction React tree. |
 
 
 ## MarketplaceIcon
@@ -2464,6 +2675,7 @@ function Tabs(props: TabsProps): Element
 
 | Prop | Type | Description |
 |---|---|---|
+| `activationMode?` | `"manual" \| "automatic"` | `'manual'` commits on Enter/Space/click only — arrows just move focus. |
 | `defaultValue?` | `string` | — |
 | `items` | `readonly TabItem[]` | — |
 | `onValueChange?` | `(value: string) => void` | — |
@@ -2482,6 +2694,7 @@ interface TabsProps
 
 | Property | Type | Description |
 |---|---|---|
+| `activationMode?` | `"manual" \| "automatic"` | `'manual'` commits on Enter/Space/click only — arrows just move focus. |
 | `defaultValue?` | `string` | — |
 | `items` | `readonly TabItem[]` | — |
 | `onValueChange?` | `(value: string) => void` | — |
@@ -2969,6 +3182,25 @@ count, so a cyclic or dangling chain truncates instead of looping.
 **Related:** [Folder](/reference/studio-sdk/components#folder)
 
 
+## formatRangeLabel
+
+```ts
+function formatRangeLabel(
+  value: DateRangeValue,
+  presets: readonly DateRangePreset[],
+): string
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `DateRangeValue` | — | — |
+| `presets` | `readonly DateRangePreset[]` | `DEFAULT_DATE_RANGE_PRESETS` | — |
+
+**Related:** [DateRangePreset](/reference/studio-sdk/components#daterangepreset), [DateRangeValue](/reference/studio-sdk/components#daterangevalue)
+
+
 ## groupByKind
 
 ```ts
@@ -3065,6 +3297,35 @@ OR semantics: an empty selection matches everything; otherwise an item
 | `selected` | `ReadonlySet<string>` | — | — |
 
 
+## normalizeCustomRange
+
+```ts
+function normalizeCustomRange(
+  fromInput: string,
+  toInput: string,
+  now: Date,
+): { from: string; to: string }
+```
+
+A raw from/to pair from the two inputs, resolved to a clean absolute range.
+
+The steps run in this order for a reason: the reversed pair is SWAPPED first so
+the earlier instant becomes the start, THEN both ends are capped at `now`.
+Capping before the swap can move a future `to` onto the start and leave the
+(originally earlier) `from` as a future `to`; swapping first makes that
+impossible. The end is then taken as INCLUSIVE of its minute — the inputs carry
+minute precision, so the window runs to `:59.999` of the selected minute, which
+is what makes an end of `23:59` reach the day's final millisecond.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fromInput` | `string` | — | — |
+| `toInput` | `string` | — | — |
+| `now` | `Date` | — | — |
+
+
 ## overlayDetailsPatch
 
 ```ts
@@ -3083,6 +3344,25 @@ The merge-patch a display-name + tags write sends: ONLY these two fields.
 | `tags` | `readonly string[]` | — |
 
 **Related:** [OverlayDetails](/reference/studio-sdk/components#overlaydetails)
+
+
+## parseMarkdown
+
+```ts
+function parseMarkdown(markdown: string): MarkdownBlock[]
+```
+
+Folds markdown source into an ordered list of blocks. Pure and total: any
+string parses, and text that matches no block construct becomes a paragraph
+rather than being discarded.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `markdown` | `string` | — | — |
+
+**Related:** [MarkdownBlock](/reference/studio-sdk/components#markdownblock)
 
 
 ## safeHttpUrl
@@ -3226,6 +3506,23 @@ alone.
 | `table?` | `string` | — |
 
 **Related:** [ProseScrollLabels](/reference/studio-sdk/components#prosescrolllabels)
+
+
+## useRegisterDirty
+
+```ts
+function useRegisterDirty(dirty: boolean): void
+```
+
+Report an editor's dirty state to the enclosing `GuardedTabs`. A no-op
+outside a provider (an editor rendered standalone, e.g. in isolation tests) so
+the hook is always safe to call.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dirty` | `boolean` | — | — |
 
 
 ## useViewMode

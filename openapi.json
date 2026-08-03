@@ -201,12 +201,21 @@
         "type": "object"
       },
       "BackupImport": {
-        "description": "Import request — a backup ``document`` produced by the export route and the\nsection names to import from it.",
+        "description": "Import request — a backup ``document`` produced by the export route, the\nsection names to import from it, and the per-record ``mode``.",
         "properties": {
           "document": {
             "additionalProperties": true,
             "title": "Document",
             "type": "object"
+          },
+          "mode": {
+            "default": "skip",
+            "enum": [
+              "skip",
+              "overwrite"
+            ],
+            "title": "Mode",
+            "type": "string"
           },
           "sections": {
             "items": {
@@ -2013,6 +2022,20 @@
           "path"
         ],
         "title": "TemplateDelete",
+        "type": "object"
+      },
+      "TemplateDirDelete": {
+        "description": "Delete every stored template under the directory ``path``.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "TemplateDirDelete",
         "type": "object"
       },
       "TemplateFetch": {
@@ -5045,7 +5068,7 @@
     },
     "/api/connectors/connections": {
       "get": {
-        "description": "The installed connections as secret-free views.",
+        "description": "The installed connections as secret-free views.\n\n``health`` filters the returned items to a single ``auth_health_state``\n(``healthy`` / ``reconnect_required`` / ``refresh_failing``); an unrecognised\nvalue is a loud 400. ``limit`` caps the number of returned items (a positive\ninteger no larger than the hard guard); ``total`` still reports the full match\ncount so a caller sees there is more beyond the page. ``unhealthy`` counts every\nnot-healthy connection across the whole set, independent of the filter and limit.",
         "operationId": "get_api_connectors_connections",
         "responses": {
           "200": {
@@ -5063,6 +5086,16 @@
               }
             },
             "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
           },
           "401": {
             "content": {
@@ -5234,7 +5267,7 @@
         "x-destructive": true
       },
       "get": {
-        "description": "One connection's secret-free view; an unknown id is a loud 404.",
+        "description": "One connection's secret-free view, with live sub-service reachability; an\nunknown id is a loud 404.",
         "operationId": "get_api_connectors_connections_connection_id",
         "parameters": [
           {
@@ -5365,6 +5398,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
           }
         },
         "security": [
@@ -5449,6 +5492,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
           }
         },
         "security": [
@@ -5537,7 +5590,7 @@
     },
     "/api/connectors/providers": {
       "get": {
-        "description": "The provider catalog — one entry per registered connector provider.",
+        "description": "The provider catalog — one entry per registered connector provider, plus\nthe category groupings the UI arranges them under.\n\nProviders come from the in-memory registry (populated by provider plugins at\nimport), so they list regardless of store configuration. The category\ngroupings live in the connector store's Postgres, so they are served only when\nthat store is configured (otherwise an empty grouping list, mirroring the\nOFF-state connections read).",
         "operationId": "get_api_connectors_providers",
         "responses": {
           "200": {
@@ -5572,7 +5625,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List OAuth connector providers",
+        "summary": "List connector providers",
         "tags": [
           "connectors"
         ]
@@ -6264,6 +6317,80 @@
           }
         ],
         "summary": "Delete a template",
+        "tags": [
+          "templates"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/delete-template-dir": {
+      "post": {
+        "description": "Delete every stored template under the directory ``path``.\n\nUnlike the single-template delete (idempotent — an absent key is a no-op\n``200``), a directory that matches nothing is a loud ``404``: the provider\nraises ``FileNotFoundError`` for an absent directory and that surfaces as a\n:class:`NotFoundError`. A key that resolves to the template ROOT (``.`` /\n``a/..``) would wipe the whole store, so it is refused with a ``400`` HERE —\nahead of the provider and independent of any backend's own root check; a\nprovider that still reports a root violation as a ``ValueError`` is mapped to a\n``400`` as well.",
+        "operationId": "post_api_delete_template_dir",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateDirDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a template directory",
         "tags": [
           "templates"
         ],

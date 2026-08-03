@@ -64,6 +64,7 @@ The two envelopes never mix — a response carries `data` or `error`, never both
 | `400` | The request body or parameters failed validation. |
 | `401` | The `x-api-key` header is missing or invalid. |
 | `404` | The addressed resource does not exist. |
+| `500` | An unexpected server error — the body carries a correlation `error_id`. |
 | `503` | The server is applying a config reload — retry shortly. |
 
 ## The reload-gated 503
@@ -81,6 +82,30 @@ response carries a `Retry-After` header with the seconds to wait:
 
 Retry the request after the `Retry-After` interval. Read-only routes stay
 available throughout a reload.
+
+## Unexpected errors and validation
+
+Every error is JSON with an `error` field and nothing beyond it that could leak.
+An unexpected, unhandled server error answers a uniform `500` on every serving
+path — the body is a fixed envelope carrying a correlation id and no internal
+detail:
+
+```json
+{
+  "error": "Internal Server Error",
+  "error_id": "3f9c2a1e8b7d4f60a1c2e3d4f5a6b7c8"
+}
+```
+
+The `error_id` correlates the response to the server-log line that records the
+full traceback under the same id; the internal exception text — hosts, file paths,
+stack frames — never reaches the client. Quote the `error_id` when reporting a
+fault.
+
+A validation failure names **which** fields failed and **how**, never **what** you
+sent. The body lists each offending field's path and its error type only — the
+rejected input values are stripped — so a secret submitted in a rejected field can
+never ride back out in the error response.
 
 <Tip>
   Regenerate this reference from the running code with `tai openapi --out
