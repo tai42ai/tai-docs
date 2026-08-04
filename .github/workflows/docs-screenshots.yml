@@ -8,23 +8,25 @@
 # its Redis/Postgres) and a browser -- and is only meaningful when the Studio UI
 # changes, so it is NOT on the daily schedule the reference regeneration uses.
 #
-# Triggers: manual (workflow_dispatch) and a repository_dispatch fired by
-# tai-studio's notify hook ONLY when its UI paths change (notify-docs-screenshots).
+# Triggers: manual (workflow_dispatch) and a `studio-screenshots`
+# repository_dispatch fired by the notify-docs-screenshots hooks in tai-studio
+# and babelfish, each ONLY when its UI paths change.
 #
 # Secrets: TAI_CI_TOKEN (clone the private source repos) and TAI_DOCS_PR_TOKEN
 # (open the PR as a PAT so the PR triggers the docs `gate`, unlike GITHUB_TOKEN).
 #
 # NOTE on churn: the shots embed live demo data (seeded IDs, counters). The demo
-# seed is pinned (fixed tokens/fingerprints in boot.sh), but if a regeneration PR
-# shows only noise diffs (a timestamp, a counter) rather than a real UI change,
-# the demo seed needs further pinning. Review the image diffs before merging.
+# seed is pinned (fixed tokens/fingerprints in boot.sh). Regeneration PRs
+# self-merge (regen-automerge.yml), so watch merged regen PRs: image diffs that
+# are only noise (a timestamp, a counter) rather than a real UI change mean the
+# demo seed needs further pinning.
 
 name: docs-screenshots
 
 on:
   workflow_dispatch:
   repository_dispatch:
-    types: [studio-screenshots] # fired by tai-studio on UI-path pushes to main
+    types: [studio-screenshots] # fired by tai-studio and babelfish on UI-path pushes to main
 
 permissions:
   contents: read
@@ -134,8 +136,9 @@ jobs:
           fi
 
       - name: Open an automated PR when a screenshot changed
-        # Never pushes to main; a differing capture lands as a bot PR a human merges
-        # after eyeballing the image diffs. A no-op when nothing changed.
+        # Never pushes to main; a differing capture lands as a bot PR that
+        # self-merges once the required checks pass (regen-automerge.yml). A no-op
+        # when nothing changed.
         #
         # `token` is TAI_DOCS_PR_TOKEN (a PAT), NOT GITHUB_TOKEN: a PR opened with
         # GITHUB_TOKEN does not trigger further workflows, so the docs `gate` (link
@@ -151,8 +154,8 @@ jobs:
             Automated regeneration of the Studio docs screenshots
             (`images/studio/*.png`) from tai-studio's `main` UI.
 
-            **Review the image diffs before merging.** If the only diffs are noise
-            (a timestamp or a counter) rather than a real UI change, the docs-demo
-            seed needs further pinning.
+            Self-merges once the required checks pass. If the only image diffs
+            are noise (a timestamp or a counter) rather than a real UI change,
+            the docs-demo seed needs further pinning.
           labels: documentation, automated, screenshots
           delete-branch: true
