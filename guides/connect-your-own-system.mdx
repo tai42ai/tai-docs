@@ -50,7 +50,7 @@ create.
 
 ```bash
 tai conversations create billing \
-  --door api --agent billing-agent-spec --execution-key billing-agent \
+  --door api --target-name billing-agent-spec --execution-key billing-agent \
   --callback-url https://your-app.example.com/tai/answers
 ```
 
@@ -62,7 +62,7 @@ where your callback receiver can read it.
 {
   "created": true,
   "route_name": "billing",
-  "route": { "door": "api", "agent_name": "billing-agent-spec", "callback_url": "https://your-app.example.com/tai/answers" },
+  "route": { "door": "api", "target_kind": "agent", "target_name": "billing-agent-spec", "callback_url": "https://your-app.example.com/tai/answers" },
   "callback_secret": "shown-once-store-it-now"
 }
 ```
@@ -95,8 +95,9 @@ configured, `400` a malformed body, `401` an unauthorized caller.
 Add `wait_seconds` to wait inline for a fast turn. A turn that finishes within the
 window answers `200` with the answer embedded and its callback **suppressed** (so it
 never double-fires); a turn still running when the wait elapses falls back to `202`
-and the answer arrives by callback as usual. The window is clamped to the
-deployment's `sync_wait_max_seconds` cap.
+and the answer arrives by callback as usual. A turn that finishes **silent** resolves
+the same way — `200` inline with `status: "silent"` and no answer text. The window is
+clamped to the deployment's `sync_wait_max_seconds` cap.
 
 ```bash
 curl -sS -X POST "$TAI_BASE_URL/api/conversations/billing/messages" \
@@ -128,6 +129,17 @@ is **generic client-safe text** — never an internal detail:
 { "message_id": "4f1c…", "thread_id": "bridge:billing:user-42",
   "status": "error", "answer": "Sorry, something went wrong handling your message. Please try again." }
 ```
+
+On a **silent** turn — a tool target whose mapped reply was `null` or blank — the
+callback carries `status: "silent"` and **no** `answer` key at all:
+
+```json
+{ "message_id": "4f1c…", "thread_id": "bridge:billing:user-42", "status": "silent" }
+```
+
+Every turn therefore resolves to one of `answered`, `error`, or `silent`, so your
+receiver always gets a terminal callback (or inline reply) and never waits on a turn
+that quietly went nowhere.
 
 ## Verify the `X-Tai-Signature`
 

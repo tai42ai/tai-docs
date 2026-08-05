@@ -1,14 +1,14 @@
 ---
 title: "Client conversations"
-description: "Route a client message from a messaging channel or an API caller to an agent turn and deliver the answer back."
+description: "Route a client message from a messaging channel or an API caller to an agent run or a tool dispatch and deliver the answer back."
 icon: "comments"
 ---
 
 The conversation bridge turns an inbound message — from a messaging channel like
-WhatsApp, Telegram, or Slack, or from an authed API caller — into an agent turn
-whose answer is durably stored and delivered back to the client. One routing table
-binds each inbound identity to the agent that answers it and the key that agent
-runs as.
+WhatsApp, Telegram, or Slack, or from an authed API caller — into a turn whose answer
+is durably stored and delivered back to the client. One routing table binds each
+inbound identity to what answers it — an **agent** run or a direct **tool** dispatch
+— and the key that turn runs as.
 
 ## The two doors
 
@@ -24,27 +24,54 @@ A message reaches the bridge through one of two doors, chosen per route:
   HTTPS callback to the route's `callback_url`, or returned inline on a bounded
   sync wait.
 
+A blank or whitespace-only message is refused before any turn runs: the `api` door
+answers `400`, and a channel drops it (logged, nothing sent back).
+
 ## The routing table
 
 A **route** is one row in the conversation routing table. It binds an inbound door
-to the agent a turn runs and the execution key that turn runs as:
+to what a turn runs — an agent or a tool — and the execution key that turn runs as:
 
 | Field | Meaning |
 | --- | --- |
 | `route_name` | A slug (`[a-z0-9-]+`); the handle and the thread-key namespace. |
 | `door` | `channel` or `api`. |
-| `agent_name` | The agent the turn runs — it must exist. |
+| `target_kind` | `agent` (a threaded agent run) or `tool` (a stateless tool dispatch). |
+| `target_name` | The agent or tool the turn runs — it must exist. |
 | `execution_key` | The API-key identity the turn runs **as**. |
+| `payload_expr` / `reply_expr` | `tool` targets: jq mapping the message to the tool kwargs and the result to the reply. |
 | `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
 | `callback_url` | `api` rows: the HTTPS answer sink. |
 
 A `channel` route's `(channel, our_identity)` pair is unique — a second route
 claiming the same identity is refused at write, so every inbound message resolves
 to exactly one route. Many rows may share one channel, each with its own identity,
-so one provider account fans out to many agents.
+so one provider account fans out to many targets.
 
 Manage the table with the `tai conversations` CLI or the `/api/conversations`
 routes; see the [bridge reference](/reference/conversation-bridge).
+
+### Agent and tool targets
+
+A `target_kind` of **`agent`** runs a registered agent as the turn: it streams on the
+route's thread, so the conversation carries memory across messages. A `target_kind`
+of **`tool`** dispatches a registered tool **statelessly** — no thread, no memory,
+one message in and one reply out — with two optional jq programs shaping the call:
+
+- **`payload_expr`** maps the inbound payload `{message, sender, our_identity,
+  channel}` to the tool's kwargs; without it the kwargs are `{message, sender}`.
+- **`reply_expr`** maps the tool's result to the reply text; without it the result
+  must itself be a string or `null`.
+
+A tool reply that is `null` or blank is a **deliberate silence** — the turn ran but
+has nothing to say. On a `channel` route nothing is sent back (a terminal `silent`
+record); on an `api` route the silence is communicated, delivered as a callback (or
+sync-wait reply) whose `status` is `silent` and which carries no answer text. That
+makes a tool target a way to answer some messages and stay quiet on others: a
+published [flow preset](/concepts/presets), say, that replies only when it has
+something to return. See the [bridge
+reference](/reference/conversation-bridge#route-targets-agent-or-tool) for the exprs
+in full.
 
 ## How a route is authorized
 
@@ -55,9 +82,9 @@ Two authorities are separate and both live:
    delivery is rejected and runs no turn). An `api` message is authenticated by the
    access-control gate on the send door: the caller needs a key authorized for that
    route.
-2. **What the agent may do.** The turn runs as the route's bound `execution_key`,
+2. **What the turn may do.** The turn runs as the route's bound `execution_key`,
    **not** as whoever sent the message. That key's live stored grants authorize the
-   agent run and every tool call the turn makes.
+   agent run (or the `tool` target's dispatch) and every tool call the turn makes.
 
 Binding the execution key is a delegation decision taken when the route is created:
 you may bind your own identity or a key you own, or any key as an admin (a
@@ -86,7 +113,7 @@ revocation-specific step. Scope the execution key (or the agent) to least privil
 flowchart LR
     C["client<br/>(WhatsApp / API caller)"] -->|inbound| CH["channel webhook<br/>or api door"]
     CH -->|match route| BR["bridge<br/>(routing table)"]
-    BR -->|run AS execution_key| AG["agent turn"]
+    BR -->|run AS execution_key| AG["agent run<br/>or tool dispatch"]
     AG -->|answer persisted| REC["answer record"]
     REC -->|deliver| OUT["channel send<br/>or signed callback"]
     OUT -->|reply| C
@@ -114,9 +141,13 @@ delivery lifecycle:
 - `failed` — undelivered after the attempt budget, or reported failed by the
   provider (loud, retained, and listed on the admin failed-delivery door).
 - `shed` — refused by the address rate cap; no turn ran.
+- `silent` — a **channel** `tool` turn whose mapped reply was `null` or blank; the
+  turn ran but nothing is sent back. An **api** tool turn that maps to silence
+  instead ends `delivered`, its callback carrying `status: "silent"` and no answer.
 
-A turn's own outcome is orthogonal: `answered`, or `error` — an `error` answer
-carries generic client-safe text, never an internal detail. Delivery is retried
+A turn's own outcome is orthogonal: `answered`, `error`, or `silent` — an `error`
+answer carries generic client-safe text, never an internal detail, and a `silent`
+outcome carries no answer text at all. Delivery is retried
 with backoff; a permanently undelivered answer ends `failed` rather than
 disappearing.
 
@@ -126,12 +157,15 @@ window arrives this way), which flips the record to `failed`.
 
 ## Conversation lifetime
 
-A route's thread key is `bridge:{route_name}:{client_address}`, so each client
-address holds its own conversation on a route and an agent remembers earlier turns
-across separate inbound messages. Continuity is the checkpoint store's: with an
+An `agent` route's thread key is `bridge:{route_name}:{client_address}`, so each
+client address holds its own conversation on a route and the agent remembers earlier
+turns across separate inbound messages. Continuity is the checkpoint store's: with an
 idle TTL configured (`checkpoint_ttl_minutes`), a thread idle past the lifetime is
 swept and the next message starts fresh; with no TTL the thread is kept. See
 [retention](/reference/conversation-bridge#checkpoint-retention).
+
+A `tool` target keeps no conversation: each message is dispatched on its own, with no
+thread to remember or expire.
 
 Answer records carry their own retention: a record is kept for a retention window
 after it reaches a terminal state, then expires with its indexes.

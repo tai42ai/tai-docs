@@ -421,13 +421,8 @@
         "type": "object"
       },
       "ConversationRouteCreate": {
-        "description": "The client-facing create/edit body for a conversation route: the fields a caller\nsupplies.\n\nBinds an ``agent_name`` to an ``execution_key`` the turn runs AS (bound with\npass-role at create). ``api`` rows carry an https ``callback_url``; ``channel`` rows\ncarry the registry ``channel`` plus the ``our_identity`` the medium is texted at (N\nrows may share a channel, each its own identity). The server-derived\n``callback_secret`` and ``execution_key_fingerprint`` are deliberately absent;\n:class:`ConversationRoute` is this shape plus those. Frozen.",
+        "description": "The client-facing create/edit body for a conversation route: the fields a caller\nsupplies.\n\nBinds a ``(target_kind, target_name)`` — an ``agent`` run or a ``tool`` dispatch — to\nan ``execution_key`` the turn runs AS (bound with pass-role at create). A ``tool``\ntarget may carry a ``payload_expr`` (jq mapping the inbound message to the tool's\nkwargs) and a ``reply_expr`` (jq mapping the tool's result to the reply); both are\ntool-only. ``api`` rows carry an https ``callback_url``; ``channel`` rows carry the\nregistry ``channel`` plus the ``our_identity`` the medium is texted at (N rows may\nshare a channel, each its own identity). The server-derived ``callback_secret`` and\n``execution_key_fingerprint`` are deliberately absent; :class:`ConversationRoute` is\nthis shape plus those. Frozen.",
         "properties": {
-          "agent_name": {
-            "minLength": 1,
-            "title": "Agent Name",
-            "type": "string"
-          },
           "callback_url": {
             "anyOf": [
               {
@@ -461,7 +456,7 @@
             "type": "string"
           },
           "execution_key": {
-            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run and every tool call the turn makes.",
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
             "minLength": 1,
             "title": "Execution Key",
             "type": "string"
@@ -478,15 +473,53 @@
             "default": null,
             "title": "Our Identity"
           },
+          "payload_expr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Payload Expr"
+          },
+          "reply_expr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reply Expr"
+          },
           "route_name": {
             "title": "Route Name",
+            "type": "string"
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
             "type": "string"
           }
         },
         "required": [
           "route_name",
           "door",
-          "agent_name",
+          "target_kind",
+          "target_name",
           "execution_key"
         ],
         "title": "ConversationRouteCreate",
@@ -5912,7 +5945,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``agent_name`` must merely EXIST — the\nkey's live grants bound the turn at fire. A ``channel`` row's ``our_identity`` is stored\ncanonicalized and must not already be routed on that channel. An ``api`` row's\n``callback_secret`` is minted here and returned ONCE. Returns ``{\"created\",\n\"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An ``api`` row's ``callback_secret`` is minted here and returned ONCE.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {

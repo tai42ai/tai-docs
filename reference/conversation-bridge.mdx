@@ -22,18 +22,69 @@ Every routing operation requires the Redis conversations backend
 
 `create` is an authority-changing, admin-adjacent operation: it **binds** the
 route's `execution_key` (a pass-role decision) before any write, so a refused bind
-leaves an existing row untouched. `agent_name` must merely exist. A `channel` row's
-`(channel, our_identity)` pair must be unclaimed. An `api` row mints a
-`callback_secret` returned **once** in the create result and never re-readable.
+leaves an existing row untouched. The `target_name` — the agent or tool the turn
+runs — must merely exist. A `channel` row's `(channel, our_identity)` pair must be
+unclaimed. An `api` row mints a `callback_secret` returned **once** in the create
+result and never re-readable.
 
 ```bash
 tai conversations create support-line \
-  --door channel --agent support --execution-key support-bot \
+  --door channel --target-name support --execution-key support-bot \
   --channel twilio --identity whatsapp:+14155238886
 ```
 
-`create` flags: `--door` (`api`|`channel`), `--agent`, `--execution-key`,
-`--channel` / `--identity` (channel rows), `--callback-url` (api rows, HTTPS).
+`create` flags: `--door` (`api`|`channel`), `--target-kind` (`agent`|`tool`, default
+`agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
+targets), `--channel` / `--identity` (channel rows), `--callback-url` (api rows,
+HTTPS).
+
+## Route targets: agent or tool
+
+A route's `target_kind` chooses what an inbound turn runs:
+
+- **`agent`** (`target_name` a registered agent) — the default. The turn is the
+  agent's `astream` on the route's thread, so the conversation carries memory across
+  messages (see [conversation
+  lifetime](/concepts/client-conversations#conversation-lifetime)).
+- **`tool`** (`target_name` a registered tool) — the turn dispatches the tool
+  **statelessly**: no thread, no conversation memory, one message in and one reply
+  out. It runs under the route's `execution_key`, whose grants authorize the
+  dispatch.
+
+A `tool` target shapes the call with two optional jq programs, both compiled at
+create (an `agent` target carries neither):
+
+- **`payload_expr`** — jq over the inbound payload `{message, sender, our_identity,
+  channel}`, emitting exactly one JSON object: the tool's kwargs. Omitted, the kwargs
+  are the fixed `{message, sender}`.
+- **`reply_expr`** — jq over the tool's result, emitting exactly one value that is a
+  string or `null`: the reply text. Omitted, the result must itself be a string or
+  `null`.
+
+A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
+on the door. On a `channel` route the record ends in the terminal `silent` state and
+nothing is sent to the client. On an `api` route the silence is **communicated**: the
+turn rides the normal delivery pipeline and its callback (or sync-wait reply) carries
+`status: "silent"` with no `answer` text, so the caller still gets a terminal result.
+A mapping fault, a denied or failed dispatch, or a wrong-typed result is a client-safe
+`error` outcome instead.
+
+### A flow preset as a tool target
+
+Publish a flow as a named tool (a [preset](/concepts/presets)) and route to it to
+answer each message by running the flow. The flow tool takes `flow_graph_kwargs`, so
+map the message into them and pull the reply out of the result envelope:
+
+```bash
+tai conversations create flow-line \
+  --door channel --target-kind tool --target-name my_flow --execution-key svc \
+  --channel twilio --identity whatsapp:+14155238886 \
+  --payload-expr '{flow_graph_kwargs: {message: .message, sender: .sender}}' \
+  --reply-expr '.result.answer // null'
+```
+
+`.result.answer` is the flow's answer node; `// null` stays silent when the flow
+produces nothing to say.
 
 ## The message door
 
@@ -44,8 +95,9 @@ message and runs its turn as the route's execution key. Body: `external_user_id`
 - `202 {message_id, thread_id}` — accepted, answer delivered later by signed
   callback (default).
 - `200` with the answer inline — a `wait_seconds` turn that finished in time; its
-  callback is suppressed so it never double-fires. `wait_seconds` is clamped to
-  `sync_wait_max_seconds`.
+  callback is suppressed so it never double-fires. A turn that finished **silent**
+  returns `200` with the silent marker inline (`status: "silent"`, no answer text).
+  `wait_seconds` is clamped to `sync_wait_max_seconds`.
 - Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
   address rate cap, `501` no backend, `503` thread queue full.
 
@@ -69,8 +121,12 @@ The failed-delivery listing spans every route and caller, so it is admin-only.
 
 An answer record moves through `accepted` → `pending_delivery` → `provisional` →
 `delivered`, or ends `failed` (undelivered past the attempt budget, or reported
-failed by the provider) or `shed` (refused by the address rate cap; no turn ran).
-Only the terminal states (`delivered`, `failed`, `shed`) carry the retention TTL.
+failed by the provider), `shed` (refused by the address rate cap; no turn ran), or
+`silent` (a **channel** `tool` turn whose mapped reply was `null`/blank; the turn ran
+but sends nothing). An **api** `tool` turn that maps to silence does **not** end
+`silent`: it rides the delivery pipeline like any answer and ends `delivered`, its
+callback carrying `status: "silent"`. Only the terminal states (`delivered`, `failed`,
+`shed`, `silent`) carry the retention TTL.
 Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
@@ -125,7 +181,7 @@ or with the TTL unset. It runs on either recurrence path:
 
 ## The fire-path authorization model
 
-A conversation route separates *who may send* from *what the agent may do*, and both
+A conversation route separates *who may send* from *what the turn may do*, and both
 are enforced live.
 
 <Warning>
@@ -145,10 +201,10 @@ gate on the send door. This mirrors the general
 public, verifier-signed, token-gated, or API-key-gated — applied to the two
 conversation doors.
 
-**What the agent may do.** The turn runs **as** the route's bound `execution_key`,
-never as the sender. That key's **live** stored grants authorize the agent run and
-every tool call the turn makes — including any tool a deep-agent sub-agent calls.
-The rules:
+**What the turn may do.** The turn runs **as** the route's bound `execution_key`,
+never as the sender. That key's **live** stored grants authorize the agent run (or
+the `tool` target's dispatch) and every tool call the turn makes — including any tool
+a deep-agent sub-agent calls. The rules:
 
 - **Bind (pass-role).** You may bind your own identity or an execution key you own;
   an admin may bind any key. A non-admin's refusal is a uniform `403` across
@@ -172,7 +228,9 @@ detail retained for the admin read door.
 **Signed-callback posture.** An `api` route's `callback_url` must be absolute
 **HTTPS** — an `http://` or relative URL is rejected at create, with **no** insecure
 opt-out. Every callback is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
-raw_body)>`. See [connect your own system](/guides/connect-your-own-system#verify-the-x-tai-signature).
+raw_body)>`, over a body of `{message_id, thread_id, status, answer}` — with `answer`
+absent on a `silent` outcome. See [connect your own
+system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
 ## Settings
 

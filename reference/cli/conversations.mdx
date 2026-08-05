@@ -18,9 +18,11 @@ An UPSERT — a name that already exists is REPLACED, rebinding its `execution_k
 along with everything else (`created` is `false` for a replace). A `door=api`
 route's `callback_secret` is minted server-side and shown ONCE in the result; it
 signs the delivery callback and is never re-readable. There is no check that you can
-run the agent — the execution key's live grants bound the turn.
+run the target — the execution key's live grants bound the turn. A `tool` target may
+map the message to the tool kwargs (`--payload-expr`) and the result to the reply
+(`--reply-expr`); a tool reply of null/blank sends nothing.
 
-Example: `tai conversations create support-line --door channel --agent triage \
+Example: `tai conversations create support-line --door channel --target-name triage \
 --execution-key svc --channel twilio --identity +15550001111`
 
 ```console
@@ -34,8 +36,11 @@ $ tai conversations create [OPTIONS] {route_name}
 | Option | Description |
 | --- | --- |
 | `--door` `&lt;str&gt;` | Inbound door: 'api' or 'channel'. _(required)_ |
-| `--agent` `&lt;str&gt;` | The agent the turn runs (must exist). _(required)_ |
+| `--target-name` `&lt;str&gt;` | The agent or tool the turn runs (must exist). _(required)_ |
 | `--execution-key` `&lt;str&gt;` | The api-key user id the turn runs AS; you must own it (or be admin), tokenless-evaluable. _(required)_ |
+| `--target-kind` `&lt;str&gt;` | What the turn runs: 'agent' or 'tool'. _(default: `agent`)_ |
+| `--payload-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the inbound message to the tool kwargs. |
+| `--reply-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the tool result to the reply. |
 | `--channel` `&lt;str&gt;` | door=channel: the channel registry name (e.g. twilio). |
 | `--identity` `&lt;str&gt;` | door=channel: the medium address we are texted at. |
 | `--callback-url` `&lt;str&gt;` | door=api: the https answer-delivery URL. |
