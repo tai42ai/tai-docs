@@ -61,8 +61,44 @@ Each section returns a report: `created`, `updated`, and two distinct skip count
 
 Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
 
+## Recovering from a bad migration
+
+The backup document above captures **platform state** — policies, presets, and the
+other registered sections. It does not capture the database **schema**, which is a
+separate layer: versioned as [migration chains](/concepts/marketplace#the-migrations-contract)
+and recorded, one row per applied file, in the `tai_schema_history` table. That
+table is the source of truth for where each component's schema stands; read it
+with `tai db status`.
+
+Migration chains roll **forward only** — there are no down-migrations, so a
+migration is never "un-applied". Recovering from a migration that went wrong is a
+restore-then-re-migrate, not a rollback:
+
+<Steps>
+  <Step title="Restore the datastore snapshot">
+    Restore Postgres to a snapshot taken before the bad migration (a managed
+    provider's point-in-time restore, or a `pg_dump` you captured). This brings
+    the schema, the data, and `tai_schema_history` back to that point together —
+    which is why the [upgrade flow](/self-hosted/upgrades) tells you to snapshot
+    before a schema-carrying upgrade.
+  </Step>
+  <Step title="Re-migrate forward">
+    Point the image you mean to run at the restored database and run
+    `tai db migrate`. The runner reads `tai_schema_history`, sees which files the
+    snapshot already carries, and applies only what is still pending — bringing the
+    chain forward to the running image. Preview it first with `tai db migrate --plan`.
+  </Step>
+</Steps>
+
+<Note>
+Because history and data restore as one snapshot, keep the datastore backup and
+the `tai backup export` document on the same cadence — a restored database and a
+stale platform-state document drift apart otherwise.
+</Note>
+
 ## See also
 
+- [Ops notes](/self-hosted/ops#schema-migrations) — `tai db status` and the migration model.
 - [Access control](/guides/access-control) — one of the sections you back up.
 - [Create and version a preset](/guides/create-and-version-a-preset) — presets are a backed-up section.
 - [CLI reference](/reference/cli) — the full `tai backup` surface.

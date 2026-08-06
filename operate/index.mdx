@@ -45,9 +45,11 @@ long-lived processes come out of the same image:
 | backend worker | `tai backend worker` | Runs queued, scheduled, and agent work. |
 | metrics | `tai metrics` | Serves the Prometheus multiprocess endpoint. |
 
-A one-shot `db-init` step runs `tai db apply`, and `serve` and `backend` wait for
-it to complete before they start. The DDL is additive and `IF NOT EXISTS`, so
-re-running it is safe.
+A one-shot `db-migrate` step runs `tai db migrate`, and `serve` and `backend`
+wait for it to complete before they start. It applies the ordered migration chain
+— the core plus each installed plugin that owns one — and is idempotent: a run
+with nothing pending is a no-op. Each app container also refuses to serve on an
+out-of-date database, so a missed migration is a loud refusal, not a broken serve.
 
 <Note>
 The official `docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is
@@ -230,8 +232,8 @@ helm install tai oci://ghcr.io/tai42ai/charts/tai \
 
 `serve.replicaCount` scales the API; running `serve.workers` above one requires
 `serve.statelessHttp=true`, because a stateful HTTP transport refuses a
-multi-worker boot. A `schemaInit` hook Job runs `tai db apply` around install and
-upgrade.
+multi-worker boot. A `schemaInit` hook Job runs `tai db migrate` around install
+and upgrade, applying the migration chain before the app pods start.
 
 The chart requires Kubernetes 1.29 or newer, because the metrics sidecar is a
 native sidecar container. It integrates with cluster add-ons but never installs

@@ -17,8 +17,9 @@ helm test tai
 
 The chart runs `serve` and `backend` as separate Deployments, each with a
 `tai metrics` native sidecar, and by default installs quickstart Postgres and
-Redis StatefulSets for a self-contained trial. A `schemaInit` hook runs
-`tai db apply` around install and upgrade.
+Redis StatefulSets for a self-contained trial. A `schemaInit` hook Job runs
+`tai db migrate` around install and upgrade, applying the ordered migration chain
+before the app pods start.
 
 <Note>
 Pin `--version` to a chart release. The chart version and the app image version
@@ -61,10 +62,12 @@ in the chart README.
 helm upgrade tai oci://ghcr.io/tai42ai/charts/tai --version 0.3.1
 ```
 
-The upgrade re-runs the `tai db apply` hook and rolls the Deployments. With an
-external Postgres the hook runs `pre-upgrade` (schema first, strict ordering);
-with the quickstart Postgres it runs `post-upgrade`. The DDL is additive, and the
-data lives in your datastores, not the pods.
+The upgrade re-runs the `tai db migrate` hook Job and rolls the Deployments. With
+an external Postgres the hook runs `pre-upgrade` (migrations first, strict
+ordering); with the quickstart Postgres it runs `post-upgrade`. The chain rolls
+forward and each new pod refuses to serve until its schema is applied, so the
+hook must complete before the rollout; the data lives in your datastores, not the
+pods.
 
 ## The values reference
 

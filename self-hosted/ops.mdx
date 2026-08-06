@@ -40,6 +40,37 @@ mounts (the config directory and the plugin prefix). Back up all of them.
 - **Config** — keep `config/manifest.yml` and the plugin prefix, so a restored
   server boots with the same manifest and the same runtime-installed plugins.
 
+## Schema migrations
+
+The database schema is versioned as **migration chains** — one per component (the
+core, and each installed plugin that owns tables). `tai db migrate` applies every
+pending file across all of them; `tai db status` reports each component's applied,
+pending, and checksum verdict without changing anything, and exits non-zero when
+any component is out of date, so it doubles as a pre-deploy gate.
+
+```bash
+tai db status
+```
+
+The [`tai_schema_history`](/concepts/marketplace#the-migrations-contract) table is
+the source of truth: one row per applied file, per component, with the checksum it
+was applied under. Both commands connect through the `TAI_DB_*` schema-admin
+identity (falling back to `TAI_DEFAULT_*`) — the DDL-privileged role, distinct
+from the app's runtime store roles.
+
+Chains roll **forward only** — there are no down-migrations. To undo a bad
+migration you restore the database to a pre-migration snapshot and re-migrate onto
+it; recovery is never a rollback. Take a snapshot before any upgrade that carries
+schema changes. See [Back up and restore](/operate/backup-and-restore#recovering-from-a-bad-migration).
+
+<Warning>
+Never edit a migration file that has already been applied anywhere. The runner
+records each file's checksum; a changed checksum on an applied version is a hard
+error at the next migrate or boot-gate check — the chain reads as rewritten and
+the process refuses to start. A correction is always a **new** file appended to
+the chain.
+</Warning>
+
 ## Health probes
 
 The server exposes two unauthenticated routes for orchestrators and load

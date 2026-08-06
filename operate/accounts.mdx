@@ -68,16 +68,21 @@ Sessions live in Postgres, in the `accounts_sessions` table below. Login backoff
 and the bootstrap token live in Redis, which arrives from the access-control
 configuration rather than from a variable of this package's own.
 
-### Apply the schema
+### Run the migrations
 
-Three tables — users, sessions, and invites — are created by an idempotent apply
-step. The provider's health check asserts the schema at boot and never applies it
-for you:
+Three tables — users, sessions, and invites — are created by the plugin's own
+migration chain. The plugin ships a `migrations/` folder and declares it in its
+descriptor, so the shared runner discovers it as the `tai42-accounts-postgres`
+component and applies it alongside the core chain:
 
 ```bash
-python -m tai42_accounts_postgres.db apply
-python -m tai42_accounts_postgres.db tables
+tai db migrate
 ```
+
+`tai db status` shows every component's applied / pending verdict, including this
+one. The provider asserts its chain at boot and never applies it for you: with the
+accounts store configured but the chain pending, the process refuses to start,
+naming `tai db migrate`. Run the migrations, then start the server.
 
 ### Create the first admin
 
