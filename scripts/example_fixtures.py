@@ -24,6 +24,7 @@ drifting.
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -47,6 +48,22 @@ def _free_port() -> int:
     port = sock.getsockname()[1]
     sock.close()
     return port
+
+
+# The access-control policy store resolves its Postgres through the central database
+# registry, which RAISES when the default database is unconfigured. These fixtures fake
+# the transport but model a CONFIGURED deployment (there is no store-less access-control
+# serving path), so each snapshots and sets a non-empty default-database password exactly
+# as the skeleton's own offline access-control tests do; the value never reaches a socket.
+_DEFAULT_DATABASE_PASSWORD_ENV = "TAI_DATABASE_DEFAULT_PG_PASSWORD"
+_DEFAULT_DATABASE_PASSWORD = "docs-example"
+
+
+def _restore_env(key: str, saved: str | None) -> None:
+    if saved is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = saved
 
 
 # Fixed demo credentials + scope for the access-control app. The allowed key's
@@ -91,10 +108,13 @@ def ac_app() -> Iterator[dict[str, str]]:
     # the try below, so the restore runs on EVERY exit — including the
     # uvicorn-startup-timeout path, which raises from inside the try.
     saved_registry = dict(registry._REGISTRY)
+    saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
     seams: list[tuple[object, object]] = []
     server: uvicorn.Server | None = None
     thread: threading.Thread | None = None
     try:
+        os.environ[_DEFAULT_DATABASE_PASSWORD_ENV] = _DEFAULT_DATABASE_PASSWORD
+
         # The skeleton ships no concrete identity provider; a deployment lists one
         # in its manifest. Register the default "redis" provider the way a manifest
         # import would.
@@ -163,6 +183,7 @@ def ac_app() -> Iterator[dict[str, str]]:
         tai42_app.bind(None)
         registry._REGISTRY.clear()
         registry._REGISTRY.update(saved_registry)
+        _restore_env(_DEFAULT_DATABASE_PASSWORD_ENV, saved_db_password)
 
 
 # Fixed demo credentials for the owned-keys app. The seeded key is a NON-admin owner
@@ -225,10 +246,13 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     # live-registry seams. Every mutation happens inside the try, so restore runs on EVERY
     # exit path — including the uvicorn-startup-timeout raise.
     saved_registry = dict(registry._REGISTRY)
+    saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
     seams: list[tuple[object, str, object]] = []
     server: uvicorn.Server | None = None
     thread: threading.Thread | None = None
     try:
+        os.environ[_DEFAULT_DATABASE_PASSWORD_ENV] = _DEFAULT_DATABASE_PASSWORD
+
         registry._REGISTRY.clear()
         registry.register_identity_provider("redis", RedisApiKeyProvider)
 
@@ -349,6 +373,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         tai42_app.bind(None)
         registry._REGISTRY.clear()
         registry._REGISTRY.update(saved_registry)
+        _restore_env(_DEFAULT_DATABASE_PASSWORD_ENV, saved_db_password)
 
 
 @contextmanager
