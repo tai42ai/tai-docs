@@ -84,7 +84,7 @@ def render_table() -> str:
         lines.append(
             "| {feature} | {var} | {off} | {kinds} |".format(
                 feature=mdx_cell(feature.label),
-                var=code_cell(feature.enabling_var),
+                var=code_cell(feature.enabling_var()),
                 off=mdx_cell(feature.off_behavior),
                 kinds=f"{code_cell(feature.kind)} reports {code_cell('off')}",
             )

@@ -152,9 +152,9 @@ def test_count_rows_rejects_a_field_with_no_env_var_and_no_nested_group() -> Non
 
 def test_render_fallback_links_a_mapped_field_to_its_default_var() -> None:
     """A field with a ``default_namespace_var`` renders it as a linked code cell."""
-    cell = generate_settings_reference.render_fallback({"default_namespace_var": "TAI_DEFAULT_PG_HOST"})
+    cell = generate_settings_reference.render_fallback({"default_namespace_var": "TAI_DEFAULT_REDIS_URL"})
 
-    assert cell == ("[`TAI_DEFAULT_PG_HOST`](/concepts/config-and-secrets#default-connection-namespace)")
+    assert cell == ("[`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace)")
 
 
 def test_render_fallback_em_dash_for_an_unmapped_field() -> None:

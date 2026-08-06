@@ -46,7 +46,7 @@ def test_real_registry_renders_and_injects() -> None:
 
     # Every feature contributes a row naming its enabling var and its ``off`` kinds row.
     for feature in features:
-        assert f"`{feature.enabling_var}`" in table
+        assert f"`{feature.enabling_var()}`" in table
         assert f"`{feature.kind}` reports `off`" in table
 
     page = f"intro\n\n{START}\n\nOLD TABLE\n\n{END}\n\noutro\n"

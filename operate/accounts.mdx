@@ -37,32 +37,33 @@ settings — the two halves are never half-wired.
 
 ### Connect the database
 
-There is no single database URL. The connection is composed from discrete
-`TAI_ACCOUNTS_PG_*` fields. There is no baked-in default for the connection
-identity: the host and password resolve from this namespace, then from the shared
-`TAI_DEFAULT_PG_*`, then absent — supply them here (the `localhost` values below are
-a local-dev recipe, not a default) or through `TAI_DEFAULT_PG_HOST` /
-`TAI_DEFAULT_PG_PASSWORD`.
+The provider carries no connection of its own. It binds to a [named
+database](/concepts/config-and-secrets#named-databases) through
+`TAI_DB_BINDING_TAI42_ACCOUNTS_POSTGRES` (default `default`) and uses that
+database's connection, keeping its own tables inside it. A single-database
+deployment leaves the binding unset and configures `TAI_DATABASE_DEFAULT_PG_*`;
+give accounts its own database by binding it to another declared name and
+configuring that one:
 
 ```bash
-TAI_ACCOUNTS_PG_HOST=localhost
-TAI_ACCOUNTS_PG_PORT=5432
-TAI_ACCOUNTS_PG_DB=tai
-TAI_ACCOUNTS_PG_USER=postgres
-TAI_ACCOUNTS_PG_PASSWORD=...
+# accounts on the default database — nothing to set beyond the database itself
+TAI_DATABASE_DEFAULT_PG_HOST=localhost
+TAI_DATABASE_DEFAULT_PG_PORT=5432
+TAI_DATABASE_DEFAULT_PG_DB=tai
+TAI_DATABASE_DEFAULT_PG_USER=postgres
+TAI_DATABASE_DEFAULT_PG_PASSWORD=...
+
+# or accounts on its own database
+TAI_DB_BINDING_TAI42_ACCOUNTS_POSTGRES=accounts
+TAI_DATABASE_ACCOUNTS_PG_HOST=...
+TAI_DATABASE_ACCOUNTS_PG_PASSWORD=...
 ```
 
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `TAI_ACCOUNTS_PG_HOST` | — | Postgres host. No baked-in default; resolves from `TAI_DEFAULT_PG_HOST` when unset. |
-| `TAI_ACCOUNTS_PG_PORT` | `5432` | Postgres port. |
-| `TAI_ACCOUNTS_PG_DB` | `tai` | Database name. |
-| `TAI_ACCOUNTS_PG_USER` | `postgres` | Role the provider connects as. |
-| `TAI_ACCOUNTS_PG_PASSWORD` | — | Password for that role. No baked-in default; resolves from `TAI_DEFAULT_PG_PASSWORD` when unset. |
-| `TAI_ACCOUNTS_PG_MIN_CONNECTIONS` | `2` | Pool floor. |
-| `TAI_ACCOUNTS_PG_MAX_CONNECTIONS` | `10` | Pool ceiling. |
-| `TAI_ACCOUNTS_PG_CONNECT_TIMEOUT` | `10` | Connect timeout in seconds. |
-| `TAI_ACCOUNTS_PG_STATEMENT_TIMEOUT_SECONDS` | `60` | Per-statement timeout in seconds. |
+The provider is on when its bound database is configured — a non-empty password —
+and cleanly OFF otherwise, like every other database-backed feature. There is no
+baked-in default; the `localhost` values above are a local-dev recipe. Pool sizes
+and timeouts are tuned on the database itself (`TAI_DATABASE_<NAME>_PG_*`), not a
+variable of this package's own.
 
 Sessions live in Postgres, in the `accounts_sessions` table below. Login backoff
 and the bootstrap token live in Redis, which arrives from the access-control

@@ -121,12 +121,12 @@ A config provider is a plugin; its own settings live in its repository README. S
 
 Enabling access control (`ACCESS_CONTROL_ENABLE`, on by default) adds three deploy requirements.
 
-**Postgres for the policy store.** The access-control policy and route tables are Postgres-backed, with their own `ACCESS_CONTROL_STORE_*` connection namespace (defaulting to the same `tai` database as the other stores). Supply the password via `ACCESS_CONTROL_STORE_PG_PASSWORD`.
+**Postgres for the policy store.** The access-control policy and route tables live in the [named database](/concepts/config-and-secrets#named-databases) the core `skeleton` component binds to — the `default` database unless `TAI_DB_BINDING_SKELETON` points it elsewhere. Configure that database, including its password:
 
 ```bash
-export ACCESS_CONTROL_STORE_PG_HOST=postgres.internal
-export ACCESS_CONTROL_STORE_PG_DB=tai
-export ACCESS_CONTROL_STORE_PG_PASSWORD="$PGPASSWORD"
+export TAI_DATABASE_DEFAULT_PG_HOST=postgres.internal
+export TAI_DATABASE_DEFAULT_PG_DB=tai
+export TAI_DATABASE_DEFAULT_PG_PASSWORD="$PGPASSWORD"
 ```
 
 **Any plain Redis.** The auth gate reads its live context and the identity records from plain Redis hashes. There is no baked-in default: point the connection with `ACCESS_CONTROL_REDIS_URL`, or let it resolve from the shared `TAI_DEFAULT_REDIS_URL` — with the gate on, one of the two must be set. Any standard, module-less `redis-server` runs the whole ecosystem, access control included — `redis:7`, `redis:8`, or `valkey`. No RedisJSON, no redis-stack, no Redis modules are required anywhere.
