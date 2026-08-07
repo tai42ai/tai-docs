@@ -263,6 +263,39 @@ LoginMethod = Annotated[FormMethod | ButtonMethod, Field(discriminator='shape')]
 The closed union of renderable login-method shapes.
 
 
+## abort_staging
+
+`tai42_contract.accounts.registry.abort_staging`
+
+```python
+abort_staging() -> None
+```
+
+Drop the staged generation on a failed build.
+
+
+## begin_staging
+
+`tai42_contract.accounts.registry.begin_staging`
+
+```python
+begin_staging() -> None
+```
+
+Open a fresh staged generation the epoch build registers into.
+
+
+## commit_staging
+
+`tai42_contract.accounts.registry.commit_staging`
+
+```python
+commit_staging() -> None
+```
+
+Promote the staged generation to committed in one reference assignment.
+
+
 ## get_accounts_provider_factory
 
 `tai42_contract.accounts.registry.get_accounts_provider_factory`
@@ -271,7 +304,8 @@ The closed union of renderable login-method shapes.
 get_accounts_provider_factory(name: str) -> Callable[..., AccountsProvider]
 ```
 
-Return the factory registered under ``name``; unknown names raise KeyError.
+Return the factory registered under ``name`` in the COMMITTED generation;
+unknown names raise KeyError.
 
 **Parameters**
 
@@ -288,10 +322,23 @@ Return the factory registered under ``name``; unknown names raise KeyError.
 iter_accounts_provider_factories() -> list[tuple[str, Callable[..., AccountsProvider]]]
 ```
 
-Name-sorted snapshot of all registered factories.
+Name-sorted snapshot of the COMMITTED factories.
 
 Returns a new list: callers may iterate freely without touching registry
 state. Sorted for deterministic aggregator output.
+
+
+## iter_accounts_provider_factories_staged
+
+`tai42_contract.accounts.registry.iter_accounts_provider_factories_staged`
+
+```python
+iter_accounts_provider_factories_staged() -> list[tuple[str, Callable[..., AccountsProvider]]]
+```
+
+Name-sorted snapshot of the STAGED generation if a build is staging, else the
+committed one — the build's own accessor (the configured-providers boot check,
+kind status).
 
 
 ## register_accounts_provider
@@ -307,6 +354,8 @@ Register a named accounts-provider factory in BOTH registries.
 Registers ``factory`` here and — because an accounts provider is the
 identity answerer for its own session tokens — into the identity
 registry under the same name. A duplicate in either registry raises.
+Both registries stage together, so a staged accounts registration lands
+beside its staged identity twin.
 
 **Parameters**
 
@@ -324,8 +373,7 @@ registry under the same name. A duplicate in either registry raises.
 reset_registry() -> None
 ```
 
-Clear the accounts registrations (application start() re-imports plugin modules).
-
-Clears only this registry: the application's start() resets the identity
-registry itself before re-importing plugin modules.
+Clear the write-target accounts registrations — the STAGED generation while a
+build is staging (never the committed one), else the committed map (boot, test
+isolation). Clears only this registry: the identity registry has its own lifecycle.
 
