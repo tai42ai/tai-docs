@@ -14,6 +14,36 @@ logger = logging.getLogger(__name__)
 ```
 
 
+## ServingCore
+
+`tai42_skeleton.app.server.ServingCore`
+
+```python
+class ServingCore
+```
+
+The per-epoch serving surface: a FRESH FastMCP server plus the feature
+collaborators registered onto it.
+
+A settings-profile apply builds a NEW ``ServingCore`` off to the side under the
+proposed env and — only on a successful build — makes it the live epoch's core;
+the failed build is discarded untouched. A fresh FastMCP per epoch is
+MANDATORY: its ``_lifespan_manager`` is ref-counted and its route table snapshots
+once, so a reload-added router only serves when the epoch's fresh FastMCP builds a
+fresh ``http_app`` off the new route table.
+
+The collaborators are constructed with the persistent ``TaiMCP`` (not this core):
+each reads the live serving generation back through the app's per-epoch forwarding
+properties, so a build-in-progress registers into THIS core and the swapped-in
+epoch is what every later read resolves to.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `active_auth_providers` | `dict[str, IdentityProvider]` |
+
+
 ## TaiMCP
 
 `tai42_skeleton.app.server.TaiMCP`
@@ -44,6 +74,7 @@ handle, never a flat member.
 | `backends` *(property)* | `BackendsFacet` |
 | `storage` *(property)* | `StorageFacet` |
 | `connectors` *(property)* | `ConnectorsFacet` |
+| `accounts` *(property)* | `AccountsFacet` |
 | `webhook_verifiers` *(property)* | `WebhookVerifiersFacet` |
 | `channels` *(property)* | `ChannelsFacet` |
 | `conversations` *(property)* | `ConversationsFacet` |

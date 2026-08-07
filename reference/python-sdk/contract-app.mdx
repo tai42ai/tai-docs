@@ -15,6 +15,45 @@ sub-protocols — each lives in exactly one, save the shared leaf names
 (``webhook_verifiers`` + ``channels``). The runtime forwarding handle is
 ``tai42_app`` (see `tai42_contract.app.handle`).
 
+## AppAccounts
+
+`tai42_contract.app.facets.AppAccounts`
+
+```python
+class AppAccounts(Protocol)
+```
+
+Read access to the CURRENT epoch's live identity/accounts provider instances.
+
+An accounts-provider plugin ships login routes that need the SAME provider instance
+the epoch built and probed (its resolved config, cached discovery/JWKS, injected
+settings). Rather than a module-level holder — which a failed epoch build would
+leave pointing at a half-built generation — the plugin's routes resolve the live
+instance here. The contract exposes only this read; the runtime forwards it to the
+current epoch, so the contract never learns about epochs.
+
+### Members
+
+#### active_provider
+
+`tai42_contract.app.facets.AppAccounts.active_provider`
+
+```python
+active_provider(self, name: str) -> IdentityProvider | None
+```
+
+The provider the CURRENT epoch instantiated under ``name`` (an
+``AccountsProvider`` is an ``IdentityProvider``), or ``None`` when no provider is
+active under that name — the name is not configured, or a build is mid-flight.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+
 ## AppAdmin
 
 `tai42_contract.app.facets.AppAdmin`
@@ -773,6 +812,26 @@ e.g. dynamic tool loaders that ``on_startup`` ran once.
 | `func` | `Callable[[], Any]` | — | — |
 
 
+#### on_post_swap
+
+`tai42_contract.app.facets.AppLifecycle.on_post_swap`
+
+```python
+on_post_swap(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+Register an establisher for a loop-affine background loop (a periodic poll or
+sweep). Run on the real serving loop at boot and after every epoch swap — never
+on the throwaway build-thread loop the per-epoch handlers run on — so the loop
+it spawns attaches to the serving loop and retires with its generation.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
 #### on_fleet_op_applied
 
 `tai42_contract.app.facets.AppLifecycle.on_fleet_op_applied`
@@ -1245,6 +1304,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `backends` *(property)* | `AppBackends` |
 | `storage` *(property)* | `AppStorage` |
 | `connectors` *(property)* | `AppConnectors` |
+| `accounts` *(property)* | `AppAccounts` |
 | `webhook_verifiers` *(property)* | `AppWebhookVerifiers` |
 | `channels` *(property)* | `AppChannels` |
 | `conversations` *(property)* | `AppConversations` |
@@ -1722,6 +1782,45 @@ id resolves to no record.
 
 
 
+## AppAccounts
+
+`tai42_contract.app.facets.AppAccounts`
+
+```python
+class AppAccounts(Protocol)
+```
+
+Read access to the CURRENT epoch's live identity/accounts provider instances.
+
+An accounts-provider plugin ships login routes that need the SAME provider instance
+the epoch built and probed (its resolved config, cached discovery/JWKS, injected
+settings). Rather than a module-level holder — which a failed epoch build would
+leave pointing at a half-built generation — the plugin's routes resolve the live
+instance here. The contract exposes only this read; the runtime forwards it to the
+current epoch, so the contract never learns about epochs.
+
+### Members
+
+#### active_provider
+
+`tai42_contract.app.facets.AppAccounts.active_provider`
+
+```python
+active_provider(self, name: str) -> IdentityProvider | None
+```
+
+The provider the CURRENT epoch instantiated under ``name`` (an
+``AccountsProvider`` is an ``IdentityProvider``), or ``None`` when no provider is
+active under that name — the name is not configured, or a build is mid-flight.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+
 ## AppConnectors
 
 `tai42_contract.app.facets.AppConnectors`
@@ -1962,6 +2061,26 @@ on_reload(self, func: Callable[[], Any]) -> Callable[[], Any]
 
 Register a handler re-run after every in-place re-init (``reload_config``) —
 e.g. dynamic tool loaders that ``on_startup`` ran once.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[], Any]` | — | — |
+
+
+#### on_post_swap
+
+`tai42_contract.app.facets.AppLifecycle.on_post_swap`
+
+```python
+on_post_swap(self, func: Callable[[], Any]) -> Callable[[], Any]
+```
+
+Register an establisher for a loop-affine background loop (a periodic poll or
+sweep). Run on the real serving loop at boot and after every epoch swap — never
+on the throwaway build-thread loop the per-epoch handlers run on — so the loop
+it spawns attaches to the serving loop and retires with its generation.
 
 **Parameters**
 
