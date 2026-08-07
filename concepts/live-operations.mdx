@@ -30,7 +30,10 @@ management operations cover the live-ops families:
   drop a tool from the live registry (`remove_tool`), and run a registered tool by
   name (`run_tool`).
 - **Config** — soft-restart in place by refreshing the environment and reloading
-  the manifest registries (`reload_config`).
+  the manifest registries (`reload_config`), and apply a whole
+  [settings profile](/concepts/config-and-secrets#settings-profiles) — replace the
+  stored env with a saved band, swap in a fresh serving epoch, and recycle any
+  pooled resource the change tore down (`apply_profile`).
 - **Manifest** — replace the whole persisted manifest, fleet-wide
   (`update_manifest`). The change is written through to durable config and then
   broadcast, so it survives a restart and reaches every worker.
@@ -97,6 +100,13 @@ the [`tai fleet` group](/operate/manage-a-fleet).
 Because a mutation reaches every worker, the deployment shapes that run more
 than one process need the bus: the boot rules refuse a multi-worker server, a
 registered backend, or k8s mode without `TAI_BUS_REDIS_URL`.
+
+A [settings-profile](/concepts/config-and-secrets#settings-profiles) apply extends
+this pipeline at the reload step: instead of refreshing in place it builds a fresh
+serving **epoch** off to the side under the proposed env and swaps it in atomically,
+retiring the old one — a failed build is discarded with the old surface still
+serving. For a changed key whose reload class is `recycle`, it then orchestrates a
+process recycle across the fleet, on the shapes that support one.
 
 ## Reloading is a first-class state
 

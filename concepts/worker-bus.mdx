@@ -6,9 +6,10 @@ icon: "tower-broadcast"
 
 The worker bus is how a live change reaches every process in a deployment. When
 one worker persists a config change — a reloaded tool, a replaced manifest, a
-soft restart — the bus carries that change to every other worker sharing the
-manifest and collects a per-worker outcome, so the whole fleet converges instead
-of one process drifting ahead of its siblings.
+soft restart, a [settings-profile](/concepts/config-and-secrets#settings-profiles)
+apply — the bus carries that change to every other worker sharing the manifest and
+collects a per-worker outcome, so the whole fleet converges instead of one process
+drifting ahead of its siblings.
 
 ## It is internal infrastructure, not a plugin
 
@@ -94,6 +95,14 @@ a worker the change did not cleanly reach:
 These states are never hidden. A worker the broadcast could not converge is
 reported, logged, and surfaced in the UI — a failed propagation is never a fake
 success.
+
+A recycle-class [settings-profile](/concepts/config-and-secrets#settings-profiles)
+apply drives one more thing over the bus: after the reload fans out, the applier
+censuses the fleet on the bus and orchestrates a process recycle across the
+serve/backend origins it names. Because that census rides the bus itself, the bus
+URL is one key a recycle can never carry — replacements would register on a new bus
+the running census cannot see — so a profile changing `TAI_BUS_REDIS_URL` is refused
+on every shape.
 
 ## Documented limitations
 

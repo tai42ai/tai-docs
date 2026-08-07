@@ -20,7 +20,8 @@ The guarantees asserted are:
   whose Env var cell is an em dash naming nothing;
 * ``render_fallback`` links a field's ``default_namespace_var`` to the concept
   section and renders an em dash for a field with no default-namespace mapping,
-  and the rendered table carries the Fallback column;
+  and the rendered table carries the Fallback and Reload columns (an unflagged
+  field's reload class defaulting to ``hot``);
 * the page's summary sentence carries each row count in its own slot, so
   swapping two of the interpolated values fails instead of rendering plausible
   prose, and each noun is singular or plural to match the count beside it;
@@ -163,18 +164,19 @@ def test_render_fallback_em_dash_for_an_unmapped_field() -> None:
     assert generate_settings_reference.render_fallback({"default_namespace_var": None}) == "—"
 
 
-def test_render_table_carries_the_fallback_column() -> None:
-    """The rendered table header adds a Fallback column and links a mapped field."""
+def test_render_table_carries_the_fallback_and_reload_columns() -> None:
+    """The rendered table header carries the Fallback and Reload columns, links a
+    mapped field, and defaults an unflagged field's Reload cell to ``hot``."""
     page = generate_settings_reference.render(GROUPS)
 
-    assert "| Env var | Type | Default | Fallback | Required | Description |" in page
-    assert "|---|---|---|---|---|---|" in page
+    assert "| Env var | Type | Default | Fallback | Required | Reload | Description |" in page
+    assert "|---|---|---|---|---|---|---|" in page
     # Pin the whole row, not just that the link appears somewhere: this catches a
     # cell landing in the wrong column (e.g. Fallback and Required swapped).
     assert (
         "| `ALPHA_URL` | `string` | — | "
         "[`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | "
-        "Optional | — |"
+        "Optional | `hot` | — |"
     ) in page
 
 
@@ -205,7 +207,7 @@ def main() -> int:
     test_count_rows_rejects_a_field_with_no_env_var_and_no_nested_group()
     test_render_fallback_links_a_mapped_field_to_its_default_var()
     test_render_fallback_em_dash_for_an_unmapped_field()
-    test_render_table_carries_the_fallback_column()
+    test_render_table_carries_the_fallback_and_reload_columns()
     test_render_summary_sentence_reports_each_count_in_its_own_slot()
     test_main_prints_each_count_in_its_own_slot()
     print("test_generate_settings_reference: OK")

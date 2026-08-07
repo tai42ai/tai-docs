@@ -186,7 +186,25 @@ def render_description(field: dict) -> str:
         parts.append(f"Grouped settings — see [{mdx_cell(nested)}](#{_anchor(nested)}).")
     if field.get("secret"):
         parts.append("Secret.")
+    if field.get("key_material"):
+        parts.append("Key material — refused in a settings profile; rotate through its own path.")
     return " ".join(parts) if parts else "—"
+
+
+def render_reload(field: dict) -> str:
+    """The Reload cell: the field's ``reload_class`` — how a live
+    [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a
+    change to it.
+
+    ``hot`` re-reads the value in place, ``recycle`` tears down and rebuilds the
+    pooled resource behind it, ``excluded`` cannot change without a full process
+    restart (a profile carrying an ``excluded`` key is refused). A nested-group
+    reference row names no variable of its own, so it renders an em dash — the
+    sub-group's own fields each carry their class.
+    """
+    if not field.get("env_var"):
+        return "—"
+    return code_cell(field.get("reload_class") or "hot")
 
 
 def render_env_var(field: dict) -> str:
@@ -278,7 +296,10 @@ def render(groups: list[dict]) -> str:
         f"{count_noun(references, 'nested-group reference', 'nested-group references')}). Each variable "
         "row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls "
         "back to when set (a `—` for every field that is not a shared connection identity), whether it is "
-        "required, and a description where one exists; each nested-group reference row carries no "
+        "required, its reload class (how a live "
+        "[settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — "
+        "`hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full "
+        "restart), and a description where one exists; each nested-group reference row carries no "
         "variable of its own and links to that sub-group's section instead. "
         "Values shown are code-level defaults; "
         "a running server resolves each variable from the environment, then any stored "
@@ -292,8 +313,8 @@ def render(groups: list[dict]) -> str:
         lines.append("")
         lines.append(f"Module `{group['module']}`.")
         lines.append("")
-        lines.append("| Env var | Type | Default | Fallback | Required | Description |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| Env var | Type | Default | Fallback | Required | Reload | Description |")
+        lines.append("|---|---|---|---|---|---|---|")
         for field in group["fields"]:
             required = "Required" if field.get("required") else "Optional"
             type_cell = code_cell(field["type"]) if field.get("type") else "—"
@@ -303,6 +324,7 @@ def render(groups: list[dict]) -> str:
                 render_default(field),
                 render_fallback(field),
                 required,
+                render_reload(field),
                 render_description(field),
             )
             lines.append("| " + " | ".join(cells) + " |")
