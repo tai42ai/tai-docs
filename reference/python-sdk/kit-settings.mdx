@@ -67,6 +67,24 @@ settings_customise_sources(
 
 
 
+## KeyMaterial
+
+`tai42_kit.settings.base.KeyMaterial`
+
+```python
+KeyMaterial = Annotated[SecretStr, Field(json_schema_extra={'key_material': True})]
+```
+
+
+## ReloadClass
+
+`tai42_kit.settings.base.ReloadClass`
+
+```python
+ReloadClass = Literal['hot', 'recycle', 'excluded']
+```
+
+
 ## SettingsClassInfo
 
 `tai42_kit.settings.registry.SettingsClassInfo`
@@ -85,6 +103,7 @@ A registered settings class, identified by its qualified name.
 | `module` | `str` |
 | `qualname` | `str` |
 | `fields` | `list[SettingsFieldInfo]` |
+| `reload_class` | `ReloadClass` |
 
 
 ## SettingsFieldInfo
@@ -110,6 +129,30 @@ One env-configurable field on a settings class, as plain data.
 | `description` | `str \| None` |
 | `nested_group` | `str \| None` |
 | `default_namespace_var` | `str \| None` |
+| `reload_class` | `ReloadClass` |
+| `key_material` | `bool` |
+
+
+## StaleHolder
+
+`tai42_kit.settings.cache_registry.StaleHolder`
+
+```python
+class StaleHolder
+```
+
+A still-live cached settings instance stamped with a retired epoch.
+
+``settings_type`` and ``holders`` are ``module.qualname`` strings (the settings
+class, and the type of each object still referencing the instance).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `settings_type` | `str` |
+| `epoch` | `int` |
+| `holders` | `tuple[str, ...]` |
 
 
 ## TaiBaseSettings
@@ -125,6 +168,7 @@ class TaiBaseSettings(BaseSettings)
 | Attribute | Type |
 |---|---|
 | `model_config` | — |
+| `reload_class` | `ReloadClass` |
 
 ### Members
 
@@ -281,11 +325,39 @@ Drop every registered settings cache, then run the reset hooks.
 settings_cache(fn: F) -> F
 ```
 
-Cache a zero-arg settings accessor and register it for global reset.
+Cache a zero-arg settings accessor, register it for reset, and epoch-stamp it.
+
+Stamping happens on the CONSTRUCTION path (cache miss), so the stamp records
+the epoch the instance was born under; a cached hit returns the same stamped
+instance, and a reset clears the cache so the next call rebuilds and re-stamps
+under the then-current epoch.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `fn` | `F` | — | — |
+
+
+## sweep_stale_settings
+
+`tai42_kit.settings.cache_registry.sweep_stale_settings`
+
+```python
+sweep_stale_settings(retired_epoch: int) -> list[StaleHolder]
+```
+
+Report every live cached settings instance still stamped with ``retired_epoch``.
+
+Walks the roster for instances whose stamp is the retired epoch and are still
+alive (a holder is keeping them past the cache clear), summarising each via
+``gc.get_referrers``. Logs ERROR naming the holders — a retired-epoch instance
+still reachable is a stale-config leak, never dropped silently — and returns
+the findings so a probe/e2e can assert zero.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `retired_epoch` | `int` | — | — |
 

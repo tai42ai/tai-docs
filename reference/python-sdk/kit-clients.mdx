@@ -181,6 +181,21 @@ client drops it from the pool key.
 
 
 
+## advance_client_epoch
+
+`tai42_kit.clients.base.advance_client_epoch`
+
+```python
+advance_client_epoch() -> int
+```
+
+Advance the process-wide client epoch and return the epoch just retired.
+
+New ``current()`` leases pool under the new epoch; the retired epoch's pools
+stay live until their last lease releases (or ``drain_epoch`` force-closes
+them at a deadline). The same counter stamps cached settings instances.
+
+
 ## client_ctx
 
 `tai42_kit.clients.facade.client_ctx`
@@ -205,6 +220,41 @@ client_ctx(
 | `kwargs` | `Any` | `{}` | — |
 
 
+## current_client_epoch
+
+`tai42_kit.clients.base.current_client_epoch`
+
+```python
+current_client_epoch() -> int
+```
+
+The current client epoch — the value new leases and settings stamps carry.
+
+
+## drain_epoch
+
+`tai42_kit.clients.base.drain_epoch`
+
+```python
+async drain_epoch(epoch: int, deadline: float) -> None
+```
+
+Drain and close a retired epoch's client pools for the running loop.
+
+Waits up to ``deadline`` seconds for every leased client of ``epoch`` to reach
+zero leases (each closes itself on its last release), then force-closes any
+that remain regardless of held leases, collecting failures into an
+``ExceptionGroup`` so none is dropped. Must run on the loop that owns the
+pools; the current epoch cannot be drained.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `epoch` | `int` | — | — |
+| `deadline` | `float` | — | — |
+
+
 ## shutdown_all_clients
 
 `tai42_kit.clients.base.shutdown_all_clients`
@@ -215,7 +265,8 @@ async shutdown_all_clients() -> None
 
 Close every live client pool for the running event loop.
 
-Sweeps the per-loop class-keyed cache and closes each pooled client. Closes
-are best-effort — failures are collected and raised together, never silently
+Sweeps every epoch of the per-loop class-keyed cache and closes each pooled
+client — process-teardown semantics, independent of leases. Closes are
+best-effort — failures are collected and raised together, never silently
 dropped.
 
