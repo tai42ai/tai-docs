@@ -90,6 +90,52 @@ type JsonSchemaType = "string" | "number" | "integer" | "boolean" | "object" | "
 The JSON-Schema `type` keyword values Pydantic emits.
 
 
+## RecordEntryContext
+
+```ts
+interface RecordEntryContext
+```
+
+One record entry, handed to a host-supplied value renderer.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `defaultField` | `ReactNode` | The default value editor the record field would render for this entry. |
+| `keyName` | `string` | The entry's current key (may be blank/duplicate while the user edits). |
+| `onChange` | `(value: unknown) => void` | — |
+| `path` | `string` | The entry value's form path (dotted from the form root). |
+| `value` | `unknown` | — |
+| `valueSchema` | `JsonSchema` | The entry value schema, as written (the renderer resolves any `$ref`). |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## RecordEntryRenderer
+
+```ts
+type RecordEntryRenderer = (entry: RecordEntryContext) => ReactNode
+```
+
+A host-supplied per-entry value renderer for `record` fields — the injection
+point a masked/secret editor (or any other value affordance) mounts through.
+It returns the node to render in the entry's value slot; returning
+`entry.defaultField` falls back to the built-in editor. Absent (the default),
+every entry renders its `defaultField`.
+
+**Related:** [RecordEntryContext](/reference/studio-sdk/schema-forms#recordentrycontext)
+
+
+## RecordEntryRendererContext
+
+```ts
+const RecordEntryRendererContext: Context<RecordEntryRenderer | undefined>
+```
+
+**Related:** [RecordEntryRenderer](/reference/studio-sdk/schema-forms#recordentryrenderer)
+
+
 ## SchemaForm
 
 ```ts
@@ -144,6 +190,62 @@ interface SchemaFormProps
 | `value` | `unknown` | — |
 
 **Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## SecretRef
+
+```ts
+type SecretRef = { key: string; source: "key" } | { secret: string; source: "paste" }
+```
+
+The value `SecretRefField` emits and reads back. The `source` discriminant
+is what the host branches on:
+ - `key`   — reference an existing env key; the host writes `!ENV ${key}`.
+ - `paste` — a new plaintext secret; the host stores it under a generated key
+             (combined op) and writes the resulting marker. `secret` is
+             write-only and is never rendered.
+
+
+## SecretRefField
+
+```ts
+function SecretRefField(props: SecretRefFieldProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `availableKeys` | `readonly string[]` | Env key NAMES the host supplies (e.g. envConfig.secret_keys). Never fetched here. |
+| `idPrefix?` | `string` | — |
+| `keyPickingAvailable?` | `boolean` | Whether env-key picking is available at all — the host passes it from whether the projection carries the env route. Omitted or false: paste-only (fail closed). |
+| `label?` | `string` | Visible field label; the accessible name of the inner control. |
+| `onChange` | `(value: SecretRef) => void` | Fired once when a value is provided (a key picked, or a paste committed). |
+| `pasteDisabledReason?` | `string` | When set, PASTING a new secret is blocked and this reason is surfaced inline (referencing an existing key stays available). The host passes it when a paste right now would land in the wrong place — an unsaved structural edit has shifted the target pointer, or the entry has no key yet to hint the generated name. |
+| `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
+
+**Related:** [SecretRefFieldProps](/reference/studio-sdk/schema-forms#secretreffieldprops)
+
+
+## SecretRefFieldProps
+
+```ts
+interface SecretRefFieldProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `availableKeys` | `readonly string[]` | Env key NAMES the host supplies (e.g. envConfig.secret_keys). Never fetched here. |
+| `idPrefix?` | `string` | — |
+| `keyPickingAvailable?` | `boolean` | Whether env-key picking is available at all — the host passes it from whether the projection carries the env route. Omitted or false: paste-only (fail closed). |
+| `label?` | `string` | Visible field label; the accessible name of the inner control. |
+| `onChange` | `(value: SecretRef) => void` | Fired once when a value is provided (a key picked, or a paste committed). |
+| `pasteDisabledReason?` | `string` | When set, PASTING a new secret is blocked and this reason is surfaced inline (referencing an existing key stays available). The host passes it when a paste right now would land in the wrong place — an unsaved structural edit has shifted the target pointer, or the entry has no key yet to hint the generated name. |
+| `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
+
+**Related:** [SecretRef](/reference/studio-sdk/schema-forms#secretref)
 
 
 ## defaultValueForSchema
