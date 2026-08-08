@@ -2126,6 +2126,47 @@
         "title": "TaiMCPConfig",
         "type": "object"
       },
+      "TargetConversationConfig": {
+        "description": "Per-target configuration for the conversation bridge, keyed by\n``(target_kind, target_name)`` — the agent or tool an inbound turn is routed to.\n\n``multichannel`` opts the target into person linking; ``greeting_template`` is the\nfirst-contact greeting, which may reference at most the ``{pairing_code}`` placeholder\n(minted at greeting time). The row carries no server-derived fields, so it IS its own\ncreate payload — no Create/stored split. An unknown ``{...}`` placeholder is refused so\na typo cannot render literally; a blank template string is refused, because ``None`` is\nthe explicit spelling for \"no greeting\". Frozen.",
+        "properties": {
+          "greeting_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Greeting Template"
+          },
+          "multichannel": {
+            "default": false,
+            "title": "Multichannel",
+            "type": "boolean"
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_kind",
+          "target_name"
+        ],
+        "title": "TargetConversationConfig",
+        "type": "object"
+      },
       "TemplateDelete": {
         "description": "Delete the template at ``path``.",
         "properties": {
@@ -6436,6 +6477,340 @@
         "tags": [
           "connectors"
         ]
+      }
+    },
+    "/api/conversation-configs": {
+      "get": {
+        "description": "Every stored per-target conversation config. Returns ``{\"items\", \"total\"}``.",
+        "operationId": "get_api_conversation_configs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List conversation target configs",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversation-configs/{target_kind}/{target_name}": {
+      "delete": {
+        "description": "Delete the per-target config for ``(target_kind, target_name)``. An unknown key is a\nloud 404; a malformed key is a 400. Returns ``{\"removed\", \"target_kind\", \"target_name\"}``.",
+        "operationId": "delete_api_conversation_configs_target_kind_target_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a conversation target config",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
+      },
+      "get": {
+        "description": "One per-target config by ``(target_kind, target_name)``. An unknown key is a loud\n404; a key whose ``target_kind`` is not a known kind, or whose ``target_name`` is blank,\nis a 400.",
+        "operationId": "get_api_conversation_configs_target_kind_target_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a conversation target config",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "put": {
+        "description": "Create or replace the per-target config for ``(target_kind, target_name)`` — an\nUPSERT, so this is the create path AND the edit path for a config of that key.\n\nThe target must merely EXIST — the agent (``target_kind=agent``) or tool\n(``target_kind=tool``) — exactly as the route create checks it. ``greeting_template``\nmay reference at most the ``{pairing_code}`` placeholder and a blank template is refused\n(``null`` = no greeting), both enforced by the model. No key is bound and no authority\ndelegated: this is inert operator config. Returns\n``{\"created\", \"target_kind\", \"target_name\", \"config\"}``.",
+        "operationId": "put_api_conversation_configs_target_kind_target_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetConversationConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create or replace a conversation target config",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
       }
     },
     "/api/conversations": {
