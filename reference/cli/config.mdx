@@ -86,6 +86,167 @@ $ tai config mode [OPTIONS]
 | --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai config profile`
+
+Manage versioned settings profiles.
+
+```console
+$ tai config profile [OPTIONS] COMMAND [ARGS]...
+```
+
+### `tai config profile apply`
+
+Apply a profile — replace the stored env with its band, reload, and recycle the
+fleet. Prints the `&#123;hot, recycle, refused, fanout&#125;` report (names + origins only,
+never env values). DESTRUCTIVE: it replaces the whole stored env band.
+
+Example: `tai config profile apply staging`
+
+```console
+$ tai config profile apply [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile delete`
+
+Soft-delete a profile, keeping its version history for audit.
+
+Example: `tai config profile delete staging`
+
+```console
+$ tai config profile delete [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile diff`
+
+Preview a profile against the CURRENT stored env — `&#123;added, removed, changed,
+recycle_keys, refused_keys&#125;` with real values (a preview, not the apply report).
+
+Example: `tai config profile diff staging`
+
+```console
+$ tai config profile diff [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile list`
+
+List the settings profiles (reserved `@` snapshots excluded).
+
+Example: `tai config profile list`
+
+```console
+$ tai config profile list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile rollback`
+
+Re-point a profile's active version to `version` (a store re-point; the live
+process is realigned by a later apply, not by this).
+
+Example: `tai config profile rollback staging 2`
+
+```console
+$ tai config profile rollback [OPTIONS] {name} {version}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+| `version` | Target version to make active. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile set`
+
+Create or update a profile (whole-body replace). The env band is the given
+KEY=VALUE entries; `--secret-key` marks which keys are secret. A reserved
+`@`-prefixed name is rejected up front.
+
+Example: `tai config profile set staging LOG_LEVEL=debug API_KEY=xyz --secret-key API_KEY`
+
+```console
+$ tai config profile set [OPTIONS] {name} [assignment]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name (a leading '@' is reserved). _(required)_ |
+| `assignment...` | KEY=VALUE entries forming the profile's WHOLE env band (apply replaces the stored env). _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--description` `&lt;str&gt;` | The profile's human description. _(default: `)_ |
+| `--secret-key` `&lt;str&gt;` | An env key to mark secret for display masking (repeatable). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile show`
+
+Show a profile's active body — `&#123;description, env, secret_keys&#125;` with real
+env values (this authed door round-trips values; masking is display-side only).
+
+Example: `tai config profile show staging`
+
+```console
+$ tai config profile show [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai config profile versions`
+
+List a profile's version history, or — with `--version` — show one version's
+full body (real env values; this door is secret-fenced).
+
+Example: `tai config profile versions staging` / `... versions staging --version 3`
+
+```console
+$ tai config profile versions [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Profile name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--version` `&lt;int&gt;` | Show this one version's full body instead of the history list. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai config reload`
 
 Soft-restart this process from its manifest, fanning out to every worker.
