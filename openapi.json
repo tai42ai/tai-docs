@@ -1839,11 +1839,31 @@
         "type": "object"
       },
       "SetMcpSecretEnv": {
-        "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator; the server generates an env KEY\n(shaped from ``key_hint``), writes ``value`` to the env store under that key (marked\nsecret), and writes an ``!ENV ${KEY}`` MARKER at ``manifest_pointer`` — so the secret\nlives only in the env store and the manifest carries a placeholder. ``manifest_pointer``\nis a slash-delimited, no-leading-slash path (e.g. ``mcp/0/config/headers/Authorization``)\nwhose HEAD segment MUST be ``mcp`` (the same mcp-only authority ``set_mcp_config`` holds).\nThe generated key is NOT returned.",
+        "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator. The env KEY it is stored under is\nEITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one is given (C9b\n``{value, key | key_hint, manifest_pointer}``). The server writes ``value`` to the env\nstore under that key (marked secret) and writes an ``!ENV ${KEY}`` MARKER at\n``manifest_pointer`` — so the secret lives only in the env store and the manifest carries\na placeholder. An explicit ``key`` that collides with an existing stored key holding a\nDIFFERENT value is refused with a loud 400 naming the key (C9c — never a silent overwrite\nof a live secret). ``manifest_pointer`` is a slash-delimited, no-leading-slash path (e.g.\n``mcp/0/config/headers/Authorization``) whose HEAD segment MUST be ``mcp`` (the same\nmcp-only authority ``set_mcp_config`` holds). The generated key is NOT returned.",
         "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Key"
+          },
           "key_hint": {
-            "title": "Key Hint",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Key Hint"
           },
           "manifest_pointer": {
             "title": "Manifest Pointer",
@@ -1856,7 +1876,6 @@
         },
         "required": [
           "value",
-          "key_hint",
           "manifest_pointer"
         ],
         "title": "SetMcpSecretEnv",
@@ -9695,7 +9714,7 @@
     },
     "/api/mcp-config/secret-env": {
       "post": {
-        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nGenerates an env KEY (shaped from ``key_hint``), writes the secret ``value`` to the env\nstore under that key AND marks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and\nwrites an ``!ENV ${KEY}`` MARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent (a manifest-persist failure rolls the env back). The pointer's HEAD\nsegment MUST be ``mcp`` (loud 400 otherwise). The response is the ``reloadConfigResult``\nshape; the generated key is NEVER returned. A dangling ``!ENV`` / X-band refusal surfaces\nas a loud 400 naming the key (the shared boundary validator, same as ``POST\n/api/mcp-config``).",
+        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nThe env KEY is EITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one\n(C9b ``key | key_hint``). Writes the secret ``value`` to the env store under that key AND\nmarks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and writes an ``!ENV ${KEY}``\nMARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent. C9a partial-failure: a manifest-persist failure after the env write does\nNO rollback — the env write stands as an inert, re-runnable orphan and the op raises\nloudly. An explicit ``key`` colliding with an existing stored key holding a DIFFERENT value\nis a loud 400 naming the key (C9c); a generated key never shadows a registered settings\n``env_var``. The pointer's HEAD segment MUST be ``mcp`` (loud 400 otherwise). The response\nis the ``reloadConfigResult`` shape; the resolved key is NEVER returned. A dangling\n``!ENV`` / X-band refusal surfaces as a loud 400 naming the key (the shared boundary\nvalidator, same as ``POST /api/mcp-config``).",
         "operationId": "post_api_mcp_config_secret_env",
         "requestBody": {
           "content": {
