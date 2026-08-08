@@ -51,6 +51,27 @@ interface AppLinkProps<T extends RouteToken>
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
 
 
+## NavigateOptions
+
+```ts
+interface NavigateOptions
+```
+
+How a token navigation enters session history.
+
+The default is a PUSH: a move the reader made, which Back must be able to undo.
+`replace` overwrites the current entry instead, and is for a transition the
+reader did NOT make — a page rewriting an unrenderable URL of its own accord.
+Pushing such a rewrite leaves the URL it rewrote sitting behind Back, where
+pressing Back rewrites it again and pushes again: a page no Back can leave.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `replace?` | `boolean` | Overwrite the current history entry instead of pushing a new one. |
+
+
 ## NavigationContextValue
 
 ```ts
@@ -58,10 +79,12 @@ interface NavigationContextValue
 ```
 
 The runtime navigation surface the shell provides through
-`NavigationProvider`. `navigate` performs a client-side transition;
-`resolvePath` produces the href a link should point at (so an AppLink is a real
-anchor — middle-click / open-in-new-tab work — while still driving a
-client-side transition on plain click).
+`NavigationProvider`. `navigate` performs a client-side transition, by
+default pushing a history entry — see `NavigateOptions` for the third
+argument that replaces one instead. `resolvePath` produces the href a link
+should point at (so an AppLink is a real anchor — middle-click /
+open-in-new-tab work — while still driving a client-side transition on plain
+click).
 
 `navigatePlugin`/`resolvePluginPath` are the plugin-page twins: they target a
 runtime plugin path (`/plugins/{pluginId}/{pagePath}` plus an optional validated
@@ -72,12 +95,12 @@ plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
 
 | Property | Type | Description |
 |---|---|---|
-| `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => void` | — |
+| `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void` | — |
 | `navigatePlugin` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => void` | — |
 | `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
 | `resolvePluginPath` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => string` | — |
 
-**Related:** [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
 ## NavigationGuardHandler
@@ -172,6 +195,7 @@ map flat — one entry per feature surface, matching the shell route map.
 |---|---|---|
 | `agents` | `Record<string, never>` | — |
 | `connectors` | `{ connection?: string }` | — |
+| `conversations` | `{ route?: string; thread?: string }` | — |
 | `extensions` | `Record<string, never>` | — |
 | `hooks` | `Record<string, never>` | — |
 | `interactions` | `Record<string, never>` | — |
@@ -203,12 +227,12 @@ An opaque, typed handle to a shell route.
 ## useAppNavigate
 
 ```ts
-function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => void
+function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void
 ```
 
 Imperative navigation to a shell route token with its typed search params.
 
-**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
 ## useNavigationGate

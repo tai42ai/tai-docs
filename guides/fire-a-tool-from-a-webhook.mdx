@@ -137,12 +137,12 @@ Now `GET /trigger/<token>?name=Ada` fires `notify` with `{"who":"Ada"}` — unle
 
 ### Rate limits and merge behavior
 
-The public `/trigger/<token>` door is **rate-limited** from the start — a public door must not ship without flood control. Its own family of knobs, on by default, governs it: `TAI_RATE_LIMIT_TRIGGER_ENABLED`, `TAI_RATE_LIMIT_TRIGGER_LIMIT` (60 per minute), and `TAI_RATE_LIMIT_TRIGGER_BURST` (10 per 10 seconds). Over the limit answers `429`.
+The public `/trigger/<token>` door is **rate-limited** from the start — a public door must not ship without flood control. It is the `trigger` family, held at 60 requests a minute and 10 in any 10 seconds; over the limit answers `429`. [Flood control on public doors](/concepts/access-control#flood-control-on-public-doors) covers the budgets and how to tune them.
 
-The bucket is **per client IP**. Two facts follow for a shared wall QR:
+The bucket is **per client address**. Two facts follow for a shared wall QR:
 
 - A crowd behind one NAT shares a single budget — the 11th scan in 10 seconds from behind that NAT gets a `429`.
-- Behind a reverse proxy with `TAI_RATE_LIMIT_TRUSTED_PROXIES` **unset** (the default), *every* scanner collapses into the proxy's single peer-IP bucket. For crowd-scale deployments set both `TAI_RATE_LIMIT_TRUSTED_PROXIES` and the `TAI_RATE_LIMIT_TRIGGER_*` knobs.
+- Behind a reverse proxy with no proxy trust declared (the default), *every* scanner collapses into the proxy's single peer-address bucket. For crowd-scale deployments declare the proxy — `TAI_RATE_LIMIT_TRUSTED_PROXIES` (addresses or CIDR blocks) or `TAI_RATE_LIMIT_TRUSTED_HOPS` (a hop count) — and raise the `trigger` family's budget.
 
 Two more behaviors to know:
 

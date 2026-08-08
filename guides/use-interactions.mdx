@@ -428,10 +428,10 @@ re-scanned and re-POSTed on roughly **104 consecutive runs** — ~104× the door
 traffic, Stripe list calls and log volume of a single delivery. Tightening the
 cadence multiplies the overlap; shortening the lookback shrinks the recovery
 window. Answers are serial and paced (`STRIPE_RECONCILE_ANSWER_INTERVAL_SECONDS`,
-default 1.2s) because a run is one worker IP against a door that rate-limits per IP;
-a deployment that lowers the interval to clear a bigger window must raise the
-limiter knobs (`TAI_RATE_LIMIT_INTERACTIONS_CALLBACK_LIMIT` / `…_BURST`) in the
-same change.
+default 1.2s) because a run is one worker address against a door that limits per
+client address; a deployment that lowers the interval to clear a bigger window must
+raise the `interactions_callback` family's budget ([flood control on public
+doors](/concepts/access-control#flood-control-on-public-doors)) in the same change.
 
 **Runbook — an outage longer than the lookback is not recovered automatically.**
 Each run sees only sessions created inside `lookback_hours` of that run, so
@@ -504,11 +504,12 @@ amount is on the Stripe page the payer sees and in the session metadata).
 **The bridge retries transient door failures.** Connection errors, HTTP 5xx, 408
 and 429 retry with bounded exponential backoff (5 attempts, ~0.5s base, doubling,
 jittered); a `Retry-After` on a 429 is honoured in full up to a 90-second ceiling,
-because the callback door's limiter is a fixed-window counter whose `Retry-After`
-is the seconds left in that window. **400, 401, 403 and 404 fail fast** — a schema
-mismatch, a wrong secret, a refused caller (an unpinned access-control route answers
-exactly this) and an expired ticket are verdicts no retry changes. Exhaustion
-raises.
+because the callback door's [flood
+limiter](/concepts/access-control#flood-control-on-public-doors) is a fixed-window
+counter whose `Retry-After` is the seconds left in that window. **400, 401, 403 and
+404 fail fast** — a schema mismatch, a wrong secret, a refused caller (an unpinned
+access-control route answers exactly this) and an expired ticket are verdicts no
+retry changes. Exhaustion raises.
 
 **Read the reconcile run summary as five disjoint outcomes:**
 `selected == answered + already_answered + expired + rejected + len(failed)`.
