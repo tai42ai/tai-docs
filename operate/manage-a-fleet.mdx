@@ -38,7 +38,29 @@ tai fleet info      # the registered backend's identity, or the empty state
 tai fleet workers   # the live worker census — every process on the bus
 ```
 
-`workers` lists every process subscribed to the bus — serving HTTP workers and any backend runtime alike — read from the presence census. It fails loudly: a store it cannot read is a `500`, never a silently empty fleet. The full subcommand set:
+`workers` lists every process subscribed to the bus — serving HTTP workers and any backend runtime alike — read from the presence census. It fails loudly: a store it cannot read is a `500`, never a silently empty fleet. Each row is one worker:
+
+```console
+$ tai fleet workers
+name       kind     pid    gen  state          seen-since  last-op
+---------  -------  -----  ---  -------------  ----------  ---------------------
+serve-1    serve    41201  3    ready          4s ago      reload_config:applied
+serve-2    serve    41202  4    resyncing      1s ago      —
+backend-1  backend  41250  2    ready (stale)  12s ago     reload_config:applied
+backend-2  backend  41251  1    recycling      2s ago      reload_config:applied
+```
+
+The columns:
+
+- **name** — the worker's stable slot (`{kind}-{n}`, e.g. `serve-1`). This is the value you pass to `--target`, and it stays the same across a restart.
+- **kind** — `serve` or `backend`.
+- **pid** — the OS process id of the current life.
+- **gen** — the generation (life counter) for that slot; it advances each time a new process claims the name, so `serve-1` gen `4` is a later life than gen `3`.
+- **state** — what the worker last wrote about itself: `ready` (serving), `resyncing` (running a boot or reconnect resync), or `recycling` (leaving under a recycle). A `(stale)` suffix means the row is past the freshness gate — its state can no longer be trusted (reconnecting or dead, unknown until it beats again or its row expires).
+- **seen-since** — how long ago the worker last beat.
+- **last-op** — the last op it applied and that op's outcome, or `—` if it has applied none.
+
+Reading a restart in progress: a rolling restart or a recycle shows up here directly — `resyncing`/`recycling` rows with a fresh `seen-since` are workers mid-flight, a dead worker's row simply drops out when its TTL lapses, and a `ready` row that has gone quiet turns `(stale)` rather than being labelled reconnecting on a guess. The full subcommand set:
 
 <FleetHelp />
 
@@ -48,14 +70,16 @@ tai fleet workers   # the live worker census — every process on the bus
 
 ```bash
 tai fleet reload-config
-tai fleet reload-config --target serve-abc123 --target serve-def456
+tai fleet reload-config --target serve-1 --target backend-2
 ```
 
-The response is the per-origin fleet report — one row per worker with its reload outcome. A worker the reload did not cleanly reach is named, never hidden: `departed` (it went away), `timed_out` (it acknowledged but has not finished), or `missing`. A failed local apply raises; a remote miss is reported and logged. Re-run `reload-config` to converge the named workers.
+`--target` takes worker slot **names** — the `name` column from `tai fleet workers` (`serve-1`, `backend-2`), not a pid or an opaque id.
+
+The response is the per-worker fleet report — one row per worker with its reload outcome. A worker the reload did not cleanly reach is named, never hidden: `departed` (it went away), `timed_out` (it acknowledged but has not finished), `missing` (alive but never acknowledged), or one of the gap outcomes `resyncing` (mid-resync), `recycling` (departing under a recycle), and `stale` (past the freshness gate, its state no longer trustworthy). A failed local apply raises; a remote miss is reported and logged. Re-run `reload-config` to converge the named workers.
 
 ## How a change reaches the fleet
 
-Fleet reach is not a separate command — it rides every mutating operation. When a tool is reloaded or a capability is removed, the route persists the change, applies it locally, and then broadcasts it on the bus so every worker re-reads the durable state and rebinds; that response embeds the per-origin fleet report, so a propagation that did not converge is visible on the flow that caused it. A [preset](/concepts/presets) mutation broadcasts the same way, but its response is the plain preset record — a preset broadcast that does not converge is surfaced server-side as a loud non-convergence ERROR log rather than embedded in the response, and a fleet `reload_config` reconverges the named workers. See [live operations](/concepts/live-operations) for the mutation surface the bus backs.
+Fleet reach is not a separate command — it rides every mutating operation. When a tool is reloaded or a capability is removed, the route persists the change, applies it locally, and then broadcasts it on the bus so every worker re-reads the durable state and rebinds; that response embeds the per-worker fleet report, so a propagation that did not converge is visible on the flow that caused it. A [preset](/concepts/presets) mutation broadcasts the same way, but its response is the plain preset record — a preset broadcast that does not converge is surfaced server-side as a loud non-convergence ERROR log rather than embedded in the response, and a fleet `reload_config` reconverges the named workers. See [live operations](/concepts/live-operations) for the mutation surface the bus backs.
 
 ## See also
 

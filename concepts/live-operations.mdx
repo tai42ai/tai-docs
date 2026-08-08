@@ -83,7 +83,7 @@ is a separate concern.
 
 A mutating operation runs one pipeline: it **validates** the change, **persists**
 it transactionally to durable config, **reloads** the calling process, then
-**broadcasts** it on the [worker bus](/concepts/worker-bus) and awaits a per-origin
+**broadcasts** it on the [worker bus](/concepts/worker-bus) and awaits a per-worker
 outcome from every worker sharing the manifest. Persist-before-broadcast is why a
 mutation survives a restart and why the persisted state and the live state cannot
 drift apart through a supported path.
@@ -92,9 +92,11 @@ The broadcast reaches every process on the bus — serving HTTP workers and any
 backend runtime alike — not just the one that received the request. Fan-out is the
 app's own concern, carried by the bus; it is not a
 [backend](/concepts/backends) capability. Every mutation response embeds the fleet
-report, so a worker the change did not converge is named — `departed`,
-`timed_out`, or `missing` — never a fake success. A failed **local** apply raises;
-a remote miss is reported and logged. Inspect the fleet and re-drive a reload with
+report, keyed per worker on its name, so a worker the change did not converge is
+named — `departed`, `timed_out`, `missing`, or one of the gap outcomes
+`resyncing`, `recycling`, and `stale` for a worker that was not in a ready,
+freshly-beating state — never a fake success. A failed **local** apply raises; a
+remote miss is reported and logged. Inspect the fleet and re-drive a reload with
 the [`tai fleet` group](/operate/manage-a-fleet).
 
 Because a mutation reaches every worker, the deployment shapes that run more
@@ -106,7 +108,13 @@ this pipeline at the reload step: instead of refreshing in place it builds a fre
 serving **epoch** off to the side under the proposed env and swaps it in atomically,
 retiring the old one — a failed build is discarded with the old surface still
 serving. For a changed key whose reload class is `recycle`, it then orchestrates a
-process recycle across the fleet, on the shapes that support one.
+process recycle across the fleet, on the shapes that support one. Its report is
+per worker: each recycled row carries a status and the `generation_before` it was
+recycled from, alongside a per-kind list of the fresh lives that have since
+joined. Confirmation is by reality, not successor identity — a recycle is accepted
+on two facts: the targeted old lives are **gone** (their slots absent, expired, or
+already at a higher generation), and **fresh ready capacity** of each kind has
+booted under the new config, counted per kind to cover the recycled workers.
 
 ## Reloading is a first-class state
 
@@ -123,7 +131,7 @@ manifest registries in place. Combined with [live config](/concepts/config-and-s
 and manifest updates, it lets a server pick up configuration and capability changes
 without dropping its process. Across a fleet, `tai fleet reload-config`
 soft-restarts every worker on the bus (or only `--target` ones) and returns the
-per-origin report — see [Manage a fleet](/operate/manage-a-fleet).
+per-worker report — see [Manage a fleet](/operate/manage-a-fleet).
 
 ## The kinds summary
 

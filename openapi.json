@@ -548,6 +548,49 @@
         ],
         "type": "object"
       },
+      "FleetResult": {
+        "description": "The awaited result of one :meth:`WorkerBus.publish`.\n\nTwo honest shapes. Reachable (``reachable=True``): ``results`` holds, per worker,\nthe expected workers' verdicts (the synthesized self entry included) AND the gap\nrows (``resyncing`` / ``recycling`` / ``stale``) for rows that failed the ready+\nfresh gate — each carried as its actual condition rather than dropped.\nBus-unreachable (``reachable=False``): the transport failed before any worker\ncould reply, so there is NO worker list — only ``error``. ``local_only`` marks\nthe result of the no-op :meth:`WorkerBus.local` variant.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "local_only": {
+            "default": false,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "op": {
+            "title": "Op",
+            "type": "string"
+          },
+          "reachable": {
+            "default": true,
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "title": "FleetResult",
+        "type": "object"
+      },
       "FolderCreate": {
         "description": "A folder-creation request — a ``name`` and an optional ``parent_id``\n(``null`` = a root folder).",
         "properties": {
@@ -715,6 +758,30 @@
           "answer"
         ],
         "title": "InteractionAnswer",
+        "type": "object"
+      },
+      "LastOp": {
+        "description": "The last op a worker applied, stamped into presence after its terminal reply.",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "op": {
+            "title": "Op",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "outcome",
+          "at"
+        ],
+        "title": "LastOp",
         "type": "object"
       },
       "MCPConfig": {
@@ -1083,6 +1150,21 @@
         },
         "title": "OAuthComplete",
         "type": "object"
+      },
+      "OpOutcome": {
+        "description": "Per-worker outcome of a fleet op.\n\n``applied`` / ``failed`` are terminal WIRE replies from a subscriber.\n``missing`` / ``departed`` / ``timed_out`` are publisher-COMPUTED from the\npresence census (a silent worker never sends them). ``resyncing`` /\n``recycling`` / ``stale`` are the gap outcomes for a row that fails the ready+\nfresh gate: it is not an expected worker, so instead of being dropped it is\nlanded as its own actual condition — ``resyncing`` (the worker wrote that state\nand converges on its resync), ``recycling`` (departing, converging by\nold-life-gone + fresh capacity), or ``stale`` (a quiet row past the freshness\nbound — reconnecting or dead, carrying no convergence promise). A decayed row is\n``stale`` regardless of its written state.",
+        "enum": [
+          "applied",
+          "failed",
+          "missing",
+          "departed",
+          "timed_out",
+          "resyncing",
+          "recycling",
+          "stale"
+        ],
+        "title": "OpOutcome",
+        "type": "string"
       },
       "PatchSubServicesRequest": {
         "properties": {
@@ -2487,6 +2569,152 @@
         ],
         "title": "TriggerLinkCreate",
         "type": "object"
+      },
+      "WorkerKind": {
+        "description": "The two worker kinds that join the bus.",
+        "enum": [
+          "serve",
+          "backend"
+        ],
+        "title": "WorkerKind",
+        "type": "string"
+      },
+      "WorkerListing": {
+        "description": "The fleet listing payload for ``GET /api/fleet/workers`` — one row per live\npresence key, each with its server-computed ``stale`` flag.",
+        "properties": {
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerListingRow"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workers"
+        ],
+        "title": "WorkerListing",
+        "type": "object"
+      },
+      "WorkerListingRow": {
+        "description": "One worker on the fleet listing: the census row plus a server-computed ``stale``\nflag. ``stale`` is derived from the SAME bus-owned freshness predicate the ready+fresh\nexpected set uses (:func:`~tai42_skeleton.app.bus.presence_fresh` on the row's captured PTTL\nagainst the serving bus's TTL) — a client never hardcodes a threshold. ``last_op`` is\n``null`` until the worker has applied one.",
+        "properties": {
+          "beat_at": {
+            "title": "Beat At",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "joined_at": {
+            "title": "Joined At",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/WorkerKind"
+          },
+          "last_op": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastOp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pid": {
+            "title": "Pid",
+            "type": "integer"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorkerState"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "pid",
+          "generation",
+          "joined_at",
+          "beat_at",
+          "state",
+          "stale"
+        ],
+        "title": "WorkerListingRow",
+        "type": "object"
+      },
+      "WorkerResult": {
+        "description": "One worker's outcome within a :class:`FleetResult`.\n\n``payload`` carries query-op data (a read rides the same fan-out shape as a\nmutation); ``error`` carries a failed apply's message; ``detail`` carries the\npublisher's report text for a computed ``missing``/``departed``/``timed_out``.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/OpOutcome"
+          },
+          "payload": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Payload"
+          }
+        },
+        "required": [
+          "name",
+          "outcome"
+        ],
+        "title": "WorkerResult",
+        "type": "object"
+      },
+      "WorkerState": {
+        "description": "The lifecycle state a worker advertises in its presence value.\n\n``resyncing`` while its boot/reconnect resync runs, ``ready`` once converged,\n``recycling`` once it has begun a graceful self-exit.",
+        "enum": [
+          "ready",
+          "resyncing",
+          "recycling"
+        ],
+        "title": "WorkerState",
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -5379,7 +5607,7 @@
     },
     "/api/config/profiles/{name}/apply": {
       "post": {
-        "description": "Apply the profile's active env as the WHOLE stored env band (a key the profile\nomits is deleted, save the carried deployment X band), build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet\nfor recycle-class diffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{origin, kind, status}], refused:[] on success, fanout}`` — NAMES +\norigins only, never env values. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
+        "description": "Apply the profile's active env as the WHOLE stored env band (a key the profile\nomits is deleted, save the carried deployment X band), build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet\nfor recycle-class diffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{name, kind, status, generation_before}], fresh:[{name, kind,\ngeneration}], refused:[] on success, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per recycled/timed-out sibling (plus the\napplier's own deferred self-exit line when it must self-exit); ``fresh`` is the\nper-kind new ready lives observed since the pre-apply snapshot, capacity evidence never\nclaimed as any target's successor. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
         "operationId": "post_api_config_profiles_name_apply",
         "parameters": [
           {
@@ -5801,7 +6029,7 @@
     },
     "/api/config/reload": {
       "post": {
-        "description": "Soft-restart: refresh env from the config manager, reset every settings cache,\nand re-initialize from the manifest — in-process, no pod restart. Applied on this\nworker (when it is a target) and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-origin fleet report.\n\nHeavy (a full re-init); meant for env/config saves, not tool edits. A convergence\nop: its whole purpose is aligning siblings to persisted state, so a failed local\nreload still broadcasts and then re-raises with the fleet report attached.",
+        "description": "Soft-restart: refresh env from the config manager, reset every settings cache,\nand re-initialize from the manifest — in-process, no pod restart. Applied on this\nworker (when it is a target) and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-worker fleet report.\n\nHeavy (a full re-init); meant for env/config saves, not tool edits. A convergence\nop: its whole purpose is aligning siblings to persisted state, so a failed local\nreload still broadcasts and then re-raises with the fleet report attached.",
         "operationId": "post_api_config_reload",
         "requestBody": {
           "content": {
@@ -7889,7 +8117,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "data": {}
+                    "data": {
+                      "$ref": "#/components/schemas/FleetResult"
+                    }
                   },
                   "required": [
                     "data"
@@ -7942,7 +8172,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "data": {}
+                    "data": {
+                      "$ref": "#/components/schemas/WorkerListing"
+                    }
                   },
                   "required": [
                     "data"
@@ -9062,7 +9294,7 @@
     },
     "/api/manifest/replace": {
       "post": {
-        "description": "Replace the WHOLE manifest fleet-wide and persist it.\n\nThe posted ``manifest_text`` is the PRESERVED view (``!ENV`` markers intact); the\nserver loads it to the preserved document and pushes it through the pipeline —\nvalidate the RESOLVED projection, persist verbatim (no secret bakes to disk),\nreload locally, and broadcast the reload so every worker re-reads the persisted\nstore. The response embeds the per-origin fleet report as its ``fanout`` summary.\nA persisted replacement reaches the whole fleet, so there is no ``targets``.\n\nAuthority-changing — the manifest governs ``api_tools`` + module loading — so it\nis off the default MCP surface (tier 2), projectable via an explicit\n``api_tools.include``.",
+        "description": "Replace the WHOLE manifest fleet-wide and persist it.\n\nThe posted ``manifest_text`` is the PRESERVED view (``!ENV`` markers intact); the\nserver loads it to the preserved document and pushes it through the pipeline —\nvalidate the RESOLVED projection, persist verbatim (no secret bakes to disk),\nreload locally, and broadcast the reload so every worker re-reads the persisted\nstore. The response embeds the per-worker fleet report as its ``fanout`` summary.\nA persisted replacement reaches the whole fleet, so there is no ``targets``.\n\nAuthority-changing — the manifest governs ``api_tools`` + module loading — so it\nis off the default MCP surface (tier 2), projectable via an explicit\n``api_tools.include``.",
         "operationId": "post_api_manifest_replace",
         "requestBody": {
           "content": {
@@ -10213,7 +10445,7 @@
     },
     "/api/mcp-status/failed": {
       "get": {
-        "description": "List MCP servers skipped due to a failed viability check (server down or\nslow at boot or last reload). Use ``reload_mcp`` to re-attach one once healthy.\n\nEach entry is ``{\"title\": <name>, \"status\": \"unavailable\"}`` — title plus a\ncoarse status only. A query op rides the same fan-out primitive as a mutation:\nevery origin's list arrives as its per-origin ``payload`` in the fleet report\n(this worker's list on its own self entry); ``targets`` optionally restricts the\nquery to specific workers.",
+        "description": "List MCP servers skipped due to a failed viability check (server down or\nslow at boot or last reload). Use ``reload_mcp`` to re-attach one once healthy.\n\nEach entry is ``{\"title\": <name>, \"status\": \"unavailable\"}`` — title plus a\ncoarse status only. A query op rides the same fan-out primitive as a mutation:\nevery worker's list arrives as its per-worker ``payload`` in the fleet report\n(this worker's list on its own self entry); ``targets`` optionally restricts the\nquery to specific workers.",
         "operationId": "get_api_mcp_status_failed",
         "responses": {
           "200": {
@@ -10256,7 +10488,7 @@
     },
     "/api/mcp-status/reload-failed": {
       "post": {
-        "description": "Re-probe every MCP server currently in the failed list and attach the ones now\nviable. Applied on this worker through the gate and broadcast to the fleet (all\nworkers, or only ``targets``); the response embeds the per-origin fleet report.",
+        "description": "Re-probe every MCP server currently in the failed list and attach the ones now\nviable. Applied on this worker through the gate and broadcast to the fleet (all\nworkers, or only ``targets``); the response embeds the per-worker fleet report.",
         "operationId": "post_api_mcp_status_reload_failed",
         "requestBody": {
           "content": {
@@ -10328,7 +10560,7 @@
     },
     "/api/mcp-status/{title}/deregister": {
       "post": {
-        "description": "Detach a single MCP server's tools (by manifest title) without touching the\nother servers — the removal counterpart of ``reload_mcp``. Applied on this worker\nthrough the gate and broadcast to the fleet (all workers, or only ``targets``);\nthe response embeds the per-origin fleet report.",
+        "description": "Detach a single MCP server's tools (by manifest title) without touching the\nother servers — the removal counterpart of ``reload_mcp``. Applied on this worker\nthrough the gate and broadcast to the fleet (all workers, or only ``targets``);\nthe response embeds the per-worker fleet report.",
         "operationId": "post_api_mcp_status_title_deregister",
         "parameters": [
           {
@@ -14531,7 +14763,7 @@
     },
     "/api/tools/reload": {
       "post": {
-        "description": "Re-register one app tool (e.g. kind \"flow\") from its current stored definition.\n\nApplied on this worker and broadcast to the fleet (all workers, or only\n``targets``); each worker re-reads the definition itself, so the op carries only\nthe kind and name. The response embeds the per-origin fleet report.",
+        "description": "Re-register one app tool (e.g. kind \"flow\") from its current stored definition.\n\nApplied on this worker and broadcast to the fleet (all workers, or only\n``targets``); each worker re-reads the definition itself, so the op carries only\nthe kind and name. The response embeds the per-worker fleet report.",
         "operationId": "post_api_tools_reload",
         "requestBody": {
           "content": {
@@ -14603,7 +14835,7 @@
     },
     "/api/tools/remove": {
       "post": {
-        "description": "Remove one app tool (e.g. kind \"flow\") from the live registry.\n\nApplied on this worker and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-origin fleet report.",
+        "description": "Remove one app tool (e.g. kind \"flow\") from the live registry.\n\nApplied on this worker and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-worker fleet report.",
         "operationId": "post_api_tools_remove",
         "requestBody": {
           "content": {
@@ -14778,7 +15010,7 @@
         ]
       },
       "post": {
-        "description": "Author all of a tool's extension combos through the pipeline: persist, reload,\nand broadcast.\n\nOwner resolution, the consolidation-conflict check, and the registry combo\nvalidation all run BEFORE the pipeline (nothing persisted on a reject). The\nmutator then upserts the providing config's ``extensions`` entry, and\nConfigService validates the whole document, persists, reloads locally, and\nbroadcasts the reload so every worker rebinds; the per-origin fleet report rides\nthe response as its ``fanout`` summary. The persist + local reload have already\nlanded, so re-running the apply (or a ``reload_config``) is the recovery for a\nsibling that did not converge.",
+        "description": "Author all of a tool's extension combos through the pipeline: persist, reload,\nand broadcast.\n\nOwner resolution, the consolidation-conflict check, and the registry combo\nvalidation all run BEFORE the pipeline (nothing persisted on a reject). The\nmutator then upserts the providing config's ``extensions`` entry, and\nConfigService validates the whole document, persists, reloads locally, and\nbroadcasts the reload so every worker rebinds; the per-worker fleet report rides\nthe response as its ``fanout`` summary. The persist + local reload have already\nlanded, so re-running the apply (or a ``reload_config``) is the recovery for a\nsibling that did not converge.",
         "operationId": "post_api_tools_name_extensions",
         "parameters": [
           {
