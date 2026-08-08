@@ -1408,6 +1408,20 @@
         "title": "PresetVersionTags",
         "type": "object"
       },
+      "ProfileRollback": {
+        "description": "A settings-profile rollback request — the target version to make active.",
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ProfileRollback",
+        "type": "object"
+      },
       "ProjectionResult": {
         "description": "The caller's derived capability projection — every field derived, never stored.",
         "properties": {
@@ -1822,6 +1836,56 @@
           "url"
         ],
         "title": "ScopeUrlRemove",
+        "type": "object"
+      },
+      "SetMcpSecretEnv": {
+        "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator; the server generates an env KEY\n(shaped from ``key_hint``), writes ``value`` to the env store under that key (marked\nsecret), and writes an ``!ENV ${KEY}`` MARKER at ``manifest_pointer`` — so the secret\nlives only in the env store and the manifest carries a placeholder. ``manifest_pointer``\nis a slash-delimited, no-leading-slash path (e.g. ``mcp/0/config/headers/Authorization``)\nwhose HEAD segment MUST be ``mcp`` (the same mcp-only authority ``set_mcp_config`` holds).\nThe generated key is NOT returned.",
+        "properties": {
+          "key_hint": {
+            "title": "Key Hint",
+            "type": "string"
+          },
+          "manifest_pointer": {
+            "title": "Manifest Pointer",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "key_hint",
+          "manifest_pointer"
+        ],
+        "title": "SetMcpSecretEnv",
+        "type": "object"
+      },
+      "SettingsProfileBody": {
+        "description": "The persisted body of a versioned settings profile.\n\n``env`` is the whole profile-managed env band (values verbatim, secrets\nincluded — the store rides the ``secret=True`` versioned-documents backup\nsection); applying the profile REPLACES the stored env with it (a key the\nprofile does not name is deleted, save the carried X-band). ``secret_keys`` are\nthe per-profile secret marks (which ``env`` keys are secret) folded into the\ndisplay mask union. ``description`` is the profile's human description.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "secret_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Secret Keys",
+            "type": "array"
+          }
+        },
+        "title": "SettingsProfileBody",
         "type": "object"
       },
       "StartConnectRequest": {
@@ -4984,6 +5048,697 @@
         ]
       }
     },
+    "/api/config/profiles": {
+      "get": {
+        "description": "One ``{name, description}`` row per active settings profile, EXCLUDING the\nreserved ``@``-prefixed snapshots (e.g. ``@previous``). A store-less deploy holds\nno profiles, so it serves an empty list rather than opening an absent store.",
+        "operationId": "get_api_config_profiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List settings profiles",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/profiles/{name}": {
+      "delete": {
+        "description": "Soft-delete the profile, keeping its version history (audit). 404 for an\nabsent name.",
+        "operationId": "delete_api_config_profiles_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a settings profile",
+        "tags": [
+          "config"
+        ],
+        "x-destructive": true
+      },
+      "get": {
+        "description": "The profile's active body — ``{description, env, secret_keys}`` with REAL env\nvalues (this authed ``secret``-fenced door round-trips values through the editor;\nmasking is display-side only, never on the wire). 404 for an absent name.",
+        "operationId": "get_api_config_profiles_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a settings profile",
+        "tags": [
+          "config"
+        ]
+      },
+      "put": {
+        "description": "Create the profile, or append a new version when it exists (whole-body\nreplace). Returns ``{ok: true, version}`` — NEVER the stored body, so a secret\nnever re-emits on the write path. A reserved ``@``-prefixed name is a loud 400.\nThe profile's DECLARED env is run through the shared boundary validator\n(``ConfigService._validate_replace``): a payload carrying an X-band key or leaving\na manifest ``!ENV`` marker dangling is refused at save time, naming the key.",
+        "operationId": "put_api_config_profiles_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsProfileBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create or update a settings profile",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/profiles/{name}/apply": {
+      "post": {
+        "description": "Apply the profile's active env as the WHOLE stored env band (a key the profile\nomits is deleted, save the carried deployment X band), build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet\nfor recycle-class diffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{origin, kind, status}], refused:[] on success, fanout}`` — NAMES +\norigins only, never env values. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
+        "operationId": "post_api_config_profiles_name_apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Apply a settings profile — replace the stored env and reload the fleet",
+        "tags": [
+          "config"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/config/profiles/{name}/diff": {
+      "post": {
+        "description": "The saved profile's env vs the CURRENT stored env, with REAL values (the UI\nmasks) — a preview, not a report. ``added`` / ``removed`` are key names, ``changed``\nis ``[{key, old, new}]``. ``recycle_keys`` are the diff keys whose registry\n``reload_class`` is ``recycle``; ``refused_keys`` are the diff keys the recycle\npolicy refuses upfront on this deployment shape\n(``recycle_policy.capability_report().refused_keys``), named. 404 for an absent\nname.",
+        "operationId": "post_api_config_profiles_name_diff",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Diff a settings profile against the stored env",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/profiles/{name}/rollback": {
+      "post": {
+        "description": "Re-point the active version to ``version`` (no data copy), making it the\ncurrent body. Returns ``{ok: true, version}``. 404 for an absent name or version.\nA store-only re-point — the live process is realigned by a later apply, not by\nthis door.",
+        "operationId": "post_api_config_profiles_name_rollback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileRollback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Roll a settings profile back to a version",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/profiles/{name}/versions": {
+      "get": {
+        "description": "The profile's version history as a bare array of\n``{version, tags, created_at, is_current}`` rows — NO body. 404 for an absent\nname.",
+        "operationId": "get_api_config_profiles_name_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List a settings profile's versions",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/profiles/{name}/versions/{version}": {
+      "get": {
+        "description": "One version row extended with its full ``body`` (``{description, env,\nsecret_keys}``, REAL values — this door is ``secret``-fenced). A non-integer\nsegment is a 400, an unknown version a 404.",
+        "operationId": "get_api_config_profiles_name_versions_version",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a settings profile version",
+        "tags": [
+          "config"
+        ]
+      }
+    },
     "/api/config/reload": {
       "post": {
         "description": "Soft-restart: refresh env from the config manager, reset every settings cache,\nand re-initialize from the manifest — in-process, no pod restart. Applied on this\nworker (when it is a target) and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-origin fleet report.\n\nHeavy (a full re-init); meant for env/config saves, not tool edits. A convergence\nop: its whole purpose is aligning siblings to persisted state, so a failed local\nreload still broadcasts and then re-raises with the fleet report attached.",
@@ -7578,7 +8333,7 @@
     },
     "/api/manifest": {
       "get": {
-        "description": "Return the MCP section and user tools of the LIVE in-process manifest — what the\nrunning registries currently serve, as re-derived at the last reload. With every\nmutation crossing the ConfigService pipeline (persist → reload → broadcast), the\nlive view tracks the persisted store through all supported paths; asserting the\nlive-vs-persisted agreement is deferred to a later plan.",
+        "description": "Return the MCP section and user tools of the PRESERVED persisted manifest —\n``!ENV ${KEY}`` markers kept intact, so a secret leaf is its placeholder marker,\nNEVER the plaintext value.\n\nRETIGHTEN (PLAN_3 §D / QUESTIONS decision): this door previously served the RESOLVED\nin-process ``live_manifest`` (``tai42_app.admin.live_manifest``), which materialized\nevery ``!ENV`` marker and leaked plaintext secrets onto the wire. It is FLIPPED to the\npreserved read (the no-leak posture PLAN_6 e2e asserts). The resolved read is RETIRED\noutright — a clean break with no compat path (R2) and NO secret-fenced resolved\nsurface, because no server-side consumer needs the resolved view here: McpTab already\nreads ``/api/manifest/preserved`` and ManifestTab now renders markers (PLAN_5's\nManifestTab expected the resolved view — that Studio adjustment is PLAN_5/PLAN_6 scope,\nthe intended clean-break outcome, out of this wave).",
         "operationId": "get_api_manifest",
         "responses": {
           "200": {
@@ -7613,7 +8368,50 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Read the live registries' manifest MCP section and user tools",
+        "summary": "Read the PRESERVED manifest MCP section and user tools",
+        "tags": [
+          "manifest"
+        ]
+      }
+    },
+    "/api/manifest/preserved": {
+      "get": {
+        "description": "Return the PRESERVED persisted manifest's MCP section + user tools with every\n``!ENV ${KEY}`` marker intact (no secret is resolved) — the source the Studio McpTab\nconfig editor reads so it can round-trip markers instead of baking a resolved secret.\nSame ``{mcp, user_tools}`` view as ``get_manifest`` (both serve the preserved read\npost-retighten); the explicit ``/preserved`` door is the PLAN_5-pinned contract.",
+        "operationId": "get_api_manifest_preserved",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Read the PRESERVED manifest (markers intact) MCP section and user tools",
         "tags": [
           "manifest"
         ]
@@ -8644,6 +9442,88 @@
         "tags": [
           "manifest"
         ]
+      }
+    },
+    "/api/mcp-config/secret-env": {
+      "post": {
+        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nGenerates an env KEY (shaped from ``key_hint``), writes the secret ``value`` to the env\nstore under that key AND marks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and\nwrites an ``!ENV ${KEY}`` MARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent (a manifest-persist failure rolls the env back). The pointer's HEAD\nsegment MUST be ``mcp`` (loud 400 otherwise). The response is the ``reloadConfigResult``\nshape; the generated key is NEVER returned. A dangling ``!ENV`` / X-band refusal surfaces\nas a loud 400 naming the key (the shared boundary validator, same as ``POST\n/api/mcp-config``).",
+        "operationId": "post_api_mcp_config_secret_env",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMcpSecretEnv"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Write a secret env value and its manifest !ENV marker together, then reload",
+        "tags": [
+          "manifest"
+        ],
+        "x-destructive": true
       }
     },
     "/api/mcp-status": {
