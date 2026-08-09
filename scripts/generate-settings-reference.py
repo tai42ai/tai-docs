@@ -63,8 +63,8 @@ DOCS_JSON = DOCS_ROOT / "docs.json"
 DEFAULT_NAMESPACE_DOC = "/concepts/config-and-secrets#default-connection-namespace"
 
 # The Reference-tab nav group this page lives in. The generator owns this group
-# the way gen_catalog owns "Catalog": it is created after the "CLI" group when
-# absent, and its single page is (re)pinned on every run.
+# the way gen_cli owns "CLI": it is created after the "CLI" group when absent,
+# and its single page is (re)pinned on every run.
 NAV_GROUP = "Settings"
 NAV_GROUP_ICON = "sliders"
 NAV_PAGE = "reference/settings"
@@ -364,7 +364,7 @@ def update_nav() -> None:
 def _write_nav(data: dict) -> None:
     # ensure_ascii=False so hand-authored non-ASCII in docs.json (em dashes)
     # survives a regen byte-for-byte instead of re-encoding to \\uXXXX escapes —
-    # matches gen_catalog / gen_cli.
+    # matches gen_cli.
     DOCS_JSON.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

@@ -12,13 +12,13 @@ Four checks, all OFFLINE (no network); the three that depend on the
 ``tai-distribution`` sibling are gated on that checkout being present:
 
 1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
-   resolves to a real distribution. The authoritative set is the ``packages`` map
-   in the packaged ``ecosystem.yml`` (the same offline source ``gen_catalog``
-   renders), UNIONED with the foundation distributions this repository's own
-   ``pyproject.toml`` ``[tool.uv.sources]`` floats as editable siblings
-   (``tai42-contract`` / ``tai42-kit`` -- the layers that ship no catalog
-   registration and so are absent from the packages map). A ``tai42-<name>``
-   outside that set is drift.
+   resolves to a real distribution. The authoritative set is every listing's
+   ``package`` in the committed ``plugins/_registry.json`` (the marketplace
+   snapshot ``gen_plugins`` emits), UNIONED with the foundation distributions this
+   repository's own ``pyproject.toml`` ``[tool.uv.sources]`` floats as editable
+   siblings (``tai42-skeleton`` / ``tai42-contract`` / ``tai42-kit`` -- the core
+   layers that are not marketplace listings and so are absent from the registry).
+   A ``tai42-<name>`` outside that set is drift.
 
 2. Repo URLs -- every referenced repository resolves. Two shapes coexist: the
    ``tai42`` monorepo (``github.com/tai42ai/tai42``, optionally addressing a
@@ -54,11 +54,10 @@ Four checks, all OFFLINE (no network); the three that depend on the
    regeneration pipeline only rebuilds generator-owned sections, never a narrative
    page, so a drift gate -- not a dispatch -- is what enforces this page's sync.
 
-Run it where ``tai42_skeleton`` resolves (this project's dev env or the
-tai42-skeleton virtualenv)::
+Runs offline (the distribution set is read from the committed registry snapshot);
+the tai-distribution-gated checks stay strict only when that sibling is present::
 
-    uv run python scripts/check_docs_refs.py
-    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/check_docs_refs.py
+    python3 scripts/check_docs_refs.py
 """
 
 from __future__ import annotations
@@ -74,7 +73,7 @@ DOCS_ROOT = SCRIPT_DIR.parent
 WORKSPACE_ROOT = DOCS_ROOT.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-import gen_catalog  # noqa: E402
+from registry import load_registry  # noqa: E402
 
 # The tai-distribution compose bundle: the authoritative home of the
 # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES default the docs mirror.
@@ -128,9 +127,22 @@ _ALWAYS_PUBLIC_COMPOSE_RE = re.compile(
 )
 
 
+# The generated Plugins section is authored by plugin publishers, not by this
+# repo, and carries their own package/repo tokens (a plugin may name a PyPI
+# distribution outside the tai42 listing set). It is a GENERATED tree, not a
+# hand-written reference, so it is out of scope for this drift gate.
+_GENERATED_DIRS = ("plugins/",)
+
+
 def scan_docs(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
-    """Return ``(relative_path, text)`` for every ``.mdx`` file under the docs root."""
-    return [(str(p.relative_to(docs_root)), p.read_text(encoding="utf-8")) for p in sorted(docs_root.rglob("*.mdx"))]
+    """Return ``(relative_path, text)`` for every hand-authored ``.mdx`` file."""
+    out: list[tuple[str, str]] = []
+    for p in sorted(docs_root.rglob("*.mdx")):
+        rel = str(p.relative_to(docs_root))
+        if rel.startswith(_GENERATED_DIRS):
+            continue
+        out.append((rel, p.read_text(encoding="utf-8")))
+    return out
 
 
 def _pyproject_sources(docs_root: Path) -> dict[str, str]:
@@ -138,8 +150,8 @@ def _pyproject_sources(docs_root: Path) -> dict[str, str]:
     editable siblings in ``pyproject.toml`` ``[tool.uv.sources]``.
 
     These are the distributions the docs build itself depends on (the contract and
-    kit foundation layers) that ship no catalog registration and so never appear in
-    the packaged ecosystem's ``packages`` map."""
+    kit foundation layers) that ship no marketplace listing and so never appear in
+    the ``plugins/_registry.json`` snapshot."""
     data = tomllib.loads((docs_root / "pyproject.toml").read_text(encoding="utf-8"))
     sources = data.get("tool", {}).get("uv", {}).get("sources", {})
     mapping: dict[str, str] = {}
@@ -154,19 +166,15 @@ def _pyproject_sources(docs_root: Path) -> dict[str, str]:
 
 
 def load_distribution_map(docs_root: Path = DOCS_ROOT) -> dict[str, str]:
-    """The authoritative ``distribution -> repo`` mapping, assembled offline.
+    """The authoritative valid-distribution set, assembled offline.
 
-    Primary source: the ``packages`` map in the packaged ``ecosystem.yml`` (every
-    distribution that ships a catalog registration). Unioned with the foundation
+    Primary source: every listing's ``package`` in ``plugins/_registry.json``
+    (every distribution the marketplace lists). Unioned with the foundation
     distributions declared in this repo's own ``pyproject.toml`` sources, so the
-    contract/kit layers -- real distributions absent from the registration map --
-    resolve too."""
-    doc = gen_catalog.load_ecosystem()
-    packages = doc.get("packages")
-    if not isinstance(packages, dict) or not packages:
-        print("check_docs_refs: ecosystem.yml has no packages mapping", file=sys.stderr)
-        raise SystemExit(1)
-    mapping = dict(packages)
+    core skeleton/contract/kit layers -- real distributions that are not
+    marketplace listings -- resolve too. The values are unused (only the key set
+    gates distribution names), so each registry package maps to itself."""
+    mapping: dict[str, str] = {listing["package"]: listing["package"] for listing in load_registry()}
     for dist, repo in _pyproject_sources(docs_root).items():
         mapping.setdefault(dist, repo)
     return mapping
@@ -188,13 +196,13 @@ def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str])
             if name not in valid_dists:
                 problems.append(
                     f"{rel}:{lineno}: '{name}' is not a real distribution "
-                    f"(absent from ecosystem.yml packages and this repo's pyproject sources)"
+                    f"(absent from plugins/_registry.json packages and this repo's pyproject sources)"
                 )
     return problems
 
 
 # The standalone non-package repos — real repos that ship no PyPI
-# distribution, so they never appear in the ecosystem dist->repo map. A curated
+# distribution, so they never appear in the ``plugins/_registry.json`` snapshot. A curated
 # allowlist: offline there is no other way to tell a real infra repo from a typo,
 # so an unknown tai-<repo> must fail rather than pass silently. The package repos
 # are members of the `tai42` monorepo (validated via `_MONOREPO_RE`), so they are
@@ -433,7 +441,7 @@ def main() -> int:
             print(f"  - {p}", file=sys.stderr)
         print(
             "\nUpdate the offending docs to match the source of truth "
-            "(ecosystem.yml packages, the tai42ai repos, or the compose default).",
+            "(plugins/_registry.json packages, the tai42ai repos, or the compose default).",
             file=sys.stderr,
         )
         return 1

@@ -17,8 +17,9 @@ Please read that page before opening a documentation pull request.
   vocabulary every page on the site follows; it is a mandatory input to any
   narrative page.
 - **Never hand-edit generated reference.** `reference/cli/`,
-  `reference/python-sdk/`, `reference/studio-sdk/`, `reference/catalog/`,
-  `reference/settings.mdx`, `openapi.json`, and the standard-toolbox table in
+  `reference/python-sdk/`, `reference/studio-sdk/`, `reference/capability-map.mdx`,
+  `reference/settings.mdx`, `openapi.json`, the `plugins/` section, and the
+  standard-toolbox table in
   `guides/standard-toolbox.mdx` are written by the generators in `scripts/`.
   Change the source repository or the generator and regenerate;
   `scripts/check_drift.py` fails the build when a committed page differs from a
@@ -50,7 +51,8 @@ Narrative content:
 Generated reference:
 
 - `reference/cli`, `reference/python-sdk`, `reference/studio-sdk`,
-  `reference/catalog`, `reference/settings.mdx` — generated from source
+  `reference/capability-map.mdx`, `reference/settings.mdx` — generated from source
+- `plugins/` — the Plugins section, generated from the marketplace registry
 - `reference/api` — the HTTP API section, rendered from the generated
   `openapi.json`
 - `snippets/examples` — generated MDX wrappers of the `examples` tree, imported

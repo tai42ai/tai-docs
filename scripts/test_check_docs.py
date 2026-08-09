@@ -56,7 +56,7 @@ def test_unreachable_page_fails(tmp_path, monkeypatch) -> None:
 def test_snippets_and_generated_indexes_are_exempt(tmp_path, monkeypatch) -> None:
     """Partials and generator-owned reference indexes never count as orphans."""
     _rooted(monkeypatch, tmp_path)
-    _tree(tmp_path, "snippets/examples/tool/forecast", "reference/cli/index", "reference/catalog/index")
+    _tree(tmp_path, "snippets/examples/tool/forecast", "reference/cli/index", "plugins/index")
 
     problems: list[str] = []
     check_docs.check_orphans(set(), problems)

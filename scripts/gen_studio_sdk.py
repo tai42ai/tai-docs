@@ -943,7 +943,7 @@ def render_index_page(page_symbols: dict[str, list[str]]) -> str:
 def build_nav(slugs: list[str]) -> dict:
     """Parse docs.json and return the FULL mutated docs.json data with the
     Reference > "Studio SDK" group added / refreshed (its pages matching the
-    generated files, inserted directly AFTER the Catalog group). The rest of
+    generated files, inserted directly AFTER the Python SDK group). The rest of
     docs.json is preserved byte-for-byte otherwise.
 
     Raises GenerationError when docs.json has no Reference tab. This is a PURE
@@ -957,7 +957,8 @@ def build_nav(slugs: list[str]) -> dict:
         if tab.get("tab") != "Reference":
             continue
         groups = tab["groups"]
-        # Replace an existing Studio SDK group in place, else insert after Catalog.
+        # Replace an existing Studio SDK group in place, else insert after
+        # Python SDK (its stable preceding neighbour in the Reference tab).
         for i, existing in enumerate(groups):
             if existing.get("group") == "Studio SDK":
                 groups[i] = group
@@ -965,7 +966,7 @@ def build_nav(slugs: list[str]) -> dict:
         else:
             insert_at = len(groups)
             for i, existing in enumerate(groups):
-                if existing.get("group") == "Catalog":
+                if existing.get("group") == "Python SDK":
                     insert_at = i + 1
                     break
             groups.insert(insert_at, group)

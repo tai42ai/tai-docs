@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """Tests for the standard-toolbox summary-table generator.
 
-Runnable from this project — the ``dev`` group and the editable sibling sources
-resolve the packaged ``ecosystem.yml`` natively::
+Runnable from this project — the ``dev`` group resolves the committed
+``plugins/_registry.json`` snapshot natively::
 
     uv run pytest scripts/test_gen_toolbox_table.py
 
-Running it inside the tai42-skeleton virtualenv is a supported alternative::
-
-    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_gen_toolbox_table.py
-
 Two guarantees are asserted:
 
-1. Coverage — the real packaged ecosystem.yml yields the toolbox's tool/extension
+1. Coverage — the committed registry yields the toolbox's tool/extension item
    rows, they render into a Markdown table, and that table injects cleanly
    between the guide's markers.
 2. Fail-loud — missing markers, reversed markers, no matching rows, and a row
@@ -35,23 +31,34 @@ import gen_toolbox_table  # noqa: E402
 START = gen_toolbox_table.START_MARKER
 END = gen_toolbox_table.END_MARKER
 
+TOOLBOX = gen_toolbox_table.TOOLBOX_PACKAGE
+
+
+def _listing(package: str, items: list[dict]) -> dict:
+    return {
+        "namespace": "tai42",
+        "name": package.removeprefix("tai42-"),
+        "package": package,
+        "premium": False,
+        "items": items,
+    }
+
 
 # --- coverage --------------------------------------------------------------
 
 
-def test_real_catalog_renders_and_injects() -> None:
-    """The real packaged file yields toolbox rows that render and inject."""
-    doc = gen_toolbox_table.load_ecosystem()
-    rows = gen_toolbox_table.toolbox_rows(doc)  # raises SystemExit on a bad catalog
+def test_real_registry_renders_and_injects() -> None:
+    """The committed registry yields toolbox rows that render and inject."""
+    listings = gen_toolbox_table.load_registry()
+    rows = gen_toolbox_table.toolbox_rows(listings)  # raises SystemExit on a bad registry
 
-    assert rows, "expected at least one tai42-toolbox tool/extension entry"
+    assert rows, "expected at least one tai42-toolbox tool/extension item"
     for row in rows:
-        assert row["package"] == gen_toolbox_table.TOOLBOX_PACKAGE
         assert row["kind"] in gen_toolbox_table.TOOLBOX_KINDS
 
     table = gen_toolbox_table.render_table(rows)
     assert table.startswith("| Name | Kind | Summary |")
-    # One header, one divider, one row per entry.
+    # One header, one divider, one row per item.
     assert len(table.splitlines()) == len(rows) + 2
 
     guide = f"intro\n\n{START}\n\nOLD TABLE\n\n{END}\n\noutro\n"
@@ -75,12 +82,7 @@ def test_inject_missing_markers_fails_loud() -> None:
 
 
 def test_inject_reversed_markers_fails_loud() -> None:
-    """END before START -> a CLEAN SystemExit, not a bare ValueError.
-
-    Regression guard: an unbounded ``.index(END_MARKER)`` must find the early END
-    so the ``end < start`` check fires with the intended diagnostic, rather than
-    ``.index(END_MARKER, start)`` raising ``substring not found``.
-    """
+    """END before START -> a CLEAN SystemExit, not a bare ValueError."""
     guide = f"prose\n{END}\nmiddle\n{START}\nrest"
     with pytest.raises(SystemExit) as excinfo:
         gen_toolbox_table.inject(guide, "TABLE")
@@ -89,37 +91,19 @@ def test_inject_reversed_markers_fails_loud() -> None:
 
 
 def test_toolbox_rows_no_matching_entries_fails_loud() -> None:
-    """A catalog with no tai42-toolbox tool/extension entries -> SystemExit."""
-    doc = {
-        "entries": [
-            {
-                "name": "other_tool",
-                "kind": "tool",
-                "package": "some-other-package",
-                "description": "Not part of the standard toolbox.",
-            }
-        ]
-    }
+    """A registry with no tai42-toolbox tool/extension items -> SystemExit."""
+    listings = [_listing("some-other-package", [{"kind": "tool", "name": "other", "description": "Not the toolbox."}])]
     with pytest.raises(SystemExit) as excinfo:
-        gen_toolbox_table.toolbox_rows(doc)
+        gen_toolbox_table.toolbox_rows(listings)
     assert excinfo.value.code != 0
     print("  fail-loud (no matching rows): SystemExit(non-zero)")
 
 
 def test_toolbox_rows_missing_field_fails_loud() -> None:
-    """A tai42-toolbox entry missing a required field -> SystemExit."""
-    doc = {
-        "entries": [
-            {
-                "name": "partial_tool",
-                "kind": "tool",
-                "package": gen_toolbox_table.TOOLBOX_PACKAGE,
-                # 'description' deliberately omitted
-            }
-        ]
-    }
+    """A tai42-toolbox item missing a required field -> SystemExit."""
+    listings = [_listing(TOOLBOX, [{"kind": "tool", "name": "partial"}])]  # no description
     with pytest.raises(SystemExit) as excinfo:
-        gen_toolbox_table.toolbox_rows(doc)
+        gen_toolbox_table.toolbox_rows(listings)
     assert excinfo.value.code != 0
     print("  fail-loud (missing field): SystemExit(non-zero)")
 
@@ -141,7 +125,7 @@ def test_main_no_partial_write_on_bad_markers(tmp_path: Path, monkeypatch) -> No
 
 def main() -> int:
     print("test_gen_toolbox_table:")
-    test_real_catalog_renders_and_injects()
+    test_real_registry_renders_and_injects()
     test_inject_missing_markers_fails_loud()
     test_inject_reversed_markers_fails_loud()
     test_toolbox_rows_no_matching_entries_fails_loud()

@@ -1,7 +1,8 @@
 # Documentation freshness pipeline.
 #
 # This workflow keeps the generated reference (HTTP API, CLI, Python SDK, the
-# ecosystem catalog, the settings reference, and the Studio SDK) in lockstep with
+# Studio SDK, the settings reference, the capability map, and the Plugins section)
+# in lockstep with
 # source. It runs
 # entirely in the hosted CI runner -- it needs the source checkouts, `uv`, and
 # the Mintlify CLI (`mint`), none of which are available in an offline
@@ -34,7 +35,10 @@ on:
   schedule:
     - cron: "17 6 * * *" # daily safety net, independent of any source push
   repository_dispatch:
-    types: [source-repo-push] # fired by the monorepo's and tai-studio's CI hook on push to main
+    # source-repo-push: the monorepo's and tai-studio's CI hook on push to main.
+    # marketplace-publish: the marketplace's hook on a plugin publish (regenerates
+    # the Plugins section from the registry).
+    types: [source-repo-push, marketplace-publish]
 
 # Permissions are scoped per JOB (below), not workflow-wide: the read-only `gate`
 # job never needs write, and only `regenerate` may open a PR.
@@ -124,7 +128,7 @@ jobs:
       - name: Sync the generator environment
         working-directory: tai42/core/skeleton
         # Installs tai42_skeleton + tai42_contract + tai42_kit + griffe so the SDK,
-        # CLI, catalog, and OpenAPI generators resolve their inputs.
+        # CLI, and OpenAPI generators resolve their inputs.
         run: uv sync --all-extras
 
       - name: Set up Node
@@ -161,10 +165,6 @@ jobs:
         working-directory: tai42/core/skeleton
         run: uv run pytest ../../../tai-docs -q
 
-      - name: Registry cross-check (catalog packages resolve to repos)
-        working-directory: tai42/core/skeleton
-        run: uv run python ../../../tai-docs/scripts/check_registry.py
-
       - name: Docs integrity check (nav pages and redirects resolve)
         working-directory: tai42/core/skeleton
         run: uv run python ../../../tai-docs/scripts/check_docs.py
@@ -174,8 +174,8 @@ jobs:
         # Fails if a hand-written tai42-<name> distribution, a
         # github.com/tai42ai/tai-<repo> URL, or the documented
         # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES example has drifted from its
-        # source of truth (the packaged ecosystem.yml, the tai42ai repos, and the
-        # tai-distribution compose default). This job clones tai-distribution (in
+        # source of truth (the committed plugins/_registry.json, the tai42ai repos,
+        # and the tai-distribution compose default). This job clones tai-distribution (in
         # the sibling loop above), so the ALWAYS_PUBLIC compose comparison runs
         # STRICTLY here — removing tai-distribution from that loop would downgrade
         # it to a non-failing note, so keep it there.
@@ -289,18 +289,23 @@ jobs:
 
       - name: Regenerate every reference section
         working-directory: tai42/core/skeleton
+        # gen_plugins runs BEFORE its registry consumers (gen_toolbox_table,
+        # gen_capability_map): it emits plugins/_registry.json, which both read.
+        # gen_plugins is the only network-fed generator (it reads the marketplace
+        # public API; MARKETPLACE_URL defaults to production); a marketplace outage
+        # loud-fails this regen but never the offline gate (gen_plugins is excluded
+        # from check_drift). gen_gated_features is in check_drift's GENERATORS and
+        # so must be regenerated here too, or its gated drift would never refresh.
         run: |
           uv run python ../../../tai-docs/scripts/gen_openapi.py
           uv run python ../../../tai-docs/scripts/gen_cli.py
           uv run python ../../../tai-docs/scripts/gen_sdk.py
           uv run python ../../../tai-docs/scripts/gen_studio_sdk.py
-          uv run python ../../../tai-docs/scripts/gen_catalog.py
+          uv run python ../../../tai-docs/scripts/gen_plugins.py
           uv run python ../../../tai-docs/scripts/generate-settings-reference.py
           uv run python ../../../tai-docs/scripts/gen_toolbox_table.py
-
-      - name: Registry cross-check (catalog packages resolve to repos)
-        working-directory: tai42/core/skeleton
-        run: uv run python ../../../tai-docs/scripts/check_registry.py
+          uv run python ../../../tai-docs/scripts/gen_gated_features.py
+          uv run python ../../../tai-docs/scripts/gen_capability_map.py
 
       - name: Install Mintlify CLI
         run: npm i -g mint
@@ -331,8 +336,9 @@ jobs:
           title: "docs: regenerate reference from source main"
           body: |
             Automated regeneration of the generated reference sections
-            (HTTP API, CLI, Python SDK, ecosystem catalog, settings reference,
-            Studio SDK) against source `main` HEAD.
+            (HTTP API, CLI, Python SDK, Studio SDK, settings reference,
+            the capability map, and the Plugins section) against source `main`
+            HEAD and the marketplace registry.
 
             Self-merges once the required checks pass, clearing the drift gate.
             The deployed site always builds from committed files, so it is

@@ -3,8 +3,8 @@
 
 Re-runs every reference generator and compares their output against the files
 committed in this repository. If a merged code change altered the HTTP API, CLI,
-Python SDK, ecosystem catalog, the settings reference, or the standard-toolbox
-table without the reference being regenerated, the committed files differ from a
+Python SDK, the settings reference, the standard-toolbox table, or the capability
+map without the reference being regenerated, the committed files differ from a
 fresh run and this exits non-zero -- the standard "generated files are checked in
 AND verified fresh in CI" pattern.
 
@@ -34,15 +34,21 @@ DOCS_ROOT = SCRIPT_DIR.parent
 # The generators (in run order) and every path they own. `docs.json` is shared:
 # each generator rewrites only its own Reference nav group, so it is compared
 # once after every generator has run.
+# gen_plugins.py is DELIBERATELY absent: it is network-fed (the marketplace) and
+# the offline drift gate must never fail during a marketplace outage. The daily
+# regen workflow owns plugins/ freshness (§2 of the plan). The registry CONSUMERS
+# below (gen_toolbox_table, gen_capability_map) read the committed
+# plugins/_registry.json snapshot and so stay offline. gen_capability_map runs
+# after gen_openapi so it reads the freshly regenerated openapi.json.
 GENERATORS = [
     "gen_openapi.py",
     "gen_cli.py",
     "gen_sdk.py",
     "gen_studio_sdk.py",
-    "gen_catalog.py",
     "generate-settings-reference.py",
     "gen_toolbox_table.py",
     "gen_gated_features.py",
+    "gen_capability_map.py",
 ]
 
 GENERATED_PATHS = [
@@ -51,8 +57,8 @@ GENERATED_PATHS = [
     "reference/cli",
     "reference/python-sdk",
     "reference/studio-sdk",
-    "reference/catalog",
     "reference/settings.mdx",
+    "reference/capability-map.mdx",
     "guides/standard-toolbox.mdx",
     "concepts/config-and-secrets.mdx",
 ]

@@ -5,8 +5,9 @@
 
 The unified documentation site for the TAI ecosystem, built with
 [Mintlify](https://mintlify.com). One site covers the whole platform: a
-landing page, hand-written concepts and guides, and a generated reference
-(HTTP API, CLI, Python SDK, Studio SDK, settings, and the ecosystem catalog).
+landing page, hand-written concepts and guides, a generated reference
+(HTTP API, CLI, Python SDK, Studio SDK, settings, and the capability map), and a
+generated Plugins section read from the marketplace registry.
 
 The site is docs-as-code: every page is MDX in this repository, and the
 reference sections are generated from source so they cannot drift from the code.
@@ -21,7 +22,8 @@ concepts/              One page per platform pillar
 guides/                Task-shaped how-to guides
 integrations/          Connecting MCP clients to a running server
 reference/             Generated reference (API, CLI, Python SDK, Studio SDK,
-                       settings, catalog)
+                       settings, capability map)
+plugins/               Generated Plugins section (from the marketplace registry)
 contributing.mdx       How the tai42 monorepo is laid out and developed
 logo/                  Brand assets: favicon (icon.png) and light/dark logos
 images/                Static images, including the social/OG image
@@ -63,7 +65,7 @@ They are confirmed on the deploy preview, not in `mint dev`.
 The reference sections are generated from source so they cannot drift from the
 code. The generators live in `scripts/` and run in the tai42 monorepo's
 environment, where `tai42_contract`, `tai42_kit`, and `tai42_skeleton` resolve.
-Regenerate all seven from a monorepo checkout beside this one:
+Regenerate all nine from a monorepo checkout beside this one:
 
 ```bash
 cd ../tai42/core/skeleton
@@ -71,41 +73,52 @@ uv run python ../../../tai-docs/scripts/gen_openapi.py    # openapi.json (HTTP A
 uv run python ../../../tai-docs/scripts/gen_cli.py        # reference/cli/*.mdx
 uv run python ../../../tai-docs/scripts/gen_sdk.py        # reference/python-sdk/*.mdx
 uv run python ../../../tai-docs/scripts/gen_studio_sdk.py # reference/studio-sdk/*.mdx
-uv run python ../../../tai-docs/scripts/gen_catalog.py    # reference/catalog/index.mdx
+uv run python ../../../tai-docs/scripts/gen_plugins.py    # plugins/**  (reads the marketplace API)
 uv run python ../../../tai-docs/scripts/generate-settings-reference.py  # reference/settings.mdx
 uv run python ../../../tai-docs/scripts/gen_toolbox_table.py  # guides/standard-toolbox.mdx table
+uv run python ../../../tai-docs/scripts/gen_gated_features.py # concepts/config-and-secrets.mdx table
+uv run python ../../../tai-docs/scripts/gen_capability_map.py # reference/capability-map.mdx
 ```
 
 Each generator fails loud: if its input cannot be loaded it exits non-zero and
 leaves the committed reference untouched, never overwriting a good reference
 with an empty or partial one. The `openapi` field in `docs.json` points at the
-emitted `openapi.json`; the CLI, Python-SDK, Studio-SDK, catalog, and settings
-generators also rewrite their own Reference nav entries in `docs.json`. `gen_toolbox_table.py` rewrites only the
-generated table between the markers in `guides/standard-toolbox.mdx`, sourced
-from the same packaged `ecosystem.yml` as the catalog.
+emitted `openapi.json`; the CLI, Python-SDK, Studio-SDK, settings, and
+capability-map generators rewrite their own Reference nav entries, and
+`gen_plugins.py` owns a top-level Plugins nav group. `gen_toolbox_table.py`
+rewrites only the generated table between the markers in
+`guides/standard-toolbox.mdx`.
+
+`gen_plugins.py` is the one network-fed generator: it reads the marketplace
+public API (`MARKETPLACE_URL`, production default), writes one page per listed
+plugin under `plugins/`, and emits `plugins/_registry.json` — the registry
+snapshot the offline consumers (`gen_toolbox_table`, `gen_capability_map`, and
+`check_docs_refs`) read instead of the network. It is DELIBERATELY excluded from
+the offline drift gate so a marketplace outage never fails a PR; the daily regen
+workflow owns the Plugins section's freshness.
 
 ## Freshness checks
 
-Three checks keep the committed reference honest. Run the first two from a
-monorepo checkout (they need the source packages); the third is offline:
+Three checks keep the committed reference honest. Run the first from a monorepo
+checkout (it needs the source packages); the other two are offline:
 
 ```bash
 cd ../tai42/core/skeleton
 uv run python ../../../tai-docs/scripts/check_drift.py      # committed reference == fresh regen
-uv run python ../../../tai-docs/scripts/check_registry.py   # catalog packages resolve to repos
 
 cd ../../../tai-docs
 python3 scripts/check_docs.py                         # static build validation
+python3 scripts/check_docs_refs.py                    # hand-written package/repo/config refs
 ```
 
-- **`check_drift.py`** re-runs every generator and fails if the committed
+- **`check_drift.py`** re-runs every offline generator and fails if the committed
   reference differs from a fresh run — the "generated files are checked in AND
   verified fresh in CI" pattern. It is non-mutating (it snapshots, regenerates,
-  diffs, and restores).
-- **`check_registry.py`** asserts every catalog entry's `package` resolves
-  through `ecosystem.yml`'s package→repo mapping and that each repo is a real
-  checkout. The deeper pip-install-each-plugin boot cross-check is a hosted-CI
-  step (see below).
+  diffs, and restores). `gen_plugins.py` is excluded (network-fed).
+- **`check_docs_refs.py`** fails if a hand-written `tai42-<name>` distribution, a
+  repo URL, or a documented config example has drifted from its source of truth
+  (the committed `plugins/_registry.json`, the tai42ai repos, and the
+  tai-distribution compose default).
 - **`check_docs.py`** is the offline build gate: `docs.json` parses, every nav
   page resolves to a file, every redirect destination exists, and every
   internal link resolves. It stands in for `mint` here — since the Mintlify CLI
@@ -115,9 +128,10 @@ The generator unit tests run the same way:
 
 ```bash
 python3 scripts/test_generators.py                    # offline (no skeleton env)
+uv run pytest scripts/test_gen_plugins.py             # fixture-driven, offline
+uv run pytest scripts/test_gen_capability_map.py      # fixture-driven, offline
 cd ../tai42/core/skeleton
 uv run python ../../../tai-docs/scripts/test_gen_sdk.py
-uv run python ../../../tai-docs/scripts/test_gen_catalog.py
 ```
 
 The Python under `scripts/` is linted with `ruff` (config in `pyproject.toml`,
@@ -128,8 +142,8 @@ aligned with the monorepo): `ruff check scripts/` and
 
 `.github/workflows/docs.yml` runs the freshness pipeline in hosted CI (it needs
 the source checkouts, `uv`, and `mint`, so it does not run in an offline
-checkout). On pull requests and pushes it runs the drift gate, registry
-cross-check, examples type-check (`uv run pyright ../../../tai-docs/examples/` from the
+checkout). On pull requests and pushes it runs the drift gate, the docs
+integrity and reference drift checks, the examples type-check (`uv run pyright ../../../tai-docs/examples/` from the
 synced `tai42-skeleton` env, so the examples resolve the real
 `tai42_contract`/`tai42_kit`/`starlette`/`makefun`/`pydantic` deps, plus
 `scripts/sync_examples.py --check`, both required — an absent `examples/` makes
@@ -143,8 +157,10 @@ template each source repo (the tai42 monorepo and tai-studio) copies into its
 workflows to fire that hook.
 
 The tai42 monorepo and tai-studio each ship the `notify-docs` workflow, so a
-push to `main` in either fires the `regenerate` job. Two
-further triggers act as safety nets — the `docs` workflow's `workflow_dispatch`
+push to `main` in either fires the `regenerate` job. The marketplace fires the
+same job on a plugin publish through the `marketplace-publish` `repository_dispatch`
+type, which regenerates the Plugins section (`gen_plugins.py`) from the registry.
+Two further triggers act as safety nets — the `docs` workflow's `workflow_dispatch`
 (Actions tab "Run workflow", or `gh workflow run docs.yml`) and a daily
 `schedule` (cron `17 6 * * *`, ~06:17 UTC). Every path regenerates against
 source `main` HEAD and opens the automated regeneration PR if anything

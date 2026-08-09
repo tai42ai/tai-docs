@@ -1,0 +1,91 @@
+---
+title: "Author plugin docs"
+description: "The docs contract every published plugin follows: an in-package docs tree, required front matter, and the safe subset third-party pages are held to."
+icon: "file-lines"
+---
+
+A published plugin ships its own documentation inside the package. The marketplace
+extracts that docs tree at publish time and stores it; the docs site reads it back
+and renders one page per listed plugin under [Plugins](/plugins). You never open a
+pull request against the docs site — publishing the plugin publishes its docs.
+
+This page is the single contract those docs follow. The same rules are enforced at
+three points from one implementation — the marketplace ingest gate, the monorepo
+CI gate, and the docs-site generator — so a page that publishes renders, and a page
+that violates the contract is refused at the earliest gate rather than shipping
+broken.
+
+## The docs tree
+
+Docs live in a `docs/` directory inside the package, alongside the code:
+
+```
+your_plugin/
+  tai-plugin.yml
+  docs/
+    index.mdx          # required — the plugin's main page
+    <more>.mdx         # optional — extra pages
+    images/
+      screenshot.png   # raster images only
+```
+
+- **`docs/index.mdx` is required.** It is the plugin's landing page. The docs site
+  renders your body beneath a generated header (the install line, the declared
+  permissions, and the list of items the plugin provides — all read from your
+  `tai-plugin.yml`, never hand-written).
+- **Only `.mdx` pages under `docs/`, and raster images under `docs/images/`.** Any
+  other file type is refused. Images must be raster — `.png`, `.jpg`, `.jpeg`,
+  `.gif`, or `.webp`. **SVG is refused** for every plugin: an SVG is active content
+  (a script-injection surface), not an inert image.
+- **Links and image references must resolve within the tree.** A relative link to a
+  page or image that is not in `docs/` fails the gate.
+
+## Front matter
+
+Every `.mdx` page begins with a front-matter block of exactly `title` and
+`description` — nothing more, nothing less:
+
+```mdx
+---
+title: "Standard toolbox"
+description: "The tools and extensions this package provides."
+---
+
+Your page body starts here.
+```
+
+Both values are single-line plain strings. They may not contain quotes,
+backslashes, control characters, or the `---` fence marker — those values are
+re-emitted into the generated page's own front matter, so a fence-breaking
+character would corrupt it. `title` and `description` from `docs/index.mdx` become
+the plugin page's title and description (and feed the site's `llms.txt` index).
+
+## First-party vs. third-party pages
+
+The mdx a page may use depends on who publishes it:
+
+- **First-party plugins** (namespace `tai42`) may use the full Mintlify component
+  set in their bodies.
+- **Third-party plugins** are held to a **safe markdown subset**: no raw HTML or JSX
+  tags, no `import`/`export`, no `{ }` expression containers, and link/image targets
+  restricted to `http(s)` or an in-tree relative path (`javascript:` and `data:`
+  are refused). The docs site renders third-party content, and this subset is what
+  keeps a published page from carrying an execution surface onto the site.
+
+The rule is the same one the runtime enforces; there is no separate docs-only
+policy to track.
+
+## What to write, and what to leave central
+
+A plugin page is a **thin provider page**. Document what is specific to your plugin —
+the items it provides, its settings, the extras to install. Do not re-document a
+platform feature your plugin plugs into; link to its central page instead. A tool
+extension links to [Tools and extensions](/concepts/tools-and-extensions); a
+connector links to [Connectors](/concepts/connectors); and so on. The feature is
+documented once, centrally; your page is the provider's own reference.
+
+## See also
+
+- [The marketplace model](/concepts/marketplace) — listings, items, versions, advisories.
+- [Publish and install](/marketplace/install) — getting a plugin into a running server.
+- [Plugins](/plugins) — the rendered result: one page per listed plugin.

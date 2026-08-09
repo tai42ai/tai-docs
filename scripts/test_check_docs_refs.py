@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Tests for the hand-written-reference drift-check.
 
-Runnable from this project -- the ``dev`` group and the editable sibling sources
-resolve the packaged ``ecosystem.yml`` natively::
+Runnable from this project offline -- the valid-distribution set is read from the
+committed ``plugins/_registry.json`` snapshot::
 
     uv run pytest scripts/test_check_docs_refs.py
-
-Running it inside the tai42-skeleton virtualenv is a supported alternative::
-
-    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/test_check_docs_refs.py
 
 Guarantees asserted:
 

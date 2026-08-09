@@ -49,7 +49,7 @@ _HREF = re.compile(r'href="(/[^"]+)"')
 ORPHAN_EXEMPT_DIRS = ("snippets/",)
 
 # Sections whose nav group is rewritten wholesale by a generator (`gen_cli`,
-# `gen_sdk`, `gen_studio_sdk`, `gen_catalog`). Their index page belongs to the
+# `gen_sdk`, `gen_studio_sdk`, `gen_plugins`). Their index page belongs to the
 # generator, not to the navigation an author edits, so it is reachable by
 # construction and exempt from the orphan gate.
 GENERATED_INDEX_SLUGS = frozenset(
@@ -57,7 +57,7 @@ GENERATED_INDEX_SLUGS = frozenset(
         "reference/cli/index",
         "reference/python-sdk/index",
         "reference/studio-sdk/index",
-        "reference/catalog/index",
+        "plugins/index",
     }
 )
 

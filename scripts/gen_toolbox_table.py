@@ -2,38 +2,33 @@
 """Generate the standard-toolbox summary table in ``guides/standard-toolbox.mdx``.
 
 The "standard toolbox" is the batteries-included default set shipped in the
-``tai42-toolbox`` package. Its tool and extension registrations already live,
-once, in the packaged ``ecosystem.yml`` (the same file ``gen_catalog.py``
-renders). This script filters that data to the toolbox's tools and extensions
-and rewrites ONLY the generated table between two stable markers in the guide,
+``tai42-toolbox`` package. Its tool and extension registrations live in the
+committed ``plugins/_registry.json`` (the marketplace snapshot ``gen_plugins.py``
+emits). This script filters that data to the toolbox's tools and extensions and
+rewrites ONLY the generated table between two stable markers in the guide,
 leaving the hand-written prose untouched. The table therefore rides the drift
 gate and is never hand-maintained.
 
-Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
+Offline: reads the committed registry snapshot, no network::
 
-    cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/gen_toolbox_table.py
+    python3 scripts/gen_toolbox_table.py
 
-Fail-loud contract: if the packaged catalog cannot be read, has no matching
-toolbox entries, or the guide is missing its markers, this exits non-zero and
-writes nothing -- it never leaves a blank or partial table.
+Fail-loud contract: if the registry cannot be read, has no matching toolbox
+entries, or the guide is missing its markers, this exits non-zero and writes
+nothing -- it never leaves a blank or partial table.
 """
 
 from __future__ import annotations
 
 import sys
-from importlib import resources
 from pathlib import Path
-
-try:
-    import yaml
-except ImportError as exc:  # pragma: no cover - environment guard
-    print(f"gen_toolbox_table: PyYAML is not importable: {exc}", file=sys.stderr)
-    raise SystemExit(1) from exc
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent
 GUIDE = DOCS_ROOT / "guides" / "standard-toolbox.mdx"
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from registry import load_registry  # noqa: E402
 
 # The package whose tools/extensions ARE the standard toolbox.
 TOOLBOX_PACKAGE = "tai42-toolbox"
@@ -48,22 +43,6 @@ KIND_LABELS = {"tool": "Tool", "extension": "Extension"}
 _KIND_RANK = {kind: i for i, kind in enumerate(TOOLBOX_KINDS)}
 
 
-def load_ecosystem() -> dict:
-    """Read the packaged ecosystem.yml from the installed tai42_skeleton package."""
-    try:
-        data_file = resources.files("tai42_skeleton").joinpath("data/ecosystem.yml")
-        raw = data_file.read_text(encoding="utf-8")
-    except (ModuleNotFoundError, FileNotFoundError, AttributeError) as exc:
-        print(f"gen_toolbox_table: cannot locate packaged ecosystem.yml: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    doc = yaml.safe_load(raw)
-    if not isinstance(doc, dict):
-        print("gen_toolbox_table: ecosystem.yml is not a mapping", file=sys.stderr)
-        raise SystemExit(1)
-    return doc
-
-
 def mdx_cell(text: str) -> str:
     """Escape a value for safe inclusion in an MDX table cell."""
     return (
@@ -76,31 +55,27 @@ def mdx_cell(text: str) -> str:
     )
 
 
-def toolbox_rows(doc: dict) -> list[dict]:
-    """The toolbox's tool/extension entries, validated and stably ordered."""
-    entries = doc.get("entries")
-    if not entries:
-        print("gen_toolbox_table: ecosystem.yml has no entries", file=sys.stderr)
-        raise SystemExit(1)
-
+def toolbox_rows(listings: list[dict]) -> list[dict]:
+    """The toolbox's tool/extension item rows, validated and stably ordered."""
     rows: list[dict] = []
-    for i, entry in enumerate(entries):
-        if entry.get("package") != TOOLBOX_PACKAGE:
+    for listing in listings:
+        if listing.get("package") != TOOLBOX_PACKAGE:
             continue
-        if entry.get("kind") not in TOOLBOX_KINDS:
-            continue
-        for field in ("name", "kind", "description"):
-            if not entry.get(field):
-                print(
-                    f"gen_toolbox_table: entry #{i} ({entry.get('name', '?')}) missing '{field}'",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-        rows.append(entry)
+        for item in listing["items"]:
+            if item.get("kind") not in TOOLBOX_KINDS:
+                continue
+            for field in ("name", "kind", "description"):
+                if not item.get(field):
+                    print(
+                        f"gen_toolbox_table: a {TOOLBOX_PACKAGE} item ({item.get('name', '?')}) is missing '{field}'",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
+            rows.append(item)
 
     if not rows:
         print(
-            f"gen_toolbox_table: no '{TOOLBOX_PACKAGE}' tool/extension entries in ecosystem.yml",
+            f"gen_toolbox_table: no '{TOOLBOX_PACKAGE}' tool/extension items in the registry",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -154,8 +129,8 @@ def main() -> int:
         print(f"gen_toolbox_table: guide not found at {GUIDE}", file=sys.stderr)
         return 1
 
-    doc = load_ecosystem()
-    rows = toolbox_rows(doc)  # raises SystemExit on a bad/empty catalog
+    listings = load_registry()
+    rows = toolbox_rows(listings)  # raises SystemExit on a bad/empty registry
     table = render_table(rows)
 
     guide_text = GUIDE.read_text(encoding="utf-8")
