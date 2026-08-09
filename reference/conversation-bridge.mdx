@@ -47,7 +47,7 @@ A route's `target_kind` chooses what an inbound turn runs:
   messages (see [conversation
   lifetime](/concepts/client-conversations#conversation-lifetime)).
 - **`tool`** (`target_name` a registered tool) — the turn dispatches the tool
-  **statelessly**: no thread, no conversation memory, one message in and one reply
+  **statelessly**: no conversation memory, one message in and one reply
   out. It runs under the route's `execution_key`, whose grants authorize the
   dispatch.
 
@@ -55,8 +55,12 @@ A `tool` target shapes the call with two optional jq programs, both compiled at
 create (an `agent` target carries neither):
 
 - **`payload_expr`** — jq over the inbound payload `{message, sender, our_identity,
-  channel}`, emitting exactly one JSON object: the tool's kwargs. Omitted, the kwargs
-  are the fixed `{message, sender}`.
+  channel}` — carrying `person_id` and `person_addresses` too when the target's
+  multichannel is on — emitting exactly one JSON object: the tool's kwargs. Omitted,
+  the kwargs are the fixed `{message, sender}`. `person_id` is the person the sending
+  address resolves to and `person_addresses` its address rows; `person_id` gives a flow
+  a channel-stable key for a linked person, one and the same across the channels they
+  paired.
 - **`reply_expr`** — jq over the tool's result, emitting exactly one value that is a
   string or `null`: the reply text. Omitted, the result must itself be a string or
   `null`.
@@ -138,7 +142,7 @@ route's indexed threads and `next_page` is `null` on the last page. Each item ca
 | Field | Meaning |
 | --- | --- |
 | `thread_id` | The thread's addressable identity — what the transcript door takes. |
-| `client_address` | The address the thread belongs to. |
+| `client_address` | The client address of the thread's newest readable record. |
 | `last_activity_at` | Epoch seconds; the route index's own score, which is what the listing sorts by. |
 | `message_count` | Exchanges the thread holds. |
 | `last_delivery_status` | The delivery state of the thread's newest readable record. |
@@ -165,9 +169,12 @@ caller-safe projection otherwise.
 
 The reader is authorized from the **thread's identity**, before any record is read, so
 no page can disclose what page 1 would not. An admin reads any thread; a non-admin
-reads an API-door thread its own principal keys — the thread id is
-`bridge:{route_name}:{percent-encoded principal}/{external user id}` there, so a
-thread names its owner. A channel thread's addresses are the medium's and belong to
+reads an API-door thread its own principal keys — a route-keyed api thread's id is
+`bridge:{route_name}:{percent-encoded principal}/{external user id}`, so the thread
+names its owner; a linked person's `bridge:@person:{person_id}` thread names an opaque
+person, not the principal, and is authorized against the person's own api addresses on
+a route of the person's target — the caller reads it iff the route targets that person's
+target and one of those addresses carries their principal. A channel thread's addresses are the medium's and belong to
 nobody who can call this door, so channel threads are admin-only by construction.
 
 Everything a non-admin may not read answers **one uniform `404`** — an unknown

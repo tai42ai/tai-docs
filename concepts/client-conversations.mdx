@@ -55,7 +55,7 @@ routes; see the [bridge reference](/reference/conversation-bridge).
 
 A `target_kind` of **`agent`** runs a registered agent as the turn: it streams on the
 route's thread, so the conversation carries memory across messages. A `target_kind`
-of **`tool`** dispatches a registered tool **statelessly** — no thread, no memory,
+of **`tool`** dispatches a registered tool **statelessly** — no conversation memory,
 one message in and one reply out — with two optional jq programs shaping the call:
 
 - **`payload_expr`** maps the inbound payload `{message, sender, our_identity,
@@ -168,15 +168,24 @@ doors](/reference/conversation-bridge#the-read-doors).
 
 ## Conversation lifetime
 
-An `agent` route's thread key is `bridge:{route_name}:{client_address}`, so each
-client address holds its own conversation on a route and the agent remembers earlier
-turns across separate inbound messages. Continuity is the checkpoint store's: with an
+A route's thread key is `bridge:{route_name}:{client_address}`, so each client address
+holds its own conversation on a route and an `agent` remembers earlier turns across
+separate inbound messages. On any target with multichannel on, a linked person — one
+whose sending address is paired to more than one address — instead keys the aggregated
+`bridge:@person:{person_id}` thread, so all of that person's paired channels share one
+thread; every other sender keeps the `bridge:{route_name}:{client_address}` key.
+Continuity is the checkpoint store's: with an
 idle TTL configured (`checkpoint_ttl_minutes`), a thread idle past the lifetime is
 swept and the next message starts fresh; with no TTL the thread is kept. See
 [retention](/reference/conversation-bridge#checkpoint-retention).
 
-A `tool` target keeps no conversation: each message is dispatched on its own, with no
-thread to remember or expire.
+A `tool` target keeps no **conversation** memory: the dispatch is stateless, so no
+conversation state is carried across messages and each message is answered on its own. Its thread key
+still groups that route's answer records and transcripts and orders its turns; there is
+simply no checkpoint to remember or expire. When the target's multichannel is on the
+payload carries `person_id` and `person_addresses`, so a tool can anchor its own
+continuity on that channel-stable person even though the platform keeps no conversation
+memory for it.
 
 Answer records carry their own retention: a record is kept for a retention window
 after it reaches a terminal state, then expires with its indexes.
