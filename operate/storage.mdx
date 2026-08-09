@@ -9,128 +9,35 @@ lives: templates, uploaded files, and anything the ResourceManager reads or
 writes. One provider is active per server, named by `storage_module` in the
 manifest.
 
-| Provider | Package | Backing store |
-| --- | --- | --- |
-| local | `tai42-storage-local` | A directory on the server's own disk. |
-| s3 | `tai42-storage-s3` | Any S3-compatible bucket, including MinIO. |
-| github | `tai42-storage-github` | A branch of a GitHub repository. |
-
-## Local filesystem
-
-The default for a single-process install. Every path resolves under one root, and
-a path that escapes it raises rather than reading outside.
-
-```bash
-pip install tai42-storage-local
-```
-
-```yaml manifest.yml
-storage_module: tai42_storage_local
-```
-
-```bash
-STORAGE_LOCAL_ROOT_PATH=./templates
-```
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `STORAGE_LOCAL_ROOT_PATH` | `./templates` | Base directory every stored path resolves under, relative to the process working directory. |
-| `STORAGE_LOCAL_CREATE_DIRS` | `true` | Create parent directories on write. |
+| Provider | Package | Backing store | When to pick it |
+| --- | --- | --- | --- |
+| local | `tai42-storage-local` | A directory on the server's own disk. | A single-process install. |
+| s3 | `tai42-storage-s3` | Any S3-compatible bucket, including MinIO. | A multi-replica fleet, or durable shared object storage. |
+| github | `tai42-storage-github` | A branch of a GitHub repository. | Every write should be a reviewable commit. |
 
 <Warning>
 Local storage is per-process state on one machine's disk. A multi-replica fleet
 gives each replica its own copy — use S3 or GitHub instead.
 </Warning>
 
-Content types are inferred from the path suffix, because a filesystem records
-none.
+## Install and configure one
 
-## S3
+Each provider's package, its `storage_module` manifest key, its `STORAGE_<KIND>_*`
+settings, and its store-specific setup (S3 bucket policy and MinIO addressing,
+GitHub token scopes and the 1 MiB / CDN-staleness limits) live on the plugin
+page:
 
-```bash
-pip install tai42-storage-s3
-```
-
-```yaml manifest.yml
-storage_module: tai42_storage_s3
-```
-
-```bash
-STORAGE_S3_BUCKET=tai
-STORAGE_S3_ACCESS_KEY=...
-STORAGE_S3_SECRET_KEY=...
-```
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `STORAGE_S3_BUCKET` | unset | Target bucket. The first operation raises when it is unset. |
-| `STORAGE_S3_ENDPOINT` | unset (AWS) | Custom endpoint for MinIO or another S3-compatible service. |
-| `STORAGE_S3_ACCESS_KEY` | unset | Access key id. |
-| `STORAGE_S3_SECRET_KEY` | unset | Secret access key. |
-| `STORAGE_S3_REGION` | `us-east-1` | Region name. |
-| `STORAGE_S3_SECURE` | `true` | Use TLS, and pick the scheme for a schemeless endpoint. |
-| `STORAGE_S3_VERIFY_SSL` | `true` | Verify the endpoint's certificate. |
-| `STORAGE_S3_ADDRESSING_STYLE` | `auto` | `path`, `virtual`, or `auto`. MinIO usually needs `path`. |
-| `STORAGE_S3_CONNECT_TIMEOUT` | `5` | Connect timeout in seconds. |
-| `STORAGE_S3_READ_TIMEOUT` | `30` | Read timeout in seconds. |
-| `STORAGE_S3_REQUEST_CHECKSUM_CALCULATION` | unset | `when_supported` or `when_required`, for S3-compatible services that reject the AWS default. |
-
-Leave the key pair unset to fall through to the AWS credential chain — an
-instance profile, IRSA, or `~/.aws/credentials`.
-
-The bucket policy needs `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, and
-`s3:ListBucket` on the bucket and its contents. The driver's `HeadObject` probes
-fall under `s3:GetObject` and its multi-object delete under `s3:DeleteObject`; it
-makes no other calls.
-
-Text templates are stored with content type `application/jinja2`, so a `stat` on
-one reports that rather than a `text/*` type.
-
-## GitHub
-
-Stores content as files on a branch, which makes every write a commit and every
-version reviewable.
-
-```bash
-pip install tai42-storage-github
-```
-
-```yaml manifest.yml
-storage_module: tai42_storage_github
-```
-
-```bash
-STORAGE_GITHUB_USERNAME=my-org
-STORAGE_GITHUB_REPO=my-content-repo
-STORAGE_GITHUB_BRANCH=main
-STORAGE_GITHUB_TOKEN=github_pat_...
-```
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `STORAGE_GITHUB_USERNAME` | unset | Repository owner — a user or an organisation. Required. |
-| `STORAGE_GITHUB_REPO` | unset | Repository name. Required. |
-| `STORAGE_GITHUB_BRANCH` | `main` | Branch read and written. |
-| `STORAGE_GITHUB_TOKEN` | unset | Access token. Omit only for a public repository, which is then read-only in practice. |
-| `STORAGE_GITHUB_TIMEOUT_TOTAL` | `15.0` | Total HTTP timeout in seconds. |
-| `STORAGE_GITHUB_MAX_CONNECTIONS` | `200` | Connection-pool ceiling. |
-| `STORAGE_GITHUB_MAX_KEEPALIVE_CONNECTIONS` | `50` | Keep-alive pool size. |
-| `STORAGE_GITHUB_KEEPALIVE_EXPIRY` | `300.0` | Keep-alive expiry in seconds. |
-
-A fine-grained token needs **Contents: read and write** on the repository; a
-classic token needs `repo`. Only `STORAGE_GITHUB_TOKEN` is read — an ambient
-`GITHUB_TOKEN` is ignored, as are proxy environment variables.
-
-<Warning>
-Two limits shape what this provider suits. Writes are capped at 1 MiB and a
-larger payload raises before the request. Reads come from the raw content CDN,
-which can serve a stale copy for a few minutes after a write — do not use GitHub
-storage for content a tool writes and immediately reads back.
-</Warning>
-
-Listing uses the recursive tree API and raises on a truncated response rather
-than acting on a partial listing. The API host is fixed, so GitHub Enterprise
-Server is not supported.
+<CardGroup cols={3}>
+  <Card title="storage-local" icon="folder" href="/plugins/tai42/storage-local">
+    `STORAGE_LOCAL_*` — a root directory on local disk.
+  </Card>
+  <Card title="storage-s3" icon="aws" href="/plugins/tai42/storage-s3">
+    `STORAGE_S3_*`, the bucket policy, and MinIO.
+  </Card>
+  <Card title="storage-github" icon="github" href="/plugins/tai42/storage-github">
+    `STORAGE_GITHUB_*`, token scopes, and the write/read caveats.
+  </Card>
+</CardGroup>
 
 ## See also
 

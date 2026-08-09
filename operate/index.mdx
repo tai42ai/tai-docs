@@ -54,46 +54,17 @@ out-of-date database, so a missed migration is a loud refusal, not a broken serv
 <Note>
 The official `docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is
 what the Compose bundle and the chart run — signed, scanned, and multi-arch. Pin
-a release tag in production and verify its signature; the source build below is a
-dev-only alternative. See [Self-hosted](/self-hosted) for the image, upgrades,
-and artifact verification.
+a release tag in production and verify its signature; the
+[quickstart](/self-hosted/quickstart)'s build-from-source is a dev-only
+alternative. See [Self-hosted](/self-hosted) for the image, upgrades, and
+artifact verification.
 </Note>
 
-### Boot the Compose bundle
-
-```bash
-git clone https://github.com/tai42ai/tai-distribution
-cd tai-distribution/compose
-cp .env.example .env                          # fill in POSTGRES_PASSWORD
-mkdir -p config
-cp manifest.example.yml config/manifest.yml
-touch config/.env
-docker compose up -d
-```
-
-`config/` is bind-mounted at `/app` in the three long-lived services, so `config/manifest.yml`
-is the [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
-app-side environment. Create `config/.env` even when it is empty — the
-config-reload path treats a missing file as an error.
-
-Only `serve` publishes a port (`${TAI_SERVE_PORT:-8000}`). Postgres, Redis, and
-the optional MinIO and RabbitMQ services stay on the Compose network.
-
-### Build the image from source
-
-`compose/docker-compose.local.yml` layers a `SOURCE=local` build onto every app
-service, building the image from sibling checkouts instead of pulling it:
-
-```bash
-# with every tai-* repo cloned beside tai-distribution
-TAI_VERSION=local docker compose \
-  -f docker-compose.yml -f docker-compose.local.yml up -d --build
-```
-
-The `siblings` build context defaults to the parent of the checkouts (`../..`)
-and is overridable with `TAI_SIBLINGS`. Because that context can hold untracked
-secrets, the source build is for a local builder only — never CI, never a shared
-registry.
+Boot it step by step in the [Self-hosted quickstart](/self-hosted/quickstart) —
+`git clone`, the `.env` secrets, the `config/` bind mount, `docker compose up`,
+the opt-in profiles, and the dev-only build-from-source. Only `serve` publishes a
+port; Postgres, Redis, and the optional MinIO and RabbitMQ services stay on the
+Compose network.
 
 ## Configure the bundle
 
@@ -134,8 +105,8 @@ environment, patches the [manifest](/concepts/manifest), and reloads, so the
 plugin is live with no restart (router/middleware and channel inbound routes
 activate on restart). See [Install a plugin](/marketplace/install). For
 those installs to survive a container recreation, the server's plugin-prefix
-setting must point at a mounted, persistent directory — see [Persist runtime
-installs](#persist-runtime-installs).
+setting must point at a mounted, persistent directory — see [the persistent
+mounts](/self-hosted/quickstart#the-persistent-mounts).
 
 **Build time, in a derived image.** Bake a fixed roster into your own image on
 top of the core, then name the added modules in your manifest:
@@ -152,22 +123,12 @@ RUN python -m pip install tai42-channel-slack tai42-storage-s3
 USER tai
 ```
 
-### Persist runtime installs
-
 A marketplace install writes two things a real deployment must keep across a
-container recreation, each on its own persistent mount located by an env var the
-server reads:
-
-| What | Env var | Default | Holds |
-| --- | --- | --- | --- |
-| Plugin prefix directory | `TAI_PLUGINS_PREFIX` | image venv (ephemeral) | the installed plugin **code** |
-| Manifest file | `TAI_MANIFEST_PATH` (or `TAI_CONFIG_DIR_PATH` for the whole config dir) | `/app/manifest.yml` | the plugin's **registration** |
-
-Persist both, or a recreated container boots with the code and its registration
-out of sync. In the Compose bundle the config dir is already a bind mount, so the
-manifest persists; give the plugin prefix its own volume the same way. Without a
-persistent prefix, a marketplace install lands in the image's ephemeral venv and
-is lost when the container is replaced.
+container recreation — the installed plugin **code** (`TAI_PLUGINS_PREFIX`) and
+its **registration** in the manifest (`TAI_MANIFEST_PATH`). Persist both on their
+own mounts, or a recreated container boots with the code and its registration out
+of sync. The [persistent mounts](/self-hosted/quickstart#the-persistent-mounts)
+cover the two volumes in full.
 
 <Warning>
 `.env.example` ships `ACCESS_CONTROL_ENABLE=false` — the quickstart shape. Turn
@@ -208,39 +169,13 @@ accounts provider described in [Accounts](/operate/accounts).
 
 ## Run on Kubernetes
 
-The repo ships a real Helm chart at `charts/tai`. The release publishes it as an
-OCI artifact alongside the image, so install it straight from the registry — helm
-resolves the latest version:
-
-```bash
-helm install tai oci://ghcr.io/tai42ai/charts/tai
-helm test tai
-```
-
-The chart deploys `serve` and `backend` as separate Deployments, each with the
-metrics endpoint as a native sidecar, and installs Postgres and Redis
-StatefulSets by default. Point it at managed datastores instead by disabling
-both:
-
-```bash
-helm install tai oci://ghcr.io/tai42ai/charts/tai \
-  --set postgresql.enabled=false \
-  --set postgresql.host=db.internal \
-  --set postgresql.auth.existingSecret=tai-db \
-  --set redis.enabled=false \
-  --set redis.host=cache.internal
-```
-
-`serve.replicaCount` scales the API; running `serve.workers` above one requires
-`serve.statelessHttp=true`, because a stateful HTTP transport refuses a
-multi-worker boot. A `schemaInit` hook Job runs `tai db migrate` around install
-and upgrade, applying the migration chain before the app pods start.
-
-The chart requires Kubernetes 1.29 or newer, because the metrics sidecar is a
-native sidecar container. It integrates with cluster add-ons but never installs
-them: an Ingress controller, cert-manager for `ingress.tls`, the
-prometheus-operator for `metrics.serviceMonitor`, and a StorageClass for
-persistence.
+The repo ships a real Helm chart, published as an OCI artifact alongside the
+image. Installing it, pointing it at managed Postgres and Redis, scaling
+`serve`, and upgrading are covered in [Helm](/self-hosted/helm); the chart's
+every value lives in its own
+[`charts/tai/README.md`](https://github.com/tai42ai/tai-distribution/blob/main/charts/tai/README.md).
+The marketplace-install persistence model on Kubernetes is the platform-side
+piece that page defers back here:
 
 <Note>
 Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,

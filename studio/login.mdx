@@ -49,24 +49,19 @@ time-bounded — an expired or already-used invite is refused.
 
 ## Claim links
 
-A [claim link](/concepts/owned-keys#access-channels) is how an
-[owned key](/concepts/owned-keys) reaches a new device without the raw secret
-ever travelling in a URL. The link has the shape `<origin>/login#claim=<token>` —
-the token rides the URL **fragment**, so it is never part of the request URL and
-never reaches a server access log. When the sign-in screen loads with a `#claim=`
-fragment, it
-recognises the token, exchanges it once at the always-public
-`POST /api/login/claim`, receives the raw key, and signs the Studio in with it —
-the same held-in-the-browser session the key field produces, with no typing.
+A [claim link](/concepts/owned-keys#access-channels) reaches an
+[owned key](/concepts/owned-keys) to a new device without the raw secret ever
+travelling in a request URL — the `<origin>/login#claim=<token>` **fragment** is
+never logged. When the sign-in screen loads with a `#claim=` fragment it exchanges
+the token once at the always-public `POST /api/login/claim` and signs the Studio in
+with the returned key — the same held-in-the-browser session the key field
+produces, with no typing. A spent, unknown, or expired token fails the same
+indistinguishable way and the screen falls back to the ordinary sign-in controls;
+mint a fresh key and link when one fails.
 
-The exchange is **one-time and time-bounded**: the token burns on first use and
-carries a short TTL. A token that was already claimed, is unknown, or has expired
-all fail the same way — the screen reports the claim link as no longer valid and
-falls back to the ordinary sign-in controls. The failures are deliberately
-indistinguishable, so a stale link gives no signal an attacker could probe; when
-one fails, mint a fresh key and a fresh claim link. Claim links are created in
-the [API-keys](/studio/api-keys) create dialog (or via
-[`tai keys claim-link`](/reference/cli/keys)).
+[Owned keys](/concepts/owned-keys#access-channels) covers the one-time, TTL-bounded
+exchange in full. Claim links are created in the [API-keys](/studio/api-keys)
+create dialog (or via [`tai keys claim-link`](/reference/cli/keys)).
 
 ## API-key fallback
 
@@ -90,7 +85,7 @@ in the auth-provider chain:
 - Run the accounts plugin's migrations. A Postgres-backed provider ships its own
   [migration chain](/concepts/marketplace#the-migrations-contract), applied by the
   framework runner with `tai db migrate` alongside the core; the provider refuses
-  to serve until it is applied. See [Accounts](/operate/accounts#run-the-migrations).
+  to serve until it is applied. See [Accounts](/plugins/tai42/accounts-postgres#run-the-migrations).
 
 <Note>
 The concrete settings, schema, and migration steps for a specific accounts provider

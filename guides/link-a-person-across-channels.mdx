@@ -1,0 +1,73 @@
+---
+title: "Link a person across channels"
+description: "Pair a person's addresses on different channels into one conversation with a single-use code."
+icon: "link"
+---
+
+One person often reaches an agent from more than one place — a Telegram chat, a
+WhatsApp number, a web session. **Person linking** pairs those addresses so they
+share one conversation: after linking, every paired channel keys the same
+[`bridge:@person:{person_id}` thread](/concepts/client-conversations#conversation-lifetime),
+and the agent remembers the person across all of them rather than treating each
+address as a stranger.
+
+Linking is proven, never guessed: the person shows, from a second channel, a
+single-use code minted on the first. Nothing is inferred from names or numbers.
+
+## Turn on multichannel for the target
+
+Linking is opt-in per target. Enable it on the agent or tool a route points at:
+
+```bash
+tai conversations config-set agent concierge --multichannel
+```
+
+With multichannel **off**, the pairing commands below are ordinary text passed
+straight through to the target, and the `get_pairing_code` tool refuses — the reach
+is bounded so a target never links people unless its operator asked for it.
+
+You can also set a first-contact greeting that hands a newcomer a code to pair with,
+by referencing the `{pairing_code}` placeholder — it is filled with a fresh code on
+first contact:
+
+```bash
+tai conversations config-set agent concierge --multichannel \
+  --greeting-template 'Hi! To link another channel, send this code there: {pairing_code}'
+```
+
+## Mint a code
+
+A code is a single-use token of the shape `LINK-XXXXXXXX`. There are three ways to
+mint one for a live conversation:
+
+- **The `/link` command.** The person sends exactly `/link` to the conversation;
+  the turn engine mints a fresh code and replies with it. (`/link` matches only as
+  the whole message — `/link` with anything after it is ordinary text.)
+- **The first-contact greeting**, if it carries `{pairing_code}` as above.
+- **The `get_pairing_code` tool**, for a programmatic mint. It takes the `channel`,
+  the route's `our_identity`, and the `sender` address to link, and returns
+  `{code, expires_at}` and nothing else — the raw code once, never stored
+  recoverably. Composing the invite around it (a typed code, or a
+  [channel-web](/plugins/tai42/channel-web) `?pair=` URL) is yours to do.
+
+Minting again for the same conversation **rotates out** the previous code — the
+newest code wins, and the old one stops redeeming.
+
+## Redeem it from the other channel
+
+From a **different** channel, the person sends the code to the same agent. It
+redeems when the `LINK-XXXXXXXX` token appears anywhere in the message — typed on
+its own, pasted inside a sentence, or carried by a channel-web `?pair=` link. If a
+message carries more than one code, the first wins. Redeeming merges the two
+addresses into one person, and from then on both channels share the one thread.
+
+## Unlink
+
+To detach the sending address from its person, the person sends exactly `/unlink`
+from that channel. It affects only the address it was sent from.
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — the person thread and the bridge model.
+- [Conversation bridge reference](/reference/conversation-bridge) — the `person_id` / `person_addresses` payload keys and every setting.
+- [WhatsApp to an agent](/guides/whatsapp-to-agent) — bridging a channel to an agent in the first place.

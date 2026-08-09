@@ -1,0 +1,96 @@
+---
+title: "Notifications"
+description: "Send a one-way message to a person — to an in-app inbox, an external channel, or both."
+icon: "bell"
+---
+
+A notification is a **one-way** message to a person. It is the counterpart to an
+[interaction](/concepts/interactions): where `ask_user` suspends the caller and
+blocks for an answer, `notify_user` delivers a message and returns immediately,
+waiting on nothing.
+
+`notify_user` is a projected **operation tool**, so an agent or tool with it in
+scope can send one — and it is the same capability behind `POST /api/notifications`
+and the [`tai notifications notify`](/reference/cli/notifications) CLI command.
+
+## Two destinations
+
+A notification lands in either or both of two places:
+
+- **The in-app inbox** — a per-deployment feed the Studio and the API read back.
+  Every notification is recorded here.
+- **An external channel** — when `channel` names a registered
+  [channel plugin](/plugins) (Telegram, Slack, WhatsApp, Twilio, web), the message
+  is also pushed to a person on that medium.
+
+Omitting `channel` records the notification to the inbox only. Naming a channel
+that is not registered is a loud error, never a silent drop.
+
+## What a notification carries
+
+| Field | Effect |
+| --- | --- |
+| `message` | The text shown to the person. Required and non-blank. |
+| `channel` | A registered channel to deliver on. Omit to record to the inbox only. |
+| `recipient` | The per-call **delivery address** on that channel — a chat id, a phone number. Omit to use the channel's operator-default recipient. |
+| `audience` | The **identity** whose in-app inbox shows the record (see below). |
+| `media` | Display images and links sent with the message. Requires a channel that advertises media support. |
+| `template` | A pre-approved out-of-window template send. Requires a channel that advertises template support. |
+
+`media` and `template` are mutually exclusive on one send, and each needs a named
+channel — supplying either with no channel is a `400`. A channel that does not
+advertise the capability rejects the send with `501 not supported` rather than
+silently downgrading it to text; today only the
+[WhatsApp Cloud API channel](/plugins/tai42/channel-whatsapp) advertises media and
+templates.
+
+<Note>
+The sending identity a channel message leaves **from** is set only by the
+[conversation bridge](/reference/conversation-bridge), never by a caller — a
+caller-supplied sender is refused with a `400`.
+</Note>
+
+## `audience` versus `recipient`
+
+These are two orthogonal axes, and both may be set at once:
+
+- **`audience`** is the *identity* whose scoped in-app inbox surfaces the record.
+- **`recipient`** is the *delivery address* on an external channel.
+
+Setting `audience` is honored even when a channel `recipient` also delivers the
+message — you get both the external push and the in-app entry. `audience` is the
+same field, with the same isolation rules, that `ask_user` uses: a restricted
+[owned key](/concepts/owned-keys#audience--one-concept-across-interactions-and-notifications)
+addresses only its own slice and cannot broadcast, and addressing another identity
+is refused with a `403`. See
+[owned keys](/concepts/owned-keys#audience--one-concept-across-interactions-and-notifications)
+for the full read/write isolation model.
+
+## Reading the inbox
+
+The inbox is read on demand — there is no streaming surface. List the recorded
+notifications newest-first:
+
+```bash
+tai notifications list
+```
+
+or `GET /api/notifications`. A restricted caller reads only its own `audience`
+slice; an unrestricted operator reads the shared feed. The feed is a bounded,
+newest-first ring: it retains a fixed maximum number of entries and trims the
+oldest past it. It rides on the [interactions](/concepts/interactions) Redis store,
+so a deployment with that store unconfigured cannot record and lists an empty
+inbox.
+
+<Note>
+The CLI `tai notifications notify` exposes `--channel`, `--recipient`, `--media`,
+and `--template`, but **no `--audience`** — addressing a specific identity is
+available on the tool and the API only.
+</Note>
+
+## See also
+
+- [Interactions](/concepts/interactions) — the blocking counterpart, `ask_user`.
+- [Owned keys](/concepts/owned-keys#audience--one-concept-across-interactions-and-notifications) — the `audience` isolation model in full.
+- [Client conversations](/concepts/client-conversations) — the channels a notification pushes to.
+- [CLI reference](/reference/cli/notifications) — the full `tai notifications` surface.

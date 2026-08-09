@@ -55,6 +55,25 @@ connection that needs re-authorising surfaces as a clear, typed condition rather
 than a silent failure at call time. Reconnect-required and refresh-failing states
 raise their own errors.
 
+## Engine settings
+
+The engine's own settings apply to every connector, not to any one provider. A
+provider package adds only its own client credentials (its `CONNECTORS_<PROVIDER>_*`
+group); these `CONNECTORS_*` keys are shared:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CONNECTORS_KEK` | unset | Base64 32-byte key encrypting stored tokens (AES-GCM). Required — the engine raises when it needs to encrypt or decrypt and this is missing or malformed. |
+| `CONNECTORS_STATE_HMAC_KEY` | unset | Base64 key of at least 32 bytes signing the OAuth `state`. Required. |
+| `CONNECTORS_REDIRECT_URI_ALLOWLIST` | empty | Comma-separated origins allowed to receive the callback. Empty rejects every connect flow — there is no implicit fallback. |
+| `CONNECTORS_OAUTH_BRIDGE_URL` | unset | Shared bridge origin, when the callback does not live on this deployment. It must also appear in the allowlist or every connect flow fails closed. |
+| `CONNECTORS_MAX_SESSION_TTL` | 180 days | Longest a stored connection stays valid — an inactivity cap, reset on every successful use or refresh. |
+
+The `CONNECTORS_KEK` and `CONNECTORS_STATE_HMAC_KEY` are key material: they are kept
+out of logs and are refused inside a settings profile. The origin a provider registers
+with must appear in `CONNECTORS_REDIRECT_URI_ALLOWLIST`, and it must be https for
+anything but a local host.
+
 ## Managing connections
 
 Drive the OAuth lifecycle from the CLI:

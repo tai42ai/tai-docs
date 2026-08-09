@@ -102,6 +102,29 @@ Beyond the create/version/rollback core, the surface carries four more doors:
 - **`set-version-tags`** — replace one version's `tags` annotation. Tags are
   labels on an immutable version body, so this never rebinds the live tool.
 
+## Per-base-tool write validators
+
+Those "pre-write checks" are extensible per base tool. A base-tool plugin can
+register a validator against its own `base_tool` name so that every preset written
+over it is checked before it persists — the money-pinning preset for the
+[Stripe checkout tool](/guides/use-interactions#the-money-pinning-preset-is-required-not-optional),
+for instance, is the kind of constraint such a validator can enforce.
+
+A plugin registers one when its tool module loads:
+
+```python
+from tai42_contract.app import tai42_app
+
+tai42_app.presets.register_write_validator("create_stripe_checkout_ask_external", my_validator)
+```
+
+The preset write path consults the validator registered for a body's `base_tool`
+on **every** write — create, save-version, and rollback — and the `validate`
+dry-run door runs the same check without persisting. The registry is rebuilt on
+each `start()`, so a reload re-imports the tool modules and re-registers cleanly;
+registering the same `base_tool` twice within one load raises loudly rather than
+silently swapping a base tool's write gate.
+
 See the [create-and-version-a-preset guide](/guides/create-and-version-a-preset)
 for the full workflow, the [versioning spine](/concepts/versioning-spine) for the
 store presets ride on, and the [CLI reference](/reference/cli/index) for the

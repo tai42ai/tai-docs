@@ -13,89 +13,28 @@ Every route still runs its turn **as** a least-privilege `execution_key` — min
 bind one exactly as in [WhatsApp to an agent](/guides/whatsapp-to-agent#prerequisite-mint-and-bind-a-least-privilege-execution-key)
 before creating the route.
 
-## Telegram
+## Pick a channel and wire it
 
-### Configure the channel
+The channel package and its env group, the webhook wiring, and the `our_identity`
+format live on the plugin page:
 
-```bash
-CHANNEL_TELEGRAM_BOT_TOKEN=123456:your-botfather-token
-CHANNEL_TELEGRAM_WEBHOOK_SECRET=a-secret-you-choose
-CHANNEL_TELEGRAM_PUBLIC_BASE_URL=https://your-deployment.example.com
-CHANNEL_TELEGRAM_REDIS_URL=redis://localhost:6379/0
-```
+<CardGroup cols={2}>
+  <Card title="channel-telegram" icon="telegram" href="/plugins/tai42/channel-telegram">
+    `CHANNEL_TELEGRAM_*`, the **automatic** `setWebhook` registration, and the bot's
+    numeric id as `our_identity`.
+  </Card>
+  <Card title="channel-slack" icon="slack" href="/plugins/tai42/channel-slack">
+    `CHANNEL_SLACK_*`, the Events-API Request URL to set by hand, and the required
+    `CHANNEL_SLACK_BOT_USER_ID` as `our_identity`.
+  </Card>
+</CardGroup>
 
-```yaml manifest.yml
-channel_modules:
-  - tai42_channel_telegram
-```
-
-`BOT_TOKEN` comes from BotFather; it is the auth for outbound sends. `WEBHOOK_SECRET`
-is echoed by Telegram in `X-Telegram-Bot-Api-Secret-Token` and the inbound door
-checks it constant-time (fail-closed when unset). `PUBLIC_BASE_URL` is this
-deployment's public origin.
-
-Unlike the other channels, Telegram's webhook is registered **automatically**: on
-startup the plugin calls `setWebhook` (idempotent) to point Telegram at
-`{PUBLIC_BASE_URL}/api/channels/telegram/inbound` with the secret token. You do not
-configure it by hand.
-
-### Create the route
-
-A Telegram route's `our_identity` is the bot's **numeric id** — the digits before
-the `:` in the bot token:
+Once the channel is configured, create the route binding the bot to the agent:
 
 ```bash
-tai conversations create tg-support \
+tai conversations create <route-name> \
   --door channel --target-name support --execution-key support-bot \
-  --channel telegram --identity 123456
-```
-
-`client_address` is the numeric chat id, so each chat holds its own conversation.
-
-## Slack
-
-### Configure the channel
-
-```bash
-CHANNEL_SLACK_BOT_TOKEN=xoxb-your-bot-token
-CHANNEL_SLACK_SIGNING_SECRET=your-app-signing-secret
-CHANNEL_SLACK_BOT_USER_ID=U0XXXXXXX
-CHANNEL_SLACK_REDIS_URL=redis://localhost:6379/0
-```
-
-```yaml manifest.yml
-channel_modules:
-  - tai42_channel_slack
-```
-
-`BOT_TOKEN` (`xoxb-…`, scope `chat:write`) authorizes outbound posts.
-`SIGNING_SECRET` keys the Slack `v0` HMAC the inbound door verifies over the raw
-body.
-
-<Note>
-`CHANNEL_SLACK_BOT_USER_ID` (the app's own bot user id, `U…`) is **required** for a
-Slack **bridge** route. It is the route's `our_identity` and the self-message filter
-— without it, a bridge message raises loudly rather than looping the bot on its own
-posts. (An ask_user-only Slack deployment that runs no bridge route does not need
-it.)
-</Note>
-
-### Point the Events API at the deployment
-
-Slack has no startup hook — set the **Request URL** once in your Slack app's Event
-Subscriptions to `{public base URL}/api/channels/slack/inbound` and subscribe to
-the message events your bot should hear. Slack verifies the URL against the signing
-secret.
-
-### Create the route
-
-A Slack route's `our_identity` is the bot user id; `client_address` is the Slack
-conversation id (`C…`/`D…`):
-
-```bash
-tai conversations create slack-support \
-  --door channel --target-name support --execution-key support-bot \
-  --channel slack --identity U0XXXXXXX
+  --channel <telegram|slack> --identity <our_identity>
 ```
 
 ## Test it and add more
