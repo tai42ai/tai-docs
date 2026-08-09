@@ -55,6 +55,16 @@ omitting the structured frame**: the JSON `run` face raises on drain, and the
 streaming face raises after the stream drains — unless the run paused on a pending
 interrupt, which takes precedence over the missing-structured raise.
 
+By contrast, a tool failure is surfaced to the model as an error tool result and the
+loop continues, so the agent can react to a bad call rather than aborting the whole
+run: a `ToolException` — how an in-process tool's own body exception is reported — or
+a pydantic `ValidationError` from a malformed tool call. Failures outside the tool
+call still abort loudly. This holds for the main agent and its explicit and nested
+sub-agents alike. A thread whose previous turn was aborted mid-tool-call is repaired
+at the next turn start (its unanswered tool calls get synthetic error results) so the
+provider stops rejecting the thread, while a thread paused on a real interrupt is left
+untouched.
+
 ## Authored deep agents
 
 A deep agent's configuration can itself be saved and versioned as an authored
