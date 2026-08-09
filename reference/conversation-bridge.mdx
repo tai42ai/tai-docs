@@ -65,6 +65,17 @@ create (an `agent` target carries neither):
   string or `null`: the reply text. Omitted, the result must itself be a string or
   `null`.
 
+The payload also carries a **`params`** object when the inbound entry supplied one —
+a web channel's [link parameters](/guides/public-web-chat#link-parameters) captured
+with the visitor session, or the [message door](#the-message-door)'s `params` body
+field — string values reachable as `.params.<name>`. The key is present **only** when
+the entry carried non-empty params, so guard for it (`.params.key // …`). The values
+are **untrusted transport**: the platform caps and delivers them but attaches no
+signature, expiry, or meaning, so a value a flow must trust is a secret the flow
+checks in its own store. Bounds: at most **16** params, each key
+`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized
+— a violation is refused at the door.
+
 A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
 on the door. On a `channel` route the record ends in the terminal `silent` state and
 nothing is sent to the client. On an `api` route the silence is **communicated**: the
@@ -94,7 +105,14 @@ produces nothing to say.
 
 `POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
 message and runs its turn as the route's execution key. Body: `external_user_id`,
-`text`, optional `wait_seconds`.
+`text`, optional `wait_seconds`, optional `params`.
+
+`params` is an optional object of string values delivered to a **tool** target's
+payload under `.params` — the same key a channel entry's link parameters use — for a
+uniform tool-payload contract across both doors. It is validated to the same bounds
+(at most 16 entries, key `^[A-Za-z0-9_-]{1,64}$`, value ≤ 512 characters, ≤ 2048
+bytes); an invalid set is a `400` that names the violated bound **without echoing the
+offending value**.
 
 - `202 {message_id, thread_id}` — accepted, answer delivered later by signed
   callback (default).
