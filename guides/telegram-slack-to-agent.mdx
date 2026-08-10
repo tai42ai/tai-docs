@@ -1,0 +1,55 @@
+---
+title: "Telegram / Slack to an agent"
+description: "Bridge a Telegram bot or a Slack app to an agent."
+icon: "hashtag"
+---
+
+Bridge a Telegram bot or a Slack app to an agent: a message to the bot runs an
+agent turn and the answer comes back in the same chat. The bridge is identical to
+the [WhatsApp guide](/guides/whatsapp-to-agent) — only the channel plugin, its env
+group, and the webhook wiring differ.
+
+Every route still runs its turn **as** a least-privilege `execution_key` — mint and
+bind one exactly as in [WhatsApp to an agent](/guides/whatsapp-to-agent#prerequisite-mint-and-bind-a-least-privilege-execution-key)
+before creating the route.
+
+## Pick a channel and wire it
+
+The channel package and its env group, the webhook wiring, and the `our_identity`
+format live on the plugin page:
+
+<CardGroup cols={2}>
+  <Card title="channel-telegram" icon="telegram" href="/plugins/tai42/channel-telegram">
+    `CHANNEL_TELEGRAM_*`, the **automatic** `setWebhook` registration, and the bot's
+    numeric id as `our_identity`.
+  </Card>
+  <Card title="channel-slack" icon="slack" href="/plugins/tai42/channel-slack">
+    `CHANNEL_SLACK_*`, the Events-API Request URL to set by hand, and the required
+    `CHANNEL_SLACK_BOT_USER_ID` as `our_identity`.
+  </Card>
+</CardGroup>
+
+Once the channel is configured, create the route binding the bot to the agent:
+
+```bash
+tai conversations create <route-name> \
+  --door channel --target-name chat --execution-key chat-bot \
+  --channel <telegram|slack> --identity <our_identity>
+```
+
+## Test it and add more
+
+Message the bot and watch the agent reply in the same chat. Read a record with
+`tai conversations get-message <route> <message_id>`; list failed deliveries with
+`tai conversations failed`.
+
+More bots or workspaces are more rows — one route per `(channel, our_identity)`
+pair.
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — the model.
+- [WhatsApp to an agent](/guides/whatsapp-to-agent) — the execution-key prerequisite
+  in full.
+- [Conversation bridge reference](/reference/conversation-bridge) — every setting
+  and the authorization model.

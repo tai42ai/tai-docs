@@ -1,0 +1,104 @@
+---
+title: "Back up and restore"
+description: "Back up and restore stored state."
+icon: "floppy-disk"
+---
+
+Back up and restore a server's stored state.
+
+The runtime exports its stored state as a backup document and imports it back. Each backup is composed of named **sections** — access-control policies, presets, and whatever else the host and its plugins register. You choose which sections to export and which to import; nothing is all-or-nothing.
+
+## List the sections
+
+See which sections are registered and can be exported or imported.
+
+```bash
+tai backup sections
+```
+
+## Export
+
+Export the named sections as a backup document. The document prints to stdout — redirect it to a file to save it. `--section` is repeatable.
+
+```bash
+tai backup export --section access_control > backup.json
+```
+
+## Import
+
+Import selected sections from a backup document file. Name each section to apply; a section in the file that you do not name is left untouched.
+
+```bash
+tai backup import backup.json --section access_control
+```
+
+<Warning>
+Importing a section applies its payload over the live state. Export the current state first so you have a document to roll back to, and import only the sections you mean to restore.
+</Warning>
+
+### Skip or overwrite
+
+An import runs under one **mode**, applied per record: `skip` (the default) or `overwrite`. The mode is decided against each record's **natural key** — the field that identifies it within its section:
+
+- Under `skip`, a record whose key already exists on the server is left exactly as it stands — its live value is never replaced — and only records with a new key are created.
+- Under `overwrite`, an existing record is upserted from the backup; new records are still created.
+
+The natural key is per section: a hook by its `name`, a topic verifier by its `topic`, a template by its path, a sub-MCP app by its slug, a stored connection by its id, an access-control route by its url. New records are created under both modes; the mode only decides what happens when a key collides with a live one.
+
+Mode is a property of the HTTP import door, not the CLI: `POST /api/backup/import` takes a `"mode"` field in its body (an unrecognized value is a `400`). The `tai backup import` command sends no mode, so **the CLI always restores in the default `skip`** — the non-destructive choice. To overwrite, call the door with `"mode": "overwrite"`.
+
+### The sections that ignore mode
+
+A few sections do not key per record, so mode does not apply:
+
+- **`manifest`** restores as a whole document — a single manifest always replaces the live one, through the mutation pipeline below.
+- **`env`** **merges**: every key in the backup is applied, updating a key that exists and adding one that does not. It never removes a live key the backup omits.
+- **API-key tokens** (inside `access_control`) are **never overwritten**, under either mode. A restore mints brand-new keys for absent user ids and surfaces each plaintext in `new_api_keys` to redistribute; a user id already provisioned keeps its live key and is reported as skipped. To replace one, revoke that user id's key first, then re-import — the mint refuses to overwrite an existing identity.
+
+### The import report
+
+Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized — each named in the report so one bad record never silently drops or aborts the rest.
+
+Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
+
+## Recovering from a bad migration
+
+The backup document above captures **platform state** — policies, presets, and the
+other registered sections. It does not capture the database **schema**, which is a
+separate layer: versioned as [migration chains](/concepts/marketplace#the-migrations-contract)
+and recorded, one row per applied file, in the `tai_schema_history` table. That
+table is the source of truth for where each component's schema stands; read it
+with `tai db status`.
+
+Migration chains roll **forward only** — there are no down-migrations, so a
+migration is never "un-applied". Recovering from a migration that went wrong is a
+restore-then-re-migrate, not a rollback:
+
+<Steps>
+  <Step title="Restore the datastore snapshot">
+    Restore Postgres to a snapshot taken before the bad migration (a managed
+    provider's point-in-time restore, or a `pg_dump` you captured). This brings
+    the schema, the data, and `tai_schema_history` back to that point together —
+    which is why the [upgrade flow](/self-hosted/upgrades) tells you to snapshot
+    before a schema-carrying upgrade.
+  </Step>
+  <Step title="Re-migrate forward">
+    Point the image you mean to run at the restored database and run
+    `tai db migrate`. The runner reads `tai_schema_history`, sees which files the
+    snapshot already carries, and applies only what is still pending — bringing the
+    chain forward to the running image. Preview it first with `tai db migrate --plan`.
+  </Step>
+</Steps>
+
+<Note>
+Because history and data restore as one snapshot, keep the datastore backup and
+the `tai backup export` document on the same cadence — a restored database and a
+stale platform-state document drift apart otherwise.
+</Note>
+
+## See also
+
+- [Ops notes](/self-hosted/ops#schema-migrations) — `tai db status` and the migration model.
+- [Access control](/guides/access-control) — one of the sections you back up.
+- [Create and version a preset](/guides/create-and-version-a-preset) — presets are a backed-up section.
+- [CLI reference](/reference/cli) — the full `tai backup` surface.

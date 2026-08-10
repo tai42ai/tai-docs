@@ -1,0 +1,317 @@
+---
+title: "Schema forms"
+description: "The schema-driven form renderer and the JSON Schema helpers it is built on."
+icon: "list-check"
+---
+
+
+The schema-driven form renderer and the JSON Schema helpers it is built on.
+
+## CompletionProvider
+
+```ts
+type CompletionProvider = (argName: string, partial: string) => Promise<string[]>
+```
+
+Fetch argument-value suggestions for a string field. `argName` is the field's
+path within the form (a property key at the root, a dotted path when nested);
+`partial` is the value typed so far. The caller owns the source (e.g. an MCP
+`completion/complete` call) — SchemaForm only routes string fields through the
+completion-backed input when a provider is supplied.
+
+
+## Discriminator
+
+```ts
+interface Discriminator
+```
+
+A Pydantic-style discriminated-union tag: which property selects the variant.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `mapping?` | `Readonly<Record<string, string>>` | — |
+| `propertyName` | `string` | — |
+
+
+## JsonSchema
+
+```ts
+interface JsonSchema
+```
+
+A structural JSON Schema node. All keys optional; the index signature keeps
+the type permissive so an unrecognized keyword is never a type error — it is a
+runtime classification concern the renderer handles.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `$defs?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `$ref?` | `string` | — |
+| `additionalProperties?` | `boolean \| JsonSchema` | — |
+| `allOf?` | `readonly JsonSchema[]` | — |
+| `anyOf?` | `readonly JsonSchema[]` | — |
+| `const?` | `unknown` | — |
+| `contentEncoding?` | `string` | Media annotations (see the `SchemaForm` module). `contentEncoding: "base64"` together with `contentMediaType` (or `format: "data-url"`) opts a string field into the upload control; `contentMaxBytes` pins a per-field size cap.  `contentMaxBytes` is a NONSTANDARD JSON-Schema extension keyword — a standard JSON-Schema validator ignores it. The client-side caps it drives (see the `media` module) are UX guards, NOT a security boundary: the SERVER MUST independently validate the decoded size of any uploaded content. |
+| `contentMaxBytes?` | `number` | — |
+| `contentMediaType?` | `string` | — |
+| `default?` | `unknown` | — |
+| `definitions?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `description?` | `string` | — |
+| `discriminator?` | `Discriminator` | — |
+| `enum?` | `readonly unknown[]` | — |
+| `format?` | `string` | — |
+| `items?` | `JsonSchema` | — |
+| `maxItems?` | `number` | — |
+| `maxLength?` | `number` | — |
+| `maximum?` | `number` | — |
+| `minItems?` | `number` | — |
+| `minLength?` | `number` | — |
+| `minimum?` | `number` | — |
+| `oneOf?` | `readonly JsonSchema[]` | — |
+| `properties?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `required?` | `readonly string[]` | — |
+| `title?` | `string` | — |
+| `type?` | `JsonSchemaType \| readonly JsonSchemaType[]` | — |
+
+**Related:** [Discriminator](/reference/studio-sdk/schema-forms#discriminator), [JsonSchemaType](/reference/studio-sdk/schema-forms#jsonschematype)
+
+
+## JsonSchemaType
+
+```ts
+type JsonSchemaType = "string" | "number" | "integer" | "boolean" | "object" | "array" | "null"
+```
+
+The JSON-Schema `type` keyword values Pydantic emits.
+
+
+## RecordEntryContext
+
+```ts
+interface RecordEntryContext
+```
+
+One record entry, handed to a host-supplied value renderer.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `defaultField` | `ReactNode` | The default value editor the record field would render for this entry. |
+| `keyName` | `string` | The entry's current key (may be blank/duplicate while the user edits). |
+| `onChange` | `(value: unknown) => void` | — |
+| `path` | `string` | The entry value's form path (dotted from the form root). |
+| `value` | `unknown` | — |
+| `valueSchema` | `JsonSchema` | The entry value schema, as written (the renderer resolves any `$ref`). |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## RecordEntryRenderer
+
+```ts
+type RecordEntryRenderer = (entry: RecordEntryContext) => ReactNode
+```
+
+A host-supplied per-entry value renderer for `record` fields — the injection
+point a masked/secret editor (or any other value affordance) mounts through.
+It returns the node to render in the entry's value slot; returning
+`entry.defaultField` falls back to the built-in editor. Absent (the default),
+every entry renders its `defaultField`.
+
+**Related:** [RecordEntryContext](/reference/studio-sdk/schema-forms#recordentrycontext)
+
+
+## RecordEntryRendererContext
+
+```ts
+const RecordEntryRendererContext: Context<RecordEntryRenderer | undefined>
+```
+
+**Related:** [RecordEntryRenderer](/reference/studio-sdk/schema-forms#recordentryrenderer)
+
+
+## SchemaForm
+
+```ts
+function SchemaForm(props: SchemaFormProps): ReactNode
+```
+
+Render a controlled form for `schema`. The root is usually an object (a tool's
+input schema); a scalar/array/union root renders as a single field group.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
+| `errors?` | `Readonly<Record<string, string>>` | — |
+| `idPrefix?` | `string` | — |
+| `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
+| `onChange` | `(value: unknown) => void` | — |
+| `schema` | `JsonSchema` | — |
+| `value` | `unknown` | — |
+
+**Related:** [SchemaFormProps](/reference/studio-sdk/schema-forms#schemaformprops)
+
+
+## SchemaFormErrors
+
+```ts
+type SchemaFormErrors = Readonly<Record<string, string>>
+```
+
+A structured, per-path bag of validation problems. Keys are dotted/bracketed
+paths from the form root (`""` = the root value, `"user.name"`, `"tags[0]"`);
+each entry is a loud, human-readable message. Empty object = valid.
+
+
+## SchemaFormProps
+
+```ts
+interface SchemaFormProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
+| `errors?` | `Readonly<Record<string, string>>` | — |
+| `idPrefix?` | `string` | — |
+| `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
+| `onChange` | `(value: unknown) => void` | — |
+| `schema` | `JsonSchema` | — |
+| `value` | `unknown` | — |
+
+**Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## SecretRef
+
+```ts
+type SecretRef = { key: string; source: "key" } | { secret: string; source: "paste" }
+```
+
+The value `SecretRefField` emits and reads back. The `source` discriminant
+is what the host branches on:
+ - `key`   — reference an existing env key; the host writes `!ENV ${key}`.
+ - `paste` — a new plaintext secret; the host stores it under a generated key
+             (combined op) and writes the resulting marker. `secret` is
+             write-only and is never rendered.
+
+
+## SecretRefField
+
+```ts
+function SecretRefField(props: SecretRefFieldProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `availableKeys` | `readonly string[]` | Env key NAMES the host supplies (e.g. envConfig.secret_keys). Never fetched here. |
+| `idPrefix?` | `string` | — |
+| `keyPickingAvailable?` | `boolean` | Whether env-key picking is available at all — the host passes it from whether the projection carries the env route. Omitted or false: paste-only (fail closed). |
+| `label?` | `string` | Visible field label; the accessible name of the inner control. |
+| `onChange` | `(value: SecretRef) => void` | Fired once when a value is provided (a key picked, or a paste committed). |
+| `pasteDisabledReason?` | `string` | When set, PASTING a new secret is blocked and this reason is surfaced inline (referencing an existing key stays available). The host passes it when a paste right now would land in the wrong place — an unsaved structural edit has shifted the target pointer, or the entry has no key yet to hint the generated name. |
+| `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
+
+**Related:** [SecretRefFieldProps](/reference/studio-sdk/schema-forms#secretreffieldprops)
+
+
+## SecretRefFieldProps
+
+```ts
+interface SecretRefFieldProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `availableKeys` | `readonly string[]` | Env key NAMES the host supplies (e.g. envConfig.secret_keys). Never fetched here. |
+| `idPrefix?` | `string` | — |
+| `keyPickingAvailable?` | `boolean` | Whether env-key picking is available at all — the host passes it from whether the projection carries the env route. Omitted or false: paste-only (fail closed). |
+| `label?` | `string` | Visible field label; the accessible name of the inner control. |
+| `onChange` | `(value: SecretRef) => void` | Fired once when a value is provided (a key picked, or a paste committed). |
+| `pasteDisabledReason?` | `string` | When set, PASTING a new secret is blocked and this reason is surfaced inline (referencing an existing key stays available). The host passes it when a paste right now would land in the wrong place — an unsaved structural edit has shifted the target pointer, or the entry has no key yet to hint the generated name. |
+| `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
+
+**Related:** [SecretRef](/reference/studio-sdk/schema-forms#secretref)
+
+
+## defaultValueForSchema
+
+```ts
+function defaultValueForSchema(schema: JsonSchema, root: JsonSchema): unknown
+```
+
+The initial value for a schema. `root` carries the `$defs` document for
+`$ref` resolution and defaults to the schema itself (the common
+whole-tool-schema call).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `JsonSchema` | — | — |
+| `root` | `JsonSchema` | `schema` | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## resolveRef
+
+```ts
+function resolveRef(schema: JsonSchema, root: JsonSchema): JsonSchema
+```
+
+Resolve an internal `$ref` against the document root, following chained refs
+(a `$ref` whose target is itself a `$ref`). Only same-document pointers are
+supported (`#/$defs/Name`, `#/definitions/Name`, `#`); an external or
+unresolvable ref throws LOUDLY rather than yielding a silent empty schema.
+A schema with no `$ref` is returned unchanged. A pointer cycle throws.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `JsonSchema` | — | — |
+| `root` | `JsonSchema` | — | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## validateAgainstSchema
+
+```ts
+function validateAgainstSchema(
+  schema: JsonSchema,
+  value: unknown,
+  options?: ValidateOptions,
+): SchemaFormErrors
+```
+
+Validate `value` against `schema`, returning a per-path error bag (empty =
+valid). The caller runs this before submit and feeds the result back to
+`SchemaForm` for display. `options.maxUploadBytes` mirrors the renderer's
+`maxUploadBytes` prop so a media field's byte cap is enforced identically here.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `JsonSchema` | — | — |
+| `value` | `unknown` | — | — |
+| `options` *(optional)* | `ValidateOptions` | — | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema), [SchemaFormErrors](/reference/studio-sdk/schema-forms#schemaformerrors)
+

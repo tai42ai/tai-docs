@@ -1,0 +1,363 @@
+---
+title: "Settings (tai42_kit.settings)"
+description: "The base settings class and the settings registry."
+icon: "gear"
+---
+
+
+Settings machinery: the base class + the cache-reset registry. Leaf settings
+live next to the impl they configure (``tai42_kit.llm``, ``tai42_kit.clients``,
+``tai42_kit.logging``).
+
+## TAI_DEFAULT_ENV_PREFIX
+
+`tai42_kit.settings.default_namespace.TAI_DEFAULT_ENV_PREFIX`
+
+```python
+TAI_DEFAULT_ENV_PREFIX = 'TAI_DEFAULT_'
+```
+
+
+## DefaultNamespaceMixin
+
+`tai42_kit.settings.default_namespace.DefaultNamespaceMixin`
+
+```python
+class DefaultNamespaceMixin
+```
+
+Adds the ``TAI_DEFAULT_*`` per-field fallback to a settings class.
+
+Declare ``tai_default_fields`` (``{field_name: default_key}``) on the subclass
+to enable it. An empty map (the default) leaves the source pipeline untouched,
+so a class that mixes this in without a map behaves as one that does not.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tai_default_fields` | `Mapping[str, str]` |
+
+### Members
+
+#### settings_customise_sources
+
+`tai42_kit.settings.default_namespace.DefaultNamespaceMixin.settings_customise_sources`
+
+```python
+settings_customise_sources(
+    cls,
+    settings_cls: type,
+    init_settings: PydanticBaseSettingsSource,
+    env_settings: PydanticBaseSettingsSource,
+    dotenv_settings: PydanticBaseSettingsSource,
+    file_secret_settings: PydanticBaseSettingsSource,
+) -> tuple[PydanticBaseSettingsSource, ...]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `settings_cls` | `type` | — | — |
+| `init_settings` | `PydanticBaseSettingsSource` | — | — |
+| `env_settings` | `PydanticBaseSettingsSource` | — | — |
+| `dotenv_settings` | `PydanticBaseSettingsSource` | — | — |
+| `file_secret_settings` | `PydanticBaseSettingsSource` | — | — |
+
+
+
+## KeyMaterial
+
+`tai42_kit.settings.base.KeyMaterial`
+
+```python
+KeyMaterial = Annotated[SecretStr, Field(json_schema_extra={'key_material': True})]
+```
+
+
+## ReloadClass
+
+`tai42_kit.settings.base.ReloadClass`
+
+```python
+ReloadClass = Literal['hot', 'recycle', 'excluded']
+```
+
+
+## SettingsClassInfo
+
+`tai42_kit.settings.registry.SettingsClassInfo`
+
+```python
+class SettingsClassInfo(BaseModel)
+```
+
+A registered settings class, identified by its qualified name.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `module` | `str` |
+| `qualname` | `str` |
+| `fields` | `list[SettingsFieldInfo]` |
+| `reload_class` | `ReloadClass` |
+
+
+## SettingsFieldInfo
+
+`tai42_kit.settings.registry.SettingsFieldInfo`
+
+```python
+class SettingsFieldInfo(BaseModel)
+```
+
+One env-configurable field on a settings class, as plain data.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `env_var` | `str` |
+| `type` | `str` |
+| `default` | `Any \| None` |
+| `required` | `bool` |
+| `secret` | `bool` |
+| `description` | `str \| None` |
+| `nested_group` | `str \| None` |
+| `default_namespace_var` | `str \| None` |
+| `reload_class` | `ReloadClass` |
+| `key_material` | `bool` |
+
+
+## StaleHolder
+
+`tai42_kit.settings.cache_registry.StaleHolder`
+
+```python
+class StaleHolder
+```
+
+A still-live cached settings instance stamped with a retired epoch.
+
+``settings_type`` and ``holders`` are ``module.qualname`` strings (the settings
+class, and the type of each object still referencing the instance).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `settings_type` | `str` |
+| `epoch` | `int` |
+| `holders` | `tuple[str, ...]` |
+
+
+## TaiBaseSettings
+
+`tai42_kit.settings.base.TaiBaseSettings`
+
+```python
+class TaiBaseSettings(BaseSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `reload_class` | `ReloadClass` |
+
+### Members
+
+#### with_fallbacks
+
+`tai42_kit.settings.base.TaiBaseSettings.with_fallbacks`
+
+```python
+with_fallbacks(self, user_config: dict) -> dict
+```
+
+Return a dict with defaults added for missing keys (never override user config).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_config` | `dict` | — | — |
+
+
+#### load_with_fallbacks
+
+`tai42_kit.settings.base.TaiBaseSettings.load_with_fallbacks`
+
+```python
+load_with_fallbacks(self, user_config: str) -> dict
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_config` | `str` | — | — |
+
+
+
+## not_configured_message
+
+`tai42_kit.settings.require.not_configured_message`
+
+```python
+not_configured_message(subject: str, env_var: str, default_var: str | None = None) -> str
+```
+
+The named-error message for an unset connection setting.
+
+``default_var`` is the field's ``TAI_DEFAULT_*`` alternative, named in the
+message when the field participates in the shared namespace; omit it for a
+field that only its own env var can set.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `subject` | `str` | — | — |
+| `env_var` | `str` | — | — |
+| `default_var` | `str \| None` | `None` | — |
+
+
+## register_settings_reset
+
+`tai42_kit.settings.cache_registry.register_settings_reset`
+
+```python
+register_settings_reset(fn: Callable[[], None]) -> Callable[[], None]
+```
+
+Register a hook that resets settings-derived state on global reset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[], None]` | — | — |
+
+
+## registered_settings
+
+`tai42_kit.settings.registry.registered_settings`
+
+```python
+registered_settings() -> list[SettingsClassInfo]
+```
+
+Snapshot of every registered settings group, in registration order.
+
+Returns model copies so callers cannot mutate the registry's internals.
+
+
+## require
+
+`tai42_kit.settings.require.require`
+
+```python
+require(value: T | None, subject: str, env_var: str, default_var: str | None = None) -> T
+```
+
+The configured ``value``, or raise the named error when it is ``None``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `T \| None` | — | — |
+| `subject` | `str` | — | — |
+| `env_var` | `str` | — | — |
+| `default_var` | `str \| None` | `None` | — |
+
+
+## require_secret
+
+`tai42_kit.settings.require.require_secret`
+
+```python
+require_secret(
+    value: SecretStr | None,
+    subject: str,
+    env_var: str,
+    default_var: str | None = None,
+) -> str
+```
+
+The secret's plaintext, or raise on unset OR empty — fail CLOSED.
+
+A secret that gates a trust boundary must not be satisfiable by an empty
+value, so both the unset and the empty cases raise.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `SecretStr \| None` | — | — |
+| `subject` | `str` | — | — |
+| `env_var` | `str` | — | — |
+| `default_var` | `str \| None` | `None` | — |
+
+
+## reset_all_settings
+
+`tai42_kit.settings.cache_registry.reset_all_settings`
+
+```python
+reset_all_settings() -> None
+```
+
+Drop every registered settings cache, then run the reset hooks.
+
+
+## settings_cache
+
+`tai42_kit.settings.cache_registry.settings_cache`
+
+```python
+settings_cache(fn: F) -> F
+```
+
+Cache a zero-arg settings accessor, register it for reset, and epoch-stamp it.
+
+Stamping happens on the CONSTRUCTION path (cache miss), so the stamp records
+the epoch the instance was born under; a cached hit returns the same stamped
+instance, and a reset clears the cache so the next call rebuilds and re-stamps
+under the then-current epoch.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `F` | — | — |
+
+
+## sweep_stale_settings
+
+`tai42_kit.settings.cache_registry.sweep_stale_settings`
+
+```python
+sweep_stale_settings(retired_epoch: int) -> list[StaleHolder]
+```
+
+Report every live cached settings instance still stamped with ``retired_epoch``.
+
+Walks the roster for instances whose stamp is the retired epoch and are still
+alive (a holder is keeping them past the cache clear), summarising each via
+``gc.get_referrers``. Logs ERROR naming the holders — a retired-epoch instance
+still reachable is a stale-config leak, never dropped silently — and returns
+the findings so a probe/e2e can assert zero.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `retired_epoch` | `int` | — | — |
+

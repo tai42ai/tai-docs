@@ -1,0 +1,10 @@
+#| fixture: none
+#| expect_exit: 0
+#| expect_stdout_contains: TAI_BUS_REDIS_URL
+# Run multiple worker processes with -w/--workers. Stateful HTTP transports refuse
+# more than one worker; --stateless-http lifts that restriction for http /
+# streamable-http. More than one worker also REQUIRES the worker bus — set
+# TAI_BUS_REDIS_URL, or sibling workers would serve stale config after a reload
+# with no channel to converge on. A multi-worker deployment further needs
+# SUB_MCP_REDIS_URL so sub-MCP registrations are shared across workers.
+tai serve --help

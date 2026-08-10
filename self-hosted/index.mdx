@@ -1,0 +1,98 @@
+---
+title: "Self-hosted"
+description: "Run tai from the official container image — one signed, scanned, multi-arch image plus a Compose bundle and a Helm chart."
+icon: "box"
+---
+
+Run tai on your own infrastructure from the official container image. One image
+plays every server role; a Compose bundle and a Helm chart deploy it, and the
+release pipeline signs and scans every artifact it publishes.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="docker" href="/self-hosted/quickstart">
+    Deploy the Compose bundle against the official image.
+  </Card>
+  <Card title="Upgrades" icon="arrow-up-right-dots" href="/self-hosted/upgrades">
+    Pull a new tag, run the migrations, recreate the app services.
+  </Card>
+  <Card title="Helm" icon="dharmachakra" href="/self-hosted/helm">
+    Install and upgrade on Kubernetes from the published chart.
+  </Card>
+  <Card title="Verify artifacts" icon="shield-check" href="/self-hosted/verify">
+    Check cosign signatures and image digests.
+  </Card>
+  <Card title="Web stacks" icon="window" href="/self-hosted/web-stacks">
+    Run the marketplace and website images.
+  </Card>
+  <Card title="Ops notes" icon="screwdriver-wrench" href="/self-hosted/ops">
+    Reverse proxies, backups, and health probes.
+  </Card>
+</CardGroup>
+
+## The image
+
+`docker.io/tai42/tai` is the official image, mirrored at `ghcr.io/tai42ai/tai`.
+It is one minimal-core image that runs every deployment role from a single
+entrypoint (`tai`): the HTTP server, the task backend worker, and the metrics
+reader. What a container becomes is chosen by its command and its
+[manifest](/concepts/manifest), not by a different image per role.
+
+| Property | Value |
+| --- | --- |
+| Registries | `docker.io/tai42/tai` and `ghcr.io/tai42ai/tai` (identical content) |
+| Architectures | `linux/amd64` and `linux/arm64` (one multi-arch manifest list per tag) |
+| Signed | cosign keyless signature on the manifest-list digest in **both** registries |
+| Scanned | Trivy gates the build — a fixable critical/high CVE fails the release before any push |
+| Attested | SBOM and provenance attestations attached in-registry; a CycloneDX SBOM is attached to each GitHub Release |
+
+The three long-lived processes all come out of this one image:
+
+| Process | Command | Role |
+| --- | --- | --- |
+| serve | `tai serve` | HTTP API, the MCP endpoint, and the [Studio](/studio) SPA, on one origin |
+| backend worker | `tai backend worker` | queued, scheduled, and agent work |
+| metrics | `tai metrics` | the Prometheus multiprocess endpoint |
+
+### Tags
+
+The release publishes a semver fan-out — `X.Y.Z`, `X.Y`, `X`, and `latest` — for
+a stable release; a prerelease publishes its exact version tag only and leaves
+the moving tags on the last stable image. **Pin an exact `X.Y.Z` tag in
+production**; `latest` moves under you.
+
+## What the image bundles
+
+The image is the **minimal core**: the platform layers plus one reference
+provider per infrastructure kind — local storage, the arq task backend, the
+Redis identity (API-key) provider, and the Kubernetes config provider — and the
+built Studio SPA. The bundled package set is exactly:
+
+{/* core-roster:start — checked against tai-distribution/docker/pypi-requirements.txt by scripts/check_docs_refs.py; keep this table equal to that pinned set (names only). */}
+
+| Package | What it is |
+| --- | --- |
+| `tai42-contract` | the contract layer every plugin registers through |
+| `tai42-kit` | shared clients, settings, and transport helpers |
+| `tai42-cli` | the `tai` command — the remote client over the server's HTTP API |
+| `tai42-skeleton` | the runtime — the server, plus the local and runtime commands it adds to `tai` (with the `toolbox` and `files` extras) |
+| `tai42-toolbox` | the standard toolbox tools and composition extensions |
+| `tai42-agents` | the agents layer |
+| `tai42-storage-local` | the local-disk storage provider |
+| `tai42-backend-arq` | the arq (Redis-only) task backend |
+| `tai42-identity-redis` | the Redis-backed API-key identity provider |
+| `tai42-config-k8s` | the Kubernetes config provider |
+
+{/* core-roster:end */}
+
+Every other plugin — the channels, the S3/GitHub storages, the celery/rq
+backends, the connectors, the webhook verifiers, monitoring, accounts, and the
+extra tools — is **not** baked in. Add the ones a deployment needs at runtime
+through the [marketplace](/concepts/marketplace) or by
+[baking them into a derived image](/operate#add-plugins). See
+[the layering](/concepts/layering) for what each layer contains.
+
+<Note>
+Runtime-installed plugins live in the server's plugin prefix, not in the image.
+An image upgrade replaces the core but **does not** update a runtime-installed
+plugin — see [Upgrades](/self-hosted/upgrades#runtime-installed-plugins).
+</Note>

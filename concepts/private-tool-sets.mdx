@@ -1,0 +1,50 @@
+---
+title: "Private tool sets"
+description: "Scoped sub-MCP servers."
+icon: "box"
+---
+
+A private tool set is a sub-MCP server mounted inside a running server. It exposes
+a chosen subset of tools under its own slug and its own MCP endpoint, so one server
+can present several scoped surfaces instead of one flat catalog.
+
+This page explains the model. To register one, follow
+[Expose a private tool set](/guides/private-tool-set).
+
+## Sub-MCP apps
+
+A sub-MCP app is registered on the live sub-app router under a slug, listing the
+tools it exposes and the transport it serves. Each registration is a self-contained
+MCP surface: a client that connects to a sub-MCP sees only that set of tools, not
+the whole server. The registry keeps a JSON-safe view of every registered sub-MCP —
+its slug, its tools, and its transport.
+
+## Registering and tearing down
+
+Sub-MCP apps are managed live, at run time, through three authed doors and their
+CLI commands:
+
+```bash
+tai sub-mcp list
+tai sub-mcp register utilities --tool convert --tool lookup   # register or reload a slug with its tool set
+```
+
+Registering a slug builds (or reloads) its sub-MCP app; unregistering it tears down
+the sub-app's ASGI lifespan cleanly. An unknown slug fails loudly with a `404`
+rather than silently succeeding.
+
+## Why scope a tool set
+
+A private tool set narrows what a given client can see and call. Pairing a sub-MCP
+with [access control](/concepts/access-control) lets you route different callers to
+different scoped surfaces of the same server, keeping each client's tool list
+minimal and intentional.
+
+<Note>
+The sub-MCP namespace is `app.sub_app`. It is separate from the raw FastMCP escape
+hatch on the [MCP-citizen surface](/concepts/mcp-citizen-surface), which is named
+`app.fastmcp` precisely so it does not read as the sub-MCP.
+</Note>
+
+See the [private-tool-set guide](/guides/private-tool-set) for exposing one and the
+[HTTP API reference](/reference/api/index) for the `/api/sub-mcp` routes.

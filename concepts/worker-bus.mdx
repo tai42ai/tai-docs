@@ -1,0 +1,242 @@
+---
+title: "The worker bus"
+description: "How a config change reaches every worker."
+icon: "tower-broadcast"
+---
+
+The worker bus is how a live change reaches every process in a deployment. When
+one worker persists a config change — a reloaded tool, a replaced manifest, a
+soft restart, a [settings-profile](/concepts/config-and-secrets#settings-profiles)
+apply — the bus carries that change to every other worker sharing the manifest and
+collects a per-worker outcome, so the whole fleet converges instead of one process
+drifting ahead of its siblings.
+
+## It is internal infrastructure, not a plugin
+
+The bus is app-owned internal infrastructure, in the same class as the reload
+gate. It is **not a [plugin](/concepts/config-and-secrets#the-plugin-model)** and
+sits deliberately outside the plugin system: nothing about it is registrable,
+swappable, or user-selectable, no manifest field chooses an implementation, and
+there is exactly one bus. You do not author a bus or name one in a manifest — you
+configure the single built-in with environment variables, and that is the whole
+surface.
+
+This is a deliberate line. A [backend](/concepts/backends) is a plugin — you pick
+celery, rq, or arq. The bus is not: fan-out is the app's own concern, so a
+backend-runtime process receives fleet changes through the bus exactly like a
+serving HTTP worker, and carries no fan-out surface of its own.
+
+## Enable it
+
+The bus runs on a plain Redis, configured entirely through `TAI_BUS_*`
+environment variables. Set `TAI_BUS_REDIS_URL` to turn it on:
+
+```bash
+export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
+```
+
+With `TAI_BUS_REDIS_URL` unset the bus is **off**, and the process runs on a no-op
+local variant: a mutation applies in that one process and reaches no sibling. That
+is the correct, supported shape for exactly one deployment shape — a single
+worker, in `file` config mode, with no backend — and the wrong shape for every
+other (see [Boot rules](#boot-rules) below).
+
+Any plain, module-less Redis runs the bus — `redis:7`, `redis:8`, or `valkey`. No
+Redis modules are required.
+
+## Boot rules
+
+Three deployment shapes cannot converge without the bus, so `tai serve` and
+`tai backend` **refuse to start** without `TAI_BUS_REDIS_URL` when any holds:
+
+- **More than one server worker.** Sibling workers would serve stale config after
+  a reload with no channel to converge on. `tai serve --workers N` (`N > 1`) is
+  refused busless.
+- **A registered backend.** A manifest that names a `backend_module` runs a
+  separate backend-runtime process that must converge with the server processes
+  on every reload. This is re-checked on every reload, so a manifest or env change
+  that *adds* a backend — or *removes* the bus while a backend remains — is
+  refused too.
+- **`TAI_CONFIG_MODE=k8s`.** The k8s config mode exists for multi-pod shared
+  config, and a pod cannot see its own replica count, so k8s mode always requires
+  the bus.
+
+The refusal names `TAI_BUS_REDIS_URL`. A busless k8s boot is rejected on the
+missing bus, not on a later kubeconfig error, because the k8s and workers checks
+read only boot-fixed env and args and run before the config manager is built.
+
+## Namespacing
+
+`TAI_BUS_NAMESPACE` (default `tai`) prefixes the control channel, every reply
+channel, and every presence key. Redis pub/sub is server-global — it is **not**
+scoped by the numeric database index — so two deployments sharing one Redis would
+cross-deliver each other's fleet ops unless they diverge by namespace.
+
+<Warning>
+When several independent stacks share one Redis, give each a unique
+`TAI_BUS_NAMESPACE`. Two stacks left on the default namespace deliver each other's
+reloads and manifest replaces to the wrong fleet.
+</Warning>
+
+## Worker identity
+
+Every process on the bus holds a stable **slot name** — `{kind}-{n}`, where
+`kind` is `serve` or `backend` and `n` is the lowest free ordinal, so the
+processes of a fleet are `serve-1`, `serve-2`, `backend-1`, and so on. A worker
+claims its slot atomically at boot and holds it for the life of the process. The
+name is what you target a reload at and what every fleet surface labels a row
+with — stable, not a fresh string each start. The busless local variant names
+itself `serve-1` and is its own fleet of one.
+
+Each slot also carries a **generation** — a life counter that increments every
+time a process claims that name. A worker that restarts takes the same slot back
+at the next generation, so `serve-1` at generation `4` is a later life of the
+same slot than `serve-1` at generation `3`. The pair `{name, generation}`
+identifies one life: a reply from a superseded life — a process that lost its
+slot but has not yet noticed — is discarded on the generation, never mistaken for
+the current one.
+
+### The presence value
+
+A worker advertises itself in a presence key whose value is the single source
+every fleet surface reads:
+
+| Field | What it carries |
+| --- | --- |
+| `kind` | `serve` or `backend`. |
+| `pid` | The OS process id. |
+| `generation` | The life counter for this slot. |
+| `joined_at` | When this life claimed the slot — the fleet's join time. |
+| `beat_at` | The last heartbeat — the "seen-since" a surface renders. |
+| `state` | `ready`, `resyncing`, or `recycling` (below). |
+| `last_op` | The last op this worker applied and its outcome — absent until it has applied one. |
+
+The `state` is written live by the worker itself:
+
+- **ready** — booted, resynced, and serving.
+- **resyncing** — running its boot or reconnect resync; it converges to `ready`
+  when the resync finishes.
+- **recycling** — beginning a graceful self-exit (a recycle); it is on its way
+  out, not coming back under this life.
+
+### A blip does not drop a worker
+
+The presence key carries a TTL (`TAI_BUS_HEARTBEAT_TTL`) that the heartbeat
+refreshes at a third of its length. A deliberate shutdown deletes the key; a
+transport blip does **not** — the worker leaves the key to its TTL and, on
+reconnect, re-verifies it still holds the slot and beats again under the same
+name and generation. A short connection wobble therefore leaves presence intact:
+the worker stays the same life rather than vanishing and returning as a stranger.
+Only a blip that outlasts the TTL — or a lost claim — ends the life; the next
+claim of that slot then comes back at a higher generation.
+
+### Reading a restart in progress
+
+The `resyncing` and `recycling` states make a restart legible while it happens —
+but a written state is only as trustworthy as the heartbeat behind it. Each
+presence row is judged against the same freshness gate the bus uses to decide who
+a broadcast can expect an answer from, and a row whose claim has decayed past that
+gate is **stale**. So a worker in flux reads a few ways:
+
+- A **fresh `resyncing` or `recycling` row** is genuinely restarting — the state
+  is live and the heartbeat current.
+- A **dead worker's row vanishes** when its TTL lapses; it is simply gone.
+- A **`ready` row that has gone quiet** past the freshness gate is ambiguous — it
+  is either reconnecting or already dead, and which is unknown until it beats
+  again or its row expires. It is reported as `stale`, never labelled
+  "reconnecting" on a guess.
+- A **`resyncing` or `recycling` row that has decayed** past the same gate also
+  reads as `stale`, not as its written state: a worker that died mid-resync or
+  mid-recycle must not carry a promise it will converge.
+
+## What the fleet report tells you
+
+A mutation waits for the fleet and returns a **per-worker report** — one row per
+worker, keyed on its name, with the op's outcome. Beyond a plain applied/failed,
+the report names, honestly, every worker the change did not cleanly reach:
+
+- **missing** — the worker is alive but never acknowledged the op inside the short
+  ack window.
+- **departed** — the worker's presence key expired; it went away (a rolling
+  restart or a `SIGKILL` mid-reload).
+- **timed_out** — the worker acknowledged the op but did not finish applying it by
+  the deadline. The op usually still applies once its reload gate frees; verify
+  with the fleet census or a fleet reload.
+- **resyncing** — the worker is mid-resync (a boot or a reconnect) and was not in
+  a ready state to take the op; it converges on its own resync.
+- **recycling** — the worker is departing under a recycle; it converges by ending
+  its old life and leaving fresh capacity behind, not by applying this op.
+- **stale** — the worker's row is past the freshness gate, so its state can no
+  longer be trusted: reconnecting or dead, unknown until it returns or its row
+  expires. A `stale` row carries no promise it will converge.
+
+A worker that was not in a ready, freshly-beating state is reported as its actual
+condition rather than silently skipped, so a broadcast stays honest about who it
+could not expect an answer from. None of these outcomes is hidden: a worker the
+broadcast could not converge is reported, logged, and surfaced in the UI — a
+failed propagation is never a fake success.
+
+A recycle-class [settings-profile](/concepts/config-and-secrets#settings-profiles)
+apply drives one more thing over the bus: after the reload fans out, the applier
+censuses the fleet on the bus and orchestrates a process recycle across the
+serve/backend workers it names. Confirmation is by reality, not by tracking a name
+to its successor — a recycle is accepted when two facts hold: the targeted **old
+lives are gone** (their slots absent, expired, or already advanced to a higher
+generation), and **fresh ready capacity** of each kind has booted under the new
+config, counted per kind to cover the recycled workers. The report never claims a
+particular new life is a particular old one's replacement; it confirms the old
+lives ended and the fleet came back to strength. Because that census rides the bus
+itself, the bus URL is one key a recycle can never carry — replacements would
+register on a new bus the running census cannot see — so a profile changing
+`TAI_BUS_REDIS_URL` is refused on every shape.
+
+## Documented limitations
+
+The boot rules catch the shapes they can *detect from inside one process*. Some
+multi-process shapes look identical to a legitimate single busless process, so the
+rules cannot flag them for you. In every one of these, set `TAI_BUS_REDIS_URL`
+yourself:
+
+- **The workers-count rule lives in the `tai` CLI only.** An external process
+  manager (gunicorn, a supervisor, a container orchestrator) that drives the ASGI
+  factory with its *own* `--workers` bypasses the rule entirely — the factory
+  cannot count sibling processes. Set the bus in any multi-process deployment you
+  run outside `tai serve`.
+- **Single-worker fleets look busless.** A supervisor running many `tai serve
+  -w 1` processes on one host, or several machines sharing one manifest over a
+  network filesystem, pass every boot rule — each process legitimately sees
+  `workers=1`, `file` mode, and no backend — yet run busless-stale. Set the bus in
+  **any** multi-process file-mode deployment.
+- **Mixed transports are undetectable.** A `stdio` or `sse` process sharing a
+  manifest with an `http` fleet is another shape the rules cannot see.
+- **A shared Redis needs a unique namespace.** Distinct stacks on one Redis that
+  do not set unique `TAI_BUS_NAMESPACE` values cross-deliver fleet ops.
+
+The rule of thumb: if two or more processes share a manifest, they need the bus,
+whether or not a rule fires.
+
+## Operational knobs
+
+The timing knobs have safe defaults; change them only for a deployment whose
+reloads legitimately run long.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `TAI_BUS_REDIS_URL` | unset | Redis URL that enables the bus. Unset = bus off (single-worker, `file` mode, no backend only). |
+| `TAI_BUS_NAMESPACE` | `tai` | Prefixes the control channel, reply channels, and presence keys. Unique per stack on a shared Redis. |
+| `TAI_BUS_ACK_TIMEOUT` | `2.0` | Seconds the collector waits for the fast liveness acknowledgements before it budgets the rest of its wait toward the apply deadline. |
+| `TAI_BUS_APPLY_TIMEOUT` | `30.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Budgets a worst-case reload plus the post-apply hooks. |
+| `TAI_BUS_HEARTBEAT_TTL` | `15.0` | Presence-key TTL. A worker refreshes it at a third of this; a transport blip leaves the key to this TTL and the worker re-verifies its slot on reconnect (presence survives a brief wobble), while a frozen or killed worker's row goes stale and then leaves the census within one TTL rather than blocking every op. |
+
+## See also
+
+- [Live operations](/concepts/live-operations) — the mutation surface the bus fans
+  out.
+- [Manage a fleet](/operate/manage-a-fleet) — inspecting the fleet and driving
+  fleet-wide operations.
+- [Backends](/concepts/backends) — the task-execution plugin, which the bus is
+  deliberately not.
+- [Config and secrets](/concepts/config-and-secrets#settings-reference) — the full
+  environment-variable reference.
+- [Deploy](/operate/deploy) — the multi-worker and k8s deployment shapes the boot
+  rules gate.

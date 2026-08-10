@@ -1,0 +1,301 @@
+---
+title: "Navigation"
+description: "The shell⇄feature route-token contract — the navigation provider, links, and resolution hooks."
+icon: "compass"
+---
+
+
+The shell⇄feature route-token contract — the navigation provider, links, and resolution hooks.
+
+## AppLink
+
+```ts
+function AppLink<T extends keyof RouteSearchByToken>(props: AppLinkProps<T>): ReactNode
+```
+
+A real anchor (so middle-click / open-in-new-tab keep working) that drives a
+client-side transition on plain left-click. Modified clicks (new tab/window,
+download) fall through to the browser's default handling.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `aria-current?` | `boolean \| "time" \| "true" \| "false" \| "page" \| "step" \| "location" \| "date"` | — |
+| `aria-label?` | `string` | — |
+| `children` | `ReactNode` | — |
+| `className?` | `string` | — |
+| `search?` | `RouteSearch<T>` | — |
+| `to` | `T` | — |
+
+**Related:** [AppLinkProps](/reference/studio-sdk/navigation#applinkprops)
+
+
+## AppLinkProps
+
+```ts
+interface AppLinkProps<T extends RouteToken>
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `aria-current?` | `boolean \| "time" \| "true" \| "false" \| "page" \| "step" \| "location" \| "date"` | — |
+| `aria-label?` | `string` | — |
+| `children` | `ReactNode` | — |
+| `className?` | `string` | — |
+| `search?` | `RouteSearch<T>` | — |
+| `to` | `T` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## NavigateOptions
+
+```ts
+interface NavigateOptions
+```
+
+How a token navigation enters session history.
+
+The default is a PUSH: a move the reader made, which Back must be able to undo.
+`replace` overwrites the current entry instead, and is for a transition the
+reader did NOT make — a page rewriting an unrenderable URL of its own accord.
+Pushing such a rewrite leaves the URL it rewrote sitting behind Back, where
+pressing Back rewrites it again and pushes again: a page no Back can leave.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `replace?` | `boolean` | Overwrite the current history entry instead of pushing a new one. |
+
+
+## NavigationContextValue
+
+```ts
+interface NavigationContextValue
+```
+
+The runtime navigation surface the shell provides through
+`NavigationProvider`. `navigate` performs a client-side transition, by
+default pushing a history entry — see `NavigateOptions` for the third
+argument that replaces one instead. `resolvePath` produces the href a link
+should point at (so an AppLink is a real anchor — middle-click /
+open-in-new-tab work — while still driving a client-side transition on plain
+click).
+
+`navigatePlugin`/`resolvePluginPath` are the plugin-page twins: they target a
+runtime plugin path (`/plugins/{pluginId}/{pagePath}` plus an optional validated
+sub-path `params` and `search`), NOT a route token — `routes.ts` never learns
+plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void` | — |
+| `navigatePlugin` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => void` | — |
+| `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
+| `resolvePluginPath` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => string` | — |
+
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## NavigationGuardHandler
+
+```ts
+type NavigationGuardHandler = () => boolean | Promise<boolean>
+```
+
+A navigation guard's decision function, run while armed before any SDK-controlled
+navigation commits (`navigate`,
+`navigatePlugin`, or a browser back/forward). Returns
+`true` to proceed, `false` to veto; a promise lets it await a confirm dialog.
+
+Guards compose — navigation proceeds only if every armed guard allows, and the first
+veto blocks (at most one dialog). A full-page unload can't await, so it is covered by
+a `beforeunload` prompt independent of this handler.
+
+
+## NavigationProvider
+
+```ts
+function NavigationProvider(
+  props: { children: ReactNode; value: NavigationContextValue },
+): ReactNode
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode; value: NavigationContextValue }` | — | — |
+
+**Related:** [NavigationContextValue](/reference/studio-sdk/navigation#navigationcontextvalue)
+
+
+## PageProps
+
+```ts
+interface PageProps<T extends RouteToken>
+```
+
+Props the shell passes to a feature's page component: the route's typed search
+parameters. Features type their exported page as `PageProps<'tools'>` and read
+`search` — they receive route state as data, never by importing the router.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `search` | `RouteSearch<T>` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## PluginSearch
+
+```ts
+type PluginSearch = Record<string, unknown>
+```
+
+A plugin page's deep-link search object. Plugin paths are RUNTIME contributions
+outside the compile-time `RouteToken` map, so their search is an open bag of
+serializable values (the page's own `PluginPageParamsSchema` validates it);
+this is deliberately NOT a `RouteSearch`.
+
+
+## RouteSearch
+
+```ts
+type RouteSearch<T extends RouteToken> = RouteSearchByToken[T]
+```
+
+The search parameters a given route token accepts.
+
+**Related:** [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## RouteSearchByToken
+
+```ts
+interface RouteSearchByToken
+```
+
+Every top-level route the shell owns, mapped to its typed search parameters.
+A route with no parameters maps to the empty object. Detail views are driven
+by a search parameter (e.g. the selected tool / connection), keeping the route
+map flat — one entry per feature surface, matching the shell route map.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `agents` | `Record<string, never>` | — |
+| `connectors` | `{ connection?: string }` | — |
+| `conversations` | `{ route?: string; thread?: string }` | — |
+| `extensions` | `Record<string, never>` | — |
+| `hooks` | `Record<string, never>` | — |
+| `interactions` | `Record<string, never>` | — |
+| `login` | `Record<string, never>` | — |
+| `manifest` | `Record<string, never>` | — |
+| `marketplace` | `{ category?: string; kind?: string; plugin?: string; q?: string; sort?: "downloads" \| "updated" \| "name" \| "relevance"; tab?: "browse" \| "installed"; tags?: string[] }` | — |
+| `notifications` | `Record<string, never>` | — |
+| `observability` | `{ dir?: "asc" \| "desc"; from?: string; maxCost?: number; maxLatencyMs?: number; maxTokens?: number; minCost?: number; minLatencyMs?: number; minTokens?: number; sort?: "createdAt" \| "cost" \| "latencyMs" \| "totalTokens"; status?: "error" \| "success"; tab?: "dashboard" \| "tracing"; tags?: string[]; to?: string; trace?: string }` | — |
+| `presets` | `{ preset?: string }` | — |
+| `scheduling` | `Record<string, never>` | — |
+| `settings` | `Record<string, never>` | — |
+| `storage` | `{ filter?: string }` | — |
+| `system` | `Record<string, never>` | — |
+| `templates` | `{ template?: string }` | — |
+| `tools` | `{ tags?: string[]; tool?: string }` | — |
+
+
+## RouteToken
+
+```ts
+type RouteToken = keyof RouteSearchByToken
+```
+
+An opaque, typed handle to a shell route.
+
+**Related:** [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useAppNavigate
+
+```ts
+function useAppNavigate(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void
+```
+
+Imperative navigation to a shell route token with its typed search params.
+
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useNavigationGate
+
+```ts
+function useNavigationGate(): (href: string) => Promise<boolean>
+```
+
+Consult the armed navigation guards before a transition the shell drives itself
+(a chrome link whose target is outside the route-token map). Resolves `true` when
+the navigation may proceed. Token and plugin navigations already run this gate
+inside `NavigationProvider`; this is the escape hatch for the shell's own
+raw-path links, without which such a link would bypass every armed guard.
+
+
+## useNavigationGuard
+
+```ts
+function useNavigationGuard(when: boolean, handler: NavigationGuardHandler): void
+```
+
+Block navigation away from the current page while `when` is true. `handler` is
+consulted before any SDK-controlled navigation commits — a route-token navigate,
+a plugin navigate, or a browser back/forward — and the navigation proceeds only if
+it resolves `true`; a promise lets the handler drive a confirm dialog. A full-page
+unload (tab close / refresh) is additionally covered by a native `beforeunload`
+prompt that fires whenever any guard is armed.
+
+Guards compose against the provider's shared registry: a feature and a plugin page
+may each arm one, and any veto blocks.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `when` | `boolean` | — | — |
+| `handler` | `NavigationGuardHandler` | — | — |
+
+**Related:** [NavigationGuardHandler](/reference/studio-sdk/navigation#navigationguardhandler)
+
+
+## usePluginNavigation
+
+```ts
+function usePluginNavigation(): Pick<NavigationContextValue, "navigatePlugin" | "resolvePluginPath">
+```
+
+Plugin-page navigation: `navigatePlugin` drives a client-side transition to a
+runtime plugin path, `resolvePluginPath` yields its href. These are the ONLY
+navigation methods a plugin page uses to reach its own deep-linkable sub-paths —
+the token-typed `useAppNavigate`/`useResolvePath` address the shell's
+compile-time routes and know nothing of plugin paths.
+
+**Related:** [NavigationContextValue](/reference/studio-sdk/navigation#navigationcontextvalue)
+
+
+## useResolvePath
+
+```ts
+function useResolvePath(): <T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string
+```
+
+Resolve a token + search to the href the shell would route to.
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+

@@ -1,0 +1,120 @@
+---
+title: "Upgrades"
+description: "Move to a new image tag: run the migrations, recreate the app services, leave the data untouched."
+icon: "arrow-up-right-dots"
+---
+
+Upgrading is a tag change plus a migration run. A new image can carry pending
+schema **migrations**; a one-shot runner applies the chain before the app
+services start, and each container refuses to serve on an out-of-date database
+(the [boot gate](#the-boot-gate)). The image carries no state, so the data
+volumes are never touched — only the app containers are replaced.
+
+## Upgrade the Compose bundle
+
+<Steps>
+  <Step title="Snapshot the database first">
+    A migration rolls **forward** only — there are no down-migrations. Before an
+    upgrade that carries schema changes, take a Postgres snapshot (a managed
+    provider's point-in-time restore, or `pg_dump`) so a bad release is a restore
+    away. Recovery is restore-then-re-migrate, never a rollback.
+  </Step>
+  <Step title="Pin the new tag">
+    Set `TAI_VERSION` in `.env` to the release you are moving to.
+
+    ```bash TAI_VERSION in .env
+    TAI_VERSION=0.3.1
+    ```
+  </Step>
+  <Step title="Pull it">
+    ```bash
+    docker compose pull
+    ```
+  </Step>
+  <Step title="Run the migrations">
+    ```bash
+    docker compose run --rm db-migrate
+    ```
+
+    The one-shot `db-migrate` service runs `tai db migrate`, which applies every
+    pending migration across every component — the core chain and each installed
+    plugin that owns one — in order, recording each in the `tai_schema_history`
+    table. It is idempotent: a run with nothing pending reports so and exits `0`.
+    Preview a run first with `docker compose run --rm db-migrate db migrate --plan`,
+    which lists the pending files without touching the database.
+  </Step>
+  <Step title="Recreate the app services only">
+    ```bash
+    docker compose up -d --no-deps serve backend metrics
+    ```
+
+    `--no-deps` recreates the three app services against the new image without
+    restarting Postgres or Redis, so the datastores — and their volumes — stay
+    up.
+  </Step>
+</Steps>
+
+<Note>
+Read the release notes before pinning. A release that needs a step beyond the
+migration run — a data backfill, a manual expand/contract cutover — names it.
+</Note>
+
+## The boot gate
+
+Each `serve` and `backend` container checks, once at startup, that every schema
+chain its configured features and plugins own is fully applied. A pending
+migration or a rewritten (checksum-mismatched) chain is a **loud refusal**, not a
+half-migrated serve:
+
+```text
+database schema is out of date — refusing to start: skeleton: 1 pending (0002_add_index.sql). Run 'tai db migrate' to apply the pending migrations, then restart.
+```
+
+The fix is the message: run the migration step above, then let the container
+restart. If you recreate the app services before running `db-migrate`, they refuse
+to boot with exactly this message — run the migrations and they come up. Running
+`db-migrate` before the app services (the step order above) avoids the refusal
+entirely.
+
+## Runtime-installed plugins
+
+An image upgrade replaces the **core** only. Plugins added at runtime through the
+[marketplace](/concepts/marketplace) live in the server's plugin prefix
+(`TAI_PLUGINS_PREFIX`), not in the image, so **they do not update with a new image
+tag** — a freshly pinned image boots with the same plugin versions the prefix
+already holds.
+
+Update them as a step of their own, after the image upgrade:
+
+```bash
+tai plugins upgrade --all
+```
+
+This resolves each installed plugin to the newest version compatible with the
+core you are now running and installs it into the same persistent prefix. A
+**router** or **middleware** plugin is the exception to live pickup — its handlers
+are frozen into the ASGI app at process build, so an upgraded router or middleware
+activates only when each container/pod restarts (`docker compose up -d` /
+`kubectl rollout restart`).
+
+<Warning>
+A plugin that is incompatible with the new core — or otherwise stale — is
+**quarantined loudly at boot**: it is not loaded, and the failure is surfaced,
+not swallowed. A quarantined plugin shows as quarantined in the Studio
+**Installed** tab and in `tai plugins installed`; run `tai plugins upgrade --all`
+to move the roster onto core-compatible versions and clear it. Keep the plugin
+prefix on persistent storage so the installed set survives the container
+recreation an upgrade performs.
+</Warning>
+
+## On Kubernetes
+
+`helm upgrade` re-runs the `tai db migrate` hook Job and rolls the Deployments;
+the data lives in your Postgres and Redis, not the pods. The hook applies the
+chain before the new pods start, so the boot gate is satisfied by the time they
+schedule. See [Helm](/self-hosted/helm#upgrade).
+
+## See also
+
+- [Verify artifacts](/self-hosted/verify) — confirm the new tag before you run it.
+- [Back up and restore](/operate/backup-and-restore) — capture state before an upgrade.

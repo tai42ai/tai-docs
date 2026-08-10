@@ -1,0 +1,175 @@
+---
+title: "Connect your own system"
+description: "Send messages to an agent over the authed API door and receive answers by signed callback."
+icon: "webhook"
+---
+
+Wire your own application to an agent through the conversation bridge's **API
+door**: your system `POST`s a message, the bridge runs an agent turn as the route's
+execution key, and the answer comes back by a signed HTTPS callback (or inline on a
+bounded wait).
+
+See [client conversations](/concepts/client-conversations) for the model.
+
+## Two identities: who-may-send vs what-the-agent-may-do
+
+An API route separates two authorities, and you provision both:
+
+- **The invoking key** — the API key your system authenticates with when it `POST`s
+  a message. The access-control gate authorizes it for the route's send door; it
+  answers *who may send*.
+- **The execution key** — the identity the turn runs **as**. Its live grants are
+  the turn's entire authority; it answers *what the agent may do*.
+
+They are independent. The sender never inherits the agent's authority, and the
+agent never runs as the sender.
+
+<Steps>
+  <Step title="Mint the invoking key">
+    A scoped key your system will send with. Scope it to reach the route and no
+    more.
+
+    ```bash
+    tai keys create --user account-app --description 'invokes the account route' --scope conversations
+    ```
+  </Step>
+  <Step title="Mint the execution key">
+    A least-privilege key the agent runs as (see [owned keys](/guides/owned-keys)).
+
+    ```bash
+    tai keys create --user account-agent --description 'account route agent' --scope read
+    ```
+  </Step>
+</Steps>
+
+## Create the API route
+
+An `api` route carries an HTTPS `callback_url` — the sink the answer is POSTed to.
+The URL **must** be absolute HTTPS; an `http://` or relative URL is rejected at
+create.
+
+```bash
+tai conversations create account \
+  --door api --target-name account-agent-spec --execution-key account-agent \
+  --callback-url https://your-app.example.com/tai/answers
+```
+
+The response carries a **`callback_secret`** — shown **once**, here, and never
+readable again. It signs every callback for this route. Capture it now and store it
+where your callback receiver can read it.
+
+```json
+{
+  "created": true,
+  "route_name": "account",
+  "route": { "door": "api", "target_kind": "agent", "target_name": "account-agent-spec", "callback_url": "https://your-app.example.com/tai/answers" },
+  "callback_secret": "shown-once-store-it-now"
+}
+```
+
+## Send a message
+
+`POST` to the send door with your invoking key. `external_user_id` is your handle
+for the end user — it becomes the conversation's thread key, so the agent remembers
+that user's earlier turns.
+
+```bash
+curl -sS -X POST "$TAI_BASE_URL/api/conversations/account/messages" \
+  -H "X-Api-Key: $INVOKING_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"external_user_id": "user-42", "text": "What is my usage?"}'
+```
+
+The default answer is `202` with the id to correlate the callback against:
+
+```json
+{ "data": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42" } }
+```
+
+The door refuses loudly rather than silently: `404` unknown route, `429` the
+address rate cap, `503` the thread queue is full, `501` no conversations backend
+configured, `400` a malformed body, `401` an unauthorized caller.
+
+### Sync variant: `wait_seconds`
+
+Add `wait_seconds` to wait inline for a fast turn. A turn that finishes within the
+window answers `200` with the answer embedded and its callback **suppressed** (so it
+never double-fires); a turn still running when the wait elapses falls back to `202`
+and the answer arrives by callback as usual. A turn that finishes **silent** resolves
+the same way — `200` inline with `status: "silent"` and no answer text. The window is
+clamped to the deployment's `sync_wait_max_seconds` cap.
+
+```bash
+curl -sS -X POST "$TAI_BASE_URL/api/conversations/account/messages" \
+  -H "X-Api-Key: $INVOKING_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"external_user_id": "user-42", "text": "What is my usage?", "wait_seconds": 20}'
+```
+
+```json
+{ "data": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+            "answer": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+                        "status": "answered", "answer": "Your usage is 12 runs this week." } } }
+```
+
+## Receive the callback
+
+The bridge `POST`s the answer to your `callback_url` as JSON. The body is the
+answer payload; correlate it by `message_id`:
+
+```json
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+  "status": "answered", "answer": "Your usage is 12 runs this week." }
+```
+
+On a turn that errored, the shape is identical but `status` is `error` and `answer`
+is **generic client-safe text** — never an internal detail:
+
+```json
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+  "status": "error", "answer": "Sorry, something went wrong handling your message. Please try again." }
+```
+
+On a **silent** turn — a tool target whose mapped reply was `null` or blank — the
+callback carries `status: "silent"` and **no** `answer` key at all:
+
+```json
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42", "status": "silent" }
+```
+
+Every turn therefore resolves to one of `answered`, `error`, or `silent`, so your
+receiver always gets a terminal callback (or inline reply) and never waits on a turn
+that quietly went nowhere.
+
+## Verify the `X-Tai-Signature`
+
+Every callback carries an `X-Tai-Signature` header:
+`sha256=<hex HMAC-SHA256(callback_secret, raw_request_body)>`. Recompute it over
+the **raw** bytes and compare in constant time — reject any mismatch. This is what
+proves the callback came from your deployment and was not tampered with.
+
+```python
+import hashlib
+import hmac
+
+def verify(raw_body: bytes, header: str, callback_secret: str) -> bool:
+    expected = "sha256=" + hmac.new(callback_secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header)
+```
+
+<Warning>
+Compute the HMAC over the exact bytes you received, before any JSON re-encoding —
+re-serializing the body changes the bytes and breaks the signature. Reject a request
+whose signature does not verify; never act on an unverified callback.
+</Warning>
+
+Delivery is retried with backoff if your receiver is down, and a permanently
+undelivered answer ends `failed` (listed on `tai conversations failed`) rather than
+being lost.
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — the delivery lifecycle.
+- [Conversation bridge reference](/reference/conversation-bridge) — payload models,
+  the read doors, and every setting.
+- [Set up access control](/guides/access-control) — scoping the invoking key.

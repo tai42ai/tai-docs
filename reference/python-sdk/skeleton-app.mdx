@@ -1,0 +1,324 @@
+---
+title: "Skeleton app (tai42_skeleton.app)"
+description: "The concrete TaiMCP app, including the raw fastmcp escape hatch."
+icon: "microchip"
+---
+
+
+## logger
+
+`tai42_skeleton.app.server.logger`
+
+```python
+logger = logging.getLogger(__name__)
+```
+
+
+## record_streamable_http_surface
+
+`tai42_skeleton.app.server.record_streamable_http_surface`
+
+```python
+record_streamable_http_surface(path: str, *, stateless: bool) -> None
+```
+
+Record the streamable-http transport endpoint as a mounted, credential-gated
+surface, so the registry describes it instead of leaving its GETs to the Studio SPA
+catch-all (which matches every path and would charge MCP traffic to the public root
+family and audit it unauthenticated).
+
+A STATELESS deployment binds no GET on the endpoint — there is no session to stream
+notifications from — so its GETs genuinely do fall through to the catch-all and stay
+a public door. Statelessness alone decides the method set; naming the three methods
+the protocol uses only under-claims anything else the endpoint answers, which stays
+the catch-all's.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `stateless` | `bool` | — | — |
+
+
+## record_sse_surface
+
+`tai42_skeleton.app.server.record_sse_surface`
+
+```python
+record_sse_surface(sse_path: str, message_path: str) -> None
+```
+
+Record the SSE transport's two surfaces as mounted, credential-gated ones (see
+`record_streamable_http_surface`): the ``GET`` event stream, and the message
+endpoint, which is a Starlette ``Mount`` and therefore serves everything BENEATH its
+prefix — the client posts to ``<prefix>/?session_id=...`` — never the bare prefix.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `sse_path` | `str` | — | — |
+| `message_path` | `str` | — | — |
+
+
+## ServingCore
+
+`tai42_skeleton.app.server.ServingCore`
+
+```python
+class ServingCore
+```
+
+The per-epoch serving surface: a FRESH FastMCP server plus the feature
+collaborators registered onto it.
+
+A settings-profile apply builds a NEW ``ServingCore`` off to the side under the
+proposed env and — only on a successful build — makes it the live epoch's core;
+the failed build is discarded untouched. A fresh FastMCP per epoch is
+MANDATORY: its ``_lifespan_manager`` is ref-counted and its route table snapshots
+once, so a reload-added router only serves when the epoch's fresh FastMCP builds a
+fresh ``http_app`` off the new route table.
+
+The collaborators are constructed with the persistent ``TaiMCP`` (not this core):
+each reads the live serving generation back through the app's per-epoch forwarding
+properties, so a build-in-progress registers into THIS core and the swapped-in
+epoch is what every later read resolves to.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `active_auth_providers` | `dict[str, IdentityProvider]` |
+
+
+## TaiMCP
+
+`tai42_skeleton.app.server.TaiMCP`
+
+```python
+class TaiMCP(TaiMCPLifecycleMixin)
+```
+
+The concrete ``tai42_contract.app.TaiApp`` impl — owns the FastMCP server and
+exposes the 18 contract facet namespaces as its SOLE feature/contract surface;
+the concrete server additionally exposes a launch surface (``sse_app`` /
+``http_app`` / ``run`` and friends) that is not part of the facade.
+
+This class is the composition root only: each feature's impl body lives in
+its feature package (``tools.binding.ToolBinding``, ``agent.binding
+.AgentBinding``, ``backend.registry.BackendHolder``, the extension/monitoring
+registries, ``app.http.HttpSurface``) and each facet forwards straight to its
+collaborator. Callers reach the app's features only through the facets
+(``app.tools.run_tool``, ``app.backends.backend``, ...) or the ``tai42_app``
+handle, never a flat member.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tools` *(property)* | `ToolsFacet` |
+| `agents` *(property)* | `AgentsFacet` |
+| `backends` *(property)* | `BackendsFacet` |
+| `storage` *(property)* | `StorageFacet` |
+| `connectors` *(property)* | `ConnectorsFacet` |
+| `accounts` *(property)* | `AccountsFacet` |
+| `webhook_verifiers` *(property)* | `WebhookVerifiersFacet` |
+| `channels` *(property)* | `ChannelsFacet` |
+| `conversations` *(property)* | `ConversationsFacet` |
+| `monitoring` *(property)* | `MonitoringFacet` |
+| `extensions` *(property)* | `ExtensionsFacet` |
+| `http` *(property)* | `HttpFacet` |
+| `clients` *(property)* | `ClientsFacet` |
+| `lifecycle` *(property)* | `LifecycleFacet` |
+| `admin` *(property)* | `AdminFacet` |
+| `config` *(property)* | `ConfigFacet` |
+| `sub_app` *(property)* | `SubAppFacet` |
+| `backup` *(property)* | `BackupFacet` |
+| `versioning` *(property)* | `VersioningFacet` |
+| `presets` *(property)* | `PresetsFacet` |
+
+### Members
+
+#### tool_meta
+
+`tai42_skeleton.app.server.TaiMCP.tool_meta`
+
+```python
+tool_meta: ToolMetaFacet
+```
+
+The tool-metadata overlay facet (folders + per-tool rows). Skeleton-only
+surface, like ``preset_manager`` — reached by the tool_meta routes and the
+preset lifecycle cascade through this concrete instance.
+
+
+#### fastmcp
+
+`tai42_skeleton.app.server.TaiMCP.fastmcp`
+
+```python
+fastmcp: FastMCP
+```
+
+The raw, ungoverned FastMCP server — the escape hatch beneath the
+facets.
+
+Prefer the facets; reach here only for what the facets don't wrap
+(prompts, resources, ``add_middleware``, sampling, elicit-handlers,
+completions, server metadata such as ``name``/``version``/``auth``, the
+process-global ``fastmcp.settings``). Anything registered THROUGH this
+server skips the platform's governance: manifest gating, the extension
+registry's ``validate()``, and the access-control gate. It is
+deliberately NOT on the ``tai42_contract.app.TaiApp`` protocol — the
+contract stays FastMCP-free so an alternative impl remains possible, so
+this accessor is skeleton-specific.
+
+Named ``fastmcp`` (not ``mcp``) because ``app.sub_app`` already owns the
+sub-MCP namespace; ``mcp`` here would read as the sub-MCP.
+
+
+#### emit_list_changed
+
+`tai42_skeleton.app.server.TaiMCP.emit_list_changed`
+
+```python
+async emit_list_changed(self, kind: str) -> None
+```
+
+Broadcast a ``list_changed`` notification to every active MCP session
+for the given SINGULAR registry ``kind`` (``tool`` / ``prompt`` /
+``resource``). The generic in-process registration-mutation path (e.g. a
+dev's runtime ``add_prompt`` via ``app.fastmcp``) awaits this after its
+own registry mutation; the reload path drives the same registry from its
+sync scheduler.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+
+
+#### sse_app
+
+`tai42_skeleton.app.server.TaiMCP.sse_app`
+
+```python
+sse_app(
+    self,
+    path: str | None = None,
+    message_path: str | None = None,
+    middleware: list[Middleware] | None = None,
+) -> StarletteWithLifespan
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str \| None` | `None` | — |
+| `message_path` | `str \| None` | `None` | — |
+| `middleware` | `list[Middleware] \| None` | `None` | — |
+
+
+#### http_app
+
+`tai42_skeleton.app.server.TaiMCP.http_app`
+
+```python
+http_app(
+    self,
+    path: str | None = None,
+    middleware: list[Middleware] | None = None,
+    json_response: bool | None = None,
+    stateless_http: bool | None = None,
+    transport: Literal['http', 'streamable-http', 'sse'] = 'http',
+) -> StarletteWithLifespan
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str \| None` | `None` | — |
+| `middleware` | `list[Middleware] \| None` | `None` | — |
+| `json_response` | `bool \| None` | `None` | — |
+| `stateless_http` | `bool \| None` | `None` | — |
+| `transport` | `Literal['http', 'streamable-http', 'sse']` | `'http'` | — |
+
+
+#### run_async
+
+`tai42_skeleton.app.server.TaiMCP.run_async`
+
+```python
+async run_async(
+    self,
+    transport: Transport | None = None,
+    show_banner: bool = True,
+    **transport_kwargs: Any,
+) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `transport` | `Transport \| None` | `None` | — |
+| `show_banner` | `bool` | `True` | — |
+| `transport_kwargs` | `Any` | `{}` | — |
+
+
+#### run
+
+`tai42_skeleton.app.server.TaiMCP.run`
+
+```python
+run(
+    self,
+    transport: Transport | None = None,
+    show_banner: bool = True,
+    **transport_kwargs: Any,
+) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `transport` | `Transport \| None` | `None` | — |
+| `show_banner` | `bool` | `True` | — |
+| `transport_kwargs` | `Any` | `{}` | — |
+
+
+#### run_backend
+
+`tai42_skeleton.app.server.TaiMCP.run_backend`
+
+```python
+async run_backend(self, args) -> None
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `args` | — | — | — |
+
+
+#### preset_manager
+
+`tai42_skeleton.app.server.TaiMCP.preset_manager`
+
+```python
+preset_manager: PresetManager
+```
+
+The preset register/reload engine (spec map + quarantine set + register/
+reload/remove/rehydrate). Skeleton-only surface — like ``emit_list_changed``
+and ``fastmcp``, it is deliberately not on the ``tai42_contract.app.TaiApp``
+protocol; the preset routes and the startup/reload rehydration hook reach
+it through this concrete instance.
+
+

@@ -1,0 +1,75 @@
+---
+title: "Deploying the Studio"
+description: "Serve the built Studio app from the skeleton, with the import map and OAuth-bridge notes."
+icon: "cloud-arrow-up"
+---
+
+The Studio ships as a static single-page app that the skeleton serves. There is
+no separate Studio server to run: you point the skeleton at the built app, and
+it hosts the UI on the same origin as the `/api/*` surface the UI drives.
+
+## Serve the built app
+
+Build the Studio to a `dist` directory, then set the skeleton's
+`STUDIO_DIST_PATH` (the `studio_dist_path` setting) to that path and start the
+server. The skeleton serves the app — `index.html`, the hashed asset bundles,
+and the stable `vendor/` modules — under its own origin, with the `/api/*`
+routes taking precedence and every other path falling back to the app shell.
+
+```bash
+export STUDIO_DIST_PATH=/path/to/studio/dist
+tai serve --manifest-path manifest.yml
+```
+
+<Frame caption="The Studio, served by the skeleton on the same origin as its API.">
+  <img className="block dark:hidden" src="/images/studio/tools-light.png" alt="The Studio served by a skeleton." />
+  <img className="hidden dark:block" src="/images/studio/tools-dark.png" alt="The Studio served by a skeleton." />
+</Frame>
+
+<Note>
+`studio_dist_path` is a per-deployment setting, not [manifest](/concepts/manifest)
+content. Leave it unset on a server that does not host the UI — the app route
+answers `404` while the path is unset.
+</Note>
+
+## Deep links under access control
+
+With access control on, a refresh or bookmark of an inner Studio route — `/agents`,
+`/settings`, and the rest — serves the dataless SPA shell, not a `404`, so **deep
+links work without pinning `/` or any SPA path public**: you never add the app
+routes or asset prefixes to the public-route table. The
+[Studio SPA shell](/concepts/access-control#the-studio-spa-shell-is-public-its-data-is-not)
+concept covers why the shell leaks nothing and what stays behind `/api/*`.
+
+<Note>
+A headless / API-only deployment that hosts no UI can turn the fallback off by
+setting `spa_shell_public` to `false`. A genuinely public non-`/api` GET route
+outside the shell must instead be listed in `acknowledged_public_routes`, which
+the boot audits explicitly.
+</Note>
+
+## Why the app must be built and served
+
+The skeleton injects an import map into `index.html` at serve time — the map
+that resolves the app's shared modules (`react`, `@tai42/studio-sdk`, and the
+rest) and, for a [Studio plugin](/reference/studio-sdk/index), the plugin's
+bundle. A statically previewed `index.html` carries the un-replaced import-map
+anchor and dies on the first bare import, so a Studio plugin loads only against
+a built app the skeleton serves — never under a plain dev server.
+
+## The OAuth-bridge allowlist
+
+[Connectors](/concepts/connectors) that use OAuth redirect through the skeleton,
+or through its configured OAuth bridge. When `CONNECTORS_OAUTH_BRIDGE_URL` is set
+on the skeleton, the bridge origin **must** also appear in the skeleton's
+`CONNECTORS_REDIRECT_URI_ALLOWLIST`.
+
+<Warning>
+If the bridge origin is missing from `CONNECTORS_REDIRECT_URI_ALLOWLIST`, every
+Connect flow fails closed — the skeleton rejects the redirect and no connector
+can be authorized.
+</Warning>
+
+See the [deploy guide](/operate/deploy) for running a server for real, the
+[serve command](/reference/cli/serve) for the launch flags, and the
+[Studio SDK reference](/reference/studio-sdk/index) for building a Studio plugin.

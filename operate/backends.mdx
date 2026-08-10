@@ -1,0 +1,46 @@
+---
+title: "Task backends"
+description: "Choose arq, Celery, or RQ as the backend that runs queued, scheduled, and agent work."
+icon: "server"
+---
+
+A [backend](/concepts/backends) is where work runs when it does not run inline:
+queued tool calls, schedules, and agent turns. Three shipped backends implement
+the same contract — pick one, name its package in the manifest, and run a worker
+process against it.
+
+| Backend | Package | Broker | Extra processes | When to pick it |
+| --- | --- | --- | --- | --- |
+| arq | `tai42-backend-arq` | Redis | `worker` | The default: Redis-only, no separate broker. What the distribution bundle selects. |
+| Celery | `tai42-backend-celery` | RabbitMQ (broker) + Redis (results, schedule) | `worker`, `beat`, `flower` | You already run RabbitMQ, or you need beat and flower. |
+| RQ | `tai42-backend-rq` | Redis | `worker`, `beat`, `dashboard` | Redis-only like arq, with a scheduler and the RQ dashboard. |
+
+<Note>
+Every registered backend needs the [worker bus](/concepts/worker-bus):
+`TAI_BUS_REDIS_URL` must be set, or boot is refused. Stacks sharing one Redis
+must also diverge on `TAI_BUS_NAMESPACE` (default `tai`).
+</Note>
+
+## Install and run one
+
+Each backend's package, its `backend_module` manifest key, its `<PREFIX>_*`
+settings, the worker/beat/dashboard commands it accepts, and its
+contract-coverage quirks live on the plugin page:
+
+<CardGroup cols={3}>
+  <Card title="backend-arq" icon="server" href="/plugins/tai42/backend-arq">
+    `ARQ_*` settings and the single `worker` process.
+  </Card>
+  <Card title="backend-celery" icon="server" href="/plugins/tai42/backend-celery">
+    `CELERY_*` settings, beat and flower, and the prefork concurrency caveat.
+  </Card>
+  <Card title="backend-rq" icon="server" href="/plugins/tai42/backend-rq">
+    `RQ_*` settings, worker, beat, and the dashboard.
+  </Card>
+</CardGroup>
+
+## See also
+
+- [Backends](/concepts/backends) — the contract all three implement.
+- [Manage a fleet](/operate/manage-a-fleet) — read the live worker census.
+- [Schedule a tool](/guides/schedule-a-tool) — put work on a schedule.

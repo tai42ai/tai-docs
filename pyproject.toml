@@ -1,0 +1,47 @@
+[project]
+name = "tai-docs"
+version = "0.2.0"
+description = "Reference generators and freshness checks for the tai documentation site."
+requires-python = ">=3.13"
+
+# tai-docs is a Mintlify site, not a distributable package; it ships no runtime
+# package of its own. This file gives the generators and checks under `scripts/`
+# a ruff/pytest home. The `dev` group installs pytest plus the packages the
+# scripts import; `[tool.uv.sources]` points those at the `tai42` monorepo's
+# members in a sibling checkout — a standalone clone installs the same group from
+# the registry with `--no-sources` instead (see CONTRIBUTING.md). CI runs the
+# suite from the monorepo skeleton's own environment
+# (`uv run pytest ../../../tai-docs`).
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "griffe>=1",
+    "PyYAML>=6.0",
+    # These dev deps resolve from the editable sibling sources named in
+    # [tool.uv.sources] below; the specifiers state the compatible ranges (a
+    # standalone clone installs the same ranges from the registry with --no-sources).
+    "tai42-skeleton>=1.4,<2",
+    "tai42-contract>=1.3,<2",
+    "tai42-kit[llm,jq,uvicorn,redis,postgres]>=1.2,<2",
+    "tai42-identity-redis>=0.3,<0.4",
+]
+
+[tool.uv.sources]
+tai42-skeleton = { path = "../tai42/core/skeleton", editable = true }
+tai42-contract = { path = "../tai42/core/contract", editable = true }
+tai42-kit = { path = "../tai42/core/kit", editable = true }
+tai42-cli = { path = "../tai42/core/cli", editable = true }
+tai42-identity-redis = { path = "../tai42/plugins/identity-redis", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["scripts"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["scripts"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "PIE", "PT", "RUF"]

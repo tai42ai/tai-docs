@@ -1,0 +1,47 @@
+---
+title: "Accounts and sign-in"
+description: "Give humans logins: choose the Postgres accounts provider, OIDC single sign-on, or both."
+icon: "user-lock"
+---
+
+[Accounts](/concepts/accounts) are the human half of identity: an email and
+password (or a federated sign-in), a session, and a role. Two plugins provide
+them, and a deployment can run either or both:
+
+- **`tai42-accounts-postgres`** stores email/password accounts on Postgres, mints
+  sessions, drives invites, and contributes the Studio's Users screen.
+- **`tai42-accounts-oidc`** adds "sign in with…" buttons that run the
+  authorization-code flow against your own OIDC providers.
+
+<CardGroup cols={2}>
+  <Card title="Postgres accounts" icon="database" href="/plugins/tai42/accounts-postgres">
+    Install and wire the store, run its migrations, create the first admin, and
+    invite the team — with the `TAI_ACCOUNTS_*` session and login-limit settings.
+  </Card>
+  <Card title="OIDC single sign-on" icon="right-to-bracket" href="/plugins/tai42/accounts-oidc">
+    Add federated sign-in: the `TAI_ACCOUNTS_OIDC_*` settings, the provider
+    presets, and the redirect URI to register.
+  </Card>
+</CardGroup>
+
+## What every accounts deployment shares
+
+- **Accounts ride on [access control](/concepts/access-control).** Turn it on
+  (`ACCESS_CONTROL_ENABLE=true`) and name the provider in
+  `ACCESS_CONTROL_AUTH_PROVIDERS`. Keep `redis` in the list so minted API keys
+  keep working next to human sessions.
+- **A sign-in does not provision authority.** A logged-in human resolves to a
+  user id, and until a policy exists for that id every protected route denies the
+  request. Provision the policy first, then invite the person — the
+  [access-control guide](/guides/access-control) writes the jq policy end to end.
+- **Provider order matters.** Members of `ACCESS_CONTROL_AUTH_PROVIDERS` are
+  tried in order and fail closed: an outage in an earlier member denies the
+  members after it. Both accounts providers mint sessions with the same token
+  prefix and are told apart by a store lookup.
+
+## See also
+
+- [Accounts](/concepts/accounts) — the model behind these routes.
+- [Access control](/concepts/access-control) — the policy every identity resolves to.
+- [OIDC machine identity](/plugins/tai42/identity-oidc) — JWT auth for machines (not human sign-in).
+- [The admin console](/studio/admin-console) — where the Users screen lives.

@@ -1,0 +1,448 @@
+---
+title: "Presets (tai42_contract.presets)"
+description: "The PresetStore protocol and preset document models."
+icon: "sliders"
+---
+
+
+The presets contract: the `PresetSpec` data
+model, the `PresetBody` persisted shape, the preset-specific errors, and
+the `PresetStore` Protocol.
+
+A *preset* is a base tool with a partial set of keyword arguments baked in,
+exposed as a new named, versioned tool. It is the FIRST typed VIEW over the
+generic versioned-document store (``kind="preset"``): the store holds the opaque
+body, this Protocol is the typed interface over it. tai42-contract owns only the
+Protocol + models + errors; the concrete view that delegates to the store,
+validates/reshapes the body, and maps the generic errors to these preset errors
+lives in the skeleton (no versioning code in the view).
+
+## CARRY_FORWARD
+
+`tai42_contract.presets.models.CARRY_FORWARD`
+
+```python
+CARRY_FORWARD = CarryForward()
+```
+
+
+## CarryForward
+
+`tai42_contract.presets.models.CarryForward`
+
+```python
+class CarryForward
+```
+
+Sentinel for a `save_version`
+editable field the caller did not provide — carry the ACTIVE value forward.
+
+``fixed_kwargs`` / ``extensions`` clear with an empty container, so
+``None`` is their carry-forward sentinel; ``output_schema`` has no empty
+container (its cleared state IS ``None``), so it needs a distinct sentinel to
+tell "not provided" (carry forward) apart from an explicit ``None`` (clear).
+
+
+## PresetBody
+
+`tai42_contract.presets.models.PresetBody`
+
+```python
+class PresetBody(BaseModel)
+```
+
+The persisted body of a versioned preset.
+
+``base_tool`` is the tool the preset binds; ``description`` is the preset's
+human description; ``fixed_kwargs`` are the baked kwargs (each becomes a
+hidden, fixed constant on the bound tool). ``extensions`` is a list of
+extension COMBOS — the SAME shape as a manifest ``extensions`` map value,
+each combo element an extension name or a ``{"name", "config"}`` mapping
+binding author config (e.g. an ``ask_external`` verifier) — fed unconverted
+to the structured runtime-attach API at register (an empty outer list means
+no extensions; an empty INNER combo is rejected by the validating view).
+``output_schema`` is an optional author-set OUTPUT JSON Schema (an object
+schema): on an AGENT base it is baked into the run tool's ``response_format``
+so the agent FORCES a structured output matching it; on a plain tool it is
+advertised as the bound tool's output schema and every result is validated
+against it at run time.
+
+Every field must survive carry-forward on a version save: dropping
+``extensions`` would make the branch tools vanish on reload, dropping
+``base_tool`` would break the bind, dropping ``description`` would strip the
+tool's description, and dropping ``output_schema`` would silently un-enforce
+the structured output.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `base_tool` | `str` |
+| `description` | `str` |
+| `fixed_kwargs` | `dict[str, Any]` |
+| `extensions` | `list[list[ExtensionElement]]` |
+| `output_schema` | `dict[str, Any] \| None` |
+
+
+## PresetError
+
+`tai42_contract.presets.errors.PresetError`
+
+```python
+class PresetError(Exception)
+```
+
+Base for preset view failures, carrying the preset ``name``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | — |
+
+
+## PresetExistsError
+
+`tai42_contract.presets.errors.PresetExistsError`
+
+```python
+class PresetExistsError(PresetError)
+```
+
+A preset named ``name`` already exists.
+
+
+## PresetNameConflictError
+
+`tai42_contract.presets.errors.PresetNameConflictError`
+
+```python
+class PresetNameConflictError(PresetError)
+```
+
+The preset ``name`` collides with an existing base tool.
+
+A preset must never silently shadow a real tool, so the register/create path
+raises this loudly rather than overwriting the tool.
+
+
+## PresetNotFoundError
+
+`tai42_contract.presets.errors.PresetNotFoundError`
+
+```python
+class PresetNotFoundError(PresetError)
+```
+
+No preset (or no active preset) named ``name``.
+
+
+## PresetSpec
+
+`tai42_contract.agent.base.PresetSpec`
+
+```python
+class PresetSpec(BaseModel)
+```
+
+A base tool bound to fixed kwargs, resolved into a ``StructuredTool`` at
+run time (see ``resolve_tools``). A base tool that interprets its fixed kwargs
+as a nested document carries that document opaquely here.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `description` | `str` |
+| `base_tool` | `str` |
+| `fixed_kwargs` | `dict[str, Any]` |
+
+
+## PresetStore
+
+`tai42_contract.presets.PresetStore`
+
+```python
+class PresetStore(Protocol)
+```
+
+The typed interface over the versioned-document store with ``kind="preset"``.
+
+Delegation, body validation/reshaping, and error mapping are the concrete
+(skeleton) view's job — this Protocol pins only the surface. A preset body is
+always the full `PresetBody` (``{base_tool, description, fixed_kwargs,
+extensions}``); the editable-field methods reconstruct it under the
+carry-forward rules documented on `save_version`.
+
+### Members
+
+#### create_preset
+
+`tai42_contract.presets.PresetStore.create_preset`
+
+```python
+async create_preset(
+    self,
+    spec: PresetSpec,
+    extensions: Sequence[Sequence[ExtensionElement]],
+    output_schema: dict[str, Any] | None = None,
+) -> DocumentRecord
+```
+
+Create a versioned preset. ``spec`` carries ``name``/``description``/
+``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
+optional ``output_schema`` ride alongside — all of them land in the
+persisted `PresetBody`. Raise `PresetExistsError` on a
+duplicate name, `PresetNameConflictError` if the name collides with
+a base tool.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `spec` | `PresetSpec` | — | — |
+| `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+
+
+#### save_version
+
+`tai42_contract.presets.PresetStore.save_version`
+
+```python
+async save_version(
+    self,
+    name: str,
+    fixed_kwargs: dict[str, Any] | None = None,
+    extensions: Sequence[Sequence[ExtensionElement]] | None = None,
+    output_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    description: str | None = None,
+) -> DocumentVersion
+```
+
+Append a new version from the editable body fields.
+
+A version body is the FULL `PresetBody`, so the view reconstructs
+the new body by ALWAYS carrying ``base_tool`` forward from the ACTIVE
+version body, then applying each of ``fixed_kwargs``, ``extensions`` under
+one UNIFORM sentinel: omitted/``None`` = carry the active value forward
+unchanged; an explicit empty list (``extensions=[]``) = deliberately CLEAR
+that field. An explicitly provided empty list is a value, never "not
+provided". ``output_schema`` follows the SAME rule but with a distinct
+`CARRY_FORWARD` sentinel (its cleared state is ``None``, so ``None``
+cannot double as "not provided"): omitted = carry forward, an explicit
+``None`` = clear, an explicit dict = wins. ``description`` is editable per
+version: ``None`` = carry the active description forward, an explicit
+non-empty string = set it. The RESULTING description — explicit or carried
+— is validated non-empty (raising `ValueError`, surfaced as a 400),
+so an explicit ``""`` is rejected and a carry-forward from a legacy body
+with an empty description raises rather than persisting an empty tool
+docstring. An empty INNER combo
+(``[[]]`` or any ``[]`` member of ``extensions``) is REJECTED. The new body
+never DROPS a field. Raise `PresetNotFoundError` if the preset is
+absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
+| `extensions` | `Sequence[Sequence[ExtensionElement]] \| None` | `None` | — |
+| `output_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `description` | `str \| None` | `None` | — |
+
+
+#### list_presets
+
+`tai42_contract.presets.PresetStore.list_presets`
+
+```python
+async list_presets(self) -> list[DocumentRecord]
+```
+
+List the active versioned presets.
+
+
+#### get_preset
+
+`tai42_contract.presets.PresetStore.get_preset`
+
+```python
+async get_preset(self, name: str) -> DocumentRecord
+```
+
+Fetch a preset's active record. Raise `PresetNotFoundError` if
+absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### get_active_kwargs
+
+`tai42_contract.presets.PresetStore.get_active_kwargs`
+
+```python
+async get_active_kwargs(self, name: str) -> dict[str, Any]
+```
+
+Return the active version's baked ``fixed_kwargs``. Raise
+`PresetNotFoundError` if absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### list_versions
+
+`tai42_contract.presets.PresetStore.list_versions`
+
+```python
+async list_versions(self, name: str) -> list[DocumentVersion]
+```
+
+List every version of the preset, each carrying its ``is_current``
+signal. Raise `PresetNotFoundError` if the preset is absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### get_version
+
+`tai42_contract.presets.PresetStore.get_version`
+
+```python
+async get_version(self, name: str, version: int) -> DocumentVersion
+```
+
+Fetch one version. Raise `PresetVersionNotFoundError` if that
+version does not exist.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `version` | `int` | — | — |
+
+
+#### get_active_body
+
+`tai42_contract.presets.PresetStore.get_active_body`
+
+```python
+async get_active_body(self, name: str) -> PresetBody
+```
+
+Return the FULL active-version body (``{base_tool, description,
+fixed_kwargs, extensions}``) so reload/startup can re-register from
+the whole body, not just ``fixed_kwargs``. Raise
+`PresetNotFoundError` if absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### rollback
+
+`tai42_contract.presets.PresetStore.rollback`
+
+```python
+async rollback(self, name: str, version: int) -> DocumentRecord
+```
+
+Re-point the active version to ``version`` (no data copy). Raise
+`PresetVersionNotFoundError` if that version does not exist.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `version` | `int` | — | — |
+
+
+#### soft_delete
+
+`tai42_contract.presets.PresetStore.soft_delete`
+
+```python
+async soft_delete(self, name: str) -> None
+```
+
+Soft-delete the preset, keeping its version history (audit). Raise
+`PresetNotFoundError` if absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### rename_preset
+
+`tai42_contract.presets.PresetStore.rename_preset`
+
+```python
+async rename_preset(self, name: str, new_name: str) -> DocumentRecord
+```
+
+Re-key a preset from ``name`` to ``new_name``, delegating to the generic
+store's rename under ``kind="preset"``. The version history, every per-version
+``tags`` label, and the ``active_version`` pointer are preserved by the store
+contract — a rename moves a key, it never rewrites the body. Raise
+`PresetNotFoundError` for an absent ``name``, `PresetExistsError`
+when ``new_name`` is already a live preset, and `PresetNameConflictError`
+when the injected collision predicate says ``new_name`` is held by a live
+non-preset tool (the same predicate `create_preset` consults).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `new_name` | `str` | — | — |
+
+
+
+## PresetVersionNotFoundError
+
+`tai42_contract.presets.errors.PresetVersionNotFoundError`
+
+```python
+class PresetVersionNotFoundError(PresetError)
+```
+
+No version ``version`` exists for preset ``name``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `version` | — |
+
+
+## PresetWriteValidator
+
+`tai42_contract.presets.PresetWriteValidator`
+
+```python
+PresetWriteValidator = Callable[[PresetBody], Awaitable[Sequence[str]]]
+```
+

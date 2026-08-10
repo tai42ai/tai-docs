@@ -1,0 +1,291 @@
+---
+title: "tai conversations"
+description: "Manage conversation routes."
+icon: "terminal"
+---
+
+Manage conversation routes.
+
+```console
+$ tai conversations [OPTIONS] COMMAND [ARGS]...
+```
+
+## `tai conversations config-delete`
+
+Delete a per-target conversation config by (target_kind, target_name).
+
+Example: `tai conversations config-delete agent assistant`
+
+```console
+$ tai conversations config-delete [OPTIONS] {target_kind} {target_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `target_kind` | Target kind: 'agent' or 'tool'. _(required)_ |
+| `target_name` | The agent or tool name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations config-get`
+
+Show one per-target conversation config by (target_kind, target_name).
+
+Example: `tai conversations config-get agent assistant`
+
+```console
+$ tai conversations config-get [OPTIONS] {target_kind} {target_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `target_kind` | Target kind: 'agent' or 'tool'. _(required)_ |
+| `target_name` | The agent or tool name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations config-list`
+
+List the per-target conversation configs (multichannel opt-in + first-contact greeting).
+
+Example: `tai conversations config-list`
+
+```console
+$ tai conversations config-list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations config-set`
+
+Create or replace a per-target conversation config.
+
+An UPSERT — a config for that (target_kind, target_name) is REPLACED if it exists
+(`created` is `false` for a replace). The target must EXIST. `--greeting-template`
+may reference at most the `&#123;pairing_code&#125;` placeholder; omit it (or pass an empty
+value is refused) for no greeting.
+
+Example: `tai conversations config-set agent assistant --multichannel \
+--greeting-template 'Hi! Pair another channel with &#123;pairing_code&#125;'`
+
+```console
+$ tai conversations config-set [OPTIONS] {target_kind} {target_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `target_kind` | Target kind: 'agent' or 'tool' (must exist). _(required)_ |
+| `target_name` | The agent or tool name (must exist). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--multichannel` / `--no-multichannel` | Opt the target into person linking. _(default: `False`)_ |
+| `--greeting-template` `&lt;str&gt;` | First-contact greeting; may reference the &#123;pairing_code&#125; placeholder. Omit for no greeting. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations create`
+
+Create or replace a conversation route.
+
+An UPSERT — a name that already exists is REPLACED, rebinding its `execution_key`
+along with everything else (`created` is `false` for a replace). A `door=api`
+route's `callback_secret` is minted server-side and shown ONCE in the result; it
+signs the delivery callback and is never re-readable. There is no check that you can
+run the target — the execution key's live grants bound the turn. A `tool` target may
+map the message to the tool kwargs (`--payload-expr`) and the result to the reply
+(`--reply-expr`); a tool reply of null/blank sends nothing.
+
+Example: `tai conversations create chat-line --door channel --target-name relay \
+--execution-key svc --channel twilio --identity +15550001111`
+
+```console
+$ tai conversations create [OPTIONS] {route_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name — a slug [a-z0-9-]+ (the thread-key handle). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--door` `&lt;str&gt;` | Inbound door: 'api' or 'channel'. _(required)_ |
+| `--target-name` `&lt;str&gt;` | The agent or tool the turn runs (must exist). _(required)_ |
+| `--execution-key` `&lt;str&gt;` | The api-key user id the turn runs AS; you must own it (or be admin), tokenless-evaluable. _(required)_ |
+| `--target-kind` `&lt;str&gt;` | What the turn runs: 'agent' or 'tool'. _(default: `agent`)_ |
+| `--payload-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the inbound message to the tool kwargs. |
+| `--reply-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the tool result to the reply. |
+| `--channel` `&lt;str&gt;` | door=channel: the channel registry name (e.g. twilio). |
+| `--identity` `&lt;str&gt;` | door=channel: the medium address we are texted at. |
+| `--callback-url` `&lt;str&gt;` | door=api: the https answer-delivery URL. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations delete`
+
+Delete a conversation route by name.
+
+Example: `tai conversations delete chat-line`
+
+```console
+$ tai conversations delete [OPTIONS] {route_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations delete-thread`
+
+Forget one conversation thread — its agent checkpoint, its answer records and its
+thread indexes — so a later message on the same address starts a fresh memory.
+
+Forgetting is absolute: a valid id on its own route always succeeds, reporting
+`removed: 0` when nothing was left to clear (an aged-out or never-seen thread), never a
+404 — the agent memory is forgotten regardless. A route-keyed id must carry the route's
+`bridge:&lt;route_name&gt;:` prefix, else it is refused (400); a person thread not on the named
+route is a 404. A turn in flight on the thread is refused (409, retry once it drains). The
+same write grant that creates a route lets you delete routes and forget threads.
+
+The thread id rides the query string, so an api-door id — which carries a percent-encoded
+principal — reaches the door spelled exactly as the listing showed it.
+
+Example: `tai conversations delete-thread chat-line bridge:chat-line:+15550001111`
+
+```console
+$ tai conversations delete-thread [OPTIONS] {route_name} {thread_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `thread_id` | Thread id (e.g. bridge:chat:+15550001111). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations failed`
+
+List answer records whose delivery ended failed (admin only).
+
+Example: `tai conversations failed`
+
+```console
+$ tai conversations failed [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations get`
+
+Show one conversation route by name (its callback_secret is withheld).
+
+Example: `tai conversations get chat-line`
+
+```console
+$ tai conversations get [OPTIONS] {route_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations get-message`
+
+Read one conversation answer record. Any holder of the conversations read grant reads
+any record on the route, whichever door it arrived through; a non-admin caller gets the
+caller-safe projection, with the internal error detail withheld.
+
+Example: `tai conversations get-message chat-line 4f1c...`
+
+```console
+$ tai conversations get-message [OPTIONS] {route_name} {message_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `message_id` | Answer record message id (uuid4). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations list`
+
+List conversation routes (each row's callback_secret is withheld).
+
+Example: `tai conversations list`
+
+```console
+$ tai conversations list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations threads`
+
+List a route's conversation threads, newest activity first (admin only).
+
+Example: `tai conversations threads chat-line --page 1`
+
+```console
+$ tai conversations threads [OPTIONS] {route_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--page` `&lt;int&gt;` | Page number, from 1. _(default: `1`)_ |
+| `--page-size` `&lt;int&gt;` | Threads per page (capped server-side). _(default: `50`)_ |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations transcript`
+
+Read one thread's transcript. Any holder of the conversations read grant reads any
+thread's transcript on the route; an unknown thread or route is a plain 404.
+
+`--order asc` (the default) reads oldest first; `--order desc` reads newest first,
+so page 1 always holds the latest messages — the order a live tail wants. The window
+pages that order from its own end.
+
+The thread id rides the query string, so an api-door id — which carries a
+percent-encoded principal — reaches the door spelled exactly as the listing showed it.
+
+Example: `tai conversations transcript chat-line bridge:chat-line:+15550001111`
+
+```console
+$ tai conversations transcript [OPTIONS] {route_name} {thread_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `thread_id` | Thread id (e.g. bridge:chat-line:+15550001111). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--page` `&lt;int&gt;` | Page number, from 1. _(default: `1`)_ |
+| `--page-size` `&lt;int&gt;` | Records per page (capped server-side). _(default: `50`)_ |
+| `--order` `&lt;str&gt;` | Record order: 'asc' (oldest first) or 'desc'. _(default: `asc`)_ |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |

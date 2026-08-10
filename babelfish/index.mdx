@@ -1,0 +1,95 @@
+---
+title: "Babelfish"
+description: "The paid deterministic-flow product family built on the open platform: what it is and how it plugs in."
+icon: "fish"
+---
+
+Babelfish is TAI42's paid product family for teams that need agent work to run
+deterministically in production. It is built on the same open platform this site
+documents, and it reaches a running server the same way any other plugin does.
+
+<Note>
+Babelfish is proprietary and licensed commercially — it is not part of the
+Apache-2.0 platform and is not published to PyPI or listed in the
+[marketplace](/concepts/marketplace). Product details and pricing live at
+[tai42.ai/babelfish](https://tai42.ai/babelfish).
+</Note>
+
+## What it adds
+
+Babelfish Flows ships as one installable plugin carrying two halves:
+
+- **A flow engine.** Deterministic flows registered as ordinary
+  [tools](/concepts/tools-and-extensions) through the public contract — run a
+  flow, step it, read its state, and abort it. Because they are tools, everything
+  the platform already does to a tool applies: access control, backends,
+  schedules, and tracing.
+- **A flow editor in the Studio.** A front-end bundle the runtime serves to the
+  [Studio](/studio) through its integrity-pinned import map, contributing a
+  top-level **Flows** page and its nav entry.
+
+A saved flow is a versioned [preset](/concepts/presets) with the graph carried in
+the preset's fixed arguments, so flows version, diff, and roll back through the
+[versioning spine](/concepts/versioning-spine) like everything else.
+
+## How it plugs in
+
+It is wired like any other plugin — a tools entry for the engine, a
+`studio_plugins` entry for the editor bundle, and the host routers the flow UI
+rides:
+
+```yaml manifest.yml
+tools:
+  - title: babelfish-flows
+    module: tai42_babelfish_flows.tools.tools
+studio_plugins:
+  - tai42_babelfish_flows
+routers_modules:
+  - tai42_skeleton.routers.tools
+  - tai42_skeleton.routers.tool_runs
+  - tai42_skeleton.routers.presets
+  - tai42_skeleton.routers.plugins
+```
+
+The `routers_modules` order is load-bearing: `tai42_skeleton.routers.plugins`
+must be last, because its SPA catch-all matches any path and routers register in
+import order.
+
+The bundle is committed inside the distribution, so installing it needs no
+JavaScript toolchain on the server. The plugin adds no HTTP route of its own and
+claims no backend — see [Studio plugins](/studio/plugins) for how the Studio
+loads a plugin bundle and pins it.
+
+## Organizing flows
+
+Because a flow is an ordinary tool, it organizes through the platform's
+[tool-organization overlay](/concepts/tool-organization) — the same folders,
+display names, tags, and visibility that apply to any tool. The Flows page renders
+that overlay directly:
+
+- **Folders and breadcrumbs.** The page is a current-directory explorer: a
+  breadcrumb, the folder's subfolders, then the flows filed there, with unfiled
+  flows at the root.
+- **Display names and tags.** Each flow shows its display name (its real tool name
+  stays visible) and is filtered by its merged tags — a flow's plugin-native
+  `babelfish` tag unioned with your editable user tags. A tag filter and a search
+  box narrow the list.
+- **List or card view.** A toggle switches between a compact list and a card grid;
+  the choice persists per browser.
+- **Per-flow editing.** A flow row edits its display name, tags, and folder in
+  place. Hiding a tool is centralized on the [Studio Tools
+  screen](/studio/screens), not here — the Flows page manages everything except
+  visibility. Babelfish's internal `flow_step` tool ships hidden by default so it
+  stays out of the way while remaining callable.
+
+The Flows page derives its entire view state — the open flow, the current folder,
+open dialogs, and the active filters — from the URL, so a flow is bookmarkable and
+shareable and the browser's back button works. A link to a flow that no longer
+exists renders a loud not-found card rather than a blank editor.
+
+## See also
+
+- [Babelfish on tai42.ai](https://tai42.ai/babelfish) — the product, its pricing, and its terms.
+- [Studio plugins](/studio/plugins) — how a plugin contributes a Studio page.
+- [Presets](/concepts/presets) — the versioned wrap a saved flow becomes.
+- [Tool organization](/concepts/tool-organization) — the folders, display names, tags, and visibility a flow rides.

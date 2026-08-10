@@ -1,0 +1,245 @@
+---
+title: "tai presets"
+description: "Manage preset tools and their versions."
+icon: "terminal"
+---
+
+Manage preset tools and their versions.
+
+```console
+$ tai presets [OPTIONS] COMMAND [ARGS]...
+```
+
+## `tai presets create`
+
+Create a versioned preset (or an authored agent, when the base tool is an agent).
+
+Example: `tai presets create greet --base-tool echo --description 'Greet a user' --kwargs '&#123;"prefix":"hi"&#125;'`
+
+```console
+$ tai presets create [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--base-tool` `&lt;str&gt;` | The registered non-preset tool the preset wraps. _(required)_ |
+| `--description` `&lt;str&gt;` | The preset's LLM-facing description (required, non-empty). _(required)_ |
+| `--kwargs` `&lt;str&gt;` | Baked fixed kwargs as a JSON object. |
+| `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
+| `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets delete`
+
+Delete a preset.
+
+Example: `tai presets delete my_preset`
+
+```console
+$ tai presets delete [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets get`
+
+Get a store-backed preset's record and active body.
+
+Example: `tai presets get my_preset`
+
+```console
+$ tai presets get [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets get-version`
+
+Get a specific preset version.
+
+Example: `tai presets get-version my_preset 3`
+
+```console
+$ tai presets get-version [OPTIONS] {name} {version}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+| `version` | Version number. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets list`
+
+List the store-backed (versioned) presets.
+
+Example: `tai presets list`
+
+```console
+$ tai presets list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets referees`
+
+List the presets that reference this preset (a rename would strand them).
+
+Example: `tai presets referees my_preset`
+
+```console
+$ tai presets referees [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets rename`
+
+Rename a preset — its name is its live tool name, so the tool is rebound.
+
+Example: `tai presets rename old_name new_name`
+
+```console
+$ tai presets rename [OPTIONS] {name} {new_name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Current preset name. _(required)_ |
+| `new_name` | New preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets rollback`
+
+Roll a preset back to a prior version.
+
+Example: `tai presets rollback my_preset 2`
+
+```console
+$ tai presets rollback [OPTIONS] {name} {version}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+| `version` | Target version to make active. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets save-version`
+
+Save a new preset version. Omitted fields carry forward; `--extensions '[]'`
+sends the explicit clear sentinel.
+
+Example: `tai presets save-version my_preset --kwargs '&#123;"n":2&#125;'`
+
+```console
+$ tai presets save-version [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--kwargs` `&lt;str&gt;` | New fixed kwargs (JSON object); omit to carry forward. |
+| `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
+| `--description` `&lt;str&gt;` | New description (non-empty); omit to carry the active one forward. |
+| `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). '[]' clears them. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets set-version-tags`
+
+Replace a preset version's tags (labels only — no rebind). Zero tag arguments
+clears them to `[]`.
+
+Example: `tai presets set-version-tags my_preset 2 stable reviewed`
+
+```console
+$ tai presets set-version-tags [OPTIONS] {name} {version} [tags]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+| `version` | Version number. _(required)_ |
+| `tags...` | The tags to set; none clears them to []. _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets validate`
+
+Dry-run a preset draft — report whether it would be accepted as a create (a
+new name) or a new version (an existing name), without writing anything.
+
+Example: `tai presets validate greet --base-tool echo --description 'Greet' --kwargs '&#123;"prefix":"hi"&#125;'`
+
+```console
+$ tai presets validate [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--base-tool` `&lt;str&gt;` | The base tool (required for a new preset). |
+| `--kwargs` `&lt;str&gt;` | Baked fixed kwargs as a JSON object. |
+| `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
+| `--description` `&lt;str&gt;` | The preset's LLM-facing description. |
+| `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai presets versions`
+
+List a preset's version history.
+
+Example: `tai presets versions my_preset`
+
+```console
+$ tai presets versions [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Preset name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |

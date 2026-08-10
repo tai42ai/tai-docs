@@ -1,0 +1,129 @@
+---
+title: "Logging (tai42_kit.logging)"
+description: "Structured logging settings and setup."
+icon: "file-lines"
+---
+
+
+Logging settings + setup, co-located with the logging util.
+
+Side-effect-free on import: the consumer calls ``setup_logging(...)`` explicitly
+(e.g. at app startup) — importing this package configures nothing on its own.
+
+## AccessLogQueryMaskingFilter
+
+`tai42_kit.logging.logger.AccessLogQueryMaskingFilter`
+
+```python
+class AccessLogQueryMaskingFilter(logging.Filter)
+```
+
+Mask every query-string value in the ``uvicorn.access`` request line.
+
+The access formatter REBUILDS the line from ``record.args`` — a 5-tuple whose third
+element is the request path + query — and ignores a rewritten ``record.msg``, so the
+mask is applied by replacing that args element; masking the message alone silently
+no-ops. Non-matching records pass through untouched. Always returns ``True`` — this
+filter redacts, it never drops.
+
+### Members
+
+#### filter
+
+`tai42_kit.logging.logger.AccessLogQueryMaskingFilter.filter`
+
+```python
+filter(self, record: logging.LogRecord) -> bool
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `record` | `logging.LogRecord` | — | — |
+
+
+
+## LoggingSettings
+
+`tai42_kit.logging.settings.LoggingSettings`
+
+```python
+class LoggingSettings(TaiBaseSettings)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `log_level` | `str` |
+
+### Members
+
+#### validate_log_level
+
+`tai42_kit.logging.settings.LoggingSettings.validate_log_level`
+
+```python
+validate_log_level(cls, v: str) -> str
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `v` | `str` | — | — |
+
+
+#### is_enabled_for
+
+`tai42_kit.logging.settings.LoggingSettings.is_enabled_for`
+
+```python
+is_enabled_for(self, level_name: str) -> bool
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `level_name` | `str` | — | — |
+
+
+
+## logging_settings
+
+`tai42_kit.logging.settings.logging_settings`
+
+```python
+logging_settings() -> LoggingSettings
+```
+
+
+## setup_logging
+
+`tai42_kit.logging.logger.setup_logging`
+
+```python
+setup_logging(settings: LoggingSettings) -> None
+```
+
+Configure the ROOT logger for an application.
+
+Call this from application startup only — never on library import, since it
+reconfigures the process-global root logger. ``force=True`` replaces the
+existing root handlers, so a repeat call (e.g. after a settings reload)
+applies the new level instead of being silently ignored.
+
+The ``uvicorn.access`` logger's request line carries the full request URL — including
+query-string capability codes and opaque params — so it is fitted with a masking filter
+that redacts every query VALUE before the line is formatted. The attach is idempotent:
+a repeat call never stacks a second filter.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `settings` | `LoggingSettings` | — | — |
+

@@ -1,0 +1,49 @@
+# Source-repo docs hook (TEMPLATE -- lives here as an authored artifact).
+#
+# Copy this file into each source repository's own `.github/workflows/`
+# directory — the `tai42` monorepo (whose members the catalog, SDK, CLI, and API
+# reference are generated from) and `tai-studio` (whose sources the Studio SDK
+# reference is generated from). On every push to `main` it fires a
+# `repository_dispatch` at tai-docs, which triggers the `regenerate` job in
+# tai-docs/.github/workflows/docs.yml. That job regenerates the reference against
+# the source `main` HEAD and opens an automated PR if anything drifted.
+#
+# This is the ONLY addition a source repo needs; it is a tiny, isolated hook.
+# It is NOT installed by tai-docs -- adding it to a source repo is a change made
+# in that repo.
+#
+# Copy it verbatim: the dispatch target is derived from
+# `github.repository_owner`, so the file needs no edits.
+#
+# Requirements in the source repo:
+#   * A secret `TAI_DOCS_DISPATCH_TOKEN` -- a token with `contents: write` on
+#     tai-docs, used to send the cross-repo dispatch. A fork has no such
+#     secret, so the dispatch step is skipped there rather than failing the run.
+
+name: notify-docs
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      DOCS_DISPATCH_TOKEN: ${{ secrets.TAI_DOCS_DISPATCH_TOKEN }}
+    steps:
+      - name: Trigger the tai-docs regeneration pipeline
+        if: env.DOCS_DISPATCH_TOKEN != ''
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        with:
+          token: ${{ env.DOCS_DISPATCH_TOKEN }}
+          repository: ${{ github.repository_owner }}/tai-docs
+          event-type: source-repo-push
+          client-payload: |
+            {
+              "repo": "${{ github.repository }}",
+              "sha": "${{ github.sha }}"
+            }

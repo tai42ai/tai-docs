@@ -1,0 +1,104 @@
+---
+title: "WhatsApp to an agent"
+description: "Bridge a WhatsApp number to an agent through Twilio or the Meta Cloud API."
+icon: "whatsapp"
+---
+
+Bridge a WhatsApp number to an agent so a client's message runs an agent turn and
+the answer comes back on WhatsApp. Two providers carry WhatsApp: **Twilio** and the
+**Meta Cloud API**. The bridge is the same for both — only the channel plugin, its
+env group, and the webhook wiring differ.
+
+See [client conversations](/concepts/client-conversations) for the model this guide
+configures.
+
+## Prerequisite: mint and bind a least-privilege execution key
+
+A conversation route runs its turn **as** an `execution_key` — an API-key identity,
+not the client who texted. That key's live grants are the turn's entire authority,
+so scope it to exactly what the agent needs and nothing more.
+
+<Steps>
+  <Step title="Mint a scoped key">
+    Mint a key whose scopes are the least the agent's tools require. A non-admin
+    owner may grant only scopes it already holds; the new key is owned by you.
+
+    ```bash
+    tai keys create --user chat-bot --description 'WhatsApp chat agent' --scope read
+    ```
+  </Step>
+  <Step title="Bind it when you create the route">
+    The route's `--execution-key` binds that identity. You may bind your own
+    identity or a key you own; an admin may bind any key (a pass-role check). The
+    key must be evaluable by a background execution — a stored policy condition that
+    needs a request token is rejected at bind. The turn is bounded by the key's
+    **live** grants: attenuate the key and the next turn is denied, with no
+    revocation step on the route.
+  </Step>
+</Steps>
+
+<Warning>
+The turn can do whatever the execution key can do. Never bind an admin or a broadly
+scoped key to a route reachable from a messaging channel — a prompt-injected message
+would run as that key. Bind a purpose-built, least-privilege key.
+</Warning>
+
+## Pick a provider and wire it
+
+Both providers use the same bridge and the same execution-key binding above. What
+differs — the channel package and its env group, the webhook(s) to point at the
+deployment, the `our_identity` format, and (on the Meta Cloud API) the rich-message
+and 24-hour-window behaviour — lives on the plugin page:
+
+<CardGroup cols={2}>
+  <Card title="channel-twilio" icon="whatsapp" href="/plugins/tai42/channel-twilio">
+    `CHANNEL_TWILIO_*`, the inbound and status webhooks, and the `whatsapp:`-prefixed
+    sender as `our_identity`. Text only.
+  </Card>
+  <Card title="channel-whatsapp" icon="whatsapp" href="/plugins/tai42/channel-whatsapp">
+    `CHANNEL_WHATSAPP_*`, the single webhook with its `hub.challenge` handshake, the
+    `phone_number_id` identity, plus interactive selects, media, and templates.
+  </Card>
+</CardGroup>
+
+Once the channel is configured, create the route binding the texted number to the
+agent, with `--channel` naming the provider and `--identity` its `our_identity`
+(exact formats on the plugin pages):
+
+```bash
+tai conversations create chat-line \
+  --door channel --target-name chat --execution-key chat-bot \
+  --channel <provider> --identity <our_identity>
+```
+
+## Test it and add more numbers
+
+Send a WhatsApp message to the configured number and watch the agent's reply come
+back from that same number. Read one answer record by id:
+
+```bash
+tai conversations get-message chat-line <message_id>
+```
+
+**Multi-number** is just more rows: create another route with the same `--channel`
+and a different `--identity` (a second Twilio sender, or a second `phone_number_id`
+under one Cloud credential). Each identity resolves to its own route and agent, and
+each reply leaves from the number that was texted. A `(channel, identity)` pair may
+be claimed by only one route.
+
+Delivery outcomes — including a `failed` record when WhatsApp rejects a send inside
+or outside its 24-hour window — surface on the admin failed-delivery door:
+
+```bash
+tai conversations failed
+```
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — doors, routing, and
+  delivery outcomes.
+- [Conversation bridge reference](/reference/conversation-bridge) — every setting,
+  the read doors, and the authorization model.
+- [Use owned keys](/guides/owned-keys) — minting and capping the execution key.
+- [Telegram / Slack to an agent](/guides/telegram-slack-to-agent) — the same bridge
+  on other channels.

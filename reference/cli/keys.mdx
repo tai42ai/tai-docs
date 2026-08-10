@@ -1,0 +1,205 @@
+---
+title: "tai keys"
+description: "Manage API keys and their access-control conditions."
+icon: "terminal"
+---
+
+Manage API keys and their access-control conditions.
+
+```console
+$ tai keys [OPTIONS] COMMAND [ARGS]...
+```
+
+## `tai keys claim-link`
+
+Mint a one-time claim link that carries a key you hold to another device.
+
+The link's token rides the URL FRAGMENT (`/login#claim=&lt;token&gt;`) and is
+SINGLE-USE — the first exchange burns it. Prints the claim path and expiry; compose
+the absolute URL (or a QR) from your own origin.
+
+Example: `tai keys claim-link sk-abc123 --ttl 300`
+
+```console
+$ tai keys claim-link [OPTIONS] [raw_key]
+```
+
+| Argument | Description |
+| --- | --- |
+| `raw_key` | The raw API key to share (omit to enter it at a hidden prompt so it never lands in shell history). _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--ttl` `&lt;int&gt;` | Link lifetime in seconds (capped by the server ceiling). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys create`
+
+Provision an API key; the raw `sk-…` value is printed ONCE.
+
+Example: `tai keys create --user alice --description 'CI key' --scope read`
+
+```console
+$ tai keys create [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--user` `&lt;str&gt;` | The key's user id. _(required)_ |
+| `--description` `&lt;str&gt;` | Human description (required identity field). _(required)_ |
+| `--scope` `&lt;str&gt;` | A scope to grant (repeatable). |
+| `--condition` `&lt;str&gt;` | An inline jq authorization condition. |
+| `--condition-id` `&lt;str&gt;` | A stored jq condition id. |
+| `--condition-kwargs` `&lt;str&gt;` | Condition kwargs as a JSON object. |
+| `--condition-kwargs-file` `&lt;str&gt;` | Read the condition kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --condition-kwargs. |
+| `--policy-data` `&lt;str&gt;` | Extra policy data as a JSON object. |
+| `--policy-data-file` `&lt;str&gt;` | Read the policy data JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --policy-data. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys delete`
+
+Revoke a key (immediate: the next request fails to auth).
+
+Revoking also STOPS every hook and trigger link bound to this key as its
+`execution_key` — their next fire is refused. Run `tai hooks list` and
+`tai hooks trigger-links` first to see which records bind it.
+
+Example: `tai keys delete alice`
+
+```console
+$ tai keys delete [OPTIONS] {user}
+```
+
+| Argument | Description |
+| --- | --- |
+| `user` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys edit`
+
+Partially edit a key's description/scopes/policy in place (no rotation).
+
+Only the flags you pass are written; omitted fields are preserved. Pass an
+empty value to clear an optional condition gate.
+
+De-scoping this key (or its owner) also NARROWS what every hook and trigger link
+bound to it as its `execution_key` may call at its next fire — see `tai hooks
+list` for which records bind it.
+
+Example: `tai keys edit alice --scope read --scope write`
+
+```console
+$ tai keys edit [OPTIONS] {user}
+```
+
+| Argument | Description |
+| --- | --- |
+| `user` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--description` `&lt;str&gt;` | New description. |
+| `--scope` `&lt;str&gt;` | Replacement scope (repeatable); replaces the set. |
+| `--condition` `&lt;str&gt;` | New condition; pass '' to clear. |
+| `--condition-id` `&lt;str&gt;` | New condition id; pass '' to clear. |
+| `--condition-kwargs` `&lt;str&gt;` | Condition kwargs JSON; '&#123;&#125;' clears. |
+| `--condition-kwargs-file` `&lt;str&gt;` | Read the condition kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --condition-kwargs. |
+| `--policy-data` `&lt;str&gt;` | Policy data JSON; '&#123;&#125;' clears. |
+| `--policy-data-file` `&lt;str&gt;` | Read the policy data JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --policy-data. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys list`
+
+List every provisioned key's identity and policy (never key material).
+
+Example: `tai keys list`
+
+```console
+$ tai keys list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys policy-rollback`
+
+Roll a user's enforced policy back to a prior version.
+
+Example: `tai keys policy-rollback alice 2`
+
+```console
+$ tai keys policy-rollback [OPTIONS] {user} {version}
+```
+
+| Argument | Description |
+| --- | --- |
+| `user` | The key's user id. _(required)_ |
+| `version` | Target policy version to enforce. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys policy-versions`
+
+List a user's append-only policy version history.
+
+Example: `tai keys policy-versions alice`
+
+```console
+$ tai keys policy-versions [OPTIONS] {user}
+```
+
+| Argument | Description |
+| --- | --- |
+| `user` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys scopes`
+
+Add and/or remove individual scopes on a key WITHOUT replacing the whole set.
+
+At least one --add or --remove is required. This is the granular complement of
+`tai keys edit --scope`, which replaces the entire scope set at once.
+
+Example: `tai keys scopes alice --add write --remove read`
+
+```console
+$ tai keys scopes [OPTIONS] {user}
+```
+
+| Argument | Description |
+| --- | --- |
+| `user` | The key's user id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--add` `&lt;str&gt;` | A scope to add (repeatable). |
+| `--remove` `&lt;str&gt;` | A scope to remove (repeatable). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai keys validate-condition`
+
+Compile (and optionally sample-evaluate) a jq policy condition without saving.
+
+Example: `tai keys validate-condition --condition '.method == "GET"'`
+
+```console
+$ tai keys validate-condition [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--condition` `&lt;str&gt;` | An inline jq condition to compile. |
+| `--condition-id` `&lt;str&gt;` | A stored jq condition id. |
+| `--condition-kwargs` `&lt;str&gt;` | Condition kwargs as a JSON object. |
+| `--condition-kwargs-file` `&lt;str&gt;` | Read the condition kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --condition-kwargs. |
+| `--sample-context` `&lt;str&gt;` | A JqAuthContext-shaped sample to evaluate against, as JSON. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |

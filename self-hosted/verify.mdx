@@ -1,0 +1,71 @@
+---
+title: "Verify artifacts"
+description: "Check the cosign signature and pin the image by digest before you run it."
+icon: "shield-check"
+---
+
+Every release signs the image and the chart with a keyless cosign signature and
+publishes an SBOM. Verify the signature before you run an artifact, and pin by
+digest so the bits never change under a tag.
+
+## Verify the image signature
+
+The signature is keyless, made by the release workflow's GitHub OIDC identity.
+Verify against that identity and issuer:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/tai42ai/tai-distribution/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  docker.io/tai42/tai:0.3.0
+```
+
+The manifest-list digest is signed in **both** registries, so the same command
+verifies `ghcr.io/tai42ai/tai:0.3.0`. A missing or mismatched signature exits
+non-zero.
+
+<Note>
+The signature is attached to the **manifest-list digest**, not to a tag. cosign
+resolves the tag to that digest before it checks, so verifying a moving tag
+(`latest`, `X.Y`) checks whatever image the tag currently points at.
+</Note>
+
+## Pin by digest
+
+A tag can be re-pointed; a digest cannot. Read the current manifest-list digest
+and run that exact reference:
+
+```bash
+docker buildx imagetools inspect docker.io/tai42/tai:0.3.0 \
+  --format '{{ .Manifest.Digest }}'
+```
+
+```bash TAI_VERSION in .env
+TAI_VERSION=0.3.0@sha256:<digest>
+```
+
+The multi-arch manifest list carries both `linux/amd64` and `linux/arm64`;
+`imagetools inspect` with no `--format` lists the per-arch entries.
+
+## Verify the chart signature
+
+The Helm chart is a signed OCI artifact under the same identity:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/tai42ai/tai-distribution/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/tai42ai/charts/tai:0.3.0
+```
+
+## SBOM and provenance
+
+The build attaches SBOM and provenance attestations to the image in-registry,
+and each GitHub Release carries a CycloneDX SBOM (`sbom.cdx.json`) for the
+released multi-arch image. Use them to feed a vulnerability scanner or a
+supply-chain policy.
+
+## See also
+
+- [Upgrades](/self-hosted/upgrades) — verify a new tag before rolling to it.
+- [The image](/self-hosted#the-image) — what the release pipeline signs and scans.

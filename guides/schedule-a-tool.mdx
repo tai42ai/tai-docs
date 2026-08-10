@@ -1,0 +1,63 @@
+---
+title: "Schedule a tool"
+description: "Run a tool on a schedule."
+icon: "clock"
+---
+
+Run a tool on a schedule through the backend.
+
+The runtime runs a registered tool periodically. A schedule names the tool, its arguments, and a cadence; a worker backend fires it on time. Scheduled runs execute on the backend, so a backend plugin must be configured for schedules to run.
+
+## Configure a backend
+
+A schedule runs on the worker backend, not in the request path. Register a backend plugin under `backend_module` in the manifest and start its worker runtime:
+
+```yaml manifest.yml
+backend_module: myapp.backend
+```
+
+```bash
+tai backend --manifest-path manifest.yml
+```
+
+See [Backends](/concepts/backends) for where tools run.
+
+## Add a schedule
+
+Name the tool to run and its cadence. Pass tool arguments with `--tool-kw key=value` (or `--tool-kwargs` as JSON), and the cadence with `--schedule-kw` (or `--schedule-kwargs`).
+
+```bash
+tai schedules add report --schedule-kw cron='0 9 * * *'
+```
+
+## Inspect and remove
+
+<Steps>
+  <Step title="List schedules">
+    ```bash
+    tai schedules list
+    ```
+  </Step>
+  <Step title="Check the server clock">
+    Cron cadences resolve against the server's clock — read it to reason about when a job fires.
+
+    ```bash
+    tai schedules server-datetime
+    ```
+  </Step>
+  <Step title="Delete a schedule">
+    ```bash
+    tai schedules delete report
+    ```
+  </Step>
+</Steps>
+
+<Note>
+A schedule and a webhook binding are the two ways a tool fires without a client call. To fire a tool on an inbound event instead, see [Fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook).
+</Note>
+
+## See also
+
+- [Backends](/concepts/backends) — background, scheduled, and distributed execution.
+- [Triggers and webhooks](/concepts/triggers-and-webhooks) — the other way a tool fires on its own.
+- [CLI reference](/reference/cli) — the full `tai schedules` surface.

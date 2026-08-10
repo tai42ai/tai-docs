@@ -1,0 +1,131 @@
+---
+title: "Presets"
+description: "Versioned, named wraps of a tool."
+icon: "layer-group"
+---
+
+A preset is a base tool with a partial set of keyword arguments baked in, exposed
+as a new named tool. It lets you save a configured variant of a tool once and call
+it by name, and it rides the platform's [versioning spine](/concepts/versioning-spine)
+so the configuration can evolve without breaking callers.
+
+A preset's organizational metadata — a display name, a folder, user tags, and
+visibility — is not part of the preset record; like any tool, a preset carries it
+in the unversioned [tool-organization overlay](/concepts/tool-organization),
+keyed by its tool name.
+
+## The bind kernel
+
+At the centre of the feature is a bind kernel that builds the live tool: it takes
+a base tool and fixes some of its arguments, producing a hidden transform of the
+original. The baked values fill in behind the scenes, so a caller supplies only
+the arguments that were left open. The base tool is any registered tool —
+including a management [operation](/concepts/live-operations) projected as a tool,
+so you can save a configured variant of a live-ops action just as you would any
+other tool.
+
+## The store view
+
+A preset persists through a typed store view over the platform's generic
+versioned-document store, tagged `kind="preset"`. **Every preset is a versioned,
+store-backed record** — there is one tier, not two. Create writes a durable store
+row and then registers the live tool; every save appends a new version, one version
+is active, and you can roll back to an earlier one. A preset always rides the
+[versioning spine](/concepts/versioning-spine).
+
+The contract owns the `PresetStore` protocol and the `PresetBody` model; the
+skeleton owns the concrete view and the bind kernel.
+
+## Across the fleet
+
+A preset mutation lands locally — the store write plus the live rebind — and then
+broadcasts on the [worker bus](/concepts/worker-bus) so every worker sharing the
+manifest re-reads the active body and rebinds. In a single-process deployment the
+local apply is the whole fleet. The store write and the local rebind have already
+landed by the time the broadcast runs, so the response is the plain preset record;
+a preset broadcast that does not converge is not embedded in that response but
+surfaced server-side as a loud non-convergence ERROR log that names the workers the
+change did not reach — `departed`, `timed_out`, or `missing`. Re-run the mutation,
+or a fleet `reload_config`, to reconverge the named workers.
+
+## Conflicted records
+
+A preset whose stored body can no longer bind — its base tool or an extension it
+names was removed since it was authored — is **quarantined** rather than dropped.
+It stays visible in the listing with `conflicted: true` and a human-readable
+`conflicted_reason` explaining the cause (`null` when the record is healthy). A
+conflicted record is **delete-only**: save-version, rollback, and rename all reject
+it with a `409`, and only `delete` clears it (a hard store removal that touches no
+registration). This field is the only place the cause is reported — resolve a
+conflict by deleting the record and re-creating it once its base is back.
+
+## Baked values are a may-run boundary
+
+A preset's baked `fixed_kwargs` are a *may-run* boundary, not a *may-read* one.
+They are hidden from framework-manufactured surfaces — the tool input schema and
+validation-error messages — so a caller authorized only to run the preset does not
+see them through those channels.
+
+<Warning>
+The baked values are present in the running tool's context and may appear in
+anything the tool or an agent emits — output, tool-call arguments, traces, error
+text — which the framework cannot generically scrub. Bake provider or secret
+**references** (names resolved server-side, such as an `llm_provider` name or a
+connector token injected at runtime), never raw credentials. If the baked config
+is sensitive, treat run authorization as "may run", not "may read the config".
+</Warning>
+
+## Managing presets
+
+Create, version, roll back, and rename presets from the CLI:
+
+```bash
+tai presets list
+tai presets versions <name>
+tai presets rollback <name> <version>
+```
+
+Beyond the create/version/rollback core, the surface carries four more doors:
+
+- **`validate`** — a dry-run that reports whether a draft would be accepted,
+  running the exact pre-write checks the create (new name) or save-version
+  (existing name) route runs, without writing anything. A malformed request is a
+  `400`; a valid or invalid draft is both a `200` carrying a `valid` verdict.
+- **`referees`** — the other presets whose authored-agent composition names this
+  one as a tool. These are the presets a rename would strand, exposed so a UI (or
+  you) can preflight a rename.
+- **`rename`** — a preset's name *is* its live tool name, so a rename rebinds the
+  tool (new name bound before the old is torn down). It runs create's name
+  pre-checks on the new name and **blocks with a `409` listing every referee** if
+  another preset composes the current name — update those referees first. It also
+  rejects a conflicted record (`409`) and a no-op rename (`400`).
+- **`set-version-tags`** — replace one version's `tags` annotation. Tags are
+  labels on an immutable version body, so this never rebinds the live tool.
+
+## Per-base-tool write validators
+
+Those "pre-write checks" are extensible per base tool. A base-tool plugin can
+register a validator against its own `base_tool` name so that every preset written
+over it is checked before it persists — the money-pinning preset for the
+[Stripe checkout tool](/guides/use-interactions#the-money-pinning-preset-is-required-not-optional),
+for instance, is the kind of constraint such a validator can enforce.
+
+A plugin registers one when its tool module loads:
+
+```python
+from tai42_contract.app import tai42_app
+
+tai42_app.presets.register_write_validator("create_stripe_checkout_ask_external", my_validator)
+```
+
+The preset write path consults the validator registered for a body's `base_tool`
+on **every** write — create, save-version, and rollback — and the `validate`
+dry-run door runs the same check without persisting. The registry is rebuilt on
+each `start()`, so a reload re-imports the tool modules and re-registers cleanly;
+registering the same `base_tool` twice within one load raises loudly rather than
+silently swapping a base tool's write gate.
+
+See the [create-and-version-a-preset guide](/guides/create-and-version-a-preset)
+for the full workflow, the [versioning spine](/concepts/versioning-spine) for the
+store presets ride on, and the [CLI reference](/reference/cli/index) for the
+complete `tai presets` command set.

@@ -1,0 +1,134 @@
+---
+title: "Tool organization"
+description: "Folders, display names, tags, and visibility — an unversioned metadata overlay over any tool."
+icon: "folder-tree"
+---
+
+A running server can register hundreds of tools — your own functions, mounted MCP
+servers, the standard toolbox, [presets](/concepts/presets), and Babelfish
+[flows](/babelfish). **Tool organization** is the layer that makes that namespace
+navigable: an editable overlay of folders, display names, tags, and visibility
+that sits *beside* every tool without touching what the tool does.
+
+## The overlay
+
+The overlay is an **unversioned** organizational layer, keyed by tool name and
+kept separate from any tool's behavior. It applies to **any** tool in the
+namespace — a native plugin tool, a preset, a flow — never a preset-only concern.
+It has two parts:
+
+- **Folders** — real folder entities forming a tree. A folder has a name and an
+  optional parent; nesting is endless through the parent chain.
+- **A per-tool row** — for each tool that has one: its display name, the folder it
+  is filed in, its user tags, and its visibility. Most tools never own a row —
+  a tool with no row simply renders under its own name, unfiled, with only its
+  native tags.
+
+Because it is unversioned by design, editing the overlay never appends a tool
+version or rebinds anything. It is metadata *about* the tool, not part of the
+tool's behavior, so it rides no version history: a display-name change or a folder
+move takes effect immediately and is not something you roll back through the
+[versioning spine](/concepts/versioning-spine).
+
+## Display names
+
+A per-tool row may set a `display_name` that overrides the label a UI renders.
+When set, surfaces show the display name; when absent, they fall back to the tool
+name. The real tool name always stays visible and identifiable — a display name is
+a friendlier label, never a rename. The name a caller invokes is unchanged.
+
+A display name is distinct from a tool's **description** (its LLM-facing docstring)
+— the description is the tool's own behavioral text, while the display name is
+purely a human label in the overlay.
+
+## Folders
+
+Folders are entity-backed, not a string on each tool. You create a folder (at the
+root or under a parent), rename it, move it to a new parent, and delete it. The
+store enforces the tree's integrity:
+
+- **Sibling names are unique** within a parent (root folders share the empty
+  parent), so no two folders in the same place collide.
+- **A move that would form a cycle is refused** — a folder can never become its
+  own ancestor.
+- **A delete requires the folder empty** of both subfolders and tool rows — you
+  cannot orphan its contents by removing it.
+
+A UI renders folders as a current-directory explorer with a breadcrumb: the
+current folder's subfolders first, then the tools filed directly in it, with
+unfiled tools living at the root.
+
+## Tags: two sources, one merged view
+
+A tool can carry tags from **two independent sources**, and UIs show them merged:
+
+- **Plugin-native tags** are code-owned and **read-only**. A plugin declares them
+  on the tool itself (for example, `tags={"babelfish"}` on a tool registration),
+  so they ship with the tool and cannot be edited from a UI.
+- **User tags** are the overlay's editable set. You add or replace them on a
+  tool's overlay row, and they persist independently of the plugin's own tags.
+
+A tool's effective tag set is the union of the two. Grouping and filtering a tool
+list works over that merged set, so a tool declared `babelfish` by its plugin and
+tagged `reviewed` by you appears under both.
+
+## Visibility: hidden is not security
+
+The overlay's visibility flag is **tri-state**:
+
+- **Default** (no user opinion) — the plugin-declared visibility applies. A plugin
+  may ship a tool hidden by default (Babelfish's `flow_step` does), and with no
+  overlay opinion that declaration stands.
+- **Shown** — force the tool visible, overriding a plugin's hidden default.
+- **Hidden** — force the tool hidden.
+
+<Warning>
+Hidden is **UI visibility only — never a security boundary**. A hidden tool is
+merely kept out of the lists; it stays fully registered and callable through the
+API. Never hide a tool expecting it to be unreachable — reach for
+[access control](/concepts/access-control) for that. A hidden tool has no reveal
+affordance in any UI; unhide it by setting its visibility to **Shown** from the
+CLI or API (`tai tool-meta set <tool> --visibility shown`).
+</Warning>
+
+## Lifecycle
+
+An overlay row is keyed by tool name, so the platform keeps it in step with the
+tools it describes:
+
+- **A preset delete cascades** its overlay row away — deleting the preset removes
+  the row keyed on its name.
+- **A preset rename re-keys** the row to the new name, so the organization you
+  gave a preset survives the rename that rebinds its tool.
+- **A plugin uninstall keeps** the row. The tool it described is gone, so a UI
+  hides the now-dangling entry; reinstalling the plugin brings the tool back under
+  the same name and the row applies again.
+
+## Managing the overlay
+
+Edit the overlay from the CLI with `tai tool-meta` — folders and per-tool rows:
+
+```bash
+tai tool-meta folder-create Research
+tai tool-meta set web_search --display-name 'Web Search' --tag research --folder <folder-id>
+tai tool-meta set flow_step --visibility shown
+tai tool-meta list
+```
+
+`set` is a merge-patch — only the flags you pass are sent, so omitting a field
+leaves it unchanged. In the [Studio](/studio/screens) the Tools screen carries the
+full per-tool edit dialog (display name, tags, folder, and the three-way
+visibility control) plus folder navigation; hidden tools are excluded from the
+screen outright, so unhiding is a CLI/API operation (set visibility **Shown**). The
+Presets screen and the Babelfish Flows page edit the display name, tags, and folder
+of the tools they list (hide management is centralized on the Tools screen).
+
+## See also
+
+- [`tai tool-meta` reference](/reference/cli/tool-meta) — the full folder and
+  overlay command set.
+- [The screens](/studio/screens) — the Tools screen's folders and edit dialog.
+- [Presets](/concepts/presets) — a preset's own record carries no organization; it
+  rides this overlay like any tool.
+- [Babelfish](/babelfish) — flows organize through the same overlay from the Flows
+  page.

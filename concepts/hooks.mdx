@@ -1,0 +1,89 @@
+---
+title: "Hooks"
+description: "Logic that runs at points in the request lifecycle."
+icon: "anchor"
+---
+
+import RegisterHook from '/snippets/examples/hooks/register_hook.mdx';
+
+A hook binds an inbound event topic to a tool. When an external system delivers an
+event on a topic, the hooks manager fires every hook registered for that topic
+whose condition matches the payload, running each bound tool in the background.
+
+This page explains the model. To register one, use the Studio's
+[Hooks screen](/studio/hooks) or follow
+[Fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook).
+
+## The dispatch model
+
+A hook is a small record: a topic, the tool to run, the keyword arguments to pass
+it, and an optional condition and expression over the payload. Registration is
+keyed by topic, so one topic can drive several hooks and the manager dispatches to
+all of them:
+
+```json
+{
+  "topic": "event_created",
+  "tool": "notify_team",
+  "tool_kwargs": { "channel": "ops" }
+}
+```
+
+The condition is what makes dispatch selective — a hook fires only when its
+condition matches the event payload, so one topic can route different events to
+different tools.
+
+## Naming a hook and topic
+
+A hook's `topic` is dispatched as one path segment of the public webhook URL
+(`/universal_webhook/{topic}`), and its `name` addresses the hook on every
+management and delete door. Both must be a single URL-safe path segment: match
+`^[a-z0-9][a-z0-9_-]*$` — begin with a lowercase letter or digit, then lowercase
+letters, digits, underscores, and hyphens only. No dots, slashes, uppercase, or
+whitespace — a `/` or a stray character would mint a record no delivery could
+route to and no door could address. The value is never sanitized: a violation is
+rejected at registration with a `400`, its message naming the offending field and
+the pattern.
+
+## The ingress door
+
+External systems deliver events to the public `POST /universal_webhook/{topic}`
+door. The payload parser accepts any content type, and the matched hooks run in the
+background — the ingress returns without waiting for the tools to finish.
+
+<Warning>
+`/universal_webhook/{topic}` is the most exposed door on a server. A topic with no
+[verifier](/concepts/triggers-and-webhooks) binding is open by design; bind a
+webhook verifier to a topic to authenticate every inbound event over its raw body
+before it is parsed and dispatched. The [public-door flood
+limiter](/concepts/access-control#flood-control-on-public-doors) throttles the door
+regardless.
+</Warning>
+
+## Managing hooks live
+
+Hooks are managed at run time, with no restart. The manager comes in an in-memory
+and a Redis-backed form, and the authed management doors (`GET`/`POST`/`DELETE`
+`/api/hooks`) are a thin skin over it — the same manager the hook-management
+[operations](/concepts/live-operations) drive. Register and remove hooks from the
+CLI:
+
+```bash
+tai hooks list
+tai hooks register --params '{"name":"notify-ops","topic":"event_created","tool":"notify_team","tool_kwargs":{"channel":"ops"}}'
+tai hooks delete <name>
+```
+
+`register` takes the whole hook record — topic, tool, kwargs, and an optional
+condition — as one `--params` JSON object; its full option set is on the command
+itself:
+
+<RegisterHook />
+
+Setting or removing a topic's verifier binding is a separate authed door
+(`PUT`/`DELETE /api/hooks/topics/{topic}/verifier`).
+
+See the [fire-a-tool-from-a-webhook guide](/guides/fire-a-tool-from-a-webhook) for
+the binding-and-condition workflow, [triggers and webhook
+verifiers](/concepts/triggers-and-webhooks) for authenticating the ingress, and
+the [HTTP API reference](/reference/api/index) for the hook routes.

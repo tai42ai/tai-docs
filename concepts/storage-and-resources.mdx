@@ -1,0 +1,86 @@
+---
+title: "Storage and resources"
+description: "The ResourceManager and stored content."
+icon: "database"
+---
+
+Storage is where a server keeps content, and the ResourceManager is how tools and
+templates read it. The manager loads content by storage id, url, or a raw file — as
+text or as media — and renders Jinja templates fetched through the active storage
+provider.
+
+## The storage provider
+
+Storage is a provider behind one ABC. The contract owns the `Storage` ABC and its
+root-delete guard; the skeleton adds a registry that holds the one active provider.
+A concrete provider — a local filesystem or object store — ships as a separate
+[plugin](/concepts/config-and-secrets) and registers through `tai42_app` when the
+[manifest](/concepts/manifest) names its `storage_module`.
+
+## The ResourceManager
+
+The ResourceManager layers on the active provider and resolves a resource from one
+of three sources:
+
+- **a storage id** — content stored under the provider,
+- **a url** — content fetched from an address, or
+- **a raw file** — content read directly.
+
+It returns each resource as **text or media**. Media content is produced as typed
+content parts, so a resource that is an image or other binary flows through the
+same interface as text. Accessing the manager before a storage provider is
+registered raises the moment a stored resource is first touched.
+
+## Templates are stored resources
+
+A template is one kind of stored resource. The ResourceManager renders Jinja
+templates fetched through the provider, with a compiled-template cache in front of
+the render step. Render mixins add `rendered_*` methods to the contract's field
+models, so a stored template resolves in place wherever a field expects rendered
+content.
+
+## Managing stored content
+
+Two CLI groups reach stored content. `tai templates` is the higher-level,
+template-aware surface (render, cache), while `tai storage` is the raw
+provider-resource surface — thin wrappers over the authed `/api/storage*` routes:
+
+```bash
+tai storage info                                  # provider identity, or the empty state
+tai storage list                                  # the stored resource ids
+tai storage upload notes/todo.txt --text 'buy milk'
+tai storage stat notes/todo.txt                   # inferred content type
+tai storage download notes/todo.txt               # raw bytes to stdout
+tai storage delete notes/todo.txt
+```
+
+Storage is **dead by default** — the skeleton ships no provider. With none
+registered, `tai storage info` reports the empty state (`present: false`, a `200`
+so a UI renders it cleanly) while every CRUD door answers an honest `501` rather
+than a fabricated default. A resource id must be a relative path with no `..`
+segment; an absolute path or a `..` traversal is rejected with a `400` before it
+reaches the filesystem-backed provider. Upload takes exactly one of `--text` (verbatim)
+or `--base64` (decoded bytes), and an existing id is overwritten.
+
+The template-aware surface is the same content viewed as renderable resources:
+
+```bash
+tai templates list
+tai templates get <id>
+tai templates upload prompts/greeting.md --file greeting.md
+tai templates render <id>
+```
+
+Stored content is one of the sections the [backup](/operate/backup-and-restore)
+surface can export and restore.
+
+<Note>
+A specific storage provider's configuration — its bucket, credentials, or paths —
+lives in that provider package's own repository, reachable from the
+[Plugins section](/plugins). The platform documents the storage
+contract, not any one provider.
+</Note>
+
+See the [manage-stored-content guide](/guides/manage-stored-content) for the media
+in-and-out workflow and the [Python SDK reference](/reference/python-sdk/index) for
+the `Storage` ABC and the `ResourceManager`.

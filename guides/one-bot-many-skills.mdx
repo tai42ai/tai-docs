@@ -1,0 +1,123 @@
+---
+title: "One bot, many skills"
+description: "Point a conversation route at a relay deep agent that delegates each message to a specialist sub-agent."
+icon: "sitemap"
+---
+
+Give a single WhatsApp number, Telegram bot, or Slack app many skills by routing it
+to a **deep agent** that relays each message to a specialist sub-agent. The bridge
+wiring is unchanged from the other how-tos — only the agent behind the route
+changes.
+
+## Why a deep agent
+
+An agent-target conversation route runs one **registered** agent by name, and its
+turn is that agent's `astream`. To fan a single conversation out to several skills,
+the routed agent must be able to delegate — which is exactly what a
+[deep agent](/concepts/deep-agents) does: it plans and calls **sub-agents** as its
+skills.
+
+The plain `tools_agent` cannot: its input schema omits `subagents` and rejects them
+loudly (`extra="forbid"`, plus a defense-in-depth raise on both faces). Reach for a
+deep agent when one bot needs many skills.
+
+## Configure the specialists
+
+The only thing you author is the **roster of specialists** — each a name, a
+`description` the relay agent routes on, a `system_prompt`, and the `tools` that
+specialist may use. This is a `DeepSubAgentSpec` roster:
+
+```json
+[
+  {
+    "name": "account",
+    "description": "Questions about the user's account and profile.",
+    "system_prompt": "You are the account specialist. Answer only account questions.",
+    "tools": ["lookup_account"]
+  },
+  {
+    "name": "tech-support",
+    "description": "Troubleshooting a device or connection.",
+    "system_prompt": "You are the technical-support specialist. Walk the user through fixes.",
+    "tools": ["run_diagnostic"]
+  }
+]
+```
+
+Bake that roster into a small deep-agent-backed agent registered under a route-able
+name. The agent is a thin authored wrapper — the roster is its whole configuration:
+
+```python relay_agent.py
+from tai42_agents.deep_agent.agent import DeepAgent
+from tai42_agents.deep_agent.tool_spec import DeepSubAgentSpec
+from tai42_contract.agent import Agent
+from tai42_contract.app import tai42_app
+
+_SPECIALISTS = [
+    DeepSubAgentSpec(
+        name="account",
+        description="Questions about the user's account and profile.",
+        system_prompt="You are the account specialist. Answer only account questions.",
+        tools=["lookup_account"],
+    ),
+    DeepSubAgentSpec(
+        name="tech-support",
+        description="Troubleshooting a device or connection.",
+        system_prompt="You are the technical-support specialist. Walk the user through fixes.",
+        tools=["run_diagnostic"],
+    ),
+]
+
+_deep = DeepAgent()
+
+
+@tai42_app.agents.agent("relay")
+class RelayAgent(Agent):
+    tool_name = "relay"
+    tool_description = "Relay that routes each message to a specialist sub-agent."
+    ToolInput = DeepAgent.ToolInput
+
+    async def run(self, *, user_message: str = "", thread_id: str | None = None, **_: object) -> str:
+        return await _deep.run(user_message=user_message, thread_id=thread_id, subagents=_SPECIALISTS)
+```
+
+<Note>
+A deep agent nests **one level** of sub-agents — a sub-agent may not itself declare
+sub-agents. Each specialist's `tools` are ordinary client tools the deployment has
+loaded, so the specialist can only use what the turn's execution key is also allowed
+to run.
+</Note>
+
+## Load it and route to it
+
+Name the module under `agents[]` — importing it registers `relay` — and enable the
+[deep-agent module](/concepts/deep-agents) it builds on.
+
+```yaml manifest.yml
+agents:
+  - title: deep-agent
+    module: tai42_agents.deep_agent
+    include: [deep_agent]
+  - title: relay
+    module: myapp.relay_agent
+```
+
+Point any conversation route at `relay` — the channel and execution-key wiring is
+exactly as in the other guides:
+
+```bash
+tai conversations create chat-line \
+  --door channel --target-name relay --execution-key chat-bot \
+  --channel twilio --identity whatsapp:+14155238886
+```
+
+Now one number answers account and tech-support questions, each handled by its
+specialist, with one shared conversation thread per client.
+
+## See also
+
+- [Deep agents](/concepts/deep-agents) — the sub-agent model.
+- [Author an agent](/guides/author-an-agent) — the authoring surface used above.
+- [WhatsApp to an agent](/guides/whatsapp-to-agent) — the full channel + key setup.
+- [Client conversations](/concepts/client-conversations) — how a route runs its
+  agent.

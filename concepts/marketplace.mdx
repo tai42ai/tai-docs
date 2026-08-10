@@ -1,0 +1,141 @@
+---
+title: "The marketplace"
+description: "The plugin index: listings, items, versions, and advisories."
+icon: "store"
+---
+
+The marketplace is the ecosystem's plugin index. A running server browses it,
+installs a plugin from it in one command, and hears from it when a published
+version turns out to be bad.
+
+This page explains the model. To search it and install from it, start at
+[Marketplace](/marketplace).
+
+## A metadata index
+
+The registry stores metadata, never packages. A **listing** points at the
+plugin's real distribution channel — its pip package and its source
+repository — and installing resolves that pointer and installs by source: a
+GitHub-sourced release is downloaded and its SHA-256 verified against the
+digest the registry recorded at ingest, while a PyPI-sourced release pins the
+exact version and relies on PyPI's file immutability. The registry's catalog is
+curated: it lists the ecosystem's
+first-party plugins, and every listing carries an `official` trust tier.
+
+## Listings and items
+
+One installable plugin carries many capabilities: a single package can ship
+tools, extensions, and agents together. The registry indexes each contained
+capability as its own **item** row with a kind, categories, and tags — because
+an item is what you search for. You search at item level and install at plugin
+level: finding the `generate_uuid` tool leads you to install the listing that
+carries it.
+
+## Versions
+
+Each listing publishes **versions**. A version records the exact release, its
+artifact, and the [tai42-contract](/concepts/layering) compatibility range it
+declares, so a server can tell whether a release fits its contract before
+installing. The registry validates every release's artifact against its
+listing before publishing it — a release that fails validation is never
+served.
+
+## Advisories and the kill switch
+
+An **advisory** flags affected versions of a listing with a severity and a
+summary. Separately, a version can be **killed** — a registry-side kill switch
+that refuses to resolve that version at all, so it can never be installed. The
+two are distinct: an advisory is a published warning that can later be
+withdrawn, while a killed version is pinned out of resolution.
+
+See [Advisories](/marketplace/advisories) for how a server checks.
+
+## The plugin descriptor: tai-plugin.yml
+
+Every plugin describes itself with a `tai-plugin.yml` — the plugin descriptor —
+at its repository root and inside its built wheel. It names the listing, the
+package, the version, the contract range, the `provides` list of every item the
+plugin carries, and — for a plugin that owns database tables — the `migrations`
+folder that holds its [migration chain](#the-migrations-contract).
+
+The registry indexes a plugin from this file and validates the artifact against
+it; the installer uses the `provides` list to patch the server
+[manifest](/concepts/manifest) per provided item. It is a different file from the
+server manifest: `tai-plugin.yml` describes what a plugin *offers*, the server
+manifest declares what a server *loads*.
+
+## The migrations contract
+
+A plugin that owns tables ships its schema as a **migration chain**, not a
+one-shot DDL apply. The framework runs the chain: `tai db migrate` discovers every
+component — the core plus each installed plugin that declares one — and applies
+its pending files in order. A plugin author owns the files; the runner owns the
+mechanism.
+
+**Declare the folder.** Point the descriptor's `migrations` field at a directory
+packaged inside the wheel:
+
+```yaml tai-plugin.yml
+package: tai42-accounts-postgres
+migrations: migrations
+```
+
+**Number the files.** Each file is `NNNN_short_name.sql` — one or more leading
+digits, an underscore, a name, the `.sql` suffix — applied in ascending numeric
+order. A `.sql` file that does not match the pattern, or two files claiming the
+same number, is a loud discovery error, never a silent skip.
+
+```text
+migrations/
+  0001_baseline.sql
+  0002_add_invite_index.sql
+```
+
+**One component, one identity.** The chain is recorded in the per-database
+`tai_schema_history` table under the plugin's **distribution name** (`package`) —
+for the accounts plugin, `tai42-accounts-postgres`. That identity is fixed once
+and forever: it never changes across releases, so the runner always reads the
+exact rows earlier versions wrote.
+
+**Checksum immutability — never edit a shipped file.** The runner records a
+SHA-256 of every applied file. On the next migrate or [boot gate](/self-hosted/upgrades#the-boot-gate)
+check it re-verifies each recorded version against the file that produced it; a
+changed checksum reads as a **rewritten chain** and is a hard error, never a
+silent re-run. A shipped migration is immutable. A correction — even a typo — is a
+**new** numbered file appended to the chain, never an edit to the old one. Chains
+roll forward only; there are no down-migrations.
+
+**Breaking changes: expand then contract.** Because there is no down-migration and
+older replicas may still be running during a rollout, split a breaking change
+across releases rather than rewriting a column in place:
+
+1. **Expand** — add the new shape additively (a new nullable column, a new table)
+   in one migration. Old and new code both run against it.
+2. **Backfill and cut over** — ship code that writes both shapes, or backfills the
+   new one, until every replica is on the new release.
+3. **Contract** — in a later release, once nothing reads the old shape, add a
+   migration that drops it.
+
+Each step is its own numbered file, so the chain records the whole transition and
+a from-scratch replay reproduces it exactly.
+
+## Installing into a server
+
+Install is a server-side operation: the server resolves the listing, installs
+the verified package into its own environment, patches its manifest per
+provided item, and reloads. The server records the marketplace ref and installed
+version locally, so `installed`, update checks, and advisories answer from
+local truth. The whole flow is one CLI command or one Studio click — see
+[Install a plugin](/marketplace/install).
+
+Because the install writes into the server's own environment and manifest, a
+self-hosted deployment keeps both on persistent storage — the plugin-prefix
+directory and the manifest file — so a container recreation does not lose the
+plugin. See [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
+
+## See also
+
+- [Browse and search](/marketplace/browse) — find plugins and items.
+- [Install a plugin](/marketplace/install) — install, update, uninstall.
+- [The manifest](/concepts/manifest) — the server-side file the installer patches.
+- [Plugins](/plugins) — every listed plugin, read from the marketplace.

@@ -1,0 +1,77 @@
+---
+title: "Deep agents"
+description: "Multi-step agents and the ready-made set."
+icon: "diagram-project"
+---
+
+import EnableDeepAgent from '/snippets/examples/agents/enable_deep_agent.mdx';
+
+A deep agent is a multi-step agent that composes other agents. It is built on the
+same authoring surface as any [agent](/concepts/agents) — the `Agent` contract —
+so there is no separate framework to learn; the depth comes from an agent driving
+sub-agents rather than from a different kind of object.
+
+## Sub-agents
+
+The contract carries a neutral sub-agent descriptor. An agent declares the
+sub-agents it can call, and the agents runtime constructs the live, typed
+sub-agent from that descriptor at run time. This is how a top-level agent
+delegates part of its work to a more specialised one and assembles a multi-step
+result.
+
+Because sub-agents are ordinary agents, everything on the [agents](/concepts/agents)
+page applies to them: the same registration, the same typed
+[stream events](/concepts/agents), and the same run tool.
+
+## The ready-made agents
+
+The platform ships a set of ready-made agents you enable from the
+[manifest](/concepts/manifest), rather than authoring them yourself. They are part
+of the batteries-included default set — usable platform content — so their usage
+lives in-site.
+
+The [use-the-ready-made-agents guide](/guides/use-the-ready-made-agents) covers
+the whole set; per-agent reference detail lives in that package's own repository,
+one click out from the [agents plugin](/plugins/tai42/agents).
+
+## Run one
+
+The shipped `deep_agent` is a deepagents-harness agent — planning, a per-thread
+scratch filesystem, skills, one level of nested sub-agents, and human-in-the-loop
+interrupts. Enable its module and the agents router:
+
+<EnableDeepAgent />
+
+Then stream a run, passing the input as a JSON object (its fields are the agent's
+own `ToolInput`):
+
+```bash
+tai agents run deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
+```
+
+When a run requests a `response_format` (a JSON Schema with a top-level `title`)
+but produces no structured output, both faces **raise rather than silently
+omitting the structured frame**: the JSON `run` face raises on drain, and the
+streaming face raises after the stream drains — unless the run paused on a pending
+interrupt, which takes precedence over the missing-structured raise.
+
+By contrast, a tool failure is surfaced to the model as an error tool result and the
+loop continues, so the agent can react to a bad call rather than aborting the whole
+run: a `ToolException` — how an in-process tool's own body exception is reported — or
+a pydantic `ValidationError` from a malformed tool call. Failures outside the tool
+call still abort loudly. This holds for the main agent and its explicit and nested
+sub-agents alike. A thread whose previous turn was aborted mid-tool-call is repaired
+at the next turn start (its unanswered tool calls get synthetic error results) so the
+provider stops rejecting the thread, while a thread paused on a real interrupt is left
+untouched.
+
+## Authored deep agents
+
+A deep agent's configuration can itself be saved and versioned as an authored
+agent — a [preset](/concepts/presets) that bakes the agent's preset-bakeable
+fields and rides the [versioning spine](/concepts/versioning-spine). That lets you evolve a
+multi-step agent's wiring over time without breaking the callers that run it.
+
+See the [author-an-agent guide](/guides/author-an-agent) for the authoring path
+and the [Python SDK reference](/reference/python-sdk/index) for the sub-agent
+descriptor and the `Agent` ABC.

@@ -1,0 +1,414 @@
+---
+title: "Conversation bridge"
+description: "Route CRUD and CLI, the read doors, forgetting a thread, retention, the fire-path authorization model, and every bridge setting."
+icon: "comments"
+---
+
+Reference for the [conversation bridge](/concepts/client-conversations): the routing
+table, the read and delivery doors, checkpoint and answer retention, the fire-path
+authorization model, and every `CONVERSATIONS_*` setting with its default.
+
+Every routing operation requires the Redis conversations backend
+(`CONVERSATIONS_REDIS_URL`). With no backend, each one refuses with a loud `501`.
+
+## Routes: CRUD and CLI
+
+| HTTP | CLI | What it does |
+| --- | --- | --- |
+| `GET /api/conversations` | `tai conversations list` | List routes (each `callback_secret` withheld). |
+| `GET /api/conversations/{route_name}` | `tai conversations get <name>` | Read one route; unknown name → `404`. |
+| `POST /api/conversations/{route_name}` | `tai conversations create <name> …` | Create **or replace** a route (an upsert). |
+| `DELETE /api/conversations/{route_name}` | `tai conversations delete <name>` | Delete a route; unknown name → `404`. |
+
+`create` is an authority-changing, admin-adjacent operation: it **binds** the
+route's `execution_key` (a pass-role decision) before any write, so a refused bind
+leaves an existing row untouched. The `target_name` — the agent or tool the turn
+runs — must merely exist. A `channel` row's `(channel, our_identity)` pair must be
+unclaimed. An `api` row mints a `callback_secret` returned **once** in the create
+result and never re-readable.
+
+```bash
+tai conversations create chat-line \
+  --door channel --target-name chat --execution-key chat-bot \
+  --channel twilio --identity whatsapp:+14155238886
+```
+
+`create` flags: `--door` (`api`|`channel`), `--target-kind` (`agent`|`tool`, default
+`agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
+targets), `--channel` / `--identity` (channel rows), `--callback-url` (api rows,
+HTTPS).
+
+## Route targets: agent or tool
+
+A route's `target_kind` chooses what an inbound turn runs:
+
+- **`agent`** (`target_name` a registered agent) — the default. The turn is the
+  agent's `astream` on the route's thread, so the conversation carries memory across
+  messages (see [conversation
+  lifetime](/concepts/client-conversations#conversation-lifetime)).
+- **`tool`** (`target_name` a registered tool) — the turn dispatches the tool
+  **statelessly**: no conversation memory, one message in and one reply
+  out. It runs under the route's `execution_key`, whose grants authorize the
+  dispatch.
+
+A `tool` target shapes the call with two optional jq programs, both compiled at
+create (an `agent` target carries neither):
+
+- **`payload_expr`** — jq over the inbound payload `{message, sender, our_identity,
+  channel}` — carrying `person_id` and `person_addresses` too when the target's
+  multichannel is on — emitting exactly one JSON object: the tool's kwargs. Omitted,
+  the kwargs are the fixed `{message, sender}`. `person_id` is the person the sending
+  address resolves to and `person_addresses` its address rows; `person_id` gives a flow
+  a channel-stable key for a linked person, one and the same across the channels they
+  paired.
+- **`reply_expr`** — jq over the tool's result, emitting exactly one value that is a
+  string or `null`: the reply text. Omitted, the result must itself be a string or
+  `null`.
+
+The payload also carries a **`params`** object when the inbound entry supplied one —
+a web channel's [link parameters](/plugins/tai42/channel-web#link-parameters) captured
+with the visitor session, or the [message door](#the-message-door)'s `params` body
+field — string values reachable as `.params.<name>`. The key is present **only** when
+the entry carried non-empty params, so guard for it (`.params.key // …`). The values
+are **untrusted transport**: the platform caps and delivers them but attaches no
+signature, expiry, or meaning, so a value a flow must trust is a secret the flow
+checks in its own store. Bounds: at most **16** params, each key
+`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized
+— a violation is refused at the door.
+
+A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
+on the door. On a `channel` route the record ends in the terminal `silent` state and
+nothing is sent to the client. On an `api` route the silence is **communicated**: the
+turn rides the normal delivery pipeline and its callback (or sync-wait reply) carries
+`status: "silent"` with no `answer` text, so the caller still gets a terminal result.
+A mapping fault, a denied or failed dispatch, or a wrong-typed result is a client-safe
+`error` outcome instead.
+
+### A flow preset as a tool target
+
+Publish a flow as a named tool (a [preset](/concepts/presets)) and route to it to
+answer each message by running the flow. The flow tool takes `flow_graph_kwargs`, so
+map the message into them and pull the reply out of the result envelope:
+
+```bash
+tai conversations create flow-line \
+  --door channel --target-kind tool --target-name my_flow --execution-key svc \
+  --channel twilio --identity whatsapp:+14155238886 \
+  --payload-expr '{flow_graph_kwargs: {message: .message, sender: .sender}}' \
+  --reply-expr '.result.answer // null'
+```
+
+`.result.answer` is the flow's answer node; `// null` stays silent when the flow
+produces nothing to say.
+
+## The message door
+
+`POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
+message and runs its turn as the route's execution key. Body: `external_user_id`,
+`text`, optional `wait_seconds`, optional `params`.
+
+`params` is an optional object of string values delivered to a **tool** target's
+payload under `.params` — the same key a channel entry's link parameters use — for a
+uniform tool-payload contract across both doors. It is validated to the same bounds
+(at most 16 entries, key `^[A-Za-z0-9_-]{1,64}$`, value ≤ 512 characters, ≤ 2048
+bytes); an invalid set is a `400` that names the violated bound **without echoing the
+offending value**.
+
+- `202 {message_id, thread_id}` — accepted, answer delivered later by signed
+  callback (default).
+- `200` with the answer inline — a `wait_seconds` turn that finished in time; its
+  callback is suppressed so it never double-fires. A turn that finished **silent**
+  returns `200` with the silent marker inline (`status: "silent"`, no answer text).
+  `wait_seconds` is clamped to `sync_wait_max_seconds`.
+- Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
+  address rate cap, `501` no backend, `503` thread queue full.
+
+## The read doors
+
+| HTTP | CLI | Scope |
+| --- | --- | --- |
+| `GET /api/conversations/{route_name}/messages/{message_id}` | `tai conversations get-message <route> <id>` | Read grant. |
+| `GET /api/conversations/messages/failed` | `tai conversations failed` | Admin only. |
+| `GET /api/conversations/{route_name}/threads` | `tai conversations threads <route>` | Admin only. |
+| `GET /api/conversations/{route_name}/transcript?thread_id=` | `tai conversations transcript <route> <thread>` | Read grant. |
+
+The single-record door is a plain authed read gated by the **conversations read
+grant**: a holder reads any record on the route, whichever door it arrived through. An
+admin read returns the full record (including `error`, the turn's internal detail); a
+non-admin read returns a caller-safe projection that withholds `error` and the
+delivery bookkeeping — the turn ran as the **route's** key, not the reader's. A record
+on another route (or missing) is a `404` — a wrong-route or unknown address, never an
+authorization verdict.
+
+The failed-delivery listing spans every route and caller, so it is admin-only.
+
+### The thread listing
+
+`GET /api/conversations/{route_name}/threads` lists the route's threads, **newest
+activity first**, one page at a time. It is **admin-only** — a listing spans every
+caller and every address on the route — and the authorization is decided *before* the
+route is looked up, so a non-admin is refused identically whether the name routes or
+not.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `page` | `1` | 1-based page number; at most `1000000`. |
+| `pageSize` | `50` | Items per page. A larger value is **capped to 200**, never refused. |
+
+The answer is `{items, total, page, page_size, next_page}`, where `total` counts the
+route's indexed threads and `next_page` is `null` on the last page. Each item carries:
+
+| Field | Meaning |
+| --- | --- |
+| `thread_id` | The thread's addressable identity — what the transcript door takes. |
+| `client_address` | The client address of the thread's newest readable record. |
+| `last_activity_at` | Epoch seconds; the route index's own score, which is what the listing sorts by. |
+| `message_count` | Exchanges the thread holds. |
+| `last_delivery_status` | The delivery state of the thread's newest readable record. |
+
+Refusals: `400` a non-integer, sub-1, or too-large window; `401` unauthorized; `403`
+a non-admin caller; `404` an unknown route; `501` no conversations backend.
+
+### The transcript
+
+`GET /api/conversations/{route_name}/transcript?thread_id=…` reads one thread's
+records, one page at a time. The thread id rides the **query string**, not the path:
+an API-door id carries a percent-encoded principal that no path spelling round-trips,
+and a query value is decoded exactly once whatever it holds.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `thread_id` | *(required)* | The thread to read, spelled as the listing returned it. |
+| `page` / `pageSize` | `1` / `50` | The same window as the listing; `pageSize` caps at 200. |
+| `order` | `asc` | `asc` reads oldest first; `desc` reads newest first, so page 1 always holds the latest — the order a live tail wants. |
+
+The answer is `{items, total, page, page_size, next_page, order}`, its items the same
+answer records the single-record door serves — whole records for an admin, the
+caller-safe projection otherwise.
+
+The transcript is a plain authed read gated by the **conversations read grant** — a
+holder reads any thread on the route, whichever door its messages arrived through: an
+API-door thread, a linked person's `bridge:@person:{person_id}` thread, or a channel
+thread alike. Only the two listings stay admin-only (each spans every caller and
+address on the route); a single thread read does not.
+
+A `404` here is an **addressing** verdict, never an authorization one: an unknown
+thread, an expired one, or a `route_name` that does not route at all. A blank
+`thread_id`, an unknown `order`, or a malformed window is `400`; a caller without the
+read grant is `403`; no backend is `501`.
+
+<Note>
+A thread the index still holds but whose records have expired under
+`answer_retention_ttl_seconds` reads as an **empty page carrying the indexed
+`total`** — not a `404` — until the prune pass reclaims the members.
+</Note>
+
+## Forgetting a thread
+
+`DELETE /api/conversations/{route_name}/thread?thread_id=…`
+(`tai conversations delete-thread <route> <thread>`) **forgets** one thread
+outright — its agent checkpoint, its answer records, and its thread indexes — so a
+later message on the same address starts a memory the deleted turns never touched. A
+linked person's aggregated `bridge:@person:{person_id}` thread is forgotten across
+every route index it spans.
+
+The thread id rides the **query string**, exactly as the transcript door takes it: an
+API-door id carries a percent-encoded principal that no path spelling round-trips.
+
+Forgetting is **absolute**. A valid id on its own route always succeeds, and the
+answer's `removed` count is `0` when nothing was left to clear — an aged-out thread
+whose records already expired under `answer_retention_ttl_seconds`, or one never seen
+— never a `404`. The checkpoint is deleted regardless, so keep-forever memory is not
+left behind once the records lapse.
+
+Authority is the door's **write** action — the **same conversations write grant that
+creates a route** deletes routes and forgets threads, never a per-thread owner check.
+
+The answer is `{removed, route_name, thread_id}`. Refusals: a route-keyed id missing
+the route's `bridge:{route_name}:` prefix is a `400` (it names another route) — the
+one guard stopping a delete on one route from wiping another's memory; a
+`bridge:@person:` thread whose person is unknown, or whose `route_name` is not one of
+that person's routes, is a `404`; a turn in flight on the thread is a `409` (retry
+once it drains); a blank `thread_id` or invalid `route_name` is a `400`; no backend
+is `501`.
+
+## The delivery lifecycle
+
+An answer record moves through `accepted` → `pending_delivery` → `provisional` →
+`delivered`, or ends `failed` (undelivered past the attempt budget, or reported
+failed by the provider), `shed` (refused by the address rate cap; no turn ran), or
+`silent` (a **channel** `tool` turn whose mapped reply was `null`/blank; the turn ran
+but sends nothing). An **api** `tool` turn that maps to silence does **not** end
+`silent`: it rides the delivery pipeline like any answer and ends `delivered`, its
+callback carrying `status: "silent"`. Only the terminal states (`delivered`, `failed`,
+`shed`, `silent`) carry the retention TTL.
+Delivery is retried with exponential backoff; a provisional record awaits an
+out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
+every unfinished record, delivering exactly once (no double callback).
+
+Client-facing text on the failure paths is fixed, not configurable:
+
+- **Turn error** — `"Sorry, something went wrong handling your message. Please try
+  again."` An `error` answer never carries an internal detail; the detail is
+  retained in the record's `error` field for the admin read door only.
+- **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
+  Please wait a moment and try again."` — sent once per cooldown window; further
+  over-limit messages are dropped as `shed`.
+
+## Checkpoint retention
+
+Conversation continuity is the checkpoint store's. Idle-thread expiry is governed by
+the LLM checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*`
+setting:
+
+| Setting | Env | Default |
+| --- | --- | --- |
+| `checkpoint` | `LLM_PROVIDER_CHECKPOINT` | `redis` |
+| `checkpoint_ttl_minutes` | `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` | *(unset — keep forever)* |
+
+`checkpoint_ttl_minutes` is an **idle** TTL: a thread lives as long as it keeps
+receiving messages and expires only after it sits idle past the lifetime. Unset
+means threads are kept forever.
+
+How the idle window is enforced depends on the provider:
+
+- `redis` carries a native per-key TTL, refreshed on each checkpoint write — idle
+  expiry is automatic.
+- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes
+  every thread whose newest checkpoint is older than the cutoff.
+- `memory` is process-lifetime.
+
+<Note>
+The `postgres` checkpoint and store tables are **self-managed by LangGraph**: the
+library creates and maintains its own schema. They are not part of a
+[migration chain](/concepts/marketplace#the-migrations-contract) and are outside
+`tai db migrate` / `tai db status`, which cover only the framework's and plugins'
+own tables. There is nothing to migrate here — LangGraph sets its tables up on
+first use.
+</Note>
+
+### The sweep operation
+
+`sweep_checkpoints` (`POST /api/checkpoints/sweep`, `tai checkpoints sweep`) is
+**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes
+stale threads on a DB-backed provider and is a reported no-op on `redis`/`memory`
+or with the TTL unset. It runs on either recurrence path:
+
+- **Native schedules** — recurrence needs the tool branched with the backend's
+  `schedule_task` extension: wrap the sweep in a small manifest tool carrying
+  `schedule_task`, then schedule that branched tool via `POST /api/schedules`
+  (`tai schedules …`) on a scheduler-capable backend. (Projecting as a tool makes
+  the sweep runnable by name; the `schedule_task` branch is what registers a
+  recurrence.)
+- **External cron** — call `tai checkpoints sweep` on a timer from your own cron /
+  systemd timer / k8s CronJob. The busless path — no scheduler backend needed.
+
+## The fire-path authorization model
+
+A conversation route separates *who may send* from *what the turn may do*, and both
+are enforced live.
+
+<Warning>
+  A `public` trigger-auth hook can be fired by **anyone, with no credential** — so the
+  bound `execution_key` is the **only** thing bounding what a fired hook can do. Treat the
+  key as the security boundary: bind a **least-privilege** key, and **never** bind an admin
+  or broad key to a `public` (or `token`) hook — that lets any caller act with those
+  privileges. Use `verifier` or `api_key` triggers when the fire itself must be
+  authenticated.
+</Warning>
+
+**Who may send.** A `channel` message is authenticated by the provider's own
+signature over the raw webhook body (fail-closed — a missing or bad signature is
+rejected and runs no turn). An `api` message is authenticated by the access-control
+gate on the send door. This mirrors the general
+[trigger authentication](/concepts/triggers-and-webhooks) posture — a door is
+public, verifier-signed, token-gated, or API-key-gated — applied to the two
+conversation doors.
+
+**What the turn may do.** The turn runs **as** the route's bound `execution_key`,
+never as the sender. That key's **live** stored grants authorize the agent run (or
+the `tool` target's dispatch) and every tool call the turn makes — including any tool
+a deep-agent sub-agent calls. The rules:
+
+- **Bind (pass-role).** You may bind your own identity or an execution key you own;
+  an admin may bind any key. A non-admin's refusal is a uniform `403` across
+  absent-key and not-yours, so the door is no probe for key ids.
+- **Token-free-evaluable only.** The bound key's stored policy condition must be
+  resolvable by a background execution with no request token. A condition that needs
+  a request token is rejected at bind — it could never be evaluated at fire.
+- **Fingerprint binding.** The route stores a server-derived per-mint
+  `execution_key_fingerprint`. The fire resolves the identity against that
+  fingerprint, so a key re-minted under a new fingerprint no longer satisfies the
+  route until it is re-bound.
+- **Enforce at fire, automatic revocation.** The turn is authorized against the
+  key's grants at fire time, not at bind. Attenuate the key by any means — drop a
+  scope, disable it, delete it, narrow its owner — and the next turn is denied, with
+  no revocation-specific step on the route. Scope the key (and the agent) to least
+  privilege.
+
+A denied run does not crash the turn: it becomes a client-safe `error` outcome, its
+detail retained for the admin read door.
+
+**Signed-callback posture.** An `api` route's `callback_url` must be absolute
+**HTTPS** — an `http://` or relative URL is rejected at create, with **no** insecure
+opt-out. Every callback is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
+raw_body)>`, over a body of `{message_id, thread_id, status, answer}` — with `answer`
+absent on a `silent` outcome. See [connect your own
+system](/guides/connect-your-own-system#verify-the-x-tai-signature).
+
+## Settings
+
+Every setting reads the `CONVERSATIONS_` env prefix (so `max_concurrent_turns` is
+`CONVERSATIONS_MAX_CONCURRENT_TURNS`). Startup validators reject an invalid
+combination loudly.
+
+### Backend
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `redis_url` | *(unset)* | `CONVERSATIONS_REDIS_URL`. No URL → no durable store → every routing op refuses `501`. |
+| `redis.socket_connect_timeout` | `5` | Seconds; bounds the connect so a black-holed Redis fails loudly. |
+| `redis.socket_timeout` | `5` | Seconds; bounds each command read. |
+| `prefix` | `conversations` | Keyspace prefix for every conversation key. |
+
+### Turn-engine bounds
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `max_concurrent_turns` | `10` | One semaphore bounds **total** in-flight turns on the worker. |
+| `thread_queue_depth` | `20` | Per-thread FIFO depth; a message that would exceed it is refused (`503`). |
+| `per_address_turns_per_hour` | `20` | Per-`client_address` token-bucket rate (turns per rolling hour). |
+| `address_bucket_max_entries` | `50000` | Max per-address buckets one worker holds; a flood evicts rather than growing unbounded. |
+| `sync_wait_max_seconds` | `120` | Upper clamp on the API door's `wait_seconds` before it falls back to `202`. |
+| `intake_claim_lease_seconds` | `120` | Seconds a running turn's intake lease stays live; only a lapsed lease is re-driven. |
+| `intake_claim_refresh_seconds` | `30` | Intake-lease refresh interval; must stay **below** the lease. |
+
+### Delivery bounds
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `delivery_max_attempts` | `8` | Attempts before an undelivered answer is marked `failed` (retained). |
+| `delivery_backoff_base_seconds` | `60` | First retry wait; each later one doubles. |
+| `delivery_backoff_max_seconds` | `900` | Backoff ceiling. |
+| `delivery_claim_lease_seconds` | `120` | Seconds a delivery worker's exactly-once claim stays live. |
+| `delivery_send_timeout_seconds` | `60` | Bounds one outbound channel send; must stay **below** the delivery lease. |
+| `delivery_callback_timeout_seconds` | `15` | Bounds one api-door callback POST; must stay **below** the delivery lease. |
+| `delivery_sweep_interval_seconds` | `60` | Seconds between stalled-delivery sweep passes. |
+| `delivery_grace_seconds` | `3600` | Seconds a `provisional` record waits for a receipt before it confirms `delivered`. |
+| `max_message_chars` | `{twilio: 1600, telegram: 4096, slack: 40000, whatsapp: 4096}` | Per-channel outbound split caps. A routed channel absent from the map is a loud config error at send. |
+| `max_outbound_chunks` | `10` | Max provider messages one answer may fan out to; a longer answer is refused with a client-safe error, never silently truncated. |
+
+### Retention / idempotency
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `inbound_dedupe_ttl_seconds` | `172800` (48h) | How long a seen `(channel, provider_message_id)` stays deduped; a replay within it starts no second turn. |
+| `answer_retention_ttl_seconds` | `2592000` (30d) | Applied to a record and its indexes **only** on the terminal transition; before that it carries no expiry. |
+
+## See also
+
+- [Client conversations](/concepts/client-conversations) — the model.
+- [WhatsApp](/guides/whatsapp-to-agent), [Telegram / Slack](/guides/telegram-slack-to-agent),
+  and [your own system](/guides/connect-your-own-system) — the setup guides.
+- [Access control](/concepts/access-control) and [owned keys](/concepts/owned-keys)
+  — the execution key's grants.

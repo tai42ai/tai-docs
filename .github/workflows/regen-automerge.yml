@@ -1,0 +1,24 @@
+# Regeneration PRs merge themselves the moment branch protection's required
+# checks pass — the regenerate pipeline has no human step. The PAT (not
+# GITHUB_TOKEN) enables auto-merge and authors the merge commit so follow-on
+# workflows fire on the push.
+name: regen-automerge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: >-
+      (startsWith(github.head_ref, 'docs/regenerate-') ) &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Enable auto-merge on the regeneration PR
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.TAI_DOCS_PR_TOKEN }}

@@ -1,0 +1,102 @@
+---
+title: "Sign in"
+description: "Sign in to the Studio with a login method, an invite, or an API key."
+icon: "right-to-bracket"
+---
+
+The Studio's sign-in screen is **metadata-driven**. It asks the server what
+login methods it offers and renders exactly those — a password form, a sign-in
+button, or both — with an API-key field always reachable as a fallback. A server
+with no [accounts](/concepts/accounts) provider shows only the key field; a
+server with one shows the human login flows its provider declares.
+
+<Frame caption="The Studio sign-in screen at /login.">
+  <img className="block dark:hidden" src="/images/studio/login-light.png" alt="The Studio sign-in screen rendering a login method with the API-key fallback." />
+  <img className="hidden dark:block" src="/images/studio/login-dark.png" alt="The Studio sign-in screen rendering a login method with the API-key fallback." />
+</Frame>
+
+## Sign-in methods
+
+The screen reads the server's public login-methods listing and draws one control
+per declared method:
+
+- A **credentials form** — the provider names the fields (for example email and
+  password) and the route to post them to. Submitting mints a session and lands
+  you on the screen you were headed for.
+- A **redirect button** — a single button that navigates to a provider's sign-in
+  flow (for example an OIDC authorize route). The provider owns the round trip;
+  the callback returns a session.
+
+Because the methods are data the provider declares, the login screen never
+hard-codes a specific auth scheme — swapping or adding a provider changes what
+the screen renders, with no Studio change.
+
+## First-run owner
+
+On a fresh deployment there are no accounts yet, so the login listing reports a
+**bootstrap** state and the screen shows a one-time **owner-creation** form
+instead of a normal login. Completing it creates the initial admin — the owner —
+and the bootstrap form disappears the moment the owner exists. From then on the
+screen shows the ordinary sign-in methods.
+
+## Invites
+
+An admin grows the user set from the [users-admin
+page](/studio/admin-console). An invited person opens their invite link, which
+carries an invite token; the login screen recognises the token and shows a
+**set-your-password** form that activates the account. Invites are single-use and
+time-bounded — an expired or already-used invite is refused.
+
+## Claim links
+
+A [claim link](/concepts/owned-keys#access-channels) reaches an
+[owned key](/concepts/owned-keys) to a new device without the raw secret ever
+travelling in a request URL — the `<origin>/login#claim=<token>` **fragment** is
+never logged. When the sign-in screen loads with a `#claim=` fragment it exchanges
+the token once at the always-public `POST /api/login/claim` and signs the Studio in
+with the returned key — the same held-in-the-browser session the key field
+produces, with no typing. A spent, unknown, or expired token fails the same
+indistinguishable way and the screen falls back to the ordinary sign-in controls;
+mint a fresh key and link when one fails.
+
+[Owned keys](/concepts/owned-keys#access-channels) covers the one-time, TTL-bounded
+exchange in full. Claim links are created in the [API-keys](/studio/api-keys)
+create dialog (or via [`tai keys claim-link`](/reference/cli/keys)).
+
+## API-key fallback
+
+The **API-key** field is always available, behind an *"Use an API key instead"*
+toggle when login methods are present. Pasting a deployment key signs the Studio
+in exactly as it always has — the key is held in the browser and sent on every
+request. This path is permanent: it is how an operator reaches a server that has
+no accounts provider, and how the headless, machine-key path stays usable
+alongside human login. See [API keys](/studio/api-keys) for provisioning keys.
+
+## Deploy notes
+
+To turn on human login, a deployment enables an accounts provider and lists it
+in the auth-provider chain:
+
+- Add the accounts provider's module to the server's lifecycle and router
+  modules so its login routes and session validation are mounted.
+- Include the provider in `ACCESS_CONTROL_AUTH_PROVIDERS` — the ordered
+  [auth-provider](/concepts/access-control) list the gate resolves credentials
+  against — so its sessions are validated.
+- Run the accounts plugin's migrations. A Postgres-backed provider ships its own
+  [migration chain](/concepts/marketplace#the-migrations-contract), applied by the
+  framework runner with `tai db migrate` alongside the core; the provider refuses
+  to serve until it is applied. See [Accounts](/plugins/tai42/accounts-postgres#run-the-migrations).
+
+<Note>
+The concrete settings, schema, and migration steps for a specific accounts provider
+live in that plugin's own repository README — this page covers the
+skeleton-side wiring that every accounts provider plugs into.
+</Note>
+
+## See also
+
+- [Accounts](/concepts/accounts) — the session, ownership, and role model behind
+  sign-in.
+- [Access control](/concepts/access-control) — multi-provider resolution and the
+  public login namespace.
+- [API keys](/studio/api-keys) — the key fallback and owned credentials.

@@ -1,0 +1,125 @@
+---
+title: "Accounts"
+description: "Human accounts, sessions, and the login flows that sign a person in."
+icon: "user-lock"
+---
+
+Accounts are the human side of [access control](/concepts/access-control). An
+accounts provider owns user records and the login flows that sign a person in —
+password forms, invites, first-run owner creation, and browser sign-in — and
+mints the session tokens those flows return. It is an opt-in plugin kind: a
+server with no accounts provider still authenticates API keys, it just has no
+human login.
+
+## Accounts and identity are two kinds, one seam
+
+The platform keeps two auth-related plugin kinds with one purpose each:
+
+- An **[identity](/concepts/access-control) provider** answers a single
+  question — *who is this token?* — for whatever credential arrives: an API key,
+  an issuer-minted JWT, or a session token. It validates and returns an
+  identity; it mints nothing on a human's behalf.
+- An **accounts provider** owns human accounts and the login flows that *create*
+  sessions for them. Crucially, an accounts provider **is** an identity
+  provider: the session tokens it mints are validated back through the same
+  `validate_token` seam every other credential passes through. Installing an
+  accounts provider never adds a second enforcement pathway — the request gate
+  stays the one gate.
+
+Splitting the kinds this way keeps each provider single-purpose: a pure identity
+provider (an API-key store, an issuer verifier) never grows login UI, and an
+accounts provider never becomes a parallel authorization path.
+
+## The session model
+
+A login flow returns an **opaque session token** — a random string the server
+mints, with no parseable contents. The recommended prefix is `tai-sess-`, so a
+session token is distinguishable at a glance from an `sk-` API key, but the gate
+never parses either; it hands the whole token to a provider to resolve.
+
+Sessions are provider-owned and follow the same one-way-hashing discipline as
+API keys: only a hash of the token is stored, the plaintext is returned to the
+browser once, and a session carries a TTL so it expires without an explicit
+logout. Logout revokes the session server-side; a revoked or expired token
+resolves to no identity and the request is denied like any other bad credential.
+
+## Keys are owned credentials
+
+With accounts in play, an API key is no longer a free-standing secret — it is a
+credential **owned** by an account. The mint path records the owning account on
+the key, and the request gate enforces that ownership on every call:
+
+- A key can never out-scope its owner. A key minted by a non-admin is
+  **attenuated** to a subset of the owner's own authority; a mint that asks for
+  more than the owner holds is rejected at mint time.
+- The owner's authority is enforced *through* the key on every request, not just
+  captured once at mint. This is what makes attenuation hold **over time**: when
+  an admin changes an owner's role, or disables the owner, the owner's live
+  policy changes and every key that owner holds is re-evaluated against the new
+  policy on its next request. A key does not carry a frozen snapshot of what its
+  owner could once do.
+
+Only an admin can mint an **ownerless** key — the headless, machine-to-machine
+credential that belongs to no human account. That keeps the automation path
+alive while making the common case (a key tied to a person) the default. See
+[API keys](/studio/api-keys) for provisioning and the ownership cap.
+
+## Roles
+
+An account's authority comes from a **role** — a named, editable permission set
+an admin assigns by name. An account's enforced policy carries a **live pointer**
+to its role, not a copy: enforcement reads the role's current definition on every
+request, so an edit to a role changes every holder's access on their next request,
+and moving an account to a different role re-points it immediately.
+
+A role's editable part is a **per-tag access-level map** — each feature group is
+set to `none`, `read`, or `write` — composed with a non-editable base-tier ceiling
+and the admin-only route fence (see
+[user types and permissions](/concepts/permissions)). The platform seeds three
+roles: **admin** (full control, reserved and permanent), **editor** (`write` on
+every grantable feature group), and **viewer** (`read` on every grantable feature
+group). An admin can also **create, edit, delete, and roll back** custom roles —
+through the Studio or the [`tai roles`](/reference/cli/roles) CLI. Because the role
+sets the owner's live authority, moving an owner from editor to viewer, or editing
+either role, immediately re-attenuates every key that owner holds, without touching
+the keys themselves.
+
+## First run and invites
+
+A fresh deployment has no accounts. The login surface reports a **bootstrap**
+state, and the first sign-in creates the **owner** account — the initial admin —
+through a one-time owner-creation flow that closes the moment the owner exists.
+Concurrent first-run attempts are resolved so exactly one owner is ever created.
+
+After that, an admin grows the user set by **invite**: the admin creates an
+account and issues an invite, and the invited person follows an invite link to
+set their own password and activate the account. Invites are single-use and
+time-bounded — an expired or already-accepted invite is refused.
+
+## What the users-admin page governs
+
+The Studio's [users-admin page](/studio/admin-console) manages **only human
+accounts** — the `usr-*` principals an accounts provider owns: create a user,
+invite them, apply a role, disable an account. The role picker reflects the
+**current editable role set** — the seeded admin/editor/viewer plus any role an
+admin has created — so a newly authored role is assignable the moment it exists.
+It deliberately does **not** list non-human principals, because they are not
+accounts:
+
+- `sk-*` — machine API keys — are governed on the
+  [API keys](/studio/api-keys) surface.
+- `oidc:*` — subjects that signed in through a browser OIDC flow — and `idp:*` —
+  subjects behind issuer-minted machine JWTs — are governed by the raw
+  [access-control](/concepts/access-control) policy routes.
+
+So an operation that looks like "disable this admin" is a *different* action
+depending on the principal type: disabling a human owner is a users-page action,
+while disabling an OIDC-provisioned admin is a policy-route action against that
+`oidc:*` principal. One principal type, one governing surface.
+
+## See also
+
+- [Access control](/concepts/access-control) — the request-auth gate accounts
+  plug into, and multi-provider resolution.
+- [Sign in to the Studio](/studio/login) — the login surface these flows render.
+- [API keys](/studio/api-keys) — owned keys and the attenuation cap.

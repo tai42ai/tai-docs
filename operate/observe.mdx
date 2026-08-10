@@ -1,0 +1,64 @@
+---
+title: "Observe"
+description: "Collect metrics and traces."
+icon: "chart-line"
+---
+
+Collect metrics and traces from a running server.
+
+The runtime records what runs. Tool and agent runs produce traces; aggregate counts and latencies roll up into metrics. You query both from the CLI. A monitoring backend plugin persists and serves the data; the `monitor` extension traces a standalone tool call as one span.
+
+## Query metrics
+
+Query aggregate metrics over a time range. `--from` and `--to` take an ISO instant or a relative token (`7d`, `30d`); `--granularity` is `hour`, `day`, or `week`.
+
+```bash
+tai obs metrics --from 7d --granularity day
+```
+
+## List and read traces
+
+<Steps>
+  <Step title="List runs">
+    List observability runs, or download the filtered list with `--export`.
+
+    ```bash
+    tai traces list
+    ```
+  </Step>
+  <Step title="Read one trace">
+    Get one run's full trace, or download it as JSON with `--export`.
+
+    ```bash
+    tai traces get <run-id>
+    ```
+  </Step>
+</Steps>
+
+## Trace a standalone tool call
+
+A tool call outside a flow or agent has no trace of its own. Load the `monitor` extension and stack it onto a tool to record the call as one live span. Load the module, then attach `monitor` to a tool.
+
+```yaml manifest.yml
+extensions_modules:
+  - tai42_skeleton.extensions.builtin.monitor
+
+tools:
+  - title: my_tools
+    module: myapp.tools
+    include: [greet]
+    extensions:
+      greet: [[monitor]]
+```
+
+When a flow or agent trace already owns the call, the extension suppresses its own span and just runs the tool.
+
+<Note>
+Metrics and traces are served by a monitoring backend plugin, registered under `monitoring_module`. Without one, the runtime uses a no-op default and there is nothing to query.
+</Note>
+
+## See also
+
+- [Live operations](/concepts/live-operations) — status, retry, and runtime state.
+- [The MCP-citizen surface](/concepts/mcp-citizen-surface) — progress and structured output that traces capture.
+- [CLI reference](/reference/cli) — the full `tai obs` and `tai traces` surface.

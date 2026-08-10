@@ -1,0 +1,152 @@
+---
+title: "The manifest"
+description: "The declarative file a server loads at startup."
+icon: "scroll"
+---
+
+The manifest is the single declarative file a server loads at startup. It names
+the tools, agents, extensions, external MCP servers, and plugin modules that make
+up one running system. Nothing loads automatically — a capability is present
+because the manifest names it.
+
+<Note>
+  This page covers the **server** manifest. A plugin's own descriptor,
+  `tai-plugin.yml`, is a different file.
+</Note>
+
+## Where it comes from
+
+A server loads its manifest from the file pointed at by `--manifest-path` (its
+env default is `TAI_MANIFEST_PATH`), or from its config directory. An empty
+manifest (`{}`) boots a bare MCP server with no tools; every section is optional.
+
+```bash
+tai serve --manifest-path examples/hello/manifest.yml
+```
+
+Before you deploy, validate a manifest offline — no server required — with the
+CLI:
+
+```bash
+tai manifest validate manifest.yml
+```
+
+## What it holds
+
+Most entries are Python import paths. Importing a module runs its `@tai42_app.*`
+registration decorators, which is how a tool, agent, or provider becomes live.
+
+- **`tools`** — each entry imports a `module` and selects tool names with
+  `include` / `exclude`. A separate `extensions` map attaches an
+  [extension](/concepts/tools-and-extensions) branch to a selected tool.
+- **`agents`** — each entry imports a module whose `@tai42_app.agents.agent`
+  decorator registers an [agent](/concepts/agents) and generates its run tool.
+- **`mcp`** — external [MCP servers](/guides/bring-an-mcp-server) to mount, one
+  transport per entry (`url`, `uds`, or `command`).
+- **Startup module hooks** — single-valued slots and module lists that wire
+  plugins in: `storage_module`, `backend_module`, `monitoring_module`,
+  `extensions_modules`, `lifecycle_modules`, `routers_modules`,
+  `middlewares_modules`, `webhook_verifier_modules`, and `channel_modules`.
+  `routers_modules` names only extra HTTP routers mounted on top of the default
+  set; `default_routers` selects that set ([below](#http-routers)).
+- **`studio_plugins`** — names the installed Python **packages** that ship a
+  [Studio plugin](/studio/plugins) (a browser-side UI extension), not import
+  paths. Each named package carries its own `studio-manifest.json` declaring what
+  it contributes to the Studio shell — tool panels, pages, settings tabs, and
+  sidebar `nav_entries`. That plugin manifest is a separate file from this server
+  manifest; see [Author a Studio plugin](/studio/plugins).
+- **`api_tools`** — curates which management [operations](/concepts/live-operations)
+  project as MCP tools (below). It never selects your own tools; it governs only
+  the operation-projected surface.
+
+## A minimal manifest
+
+The hello-world manifest names one local tool module and nothing else:
+
+```yaml
+tools:
+  - title: hello
+    module: myapp.tools
+    include: [greet]
+```
+
+`module` is an import path, so `myapp` must be importable when the server starts.
+`include` limits which tool names from the module are exposed; omit it to expose
+all of them.
+
+## Selection versus attachment
+
+Within a `tools` entry, `include` / `exclude` are **selection** only — they decide
+which tool names go live. The `extensions` map is **attachment** — it branches a
+selected tool into a new variant (`{toolname: [ext]}` produces `toolname_ext`).
+Attachment never selects: mapping an extension onto a tool that is not in the
+selected set raises loudly rather than silently doing nothing.
+
+## The `api_tools` block
+
+The management [operations](/concepts/live-operations) — reload a tool, replace
+the manifest, re-probe a failed MCP server — are always available as HTTP routes
+and CLI commands. `api_tools` decides which of them also project as MCP tools:
+
+```yaml
+api_tools:
+  enabled: true
+  expose_destructive: true
+  include: [update_manifest]
+  exclude: [reload_config]
+```
+
+- **`enabled`** — with `false`, no operation projects as a tool; the surface is
+  empty.
+- **`expose_destructive`** — gates the destructive-flagged operations (a tool
+  reload, a manifest replace). With `false` they stay off the MCP surface even
+  though their routes remain.
+- **`include`** / **`exclude`** — name operations to force on or suppress. A name
+  appearing in **both** lists is a loud validation error, and an `include` naming
+  an operation that is not registered fails boot rather than silently doing
+  nothing.
+- **`extensions`** — attaches [extension](/concepts/tools-and-extensions) combos to
+  a projected operation, exactly as a `tools` entry's `extensions` map does.
+
+Two rules override the block. A **meta-executor** — `run_tool`, which runs any
+tool by name — is never projectable: it is hardcode-blocked from the MCP surface
+even when named in `include`. An **authority-changing** operation — one that mints
+keys, edits policy, replaces the manifest (`update_manifest`), or restores
+unshipped state (a backup import) — is off the default surface and projects only
+when `include` names it explicitly.
+
+## HTTP routers
+
+Out of the box the server mounts a **default core-router set** — every built-in
+API router, plus the Studio SPA catch-all served last — so a bare manifest boots
+the full Studio surface. You do not list the core routers. `default_routers`
+selects the set:
+
+- **`all`** (the default) — mount the core API routers and serve the Studio SPA,
+  whose catch-all route is added last. The normal full-Studio deployment.
+- **`api`** — mount the core API routers but do not serve the SPA: a headless
+  JSON HTTP API (`/api/*`) with no browser UI.
+- **`none`** — mount no defaults; `routers_modules` must then list every router
+  the server loads. For a fully manual or MCP-only surface.
+
+`routers_modules` is always **additive**: it names extras — your own routers, a
+plugin's router — mounted on top of the selected default set. Under `all` and
+`api` the loader mounts each core router once even if the manifest re-lists it, so
+an extra never double-mounts a default.
+
+The Studio SPA catch-all matches every unclaimed path, so it must register **last**
+or it shadows the routers after it. Under `all` the loader forces it last, and an
+installed plugin router is inserted before it. Under `none`, where you list routers
+yourself, keep the SPA catch-all module last in `routers_modules` if you serve the
+Studio UI.
+
+<Note>
+Tool extensions still load per module — you opt each one in by naming its module,
+exactly like your own code. The management tools are a further exception: they
+project from the operations layer, curated by `api_tools`, not loaded module by
+module.
+</Note>
+
+See the [Python SDK reference](/reference/python-sdk/index) for the `Manifest`
+and `ApiToolsConfig` models and the [CLI reference](/reference/cli/index) for
+`tai manifest`.

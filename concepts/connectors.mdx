@@ -1,0 +1,98 @@
+---
+title: "Connectors"
+description: "OAuth connections to outside apps."
+icon: "plug"
+---
+
+A connector is an OAuth connection to an outside app. It binds a running server to
+a third party — Google, Atlassian, and others — and manages the token exchange and
+storage so a tool can call an authenticated API without ever handling raw
+credentials.
+
+## The provider-agnostic engine
+
+The connector engine is provider-agnostic. The domain and wire models and the
+provider ABCs live in the contract; the skeleton owns the runtime — the OAuth
+flow, the token store, the resolver, and the stdio glue. Individual providers
+ship as separate [plugins](/concepts/config-and-secrets) that register through
+`tai42_app` when the [manifest](/concepts/manifest) loads them.
+
+## Tokens resolved at call time
+
+A managed connection is referenced from the manifest by its provider and
+sub-service; the actual credential is resolved at call time, per outbound request.
+The resolver serves a healthy, still-fresh token on the hot path without locking,
+and only takes a lock to refresh a stale one — so replicas racing an expired token
+converge on one refresh.
+
+The resolved credential is injected on the right channel for the transport: an
+`Authorization: Bearer` header for HTTP, or the `_meta` token field for a stdio
+MCP server. A connection can also be no-auth-with-config, in which case configured
+values are injected as headers or environment instead of a token.
+
+## Where tokens live
+
+The token store keeps tokens in Redis as a cache and Postgres as the source of
+truth. It comes up **only when its database is configured** — the [named
+database](/concepts/config-and-secrets#named-databases) the core `skeleton`
+component binds to, on with a non-empty `TAI_DATABASE_<NAME>_PG_PASSWORD` — the
+same presence gate every other database-backed feature uses. That gate is what
+turns connectors on for a deployment; absent it, connectors are off and startup
+never opens Postgres for them. With the database configured and none reachable,
+startup fails loudly.
+
+The **provider catalog is not loaded from the database**. Every provider registers
+its descriptor in-process at import time — through the `register_connector` call a
+provider plugin makes when the [manifest](/concepts/manifest) loads it (or a plugin
+installed from the marketplace) — so listing and resolving providers reads the
+in-memory registry and never touches Postgres. Only the token store, above, uses
+the database.
+
+## Connection health
+
+A connection carries a health state, so a token that has stopped refreshing or a
+connection that needs re-authorising surfaces as a clear, typed condition rather
+than a silent failure at call time. Reconnect-required and refresh-failing states
+raise their own errors.
+
+## Engine settings
+
+The engine's own settings apply to every connector, not to any one provider. A
+provider package adds only its own client credentials (its `CONNECTORS_<PROVIDER>_*`
+group); these `CONNECTORS_*` keys are shared:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CONNECTORS_KEK` | unset | Base64 32-byte key encrypting stored tokens (AES-GCM). Required — the engine raises when it needs to encrypt or decrypt and this is missing or malformed. |
+| `CONNECTORS_STATE_HMAC_KEY` | unset | Base64 key of at least 32 bytes signing the OAuth `state`. Required. |
+| `CONNECTORS_REDIRECT_URI_ALLOWLIST` | empty | Comma-separated origins allowed to receive the callback. Empty rejects every connect flow — there is no implicit fallback. |
+| `CONNECTORS_OAUTH_BRIDGE_URL` | unset | Shared bridge origin, when the callback does not live on this deployment. It must also appear in the allowlist or every connect flow fails closed. |
+| `CONNECTORS_MAX_SESSION_TTL` | 180 days | Longest a stored connection stays valid — an inactivity cap, reset on every successful use or refresh. |
+
+The `CONNECTORS_KEK` and `CONNECTORS_STATE_HMAC_KEY` are key material: they are kept
+out of logs and are refused inside a settings profile. The origin a provider registers
+with must appear in `CONNECTORS_REDIRECT_URI_ALLOWLIST`, and it must be https for
+anything but a local host.
+
+## Managing connections
+
+Drive the OAuth lifecycle from the CLI:
+
+```bash
+tai connectors providers      # list the registered providers
+tai connectors connections    # list live connections
+tai connectors connect <provider>
+tai connectors reconnect <id>
+tai connectors disconnect <id>
+```
+
+<Note>
+The platform documents connectors at the platform level. A specific provider's
+setup — its scopes, redirect URIs, and environment — lives in that connector
+package's own repository, reachable from the
+[Plugins section](/plugins).
+</Note>
+
+See the [connect-an-OAuth-provider guide](/guides/connect-an-oauth-provider) for
+the end-to-end flow and the [HTTP API reference](/reference/api/index) for the
+connector routes.

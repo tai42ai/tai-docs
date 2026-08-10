@@ -1,0 +1,330 @@
+---
+title: "Access control"
+description: "The jq-policy request-auth gate."
+icon: "shield-halved"
+---
+
+Access control is the request-auth gate in front of a server. It resolves an
+inbound API key to an identity, loads that identity's policy, and decides whether
+the request may reach its route. It is on by default; it reads live auth context
+(identity, the policy-version cache-buster, and live counters) from Redis and its
+durable policy bodies and route mappings from Postgres.
+
+This page explains the model. To turn the gate on and write a first policy,
+follow [Set up access control](/guides/access-control).
+
+<Note>
+For local development against tools that need no auth, turn the gate off with
+`ACCESS_CONTROL_ENABLE=false` — the [quickstart](/getting-started/quickstart)
+does exactly this.
+</Note>
+
+Every request the gate admits also writes one **audit line** to the server log:
+the principal the gate resolved (`anonymous` when the request carried no identity
+— a public route, or the gate turned off), the method, the route, the response
+status, how long it took, and a timestamp. It is on by default and turns off with
+`TAI_AUDIT_LOG_ENABLE=false`. The route is the only request text on the line, and it is
+the path *template*: a path parameter is written as its `{name}`, so a door that
+carries its credential in the path (a trigger link's `/trigger/{token}`) records the
+shape and never the secret. A stray path matches too on a deployment that serves the
+Studio, where the SPA catch-all takes it: the line reads `/{spa_path}`, again never
+the tail. A path nothing matched at all has no template to record, so the line reads
+`<unmatched>` and carries no part of that path — as does a path handed on to a
+mounted sub-server (`/app/{slug}`), which records the mount's own prefix and then
+that same constant, `/app/<unmatched>`, because what the sub-server made of the rest
+is not visible from here. Nothing else reaches the
+line — never a request or response body, a query string, a header, or a token — so
+the trail is safe to ship wherever your logs already go.
+
+A refusal is on the same trail, so failed access is visible, not just granted
+access. A request the gate turns away writes its own line: a `401` when it carried
+no usable identity, a `403` when a known identity is not permitted, or a `429` when
+the flood limiter sheds it. A denial line adds a `reason=` naming the cause it can
+state (a permission miss, an unconfigured route), and its principal is the real
+caller when the request was authenticated-but-denied, otherwise the marker
+`unauthenticated`. A refusal records the same path *template* (or `<unmatched>`), so
+it never leaks a path-borne secret either.
+
+## Identity, policy, route
+
+The gate has three moving parts, resolved on every request:
+
+1. **Identity** — an inbound key is hashed and looked up; a stored key resolves to
+   a `user_id`. A raw key is generated with a CSPRNG, only its SHA-256 is ever
+   stored, and the plaintext is returned to the caller exactly once.
+2. **Policy** — the identity's policy carries its scopes plus an optional jq
+   condition and policy data. The policy is cached per worker and keyed on a
+   version, so a management edit bumps the version and the next read bypasses the
+   stale cache without waiting out the TTL.
+3. **Route** — a request path maps to a scope id; the guard admits the request
+   only if the identity's scopes cover it. A route pinned to the public marker
+   (via `tai scopes public-pin`) is public; `*` is a superuser scope on a key, not
+   a route value. A route with NO mapping fails closed for every ordinary identity
+   — except a condition-free `*` super-admin key, which is admitted (a root can map
+   the route anyway, so blocking it is a footgun, not security). So an
+   access-control-enabled deployment's admin reaches the whole surface out of the
+   box; the route table only ever scopes non-admin identities.
+
+## Resolving a credential across providers
+
+A deployment can enable more than one identity provider at once — an API-key
+store, an [accounts](/concepts/accounts) provider's sessions, an issuer-JWT
+verifier. `ACCESS_CONTROL_AUTH_PROVIDERS` is an **ordered** list, and the gate
+resolves an inbound token by trying each provider **in order, first match
+wins**: the first provider that recognises the token answers, and resolution
+stops there.
+
+The distinction that keeps this safe is **error is not miss**. A provider that
+does not recognise a token returns "not mine" and the gate falls through to the
+next provider. A provider that recognises the token but hits a backend failure
+**raises** — it does not silently return "not mine", which would let a
+misconfigured store fall through to a weaker provider. A miss falls through; an
+error fails closed.
+
+## Attenuation is enforced at the gate
+
+When an [accounts](/concepts/accounts) provider is in play, a resolved API key
+carries its owning account, and the gate applies **owner attenuation** on every
+request: the key's effective authority is intersected with its owner's live
+policy right here, at resolution time, before the policy decision. Because it is
+re-applied per request rather than frozen at mint, a change to the owner's role —
+or disabling the owner — takes effect on the key's very next call. Only the mint
+path may set the owner claim; the gate strips any owner claim a non-minting
+provider returns, so an external issuer can never assert ownership it did not
+earn.
+
+<Note>
+A key that carries an owner claim is an **owned key** — a capped, isolated
+sub-identity you can hand to a teammate, a device, or a machine. The delegation
+model, the `GET /api/auth/me` capability projection, per-identity data isolation,
+the claim-link channels, and which scopes are safe to grant live on
+[Owned keys](/concepts/owned-keys).
+</Note>
+
+## The login namespace is public; `/api/auth` stays reserved
+
+Human [login](/studio/login) flows live under the `/api/login` namespace — the
+methods listing, the credential-submit routes, the bootstrap and invite flows.
+That namespace is **public by default**: a browser must reach it *before* it has
+any credential, so its public-ness is a code-side default, not a route mapping an
+operator has to remember to add. The `/api/auth` provisioning and policy routes
+stay **reserved** behind the gate — minting keys, editing policies, and managing
+principals all require an authenticated, authorized caller. Sign-in is open;
+administration is not.
+
+Two reserved routes carry a carve-in so a scoped identity can still onboard and
+introspect: `GET /api/auth/me` (the [capability projection](/concepts/owned-keys))
+is authenticated-implies-allowed — any authenticated caller reaches it regardless
+of the route table — and `POST /api/auth/claim-links` is carved into the seeded
+`editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
+the gate; neither is public.
+
+## The Studio SPA shell is public; its data is not
+
+An unmatched non-`/api` GET is served the **dataless Studio SPA shell** —
+`index.html` and its static assets — so a refresh or bookmark of an inner Studio
+route (`/agents`, `/settings`) lands the app, not a `404`. This is on by default
+(the `spa_shell_public` setting) and safe: the shell carries no data — everything
+it renders sits behind an authenticated `/api/*` call — so an unauthenticated
+visitor sees only the login page. Deep links therefore work with **no manual
+public pin** for `/` or any SPA path. The fallback is GET-only and never touches
+`/api` or `/mcp`, so it can never open the control plane; a headless deployment
+turns it off by setting `spa_shell_public` to `false`. See
+[deploying the Studio](/operate/studio#deep-links-under-access-control).
+
+## Flood control on public doors
+
+Every public door is rate-limited, and the coverage is **derived, never listed**: a
+route declares whether it is public, the route registry records that, and the limiter
+throttles every route registered public. A new public door — a plugin's inbound
+webhook, another login door — is flood-limited the moment it registers. Authed routes
+pass straight through; the credential is the gate there.
+
+A request is answered by the most specific registered route that covers it, so a
+concrete door always outranks the SPA catch-all, and a path no registered route
+matches is not the limiter's business.
+
+### Door families
+
+Public doors are grouped into **families** whose counters are disjoint, so a flood on
+one door can never exhaust another's budget. A family is the door's path stem — its
+leading static segments, at most two, stopping at the first `{parameter}`, with the
+shared `/api` segment dropped:
+
+| Door | Family |
+| --- | --- |
+| `GET\|POST /trigger/{token}` | `trigger` |
+| `GET\|POST /universal_webhook/{topic}` | `universal_webhook` |
+| `GET\|POST /api/interactions/callback/{ticket}` | `interactions_callback` |
+| `GET /health`, `GET /ready` | `health`, `ready` |
+| `POST /api/channels/slack/inbound` | `channels_slack` — one family per channel |
+
+Two segments is what keeps a deployment's families disjoint without splitting one
+door's own surface: the six `/api/channels/web/*` web-chat doors all fold into
+`channels_web`, while every other channel keeps a family of its own. A path
+parameterised from its first segment — the SPA catch-all `/{spa_path}` — has no stem
+and folds into `root`.
+
+### Budgets
+
+Every family is charged **600 requests a minute** with a **120-request burst in any
+10 seconds** unless a tighter budget applies. The runtime holds the three
+single-request doors — `trigger`, `universal_webhook`, and `interactions_callback` —
+at 60 a minute and 10 in 10 seconds, because one request there buys real work: a
+webhook fan-out, a ticket redemption, a tool run. It holds the web-chat family —
+`channels_web` — at 120 a minute and 30 in 10 seconds, wide enough for one first page
+load, which is the chat page plus every bundle file it links in a single burst.
+
+Over either window the door answers `429` with a `Retry-After` naming the seconds
+left in that window, and the refusal writes its own audit line as an unauthenticated
+request against the route template.
+
+### Tuning a family
+
+`TAI_RATE_LIMIT_FAMILIES` overrides one family's budget, as a JSON object or per
+field:
+
+```bash
+TAI_RATE_LIMIT_FAMILIES='{"trigger": {"limit": 240, "burst": 40}}'
+TAI_RATE_LIMIT_FAMILIES__TRIGGER__LIMIT=240
+```
+
+Each field resolves on its own — an override naming only a limit keeps the shipped
+burst — and `TAI_RATE_LIMIT_DEFAULT_LIMIT`, `TAI_RATE_LIMIT_DEFAULT_BURST`, and
+`TAI_RATE_LIMIT_DEFAULT_ENABLED` move the floor every family that states nothing
+starts from.
+
+An override **tunes or disables** the door it names; it never widens coverage.
+`{"enabled": false}` passes that family through, and an entry for a family no route
+declares is inert.
+
+### Which client a request is from
+
+The counter is keyed per client address, and `X-Forwarded-For` is caller-writable
+text — any client can claim any address in it — so it is believed only under a
+declared trust statement:
+
+- **`TAI_RATE_LIMIT_TRUSTED_PROXIES`** — the addresses your proxies call from, single
+  hosts or **CIDR blocks**. The socket peer must itself be trusted before a header
+  byte is read; then the right-most entry that is not itself a trusted proxy is the
+  client.
+- **`TAI_RATE_LIMIT_TRUSTED_HOPS`** — the number of proxies sitting in front of the
+  deployment. Use it when the proxy's own address moves (a managed load balancer
+  renumbers): the limiter skips exactly that many right-most hops instead of matching
+  addresses. A positive value **wins**, and the roster is then not consulted.
+
+Anything else fails closed to the socket address — an untrusted peer, a chain too
+short for the declared hop count, an entry naming no address — and the fallback is
+reported in the log, never silent. An IPv6 client buckets by its `/64`, since one
+host routinely holds a whole `/64`.
+
+With neither setting, `X-Forwarded-For` is ignored and the socket peer is the client:
+correct for a directly exposed deployment, and behind a proxy it collapses every
+client into one bucket. Boot emits a `WARNING` when no trust is declared, and a
+forwarded header arriving under that posture is reported once more.
+
+### No Redis, no limiter
+
+The counters live in Redis — `TAI_RATE_LIMIT_REDIS_URL`, or the shared
+`TAI_DEFAULT_REDIS_URL`. With neither, rate limiting is **OFF**: every public door
+passes through unthrottled and boot emits one `WARNING` naming the variable, never a
+boot refusal. See [what OFF looks
+like](/concepts/config-and-secrets#what-off-looks-like) and the
+[`RateLimitSettings` table](/reference/settings#ratelimitsettings).
+
+<Warning>
+**Application abuse, not volumetric attack.** This limiter counts requests per client
+per family *after* they reach the app, which is what bounds scanning, credential
+stuffing, and a hot webhook. It is not a DDoS defence: a flood large enough to
+saturate your bandwidth, connection table, or worker pool has to be absorbed before
+the app sees it — by a CDN, an edge WAF, or your ingress. Self-hosted deployments put
+one in front of the runtime; the split between edge volumetrics and in-app abuse
+limits is the standard one.
+</Warning>
+
+## Admin-only mutations
+
+Beyond the editable per-tag role map, some routes are **never grantable** — no
+per-tag level opens them for any non-admin. The fence is **declared on the route**,
+not maintained as a hand-written list: every authed route declares an
+action-class, and two of the classes are the admin-only fence:
+
+- **`fenced`** — the admin-only mutations: the pre-existing infrastructure
+  changes and the role and policy control plane. Running a tool **directly**
+  (`POST /api/run-tool`); reloading or removing a tool; the `config` env write and
+  reload (`POST /api/config/env`, `/api/config/reload`); replacing the manifest;
+  reloading failed MCPs and deregistering an MCP; reloading the fleet; marketplace
+  install / uninstall / update; backup import / export; and the role and policy
+  control plane (creating, editing, deleting, and rolling back roles, and rolling
+  back a user's policy). Editing scopes, the route table, and the public-route
+  pins is **not** `fenced` — those routes are ordinary `read`/`write` class, made
+  admin-only by the base-tier `/api/auth` control-plane ceiling that default-denies
+  the area to every non-admin role.
+- **`secret`** — the admin-only reads, over two admin-owned stores. The bulk
+  role / policy reads: the roles listing (`GET /api/auth/roles`), the role version
+  histories, and a user's policy version history, whose payload carries raw jq
+  policy bodies. And the deployment config store: the stored environment
+  (`GET /api/config/env`) and the per-settings-class values
+  (`GET /api/config/settings-schema`). Environment and settings are one
+  admin-owned store — including deployment secrets such as the connector encryption
+  key — so only an admin reads or writes it.
+
+An `admin` reaches all of them; an `editor` or `viewer` is denied. Everyday
+**feature** configuration is **not** on this fence: starting an async tool-run
+(`POST /api/tool-runs`), scheduling a tool, setting the MCP config, reloading a
+single MCP server, mounting a sub-MCP, setting tool extensions, registering hooks,
+and reading the hooks listing are ordinary grantable `read`/`write` routes an
+editor reaches — an editor configures every feature through the feature's own
+routes. The deployment env/settings store is the admin-owned exception. A route
+that declares no action-class fails boot, so the fence can never be silently
+forgotten. See
+[user types and permissions](/concepts/permissions) for the full surface and the
+per-tag [role model](/concepts/accounts#roles).
+
+<Note>
+**Editors configure every feature; they do not own the deployment store.** An
+`editor` reaches the async tool-run surface, schedules, the MCP config, sub-MCP
+mounts, tool extensions, and hooks through each feature's own grantable routes —
+the platform trusts a granted role to operate the features it holds. The
+deployment env/settings store stays admin-only: reading the env and settings
+(`GET /api/config/env`, `GET /api/config/settings-schema`) and the env write are
+admin-only, alongside the infrastructure mutations and access-control
+administration above.
+</Note>
+
+## The jq policy
+
+A policy is scopes plus rules. The rule is a **jq condition** evaluated against the
+request's credentials and context — expressive enough to gate on identity, scope,
+and request attributes without any custom code. The condition is compiled and
+evaluated by the policy enforcer; a backend error while reading the policy version
+**fails closed** by raising, which surfaces as a clean deny rather than a silent
+default.
+
+A denied request never leaks internal detail: an authentication failure returns a
+fixed `401` and an authenticated-but-forbidden request a fixed `403`, with the full
+failure logged only server-side.
+
+Validate a jq condition offline before you commit it, and mint keys with the CLI:
+
+```bash
+tai keys validate-condition --condition '.method == "GET"'
+tai keys create --user alice --description 'CI key' --scope read --condition '.method == "GET"'
+```
+
+## Route mapping is two-tier
+
+Mapping a route to public or protected is a configuration decision, not a property
+of the route code. It is two-tier: a path pattern maps a URL to a template key,
+and a Postgres record in the access-control policy store maps that template key to
+a scope id (or the public marker).
+This is how the [interactions](/concepts/interactions) callback doors are mapped
+public while the stream and answer doors stay protected.
+
+Every management mutation that touches more than one key commits through a single
+WATCH/MULTI/EXEC transaction, so a crash never leaves the store half-written and a
+concurrent edit aborts and retries against fresh state.
+
+See the [access-control guide](/guides/access-control) for the provisioning
+workflow, the [CLI reference](/reference/cli/index) for `tai keys` and
+`tai scopes`, and the [HTTP API reference](/reference/api/index) for the routes.

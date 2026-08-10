@@ -1,0 +1,366 @@
+---
+title: "Manifest (tai42_contract.manifest)"
+description: "The manifest model a server loads at startup."
+icon: "file-lines"
+---
+
+
+Manifest contract: ``Manifest`` + the ``*Config`` models (incl. the transport
+config ``TaiMCPConfig``) + the filter-predicate signatures.
+
+The impl methods that build the derived lookup maps and run the include/exclude
+filtering (``model_post_init`` + the private ``_build_*``/``_should_include``
+helpers) are logic and stay with the impl — only the field shape, the model
+validators, and the public predicate/query signatures are the contract.
+
+## AgentsConfig
+
+`tai42_contract.manifest.AgentsConfig`
+
+```python
+class AgentsConfig(BaseConfig)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `module` | `str` |
+
+
+## ApiToolsConfig
+
+`tai42_contract.manifest.ApiToolsConfig`
+
+```python
+class ApiToolsConfig(ExtensionsConfigMixin)
+```
+
+Curates the MCP tool surface projected from the operations layer.
+
+A single app-owned block, so it carries no ``title`` and is deliberately NOT
+a ``BaseConfig`` subclass. ``include``/``exclude`` name operations to project
+or suppress; ``expose_destructive`` gates destructive-flagged operations; the
+``extensions`` map (from the mixin) attaches extension combos to projected
+operations. Unlike ``BaseConfig``, a name appearing in BOTH ``include`` and
+``exclude`` is a loud validation error — this stricter rule is unique to this
+config and is never retrofitted onto other configs.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `enabled` | `bool` |
+| `expose_destructive` | `bool` |
+| `include` | `list[str]` |
+| `exclude` | `list[str]` |
+
+
+## BaseConfig
+
+`tai42_contract.manifest.BaseConfig`
+
+```python
+class BaseConfig(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `title` | `str` |
+| `include` | `list[str]` |
+| `exclude` | `list[str]` |
+
+
+## ExtensionElement
+
+`tai42_contract.manifest.ExtensionElement`
+
+```python
+ExtensionElement = str | dict[str, Any]
+```
+
+
+## ExtensionsConfigMixin
+
+`tai42_contract.manifest.ExtensionsConfigMixin`
+
+```python
+class ExtensionsConfigMixin(BaseModel)
+```
+
+Carries the ``extensions`` attachment map, mixed into the config kinds
+that support clip-on extensions (``ToolsConfig`` and ``TaiMCPConfig``).
+
+``extensions`` maps a tool base-name to the extension combo(s) attached to
+it, applied AFTER selection and independent of ``include``/``exclude``. The
+stored shape is always ``tool -> list-of-combos``
+(``dict[str, list[list[ExtensionElement]]]``) so resolution reads ONE shape
+regardless of how the YAML was written; each combo element is an extension
+name or a ``{"name", "config"}`` mapping binding author config to it. The
+normalizing validator wraps a flat combo and rejects malformed input loudly.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `extensions` | `dict[str, list[list[ExtensionElement]]]` |
+
+### Members
+
+#### normalize_extensions
+
+`tai42_contract.manifest.ExtensionsConfigMixin.normalize_extensions`
+
+```python
+normalize_extensions(cls, value: object) -> dict[str, list[list[ExtensionElement]]]
+```
+
+Normalize each value to a list of combos and reject malformed input
+loudly (no silent coercion, mirroring ``normalize_dict_values`` above).
+
+A flat combo value is a single combo and is wrapped
+(``{weather: [chain]}`` -&gt; ``{"weather": [["chain"]]}``); a list-of-combos
+value is kept as multiple combos. A combo element is an extension name or
+a ``{"name", "config"}`` mapping (author-bound config). This enforces
+SHAPE only: it does NOT check that the extension names are registered
+(``ExtensionRegistry``'s job) or that the tool is selected
+(``missing_tools``' job).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `object` | — | — |
+
+
+
+## MCPConfig
+
+`tai42_contract.manifest.MCPConfig`
+
+```python
+class MCPConfig(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `str \| None` |
+| `url` | `str \| None` |
+| `uds` | `str \| None` |
+| `command` | `str \| None` |
+| `args` | `list[str]` |
+| `headers` | `dict[str, str]` |
+| `env` | `dict[str, str]` |
+
+### Members
+
+#### normalize_args
+
+`tai42_contract.manifest.MCPConfig.normalize_args`
+
+```python
+normalize_args(cls, value: object) -> list[str]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `object` | — | — |
+
+
+#### normalize_dict_values
+
+`tai42_contract.manifest.MCPConfig.normalize_dict_values`
+
+```python
+normalize_dict_values(cls, value: object) -> dict[str, str]
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `object` | — | — |
+
+
+
+## Manifest
+
+`tai42_contract.manifest.Manifest`
+
+```python
+class Manifest(BaseModel)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `tools` | `list[ToolsConfig]` |
+| `agents` | `list[AgentsConfig]` |
+| `mcp` | `list[TaiMCPConfig]` |
+| `middlewares_modules` | `list[str]` |
+| `routers_modules` | `list[str]` |
+| `default_routers` | `Literal['all', 'api', 'none']` |
+| `extensions_modules` | `list[str]` |
+| `lifecycle_modules` | `list[str]` |
+| `webhook_verifier_modules` | `list[str]` |
+| `channel_modules` | `list[str]` |
+| `backend_module` | `str \| None` |
+| `storage_module` | `str \| None` |
+| `monitoring_module` | `str \| None` |
+| `static_dir` | `str \| None` |
+| `studio_plugins` | `list[str]` |
+| `user_tools` | `set[str]` |
+| `api_tools` | `ApiToolsConfig` |
+| `tools_list` | `set[str] \| None` |
+| `tool_extensions` | `dict[str, list[list[ExtensionElement]]] \| None` |
+| `tools_map` | `dict[str, ToolsConfig] \| None` |
+| `agents_map` | `dict[str, AgentsConfig] \| None` |
+| `mcp_map` | `dict[str, TaiMCPConfig] \| None` |
+| `tools_module_title_map` | `dict[str, str] \| None` |
+| `include_module_tools_map` | `dict[str, frozenset[str]] \| None` |
+| `exclude_module_tools_map` | `dict[str, frozenset[str]] \| None` |
+| `include_module_agents_map` | `dict[str, frozenset[str]] \| None` |
+| `exclude_module_agents_map` | `dict[str, frozenset[str]] \| None` |
+| `include_title_mcp_tools_map` | `dict[str, frozenset[str]] \| None` |
+| `exclude_title_mcp_tools_map` | `dict[str, frozenset[str]] \| None` |
+
+### Members
+
+#### should_include_tool
+
+`tai42_contract.manifest.Manifest.should_include_tool`
+
+```python
+should_include_tool(self, name: str, module: str) -> bool
+```
+
+Whether tool ``name`` from ``module`` survives the include/exclude
+filter (and record the decision on the matching config).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `module` | `str` | — | — |
+
+
+#### should_include_agent
+
+`tai42_contract.manifest.Manifest.should_include_agent`
+
+```python
+should_include_agent(self, name: str, module: str) -> bool
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `module` | `str` | — | — |
+
+
+#### should_include_mcp_tool
+
+`tai42_contract.manifest.Manifest.should_include_mcp_tool`
+
+```python
+should_include_mcp_tool(self, name: str, title: str) -> bool
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `title` | `str` | — | — |
+
+
+#### replace_mcp
+
+`tai42_contract.manifest.Manifest.replace_mcp`
+
+```python
+replace_mcp(self, mcp: list[TaiMCPConfig]) -> None
+```
+
+Swap the MCP rows and rebuild the derived maps (surgical reload).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `mcp` | `list[TaiMCPConfig]` | — | — |
+
+
+#### live_manifest
+
+`tai42_contract.manifest.Manifest.live_manifest`
+
+```python
+live_manifest: Manifest
+```
+
+A deep copy whose ``tools``/``agents``/``mcp`` reflect the live
+(post-filter) config maps.
+
+
+#### find_title
+
+`tai42_contract.manifest.Manifest.find_title`
+
+```python
+find_title(self, module: str) -> str
+```
+
+Map a module path to the owning tool config's title (longest prefix).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `module` | `str` | — | — |
+
+
+
+## TaiMCPConfig
+
+`tai42_contract.manifest.TaiMCPConfig`
+
+```python
+class TaiMCPConfig(BaseConfig, ExtensionsConfigMixin)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `config` | `MCPConfig` |
+| `managed` | `ConnectorRef \| None` |
+| `is_managed` *(property)* | `bool` |
+
+
+## ToolsConfig
+
+`tai42_contract.manifest.ToolsConfig`
+
+```python
+class ToolsConfig(BaseConfig, ExtensionsConfigMixin)
+```
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `module` | `str` |
+
