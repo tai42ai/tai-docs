@@ -456,7 +456,9 @@ def build_nav_group(plans: list[dict]) -> dict:
             else:
                 pages.append(plan["main_slug"])
         subgroups.append({"group": label, "icon": GROUP_ICONS.get(label, "puzzle-piece"), "pages": pages})
-    return {"group": "Plugins", "icon": "puzzle-piece", "pages": ["plugins/index"], "groups": subgroups}
+    # Nested groups must live inside ``pages``: the docs.json schema has no
+    # ``groups`` key on a group object, and Mintlify silently drops the section.
+    return {"group": "Plugins", "icon": "puzzle-piece", "pages": ["plugins/index", *subgroups]}
 
 
 def write_nav(group: dict) -> None:
