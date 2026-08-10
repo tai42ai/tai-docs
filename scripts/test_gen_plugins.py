@@ -138,13 +138,17 @@ def test_build_nav_group_by_kind() -> None:
 
     nav = gen_plugins.build_nav_group([tool_plan, id_plan])
     assert nav["group"] == "Plugins"
-    assert nav["pages"] == ["plugins/index"]
-    labels = [sub["group"] for sub in nav["groups"]]
+    # Sub-groups nest INSIDE pages (the docs.json schema has no ``groups`` key
+    # on a group object), after the landing page.
+    assert nav["pages"][0] == "plugins/index"
+    subgroups = nav["pages"][1:]
+    assert "groups" not in nav
+    labels = [sub["group"] for sub in subgroups]
     assert "Tools" in labels
     assert "Identity" in labels
     # Tools precedes Identity per the fixed GROUP_ORDER.
     assert labels.index("Tools") < labels.index("Identity")
-    tools = next(s for s in nav["groups"] if s["group"] == "Tools")
+    tools = next(s for s in subgroups if s["group"] == "Tools")
     assert "plugins/tai42/demo" in tools["pages"]
     print("  nav: grouped by first-item kind in fixed order")
 
