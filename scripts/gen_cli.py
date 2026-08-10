@@ -8,14 +8,16 @@ the CLI group's page list in ``docs.json`` so the nav always matches the files
 on disk.
 
 Approach: a hand-rolled click-tree walker (not ``typer utils docs``). The tree
-is extracted by running ``scripts/_cli_introspect.py`` inside the tai42-skeleton
-environment -- it imports ``tai42_skeleton.cli.app:app`` and dumps the tree as
-JSON, so every rendered line traces to the live command objects the runtime
-uses for ``--help``. ``typer utils docs`` was rejected: it emits an unstable,
-truncated tree here and cannot render leaf commands that carry no help.
+is extracted by running ``scripts/_cli_introspect.py`` inside the
+``tai42/core/skeleton`` env (which resolves the full tree: skeleton pulls in
+tai42-cli) -- it loads the compiled app behind the installed ``tai`` console
+script and dumps the tree as JSON, so every rendered line traces to the live
+command objects the runtime uses for ``--help``. ``typer utils docs`` was
+rejected: it emits an unstable, truncated tree here and cannot render leaf
+commands that carry no help.
 
-Fail-loud contract: if the app cannot be imported, the extraction command exits
-non-zero, or the tree is empty, this exits non-zero and writes no pages.
+Fail-loud contract: if the ``tai`` entry point is absent, the extraction command
+exits non-zero, or the tree is empty, this exits non-zero and writes no pages.
 """
 
 from __future__ import annotations

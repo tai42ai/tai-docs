@@ -120,7 +120,7 @@ def test_full_page_has_all_areas_and_ordering() -> None:
     page = gcm.render(_openapi(), _listings(), _settings(), [], [])
     for area in ("## HTTP API", "## Plugins", "## Settings", "## Agents & extensions"):
         assert area in page
-    assert "## Channels" not in page  # R19: no Channels area
+    assert "## Channels" not in page  # capability map has no Channels area
     # Deterministic area order.
     assert (
         page.index("## HTTP API")

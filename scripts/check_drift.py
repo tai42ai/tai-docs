@@ -36,7 +36,7 @@ DOCS_ROOT = SCRIPT_DIR.parent
 # once after every generator has run.
 # gen_plugins.py is DELIBERATELY absent: it is network-fed (the marketplace) and
 # the offline drift gate must never fail during a marketplace outage. The daily
-# regen workflow owns plugins/ freshness (§2 of the plan). The registry CONSUMERS
+# regen workflow owns plugins/ freshness. The registry CONSUMERS
 # below (gen_toolbox_table, gen_capability_map) read the committed
 # plugins/_registry.json snapshot and so stay offline. gen_capability_map runs
 # after gen_openapi so it reads the freshly regenerated openapi.json.

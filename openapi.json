@@ -1997,7 +1997,7 @@
         "type": "object"
       },
       "SetMcpSecretEnv": {
-        "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator. The env KEY it is stored under is\nEITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one is given (C9b\n``{value, key | key_hint, manifest_pointer}``). The server writes ``value`` to the env\nstore under that key (marked secret) and writes an ``!ENV ${KEY}`` MARKER at\n``manifest_pointer`` — so the secret lives only in the env store and the manifest carries\na placeholder. An explicit ``key`` that collides with an existing stored key holding a\nDIFFERENT value is refused with a loud 400 naming the key (C9c — never a silent overwrite\nof a live secret). ``manifest_pointer`` is a slash-delimited, no-leading-slash path (e.g.\n``mcp/0/config/headers/Authorization``) whose HEAD segment MUST be ``mcp`` (the same\nmcp-only authority ``set_mcp_config`` holds). The generated key is NOT returned.",
+        "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator. The env KEY it is stored under is\nEITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one is given\n(``{value, key | key_hint, manifest_pointer}``). The server writes ``value`` to the env\nstore under that key (marked secret) and writes an ``!ENV ${KEY}`` MARKER at\n``manifest_pointer`` — so the secret lives only in the env store and the manifest carries\na placeholder. An explicit ``key`` that collides with an existing stored key holding a\nDIFFERENT value is refused with a loud 400 naming the key (never a silent overwrite\nof a live secret). ``manifest_pointer`` is a slash-delimited, no-leading-slash path (e.g.\n``mcp/0/config/headers/Authorization``) whose HEAD segment MUST be ``mcp`` (the same\nmcp-only authority ``set_mcp_config`` holds). The generated key is NOT returned.",
         "properties": {
           "key": {
             "anyOf": [
@@ -2804,7 +2804,7 @@
   "info": {
     "description": "The operator HTTP surface served under /api/*.",
     "title": "tai42-skeleton API",
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -9284,7 +9284,7 @@
     },
     "/api/manifest": {
       "get": {
-        "description": "Return the MCP section and user tools of the PRESERVED persisted manifest —\n``!ENV ${KEY}`` markers kept intact, so a secret leaf is its placeholder marker,\nNEVER the plaintext value.\n\nRETIGHTEN (PLAN_3 §D / QUESTIONS decision): this door previously served the RESOLVED\nin-process ``live_manifest`` (``tai42_app.admin.live_manifest``), which materialized\nevery ``!ENV`` marker and leaked plaintext secrets onto the wire. It is FLIPPED to the\npreserved read (the no-leak posture PLAN_6 e2e asserts). The resolved read is RETIRED\noutright — a clean break with no compat path (R2) and NO secret-fenced resolved\nsurface, because no server-side consumer needs the resolved view here: McpTab already\nreads ``/api/manifest/preserved`` and ManifestTab now renders markers (PLAN_5's\nManifestTab expected the resolved view — that Studio adjustment is PLAN_5/PLAN_6 scope,\nthe intended clean-break outcome, out of this wave).",
+        "description": "Return the MCP section and user tools of the PRESERVED persisted manifest —\n``!ENV ${KEY}`` markers kept intact, so a secret leaf is its placeholder marker,\nNEVER the plaintext value.\n\nThis door serves ONLY the preserved read: no resolved-view surface exists here, so no\n``!ENV`` marker is ever materialized onto the wire. McpTab reads\n``/api/manifest/preserved`` and ManifestTab renders the markers directly.",
         "operationId": "get_api_manifest",
         "responses": {
           "200": {
@@ -9370,7 +9370,7 @@
     },
     "/api/manifest/preserved": {
       "get": {
-        "description": "Return the PRESERVED persisted manifest's MCP section + user tools with every\n``!ENV ${KEY}`` marker intact (no secret is resolved) — the source the Studio McpTab\nconfig editor reads so it can round-trip markers instead of baking a resolved secret.\nSame ``{mcp, user_tools}`` view as ``get_manifest`` (both serve the preserved read\npost-retighten); the explicit ``/preserved`` door is the PLAN_5-pinned contract.",
+        "description": "Return the PRESERVED persisted manifest's MCP section + user tools with every\n``!ENV ${KEY}`` marker intact (no secret is resolved) — the source the Studio McpTab\nconfig editor reads so it can round-trip markers instead of baking a resolved secret.\nSame ``{mcp, user_tools}`` view as ``get_manifest`` — both serve the preserved read;\nthis explicit ``/preserved`` door names that no-resolve contract in its path.",
         "operationId": "get_api_manifest_preserved",
         "responses": {
           "200": {
@@ -10440,7 +10440,7 @@
     },
     "/api/mcp-config/secret-env": {
       "post": {
-        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nThe env KEY is EITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one\n(C9b ``key | key_hint``). Writes the secret ``value`` to the env store under that key AND\nmarks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and writes an ``!ENV ${KEY}``\nMARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent. C9a partial-failure: a manifest-persist failure after the env write does\nNO rollback — the env write stands as an inert, re-runnable orphan and the op raises\nloudly. An explicit ``key`` colliding with an existing stored key holding a DIFFERENT value\nis a loud 400 naming the key (C9c); a generated key never shadows a registered settings\n``env_var``. The pointer's HEAD segment MUST be ``mcp`` (loud 400 otherwise). The response\nis the ``reloadConfigResult`` shape; the resolved key is NEVER returned. A dangling\n``!ENV`` / X-band refusal surfaces as a loud 400 naming the key (the shared boundary\nvalidator, same as ``POST /api/mcp-config``).",
+        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nThe env KEY is EITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one\n(``key | key_hint``). Writes the secret ``value`` to the env store under that key AND\nmarks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and writes an ``!ENV ${KEY}``\nMARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent. Partial-failure: a manifest-persist failure after the env write does\nNO rollback — the env write stands as an inert, re-runnable orphan and the op raises\nloudly. An explicit ``key`` colliding with an existing stored key holding a DIFFERENT value\nis a loud 400 naming the key; a generated key never shadows a registered settings\n``env_var``. The pointer's HEAD segment MUST be ``mcp`` (loud 400 otherwise). The response\nis the ``reloadConfigResult`` shape; the resolved key is NEVER returned. A dangling\n``!ENV`` / X-band refusal surfaces as a loud 400 naming the key (the shared boundary\nvalidator, same as ``POST /api/mcp-config``).",
         "operationId": "post_api_mcp_config_secret_env",
         "requestBody": {
           "content": {

@@ -70,7 +70,7 @@ Trigger links belong to the hooks surface: any role granted hooks `write` mints 
 Mint a timed link for a topic. Exactly one of `--ttl SECONDS` or `--permanent` is required — expiry is an explicit choice, with no default:
 
 ```bash
-tai hooks create-trigger-link orders --ttl 3600
+tai hooks create-trigger-link events --ttl 3600
 ```
 
 The command prints the absolute URL and the expiry. Present that URL as a QR; a scan is a bare `GET`, so a scan fires the topic:
@@ -84,19 +84,19 @@ Every miss answers the *same* `404` — an unknown, expired, or revoked token, o
 Mint a link that never expires with `--permanent`, and name it so you can revoke it later:
 
 ```bash
-tai hooks create-trigger-link orders --permanent --name lobby-poster
+tai hooks create-trigger-link events --permanent --name daily-digest
 ```
 
 Carry per-link tool arguments with `--params` (a JSON object). They are merged into every hook the link fires, so one hook can back many QRs, each with different inputs:
 
 ```bash
-tai hooks create-trigger-link orders --ttl 3600 --params '{"flow_graph_kwargs": {"region": "eu"}}'
+tai hooks create-trigger-link events --ttl 3600 --params '{"flow_graph_kwargs": {"region": "eu"}}'
 ```
 
 Revoke a link by name — immediate and durable:
 
 ```bash
-tai hooks delete-trigger-link lobby-poster
+tai hooks delete-trigger-link daily-digest
 ```
 
 ### What reaches the tool
@@ -110,7 +110,7 @@ Each fired hook runs its tool with a **shallow, top-level merge** of three sourc
 A scan's query string reaches the tool **only** when the hook opts in with an `expr` that maps it. Register a hook whose `expr` lifts `?name=` into the tool input:
 
 ```bash
-tai hooks register --params '{"name":"greet","topic":"orders","tool":"notify","expr":"{who: .name}"}'
+tai hooks register --params '{"name":"greet","topic":"events","tool":"notify","expr":"{who: .name}"}'
 ```
 
 Now `GET /trigger/<token>?name=Ada` fires `notify` with `{"who":"Ada"}` — unless the hook's `tool_kwargs` or the link's `--params` also set `who`, which win over the scanned value.

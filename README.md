@@ -64,7 +64,7 @@ They are confirmed on the deploy preview, not in `mint dev`.
 
 The reference sections are generated from source so they cannot drift from the
 code. The generators live in `scripts/` and run in the tai42 monorepo's
-environment, where `tai42_contract`, `tai42_kit`, and `tai42_skeleton` resolve.
+environment, where `tai42_contract`, `tai42_kit`, `tai42_cli`, and `tai42_skeleton` resolve.
 Regenerate all nine from a monorepo checkout beside this one:
 
 ```bash

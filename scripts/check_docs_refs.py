@@ -8,7 +8,7 @@ renames a distribution, a repository, or changes a compose default. This check
 fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a merged
 source change that the docs did not follow is caught on the docs PR.
 
-Four checks, all OFFLINE (no network); the three that depend on the
+Five checks, all OFFLINE (no network); the three that depend on the
 ``tai-distribution`` sibling are gated on that checkout being present:
 
 1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
@@ -54,6 +54,13 @@ Four checks, all OFFLINE (no network); the three that depend on the
    regeneration pipeline only rebuilds generator-owned sections, never a narrative
    page, so a drift gate -- not a dispatch -- is what enforces this page's sync.
 
+5. Banned client terms -- every ``.mdx``/``.md``/``.py``/``.json`` file git tracks
+   or would track (tracked plus untracked-but-not-ignored, so a banned term in a
+   NEW file is caught before it is committed, not only after) must be free of
+   client product names (the docs describe the generic platform, never a specific
+   deployed flow or the client that runs it). A word-boundary, case-insensitive
+   hit is a HARD failure naming its ``file:line:term``.
+
 Runs offline (the distribution set is read from the committed registry snapshot);
 the tai-distribution-gated checks stay strict only when that sibling is present::
 
@@ -64,6 +71,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -145,12 +153,68 @@ def scan_docs(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
     return out
 
 
+# Client product names, with their spelling variants, that must never appear in
+# the published docs. The docs describe the generic platform; a deployed flow or
+# the client that runs it is never named.
+BANNED_CLIENT_TERMS: tuple[str, ...] = ("concierge", "bookinguru", "bookin-guru", "bookin_guru")
+
+# The tracked file kinds scanned for banned client terms.
+_BANNED_SCAN_SUFFIXES = frozenset({".mdx", ".md", ".py", ".json"})
+
+# This scanner and its test spell every banned term (the list itself, the
+# plant/clean fixtures), so they are exempt from their own scan.
+_BANNED_SCAN_EXEMPT = frozenset({"scripts/check_docs_refs.py", "scripts/test_check_docs_refs.py"})
+
+_BANNED_TERMS_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(term) for term in BANNED_CLIENT_TERMS) + r")\b", re.IGNORECASE
+)
+
+
+def scan_worktree_files(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
+    """Return ``(relative_path, text)`` for every ``.mdx``/``.md``/``.py``/``.json``
+    file git tracks or would track, minus the banned-term scanner and its test.
+
+    Enumerates ``git ls-files`` (tracked) unioned with
+    ``git ls-files --others --exclude-standard`` (untracked-but-not-ignored), so a
+    banned term in a NEW file is caught before it is git-added, not only after; an
+    ignored ``node_modules`` tree never leaks in. Fails loudly if git cannot
+    enumerate the tree."""
+    tracked = subprocess.run(
+        ["git", "-C", str(docs_root), "ls-files", "-z"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    untracked = subprocess.run(
+        ["git", "-C", str(docs_root), "ls-files", "-z", "--others", "--exclude-standard"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    out: list[tuple[str, str]] = []
+    for rel in (tracked.stdout + untracked.stdout).split("\0"):
+        if not rel or Path(rel).suffix not in _BANNED_SCAN_SUFFIXES or rel in _BANNED_SCAN_EXEMPT:
+            continue
+        out.append((rel, (docs_root / rel).read_text(encoding="utf-8")))
+    return out
+
+
+def check_banned_client_terms(files: list[tuple[str, str]]) -> list[str]:
+    """The docs are client-neutral: no file names a client product."""
+    problems: list[str] = []
+    for rel, text in files:
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for m in _BANNED_TERMS_RE.finditer(line):
+                problems.append(f"{rel}:{lineno}:{m.group(0)}")
+    return problems
+
+
 def _pyproject_sources(docs_root: Path) -> dict[str, str]:
     """The foundation ``tai42-<name> -> tai-<repo>`` pairs this repo floats as
     editable siblings in ``pyproject.toml`` ``[tool.uv.sources]``.
 
-    These are the distributions the docs build itself depends on (the contract and
-    kit foundation layers) that ship no marketplace listing and so never appear in
+    These are the distributions the docs build itself depends on (the contract,
+    kit, and cli foundation layers) that ship no marketplace listing and so never appear in
     the ``plugins/_registry.json`` snapshot."""
     data = tomllib.loads((docs_root / "pyproject.toml").read_text(encoding="utf-8"))
     sources = data.get("tool", {}).get("uv", {}).get("sources", {})
@@ -171,7 +235,7 @@ def load_distribution_map(docs_root: Path = DOCS_ROOT) -> dict[str, str]:
     Primary source: every listing's ``package`` in ``plugins/_registry.json``
     (every distribution the marketplace lists). Unioned with the foundation
     distributions declared in this repo's own ``pyproject.toml`` sources, so the
-    core skeleton/contract/kit layers -- real distributions that are not
+    core skeleton/contract/kit/cli layers -- real distributions that are not
     marketplace listings -- resolve too. The values are unused (only the key set
     gates distribution names), so each registry package maps to itself."""
     mapping: dict[str, str] = {listing["package"]: listing["package"] for listing in load_registry()}
@@ -405,7 +469,7 @@ def evaluate(
     docs_root: Path = DOCS_ROOT,
     workspace_root: Path = WORKSPACE_ROOT,
 ) -> tuple[list[str], list[str]]:
-    """Run all three checks over the tree; return ``(problems, notes)``."""
+    """Run every check over the tree; return ``(problems, notes)``."""
     dist_map = load_distribution_map(docs_root)
     docs = scan_docs(docs_root)
 
@@ -425,6 +489,8 @@ def evaluate(
     p, n = check_core_roster(docs, workspace_root)
     problems += p
     notes += n
+
+    problems += check_banned_client_terms(scan_worktree_files(docs_root))
 
     return problems, notes
 
@@ -448,7 +514,7 @@ def main() -> int:
 
     print(
         "check_docs_refs: OK -- distribution names, repo URLs, the ALWAYS_PUBLIC example, "
-        "and the core-roster block all match source."
+        "the core-roster block all match source, and no file names a client product."
     )
     return 0
 

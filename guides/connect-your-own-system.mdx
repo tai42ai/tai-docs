@@ -30,14 +30,14 @@ agent never runs as the sender.
     more.
 
     ```bash
-    tai keys create --user billing-app --description 'invokes the billing route' --scope conversations
+    tai keys create --user account-app --description 'invokes the account route' --scope conversations
     ```
   </Step>
   <Step title="Mint the execution key">
     A least-privilege key the agent runs as (see [owned keys](/guides/owned-keys)).
 
     ```bash
-    tai keys create --user billing-agent --description 'billing route agent' --scope read
+    tai keys create --user account-agent --description 'account route agent' --scope read
     ```
   </Step>
 </Steps>
@@ -49,8 +49,8 @@ The URL **must** be absolute HTTPS; an `http://` or relative URL is rejected at
 create.
 
 ```bash
-tai conversations create billing \
-  --door api --target-name billing-agent-spec --execution-key billing-agent \
+tai conversations create account \
+  --door api --target-name account-agent-spec --execution-key account-agent \
   --callback-url https://your-app.example.com/tai/answers
 ```
 
@@ -61,8 +61,8 @@ where your callback receiver can read it.
 ```json
 {
   "created": true,
-  "route_name": "billing",
-  "route": { "door": "api", "target_kind": "agent", "target_name": "billing-agent-spec", "callback_url": "https://your-app.example.com/tai/answers" },
+  "route_name": "account",
+  "route": { "door": "api", "target_kind": "agent", "target_name": "account-agent-spec", "callback_url": "https://your-app.example.com/tai/answers" },
   "callback_secret": "shown-once-store-it-now"
 }
 ```
@@ -74,16 +74,16 @@ for the end user — it becomes the conversation's thread key, so the agent reme
 that user's earlier turns.
 
 ```bash
-curl -sS -X POST "$TAI_BASE_URL/api/conversations/billing/messages" \
+curl -sS -X POST "$TAI_BASE_URL/api/conversations/account/messages" \
   -H "X-Api-Key: $INVOKING_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"external_user_id": "user-42", "text": "What is my balance?"}'
+  -d '{"external_user_id": "user-42", "text": "What is my usage?"}'
 ```
 
 The default answer is `202` with the id to correlate the callback against:
 
 ```json
-{ "data": { "message_id": "4f1c…", "thread_id": "bridge:billing:user-42" } }
+{ "data": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42" } }
 ```
 
 The door refuses loudly rather than silently: `404` unknown route, `429` the
@@ -100,16 +100,16 @@ the same way — `200` inline with `status: "silent"` and no answer text. The wi
 clamped to the deployment's `sync_wait_max_seconds` cap.
 
 ```bash
-curl -sS -X POST "$TAI_BASE_URL/api/conversations/billing/messages" \
+curl -sS -X POST "$TAI_BASE_URL/api/conversations/account/messages" \
   -H "X-Api-Key: $INVOKING_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"external_user_id": "user-42", "text": "What is my balance?", "wait_seconds": 20}'
+  -d '{"external_user_id": "user-42", "text": "What is my usage?", "wait_seconds": 20}'
 ```
 
 ```json
-{ "data": { "message_id": "4f1c…", "thread_id": "bridge:billing:user-42",
-            "answer": { "message_id": "4f1c…", "thread_id": "bridge:billing:user-42",
-                        "status": "answered", "answer": "Your balance is $12.40." } } }
+{ "data": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+            "answer": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+                        "status": "answered", "answer": "Your usage is 12 runs this week." } } }
 ```
 
 ## Receive the callback
@@ -118,15 +118,15 @@ The bridge `POST`s the answer to your `callback_url` as JSON. The body is the
 answer payload; correlate it by `message_id`:
 
 ```json
-{ "message_id": "4f1c…", "thread_id": "bridge:billing:user-42",
-  "status": "answered", "answer": "Your balance is $12.40." }
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
+  "status": "answered", "answer": "Your usage is 12 runs this week." }
 ```
 
 On a turn that errored, the shape is identical but `status` is `error` and `answer`
 is **generic client-safe text** — never an internal detail:
 
 ```json
-{ "message_id": "4f1c…", "thread_id": "bridge:billing:user-42",
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
   "status": "error", "answer": "Sorry, something went wrong handling your message. Please try again." }
 ```
 
@@ -134,7 +134,7 @@ On a **silent** turn — a tool target whose mapped reply was `null` or blank �
 callback carries `status: "silent"` and **no** `answer` key at all:
 
 ```json
-{ "message_id": "4f1c…", "thread_id": "bridge:billing:user-42", "status": "silent" }
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42", "status": "silent" }
 ```
 
 Every turn therefore resolves to one of `answered`, `error`, or `silent`, so your

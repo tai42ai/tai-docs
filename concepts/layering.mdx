@@ -1,17 +1,20 @@
 ---
 title: "The layering"
-description: "How contract, kit, skeleton, and Studio stack."
+description: "How contract, kit, cli, skeleton, and Studio stack."
 icon: "sitemap"
 ---
 
-The platform is three Python packages that stack in a strict line, plus a desktop
-UI over a running server. Each package depends only on the ones to its left, so
-the interfaces stay free of implementation and an alternative server remains
-possible.
+The platform is four Python packages linked by strict dependency edges, plus a
+desktop UI over a running server. Each package depends only on packages nearer
+the `tai42-contract` leaf, so the interfaces stay free of implementation and an
+alternative server remains possible. Two edges run from the contract: the server
+path (`tai42-contract` → `tai42-kit` → `tai42-skeleton`) and the command-line path
+(`tai42-contract` → `tai42-cli` → `tai42-skeleton`).
 
 ```mermaid
 flowchart LR
     C["tai42-contract<br/>interfaces"] --> K["tai42-kit<br/>helpers"] --> S["tai42-skeleton<br/>the server"]
+    C --> L["tai42-cli<br/>the tai command"] --> S
     U["Studio<br/>desktop UI"] -.->|drives over HTTP| S
 ```
 
@@ -37,13 +40,28 @@ is `tai42-contract` — it implements the contract's `BaseClient` protocol and
 consumes its manifest types. The skeleton reuses these helpers rather than
 re-declaring them.
 
+## tai42-cli — the `tai` command
+
+`tai42-cli` owns the `tai` command. On its own it is the standalone remote client:
+thin groups over a server's `/api/*` routes, plus the CLI-native `completion` and
+`version` commands, for operating a running server from any terminal. Among tai42-*
+packages its only dependency is `tai42-contract` — it never imports `tai42-kit` or
+`tai42-skeleton`, so `pip install tai42-cli` puts the `tai` command on your path
+with nothing of the server pulled in.
+
+The command tree is open-ended: a server package contributes its own commands
+through the `tai.commands` entry-point group, so the skeleton adds the local and
+runtime commands (`serve`, `db`, `doctor`, …) onto the same `tai` tree when it is
+installed alongside.
+
 ## tai42-skeleton — the server
 
 `tai42-skeleton` is the framework body: the concrete `TaiMCP` server and the runtime
 engines behind every contract protocol — the tool registry and adapters, the agent
 registry, the OAuth connector engine, the access-control middleware, the hooks
 router, the storage and template manager, the manifest loader, and the transport
-layer. It depends only on `tai42-contract` and `tai42-kit`.
+layer. It depends on `tai42-contract`, `tai42-kit`, and `tai42-cli`, extending the
+latter's command tree with its own local and runtime commands.
 
 The app is constructed once and exposed as the `tai42_app` contract handle. Tools,
 agents, and extensions register against it — the same handle every quickstart tool

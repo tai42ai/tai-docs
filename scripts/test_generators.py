@@ -6,8 +6,8 @@ Pins the "a broken generator FAILS, never writes a placeholder" contract:
   * gen_openapi rejects a spec that is not JSON, not OpenAPI 3.1, or has no
     paths, and never overwrites ``openapi.json`` when the emit fails.
   * gen_cli rejects an empty command tree, exits non-zero when extraction
-    fails, and the real introspector exits non-zero when ``tai42_skeleton``
-    cannot be imported (the "app can't be imported" case).
+    fails, and the real introspector exits non-zero when the ``tai``
+    console-script entry point is absent (the "app can't be resolved" case).
 
 Runs with plain ``python3 scripts/test_generators.py`` (no pytest needed); it is
 also collectable by pytest.
@@ -118,22 +118,20 @@ def test_gen_cli_returns_nonzero_when_extraction_fails():
     assert gen_cli.DOCS_JSON.read_bytes() == docs_before
 
 
-def test_introspector_fails_loud_without_skeleton():
-    """The introspector exits non-zero when ``tai42_skeleton`` cannot be imported.
+def test_introspector_fails_loud_without_tai_entry_point():
+    """The introspector exits non-zero when the ``tai`` console script is absent.
 
     Deterministic across environments: rather than relying on the ambient
-    interpreter *not* having ``tai42_skeleton`` installed (false when the suite
-    runs inside the skeleton venv), we explicitly poison ``sys.modules`` so the
-    ``from tai42_skeleton.cli.app import app`` inside the introspector always
-    raises ``ImportError`` -- while leaving ``click`` and everything else
-    importable. This reproduces the real "app can't be imported" failure mode
-    regardless of what is installed.
+    interpreter *not* having ``tai42-cli`` installed (false when the suite runs
+    inside the skeleton venv), we replace ``importlib.metadata.entry_points`` so
+    the console-scripts group carries no ``tai`` entry -- reproducing the real
+    "app can't be resolved" failure mode regardless of what is installed.
     """
     introspect = SCRIPTS_DIR / "_cli_introspect.py"
-    # ``sys.modules['tai42_skeleton'] = None`` forces any ``import tai42_skeleton``
-    # (or submodule import) to raise ImportError, independent of installation.
+    # Force the console-scripts lookup to return no entries so the introspector's
+    # missing-entry-point contract fires, independent of installation.
     bootstrap = (
-        "import sys; sys.modules['tai42_skeleton'] = None; "
+        "import sys, importlib.metadata; importlib.metadata.entry_points = lambda *a, **k: []; "
         "import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
     )
     proc = subprocess.run(
@@ -142,8 +140,13 @@ def test_introspector_fails_loud_without_skeleton():
         capture_output=True,
         text=True,
     )
-    assert proc.returncode != 0, f"introspector must fail when tai42_skeleton is unimportable; stderr={proc.stderr}"
+    assert proc.returncode != 0, f"introspector must fail when the tai entry point is absent; stderr={proc.stderr}"
     assert proc.stdout.strip() == ""  # no placeholder tree emitted
+    # Pin the *reason*: the missing-entry-point contract fired, not an earlier
+    # crash (e.g. ModuleNotFoundError) that would also be non-zero + empty stdout.
+    assert "no 'tai' console-script entry point is installed" in proc.stderr, (
+        f"expected the missing-entry-point message; stderr={proc.stderr}"
+    )
 
 
 def _run() -> int:

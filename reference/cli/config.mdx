@@ -36,18 +36,26 @@ $ tai config env get [OPTIONS]
 
 Merge KEY=VALUE env overrides and hot-reload the process config.
 
-Example: `tai config env set LOG_LEVEL=debug FEATURE_X=1`
+Values may come from command-line KEY=VALUE arguments, `--env-file`, and
+`--stdin` combined; at least one assignment is required. The same key from
+more than one source (or twice in one source) is an error — no silent
+precedence. Argv exposes a value via `ps`/shell history, so a secret should
+ride `--env-file` or `--stdin`.
+
+Example: `tai config env set LOG_LEVEL=debug --env-file secrets.env`
 
 ```console
-$ tai config env set [OPTIONS] {assignment}...
+$ tai config env set [OPTIONS] [assignment]...
 ```
 
 | Argument | Description |
 | --- | --- |
-| `assignment...` | One or more KEY=VALUE env overrides to merge. _(required)_ |
+| `assignment...` | KEY=VALUE env overrides to merge (composable with --env-file/--stdin). _(optional)_ |
 
 | Option | Description |
 | --- | --- |
+| `--env-file` `&lt;file&gt;` | Read KEY=VALUE lines from a file (one per line, split on the first '=', no quote processing; blank and '#' lines skipped) instead of putting a secret on the command line (a value on argv leaks via ps and shell history). |
+| `--stdin` | Read the same KEY=VALUE line format from stdin until EOF, keeping a secret off the command line (a value on argv leaks via ps and shell history). _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai config lint`
@@ -67,10 +75,6 @@ $ tai config lint [OPTIONS] [file]
 | Argument | Description |
 | --- | --- |
 | `file` | Manifest file to validate; defaults to $TAI_MANIFEST_PATH when set. _(optional)_ |
-
-| Option | Description |
-| --- | --- |
-| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai config mode`
 
@@ -192,7 +196,14 @@ Create or update a profile (whole-body replace). The env band is the given
 KEY=VALUE entries; `--secret-key` marks which keys are secret. A reserved
 `@`-prefixed name is rejected up front.
 
-Example: `tai config profile set staging LOG_LEVEL=debug API_KEY=xyz --secret-key API_KEY`
+The band may come from command-line KEY=VALUE arguments, `--env-file`, and
+`--stdin` combined; with no source at all the band is empty (a whole-body
+replace clears the stored env), but a given `--env-file` or `--stdin` that
+yields no assignment is an error. The same key from more than one source (or
+twice in one source) is an error — no silent precedence. Argv exposes a value
+via `ps`/shell history, so a secret should ride `--env-file` or `--stdin`.
+
+Example: `tai config profile set staging LOG_LEVEL=debug --env-file secrets.env --secret-key API_KEY`
 
 ```console
 $ tai config profile set [OPTIONS] {name} [assignment]...
@@ -201,12 +212,14 @@ $ tai config profile set [OPTIONS] {name} [assignment]...
 | Argument | Description |
 | --- | --- |
 | `name` | Profile name (a leading '@' is reserved). _(required)_ |
-| `assignment...` | KEY=VALUE entries forming the profile's WHOLE env band (apply replaces the stored env). _(optional)_ |
+| `assignment...` | KEY=VALUE entries forming the profile's WHOLE env band (composable with --env-file/--stdin). _(optional)_ |
 
 | Option | Description |
 | --- | --- |
 | `--description` `&lt;str&gt;` | The profile's human description. _(default: `)_ |
 | `--secret-key` `&lt;str&gt;` | An env key to mark secret for display masking (repeatable). |
+| `--env-file` `&lt;file&gt;` | Read KEY=VALUE lines from a file (one per line, split on the first '=', no quote processing; blank and '#' lines skipped) instead of putting a secret on the command line (a value on argv leaks via ps and shell history). |
+| `--stdin` | Read the same KEY=VALUE line format from stdin until EOF, keeping a secret off the command line (a value on argv leaks via ps and shell history). _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ### `tai config profile show`

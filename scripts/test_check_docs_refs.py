@@ -11,7 +11,10 @@ Guarantees asserted:
 1. A doc naming a real distribution / real repo passes.
 2. A fabricated ``tai42-bogus`` distribution fails, naming its ``file:line``.
 3. A documented ALWAYS_PUBLIC value that differs from the compose default fails.
-4. The current committed tree passes (no drift).
+4. A file naming a client product fails, naming its ``file:line:term`` -- including
+   a NEW, not-yet-committed (untracked-but-not-ignored) file, while a clean
+   worktree passes.
+5. The current committed tree passes (no drift, no client product names).
 """
 
 from __future__ import annotations
@@ -251,6 +254,86 @@ def test_absent_requirements_notes_not_fails() -> None:
     print("  absent requirements: offline note, no failure")
 
 
+# --- banned client terms ---------------------------------------------------
+
+
+def test_banned_client_term_flagged() -> None:
+    """A file naming a client product is flagged with its file:line:term."""
+    docs = [("guides/x.mdx", "line one\nEnable it on the concierge agent.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs)
+    assert len(problems) == 1, problems
+    assert problems[0] == "guides/x.mdx:2:concierge", problems[0]
+    print("  banned client term: flagged at file:line:term")
+
+
+def test_banned_client_term_case_insensitive() -> None:
+    """Matching is case-insensitive and reports the term as written."""
+    docs = [("reference/y.md", "The BookinGuru rollout\nand a Bookin-Guru variant.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs)
+    assert len(problems) == 2, problems
+    assert problems[0] == "reference/y.md:1:BookinGuru", problems[0]
+    assert problems[1] == "reference/y.md:2:Bookin-Guru", problems[1]
+    print("  banned client term: case-insensitive, reported verbatim")
+
+
+def test_banned_term_word_boundary_no_false_positive() -> None:
+    """A banned term embedded in a larger word is not a hit."""
+    docs = [("concepts/z.mdx", "The reconciergement audit and bookinguruesque tone.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs)
+    assert problems == [], problems
+    print("  banned client term: word-boundary spares embedded substrings")
+
+
+def test_clean_files_pass_banned_check() -> None:
+    """Files free of client product names produce no problems."""
+    docs = [("guides/x.mdx", "Enable it on the assistant agent.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs)
+    assert problems == [], problems
+    print("  clean files: no banned-term problems")
+
+
+def test_worktree_has_no_banned_terms() -> None:
+    """The worktree — tracked plus untracked-but-not-ignored — names no client
+    product (the scanner's own files and its test are exempt — they spell the terms
+    by definition)."""
+    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files())
+    assert problems == [], "\n".join(problems)
+    print("  worktree: no banned client terms")
+
+
+def test_untracked_file_scanned_for_banned_terms(tmp_path: Path) -> None:
+    """A NEW, not-yet-committed file carrying a client product name is caught: the
+    scan enumerates untracked-but-not-ignored files, not only tracked ones, so the
+    guard is not vacuous exactly when a new file lands."""
+    import subprocess
+
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+    (tmp_path / "committed.mdx").write_text("The generic assistant agent.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
+    (tmp_path / "brand-new.mdx").write_text("line one\nEnable the concierge agent.\n", encoding="utf-8")
+
+    files = check_docs_refs.scan_worktree_files(tmp_path)
+    assert "brand-new.mdx" in {rel for rel, _ in files}, files
+    problems = check_docs_refs.check_banned_client_terms(files)
+    assert problems == ["brand-new.mdx:2:concierge"], problems
+    print("  untracked file: banned term caught before git add")
+
+
+def test_clean_worktree_passes(tmp_path: Path) -> None:
+    """A clean worktree — tracked and untracked files alike free of client product
+    names — produces no problems."""
+    import subprocess
+
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+    (tmp_path / "committed.mdx").write_text("The generic assistant agent.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
+    (tmp_path / "brand-new.mdx").write_text("A new page about the platform.\n", encoding="utf-8")
+
+    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(tmp_path))
+    assert problems == [], problems
+    print("  clean worktree: tracked + untracked, no banned terms")
+
+
 # --- whole tree ------------------------------------------------------------
 
 
@@ -276,6 +359,11 @@ def main() -> int:
     test_double_quoted_always_public_verified()
     test_compose_regex_extracts_default()
     test_requirement_names_strips_extras_and_pins()
+    test_banned_client_term_flagged()
+    test_banned_client_term_case_insensitive()
+    test_banned_term_word_boundary_no_false_positive()
+    test_clean_files_pass_banned_check()
+    test_worktree_has_no_banned_terms()
     test_current_tree_passes()
     print("test_check_docs_refs: OK")
     return 0

@@ -60,7 +60,7 @@ DEFAULT_MARKETPLACE_URL = "https://marketplace.tai42.ai"
 
 # First provides-item kind -> nav group label. FIXED: an unmapped kind is a loud
 # failure naming it (a new listing's kind gets its row added when it is ruled in).
-# connector and mcp-server SHARE one shelf (R10).
+# connector and mcp-server SHARE one shelf.
 _SHELF_GROUP = "Connect outside systems"
 KIND_GROUP_LABELS: dict[str, str] = {
     "tool": "Tools",

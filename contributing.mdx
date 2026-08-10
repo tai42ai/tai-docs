@@ -34,7 +34,7 @@ Members resolve at these paths:
 
 Every member holds to the same rules, enforced in the monorepo's CI:
 
-- **The leaf rule.** Among `tai42-*` packages, the skeleton imports `tai42-contract` and `tai42-kit` only; a plugin imports `tai42-contract` (and `tai42-kit` where it needs shared helpers) only. No plugin imports the skeleton — providers register through the `tai42_app` handle when the manifest loads them. Each member's `ruff` `banned-api` wall enforces this: the monorepo makes the imports physically reachable, so the wall is the guard.
+- **The leaf rule.** Among `tai42-*` packages, the skeleton imports `tai42-contract`, `tai42-kit`, and `tai42-cli` only; a plugin imports `tai42-contract` (and `tai42-kit` where it needs shared helpers) only. No plugin imports the skeleton — providers register through the `tai42_app` handle when the manifest loads them. Each member's `ruff` `banned-api` wall enforces this: the monorepo makes the imports physically reachable, so the wall is the guard.
 - **Providers stay out of the core.** Connectors, storage, config, backends, and monitoring ship as plugins that register at manifest load — never imported by the skeleton.
 - **Optional drivers stay optional.** A heavy client driver reaches the engine through an extra; a module whose extra is missing fails loudly at import, never a silent skip.
 - **Errors surface loudly.** A missing module, a malformed config entry, or a failed sub-step raises and propagates.
@@ -61,7 +61,7 @@ uv run --no-sync pyright
 uv run --no-sync pytest
 ```
 
-The three core layers (`core/contract`, `core/kit`, `core/skeleton`) carry their dev tooling as a `dev` extra rather than the `dev` dependency group — append `--extra dev` to their sync. `--no-sync` runs each gate against the synced environment instead of re-resolving. See the member's `README` for the exact extras it installs, and the repository's `CONTRIBUTING` guide for the rest — any secret scan, and the licensing statement.
+The four core layers (`core/contract`, `core/kit`, `core/cli`, `core/skeleton`) carry their dev tooling as a `dev` extra rather than the `dev` dependency group — append `--extra dev` to their sync. `--no-sync` runs each gate against the synced environment instead of re-resolving. See the member's `README` for the exact extras it installs, and the repository's `CONTRIBUTING` guide for the rest — any secret scan, and the licensing statement.
 
 ## How dependencies resolve
 
@@ -73,9 +73,9 @@ The workspace sources **are** the resolution. `[tool.uv.workspace]` lists `core/
 
 ## Release
 
-The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member opens a release PR for that package alone. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 27 packages share one repository — and publishes that package to PyPI.
+The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member opens a release PR for that package alone. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 29 packages share one repository — and publishes that package to PyPI.
 
 ## See also
 
-- [The layering](/concepts/layering) — how contract, kit, and skeleton relate.
+- [The layering](/concepts/layering) — how contract, kit, cli, and skeleton relate.
 - [Plugins](/plugins) — every listed plugin and what it provides.

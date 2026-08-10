@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Dump the ``tai`` command tree as JSON.
 
-This runs inside the tai42-skeleton environment (where the CLI and its
-dependencies are importable). It imports the compiled Typer/click application
-at ``tai42_skeleton.cli.app:app`` and walks the whole command tree -- every group,
-every command, at every depth -- emitting a JSON document on stdout that
-``gen_cli.py`` renders to MDX.
+This runs inside an environment where the ``tai`` console script is installed
+(the tai42/core/skeleton env resolves the full tree: skeleton pulls in
+tai42-cli). It resolves the ``tai`` ``console_scripts`` entry point and loads
+the exact compiled click application operators run, then walks the whole command
+tree -- every group, every command, at every depth -- emitting a JSON document on
+stdout that ``gen_cli.py`` renders to MDX.
 
 Every field traces to the real command objects: help text, usage pieces, and
 option/argument metadata all come from the live click ``Context`` the runtime
@@ -14,6 +15,7 @@ itself uses to render ``--help``. Nothing is invented here.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import sys
 
@@ -74,14 +76,31 @@ def _walk(command, name: str, path: list[str], parent: click.Context) -> dict:
     return node
 
 
-def build_tree() -> dict:
-    from tai42_skeleton.cli.app import app
+def _resolve_tai_app() -> click.Command:
+    """Load the compiled click app behind the installed ``tai`` console script.
 
-    return _walk(app, "tai", ["tai"], parent=None)
+    The dumped tree is exactly what operators run, wherever the app lives. A
+    missing entry point is a fail-loud contract: raise so ``main`` exits non-zero
+    and writes no placeholder tree."""
+    matches = [ep for ep in importlib.metadata.entry_points(group="console_scripts") if ep.name == "tai"]
+    if not matches:
+        raise LookupError(
+            "no 'tai' console-script entry point is installed; run inside an env "
+            "where tai42-cli (and, for the full tree, tai42-skeleton) resolves"
+        )
+    return matches[0].load()
+
+
+def build_tree() -> dict:
+    return _walk(_resolve_tai_app(), "tai", ["tai"], parent=None)
 
 
 def main() -> int:
-    tree = build_tree()
+    try:
+        tree = build_tree()
+    except LookupError as exc:
+        print(f"_cli_introspect: {exc}", file=sys.stderr)
+        return 1
     json.dump(tree, sys.stdout, ensure_ascii=False)
     return 0
 
