@@ -42,11 +42,23 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
     ```
   </Step>
   <Step title="Replace the set at runtime">
-    Write the full replacement `mcp` list to a JSON file, then apply it. This hot-reloads the section without restarting the server.
+    Write the full replacement `mcp` list to a JSON file, then apply it. This hot-reloads the section without restarting the server. `set` remains the bootstrap and restore path — use it to lay down the whole section at once.
 
     ```bash
     tai mcp set --file mcp.json
     ```
+  </Step>
+  <Step title="Add or remove one entry">
+    Change a single server without rewriting the whole list. `tai mcp add` appends the entries in a JSON file — one entry object, a bare array, or an object carrying an `"entries"` list — and refuses a title that already exists unless you pass `--replace`, which swaps the existing entry in place. `tai mcp remove` deletes one entry by its title. Both hot-reload the section.
+
+    ```bash
+    tai mcp add --file entry.json --replace
+    tai mcp remove example-http
+    ```
+
+    <Note>
+    `remove` is a **persisted** change — it edits the manifest, so the server stays gone across a restart. [`deregister`](/concepts/live-operations) is a **runtime-only** detach — it drops the server's tools from the live registry but leaves the manifest untouched, so the next reload brings it back.
+    </Note>
   </Step>
   <Step title="Reload one server">
     Re-probe a single server by its manifest title and re-attach it if it is viable.
