@@ -1,6 +1,6 @@
 ---
 title: "Conversation bridge"
-description: "Route CRUD and CLI, the read doors, retention, the fire-path authorization model, and every bridge setting."
+description: "Route CRUD and CLI, the read doors, forgetting a thread, retention, the fire-path authorization model, and every bridge setting."
 icon: "comments"
 ---
 
@@ -127,17 +127,18 @@ offending value**.
 
 | HTTP | CLI | Scope |
 | --- | --- | --- |
-| `GET /api/conversations/{route_name}/messages/{message_id}` | `tai conversations get-message <route> <id>` | Caller-scoped. |
+| `GET /api/conversations/{route_name}/messages/{message_id}` | `tai conversations get-message <route> <id>` | Read grant. |
 | `GET /api/conversations/messages/failed` | `tai conversations failed` | Admin only. |
 | `GET /api/conversations/{route_name}/threads` | `tai conversations threads <route>` | Admin only. |
-| `GET /api/conversations/{route_name}/transcript?thread_id=` | `tai conversations transcript <route> <thread>` | Caller-scoped. |
+| `GET /api/conversations/{route_name}/transcript?thread_id=` | `tai conversations transcript <route> <thread>` | Read grant. |
 
-The single-record door is **caller-scoped**: an API-door record is readable by the
-caller that invoked the turn or by an admin; a channel-door record is admin-only. A
-non-owning caller gets `403`; a record on another route (or missing) is `404`. An
-admin read returns the full record (including `error`, the turn's internal detail);
-the caller read returns a caller-safe projection that withholds `error` and the
-delivery bookkeeping — the turn ran as the **route's** key, not the caller's.
+The single-record door is a plain authed read gated by the **conversations read
+grant**: a holder reads any record on the route, whichever door it arrived through. An
+admin read returns the full record (including `error`, the turn's internal detail); a
+non-admin read returns a caller-safe projection that withholds `error` and the
+delivery bookkeeping — the turn ran as the **route's** key, not the reader's. A record
+on another route (or missing) is a `404` — a wrong-route or unknown address, never an
+authorization verdict.
 
 The failed-delivery listing spans every route and caller, so it is admin-only.
 
@@ -185,27 +186,51 @@ The answer is `{items, total, page, page_size, next_page, order}`, its items the
 answer records the single-record door serves — whole records for an admin, the
 caller-safe projection otherwise.
 
-The reader is authorized from the **thread's identity**, before any record is read, so
-no page can disclose what page 1 would not. An admin reads any thread; a non-admin
-reads an API-door thread its own principal keys — a route-keyed api thread's id is
-`bridge:{route_name}:{percent-encoded principal}/{external user id}`, so the thread
-names its owner; a linked person's `bridge:@person:{person_id}` thread names an opaque
-person, not the principal, and is authorized against the person's own api addresses on
-a route of the person's target — the caller reads it iff the route targets that person's
-target and one of those addresses carries their principal. A channel thread's addresses are the medium's and belong to
-nobody who can call this door, so channel threads are admin-only by construction.
+The transcript is a plain authed read gated by the **conversations read grant** — a
+holder reads any thread on the route, whichever door its messages arrived through: an
+API-door thread, a linked person's `bridge:@person:{person_id}` thread, or a channel
+thread alike. Only the two listings stay admin-only (each spans every caller and
+address on the route); a single thread read does not.
 
-Everything a non-admin may not read answers **one uniform `404`** — an unknown
-thread, an expired one, another principal's, any channel thread, and a `route_name`
-that does not route at all — so the door is no probe for which addresses have talked
-to which routes. An unknown `route_name` is its own `404` only to an admin. A blank
-`thread_id`, an unknown `order`, or a malformed window is `400`; no backend is `501`.
+A `404` here is an **addressing** verdict, never an authorization one: an unknown
+thread, an expired one, or a `route_name` that does not route at all. A blank
+`thread_id`, an unknown `order`, or a malformed window is `400`; a caller without the
+read grant is `403`; no backend is `501`.
 
 <Note>
 A thread the index still holds but whose records have expired under
 `answer_retention_ttl_seconds` reads as an **empty page carrying the indexed
 `total`** — not a `404` — until the prune pass reclaims the members.
 </Note>
+
+## Forgetting a thread
+
+`DELETE /api/conversations/{route_name}/thread?thread_id=…`
+(`tai conversations delete-thread <route> <thread>`) **forgets** one thread
+outright — its agent checkpoint, its answer records, and its thread indexes — so a
+later message on the same address starts a memory the deleted turns never touched. A
+linked person's aggregated `bridge:@person:{person_id}` thread is forgotten across
+every route index it spans.
+
+The thread id rides the **query string**, exactly as the transcript door takes it: an
+API-door id carries a percent-encoded principal that no path spelling round-trips.
+
+Forgetting is **absolute**. A valid id on its own route always succeeds, and the
+answer's `removed` count is `0` when nothing was left to clear — an aged-out thread
+whose records already expired under `answer_retention_ttl_seconds`, or one never seen
+— never a `404`. The checkpoint is deleted regardless, so keep-forever memory is not
+left behind once the records lapse.
+
+Authority is the door's **write** action — the **same conversations write grant that
+creates a route** deletes routes and forgets threads, never a per-thread owner check.
+
+The answer is `{removed, route_name, thread_id}`. Refusals: a route-keyed id missing
+the route's `bridge:{route_name}:` prefix is a `400` (it names another route) — the
+one guard stopping a delete on one route from wiping another's memory; a
+`bridge:@person:` thread whose person is unknown, or whose `route_name` is not one of
+that person's routes, is a `404`; a turn in flight on the thread is a `409` (retry
+once it drains); a blank `thread_id` or invalid `route_name` is a `400`; no backend
+is `501`.
 
 ## The delivery lifecycle
 

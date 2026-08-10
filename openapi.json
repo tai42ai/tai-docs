@@ -7172,7 +7172,7 @@
     },
     "/api/conversations/messages/failed": {
       "get": {
-        "description": "Every answer record whose delivery ended ``failed``. Admin-only — the listing spans\nevery route and caller, so it is not caller-scoped. Returns ``{\"items\", \"total\"}``.",
+        "description": "Every answer record whose delivery ended ``failed``. The listing spans every route and\ncaller, so it is admin-only. Returns ``{\"items\", \"total\"}``.",
         "operationId": "get_api_conversations_messages_failed",
         "responses": {
           "200": {
@@ -7398,7 +7398,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently and the read doors\nauthorize from that shape, so the flip would lock owners out of their own transcripts.\nAn ``api`` row's ``callback_secret`` is minted here and returned ONCE.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row's ``callback_secret`` is minted here and returned ONCE.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
@@ -7646,7 +7646,7 @@
     },
     "/api/conversations/{route_name}/messages/{message_id}": {
       "get": {
-        "description": "One conversation answer record by ``message_id`` under ``route_name``, caller-scoped.\n\nAn api-door record is readable by the caller that invoked the turn or by an admin; a\nchannel-door record is admin-only. A missing record or one on another route is a 404; a\nrecord that exists but is not the caller's is a 403. An admin reads the whole record;\nthe caller reads the caller-safe projection, which withholds the internal detail of the\nroute key's run.",
+        "description": "One conversation answer record by ``message_id`` under ``route_name``.\n\nA missing record or one on another route is a 404. An admin reads the whole record; a\nnon-admin reads the caller-safe projection, which withholds the internal detail of the\nroute key's run.",
         "operationId": "get_api_conversations_route_name_messages_message_id",
         "parameters": [
           {
@@ -7703,16 +7703,6 @@
             },
             "description": "Missing or invalid api key."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -7745,9 +7735,103 @@
         ]
       }
     },
+    "/api/conversations/{route_name}/thread": {
+      "delete": {
+        "description": "Forget ONE conversation thread: its agent checkpoint, its answer records and its thread\nindexes, so a later message on the same address starts a memory the deleted turns never\ntouched. A LINKED person's aggregated ``bridge:@person:{id}`` thread is forgotten across\nevery route index it spans.\n\nForgetting is ABSOLUTE: a valid id on its own route always succeeds, even when nothing is\nstored. An aged-out thread whose answer records already expired under the retention TTL,\nor one never seen, answers ``removed=0`` and never a 404 — and its checkpoint is deleted\nregardless, because that memory defaults to keep-forever and is otherwise left behind once\nthe records lapse. A route-keyed id MUST carry the route's ``bridge:{route_name}:`` prefix;\nan id belonging to another route is a loud 400, the sole guard stopping a delete on one\nroute from wiping another route's memory. A person ``bridge:@person:{id}`` thread whose\nperson is unknown, or whose ``route_name`` is not one of the person's routes, is a loud\n404. A turn IN FLIGHT on the thread (an ``accepted`` intake still holding a live lease) is\na 409: its completion re-writes checkpoint state and re-stamps the indexes behind the\ndelete, half-forgetting the memory — retry once it drains. A ``route_name`` that is not a\nvalid slug, or a blank ``thread_id``, is a 400.\n\nCaller authority is the door's grantable write action — the SAME write grant that creates\na route deletes routes and forgets threads — never a per-thread owner check.\n\nThe teardown runs in an order an interruption cannot strand: the checkpoint FIRST — its\nmemory is reachable only through the indexes once this call returns, so it must go while\nthe indexes still name the thread to bring a re-run back — then the records and the indexes\ntogether, the index being the durable marker of an owed reclamation and torn down LAST.\nIdempotent under re-run, so a partial completion is FINISHED by a retry.\n\nReturns ``{\"removed\", \"route_name\", \"thread_id\"}``, where ``removed`` counts the answer\nrecords this call deleted (0 when a prior run already cleared them, when their rows had\nexpired under the retention TTL, or when the id was never stored).",
+        "operationId": "delete_api_conversations_route_name_thread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a conversation thread",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/conversations/{route_name}/threads": {
       "get": {
-        "description": "The threads of ``route_name``, newest activity first, one page at a time.\n\nAdmin-only — a thread listing spans every caller and address on the route, so it is not\ncaller-scoped. Each item carries ``thread_id``, ``client_address``, ``message_count``\nand ``last_delivery_status`` summarized from the thread's newest readable record, plus\n``last_activity_at`` — the route index's own score, which is what this listing SORTS by,\nso the moment shown and the position it is shown in always agree. That score is stamped\nwhen a record is created and again when its turn completes; a later delivery transition\non the same record moves the record's ``updated_at`` but not the thread's activity.\n\nAuthorization is decided BEFORE the route is looked up, so a non-admin is refused the\nsame way whether the name routes or not — a 404-here/403-there pair would answer which\nroute names exist to a caller with no business knowing. An unknown route is a loud 404\nto an admin; a ``page`` or ``page_size`` below 1, or a ``page`` above the served\nmaximum, is a 400. Returns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\"}``,\nwhere ``total`` counts the route's indexed threads.",
+        "description": "The threads of ``route_name``, newest activity first, one page at a time.\n\nA thread listing spans every caller and address on the route, so it is admin-only. Each\nitem carries ``thread_id``, ``client_address``, ``message_count``\nand ``last_delivery_status`` summarized from the thread's newest readable record, plus\n``last_activity_at`` — the route index's own score, which is what this listing SORTS by,\nso the moment shown and the position it is shown in always agree. That score is stamped\nwhen a record is created and again when its turn completes; a later delivery transition\non the same record moves the record's ``updated_at`` but not the thread's activity.\n\nAuthorization is decided BEFORE the route is looked up, so a non-admin is refused the\nsame way whether the name routes or not — a 404-here/403-there pair would answer which\nroute names exist to a caller with no business knowing. An unknown route is a loud 404\nto an admin; a ``page`` or ``page_size`` below 1, or a ``page`` above the served\nmaximum, is a 400. Returns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\"}``,\nwhere ``total`` counts the route's indexed threads.",
         "operationId": "get_api_conversations_route_name_threads",
         "parameters": [
           {
@@ -7864,7 +7948,7 @@
     },
     "/api/conversations/{route_name}/transcript": {
       "get": {
-        "description": "One thread's records under ``route_name``, one page at a time — caller-scoped.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\nThe reader is authorized from the thread's IDENTITY, BEFORE any record is read, so no\npage can disclose what page 1 would not: an admin reads whole records of any thread, and\na non-admin reads the caller-safe projection of an api-door thread its own principal\nkeys. Everything else — an unknown thread, a thread the index no longer holds, another\nprincipal's, any channel thread, and a ``route_name`` that does not route at all —\nanswers ONE uniform 404 to a non-admin, so the door cannot be used to probe whether an\naddress has ever talked to a route, or which route names exist. An unknown\n``route_name`` is its own 404 only to an admin. A ``page`` or ``page_size`` below 1, a\n``page`` above the served maximum, a blank ``thread_id`` or an unknown ``order`` is a\n400 — the caller's own input, which discloses nothing.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\"}``, where\n``total`` counts the thread's indexed records.",
+        "description": "One thread's records under ``route_name``, one page at a time.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\nAn admin reads whole records; a non-admin reads the caller-safe projection, which\nwithholds the internal detail of the route key's run. An unknown ``route_name`` is a loud\n404. A thread that is absent or keyed to another route answers the uniform thread\nnot-found. A ``page`` or ``page_size`` below 1, a ``page`` above the served maximum, a\nblank ``thread_id`` or an unknown ``order`` is a 400.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\"}``, where\n``total`` counts the thread's indexed records.",
         "operationId": "get_api_conversations_route_name_transcript",
         "parameters": [
           {
