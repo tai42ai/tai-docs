@@ -6959,6 +6959,35 @@
       "get": {
         "description": "The installed connections as secret-free views.\n\n``health`` filters the returned items to a single ``auth_health_state``\n(``healthy`` / ``reconnect_required`` / ``refresh_failing``); an unrecognised\nvalue is a loud 400. ``limit`` caps the number of returned items (a positive\ninteger no larger than the hard guard); ``total`` still reports the full match\ncount so a caller sees there is more beyond the page. ``unhealthy`` counts every\nnot-healthy connection across the whole set, independent of the filter and limit.",
         "operationId": "get_api_connectors_connections",
+        "parameters": [
+          {
+            "description": "Restrict items to this auth-health state; omit for all connections.",
+            "in": "query",
+            "name": "health",
+            "required": false,
+            "schema": {
+              "enum": [
+                "healthy",
+                "reconnect_required",
+                "refresh_failing"
+              ],
+              "title": "Health",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cap the number of returned items; total still reports the full match count.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8484,6 +8513,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The thread to forget, as the send door returned it.",
+            "in": "query",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "title": "Thread Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8580,24 +8621,25 @@
             }
           },
           {
+            "description": "1-based page number, newest activity first.",
             "in": "query",
             "name": "page",
             "required": false,
             "schema": {
               "default": 1,
-              "description": "1-based page number, newest activity first.",
+              "maximum": 1000000,
               "minimum": 1,
               "title": "Page",
               "type": "integer"
             }
           },
           {
+            "description": "Items per page. A larger value is capped to 200, never refused.",
             "in": "query",
             "name": "pageSize",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Items per page. A larger value is capped to 200, never refused.",
               "minimum": 1,
               "title": "Pagesize",
               "type": "integer"
@@ -8697,46 +8739,49 @@
             }
           },
           {
+            "description": "1-based page number, in the requested ``order``.",
             "in": "query",
             "name": "page",
             "required": false,
             "schema": {
               "default": 1,
-              "description": "1-based page number, in the requested ``order``.",
+              "maximum": 1000000,
               "minimum": 1,
               "title": "Page",
               "type": "integer"
             }
           },
           {
+            "description": "Items per page. A larger value is capped to 200, never refused.",
             "in": "query",
             "name": "pageSize",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Items per page. A larger value is capped to 200, never refused.",
               "minimum": 1,
               "title": "Pagesize",
               "type": "integer"
             }
           },
           {
+            "description": "The thread to read, as the send door returned it.",
             "in": "query",
             "name": "thread_id",
             "required": true,
             "schema": {
-              "description": "The thread to read, as the send door returned it.",
+              "minLength": 1,
+              "pattern": "\\S",
               "title": "Thread Id",
               "type": "string"
             }
           },
           {
+            "description": "``asc`` reads the transcript oldest first; ``desc`` is the live-tail order.",
             "in": "query",
             "name": "order",
             "required": false,
             "schema": {
               "default": "asc",
-              "description": "``asc`` reads the transcript oldest first; ``desc`` is the live-tail order.",
               "enum": [
                 "asc",
                 "desc"
@@ -9108,6 +9153,18 @@
       "get": {
         "description": "List registered hooks plus the per-topic verifier bindings.\n\nWith a topic, lists only the hooks registered for that topic; without one,\nlists every registered hook. The response carries the hooks under ``items``\n(with ``total``), the per-topic verifier bindings under ``topic_verifiers``, and\nunder ``trigger_auth`` how a topic's webhook ingress door authenticates its caller —\nDERIVED from the live verifier bindings just read, never stored. ``trigger_auth`` is\nkeyed by every topic among the LISTED hooks plus every topic currently carrying a\nverifier binding (one may be bound before any hook exists on it), so under a\n``topic`` filter it is neither a subset nor a superset of the listed topics.",
         "operationId": "get_api_hooks",
+        "parameters": [
+          {
+            "description": "Restrict the listing to hooks registered for this topic; omit for all hooks.",
+            "in": "query",
+            "name": "topic",
+            "required": false,
+            "schema": {
+              "title": "Topic",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -10760,6 +10817,111 @@
       "get": {
         "description": "Proxy the registry's public search, forwarding the whitelisted facets.\n\n``tags`` is multi-value end to end (the registry receives repeated ``tags``\nparams); every other facet is single-valued. ``None`` facets are dropped. The\nregistry's rows ride through unchanged, so display metadata (``display_name``,\n``icon_url``) is transparently forwarded.",
         "operationId": "get_api_marketplace_search",
+        "parameters": [
+          {
+            "description": "Free-text search query.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to one item kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to one category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to these tags; repeat the parameter per tag.",
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Restrict to one publisher namespace.",
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "title": "Namespace",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to one tier.",
+            "in": "query",
+            "name": "tier",
+            "required": false,
+            "schema": {
+              "title": "Tier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to one contract version.",
+            "in": "query",
+            "name": "contract",
+            "required": false,
+            "schema": {
+              "title": "Contract",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort key.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page number.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "title": "Page",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "title": "Page Size",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11559,6 +11721,21 @@
       "get": {
         "description": "List MCP servers skipped due to a failed viability check (server down or\nslow at boot or last reload). Use ``reload_mcp`` to re-attach one once healthy.\n\nEach entry is ``{\"title\": <name>, \"status\": \"unavailable\"}`` — title plus a\ncoarse status only. A query op rides the same fan-out primitive as a mutation:\nevery worker's list arrives as its per-worker ``payload`` in the fleet report\n(this worker's list on its own self entry); ``targets`` optionally restricts the\nquery to specific workers.",
         "operationId": "get_api_mcp_status_failed",
+        "parameters": [
+          {
+            "description": "Restrict the listing to these worker names; repeat the parameter per worker, omit for the fleet.",
+            "in": "query",
+            "name": "targets",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Targets",
+              "type": "array"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11982,6 +12159,43 @@
       "get": {
         "description": "Aggregate metrics over the time range via the contract's ``query_metrics``.\n\nThree fixed queries: a summary total, a granularity series, and an OPTIONAL\nby-model breakdown. By-model runs through ``_safe_query`` so a backend\nrejecting the extra dimension omits that panel rather than breaking the core\ntiles; the summary and series queries are hard (they may raise).",
         "operationId": "get_api_observability_metrics",
+        "parameters": [
+          {
+            "description": "Range start as an ISO instant or a relative token (e.g. ``30d``); defaults to 30 days ago.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range end as an ISO instant or a relative token; defaults to now.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bucket size; auto-selected from the span when omitted.",
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "enum": [
+                "hour",
+                "day",
+                "week"
+              ],
+              "title": "Granularity",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -12045,6 +12259,166 @@
       "get": {
         "description": "Filterable run list via the contract's ``list_traces``, paged with the\nreader's ``limit`` / ``page``. Time range plus the neutral advanced filters\n(tags / status / cost / token / latency ranges) and sort.\n\nList- or dict-typed query params are JSON-encoded in the query string\n(``tags`` may be a JSON list ``[\"a\",\"b\"]`` or a comma-separated string).",
         "operationId": "get_api_observability_runs",
+        "parameters": [
+          {
+            "description": "Range start as an ISO instant or a relative token (e.g. ``30d``); defaults to 30 days ago.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range end as an ISO instant or a relative token; defaults to now.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tag filter as a JSON list (``[\"a\",\"b\"]``) or a comma-separated string.",
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "title": "Tags",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to ``error`` runs; ``success`` is unfiltered.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "error",
+                "success"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on run cost.",
+            "in": "query",
+            "name": "minCost",
+            "required": false,
+            "schema": {
+              "title": "Mincost",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on run cost.",
+            "in": "query",
+            "name": "maxCost",
+            "required": false,
+            "schema": {
+              "title": "Maxcost",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on token count.",
+            "in": "query",
+            "name": "minTokens",
+            "required": false,
+            "schema": {
+              "title": "Mintokens",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on token count.",
+            "in": "query",
+            "name": "maxTokens",
+            "required": false,
+            "schema": {
+              "title": "Maxtokens",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on latency in milliseconds.",
+            "in": "query",
+            "name": "minLatencyMs",
+            "required": false,
+            "schema": {
+              "title": "Minlatencyms",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on latency in milliseconds.",
+            "in": "query",
+            "name": "maxLatencyMs",
+            "required": false,
+            "schema": {
+              "title": "Maxlatencyms",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Sort key.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "enum": [
+                "createdAt",
+                "cost",
+                "latencyMs",
+                "totalTokens"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction; defaults to ``desc``.",
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Dir",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page number.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page; capped to 100, never refused.",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -12108,6 +12482,157 @@
       "get": {
         "description": "Bulk export of the filtered run list as CSV (default) or JSON. Honors the\nsame advanced filters as the run list. Capped at ``_EXPORT_CAP`` rows;\ntruncation is flagged in-band (never a silent loss).",
         "operationId": "get_api_observability_runs_export",
+        "parameters": [
+          {
+            "description": "Range start as an ISO instant or a relative token (e.g. ``30d``); defaults to 30 days ago.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range end as an ISO instant or a relative token; defaults to now.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tag filter as a JSON list (``[\"a\",\"b\"]``) or a comma-separated string.",
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "title": "Tags",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to ``error`` runs; ``success`` is unfiltered.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "error",
+                "success"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on run cost.",
+            "in": "query",
+            "name": "minCost",
+            "required": false,
+            "schema": {
+              "title": "Mincost",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on run cost.",
+            "in": "query",
+            "name": "maxCost",
+            "required": false,
+            "schema": {
+              "title": "Maxcost",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on token count.",
+            "in": "query",
+            "name": "minTokens",
+            "required": false,
+            "schema": {
+              "title": "Mintokens",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on token count.",
+            "in": "query",
+            "name": "maxTokens",
+            "required": false,
+            "schema": {
+              "title": "Maxtokens",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on latency in milliseconds.",
+            "in": "query",
+            "name": "minLatencyMs",
+            "required": false,
+            "schema": {
+              "title": "Minlatencyms",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on latency in milliseconds.",
+            "in": "query",
+            "name": "maxLatencyMs",
+            "required": false,
+            "schema": {
+              "title": "Maxlatencyms",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Sort key.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "enum": [
+                "createdAt",
+                "cost",
+                "latencyMs",
+                "totalTokens"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction; defaults to ``desc``.",
+            "in": "query",
+            "name": "dir",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Dir",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Download format; defaults to ``csv``.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "csv",
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -13498,30 +14023,14 @@
         "operationId": "get_api_resources_get",
         "parameters": [
           {
+            "description": "The id (path) of the stored resource to load.",
             "in": "query",
             "name": "resource_id",
             "required": true,
             "schema": {
+              "minLength": 1,
               "title": "Resource Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "template_kwargs",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "title": "Template Kwargs"
             }
           }
         ],
@@ -15561,6 +16070,19 @@
       "get": {
         "description": "List the recent runs for one tool, newest first.\n\nA restricted caller reads its OWN per-identity index (complete within its own\nbound — never truncated by other identities' volume that saturates the shared\nwindow); an unrestricted caller reads the shared index unchanged. An empty list\nis the honest answer to \"my runs of this tool\" — this filters a collection to the\ncaller's own slice (distinct from GET-by-id, which raises ``403`` for a NAMED run\nowned by another identity).",
         "operationId": "get_api_tool_runs",
+        "parameters": [
+          {
+            "description": "The registered tool whose recent runs to list.",
+            "in": "query",
+            "name": "tool_name",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Tool Name",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
