@@ -258,6 +258,20 @@ def _anchor(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+def item_group(item: dict, ref: str) -> str | None:
+    """A provides item's optional logical group tag, or ``None`` when ungrouped.
+
+    Absent key or ``null`` value means ungrouped and renders as an untagged item.
+    A present value that is not a non-blank string is a loud failure naming the
+    item, matching the generator's refuse-malformed-input discipline."""
+    if item.get("group") is None:
+        return None
+    group = item["group"]
+    if not isinstance(group, str) or not group.strip():
+        raise GenError(f"{ref}: item {item.get('name')!r} has a malformed group tag {group!r}")
+    return group.strip()
+
+
 def group_label_for(spec: dict) -> str:
     """The nav group label for a listing, from its FIRST provides item kind."""
     provides = spec.get("provides") or []
@@ -311,11 +325,16 @@ def render_page(spec: dict, body: str) -> str:
         "## Provides",
         "",
     ]
+    ref = f"{ns}/{name}"
     for item in spec["provides"]:
         item_label = _ITEM_KIND_LABELS.get(item["kind"], item["kind"])
+        group = item_group(item, ref)
+        badge = f"`{mdx_cell(item_label)}`"
+        if group is not None:
+            badge += f" · group `{mdx_cell(group)}`"
         lines.append(f"### {mdx_cell(item['name'])} {{#{_anchor(item['name'])}}}")
         lines.append("")
-        lines.append(f"`{mdx_cell(item_label)}` — {mdx_cell(item.get('description', ''))}")
+        lines.append(f"{badge} — {mdx_cell(item.get('description', ''))}")
         lines.append("")
 
     body = body.strip()
