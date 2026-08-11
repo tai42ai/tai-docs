@@ -35,8 +35,10 @@ tai conversations create chat-line \
 
 `create` flags: `--door` (`api`|`channel`), `--target-kind` (`agent`|`tool`, default
 `agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
-targets), `--channel` / `--identity` (channel rows), `--callback-url` (api rows,
-HTTPS).
+targets), `--initial-mode` (`agent`|`manual`, default `agent` — the route's default
+[control mode](#operator-messages-and-control-mode)), `--channel` / `--identity`
+(channel rows), `--callback-url` (api rows, HTTPS). `--initial-mode manual` is valid on
+any target (see [control mode](#control-mode)).
 
 ## Route targets: agent or tool
 
@@ -140,6 +142,11 @@ delivery bookkeeping — the turn ran as the **route's** key, not the reader's. 
 on another route (or missing) is a `404` — a wrong-route or unknown address, never an
 authorization verdict.
 
+Every record carries an `origin` — `client` for an inbound message's turn, `operator`
+for a message an operator sent into the thread [by
+hand](#operator-messages-and-control-mode) — published in both the admin and the
+caller-safe projections.
+
 The failed-delivery listing spans every route and caller, so it is admin-only.
 
 ### The thread listing
@@ -232,13 +239,116 @@ that person's routes, is a `404`; a turn in flight on the thread is a `409` (ret
 once it drains); a blank `thread_id` or invalid `route_name` is a `400`; no backend
 is `501`.
 
+## Operator messages and control mode
+
+Three thread-scoped operator doors govern how a thread is answered: one sends an
+operator's reply by hand, two read and set the thread's **control mode**. All three
+carry the [thread-belongs-to-route guard](#forgetting-a-thread) — a route-keyed id must
+carry the route's `bridge:{route_name}:` prefix (`400` otherwise), and a person thread
+must be on the named route (`404` otherwise).
+
+| HTTP | CLI | Grant |
+| --- | --- | --- |
+| `POST /api/conversations/{route_name}/thread/messages` | `tai conversations send <route> <thread> --text …` | **Write**. |
+| `GET /api/conversations/{route_name}/thread/mode?thread_id=` | `tai conversations mode-get <route> <thread>` | **Read**. |
+| `PUT /api/conversations/{route_name}/thread/mode` | `tai conversations mode-set <route> <thread> <mode>` | **Write**. |
+
+The two write doors share the **same write grant that creates a route**, deletes
+routes, and forgets threads — no per-thread owner check.
+
+### Control mode
+
+A thread runs in one of two control modes. **`agent`** (the route default) runs the
+target turn — the agent run or the tool dispatch — on each inbound message. **`manual`**
+**suppresses** the target turn so an operator answers by hand; the platform's own
+control turns (pairing, the first-contact greeting) still run. The mode in force for a
+thread is its per-thread override when one is set, else the route default: the route's
+`initial_mode` for a route-keyed thread, and for a linked person's aggregated thread
+`manual` when **any** route the person spans sets `initial_mode: manual`, else `agent`.
+
+`manual` is valid on **every** target and door — `initial_mode`, the `PUT …/thread/mode`
+door, and the `set_conversation_mode` builtin all take it, on a `tool` target or an agent
+alike.
+
+A `manual`-mode ordinary inbound is answered by nobody automatically: its target turn is
+suppressed, so on a `channel` route the record ends terminal `silent` and on an `api`
+route the silence is delivered as a `status: "silent"` marker. A pairing action and a
+first-contact greeting are the exception — when a greeting is due it is prepended onto
+the otherwise-silent outcome, so **that** record ends `answered`/`delivered` carrying the
+greeting text.
+
+Whether the suppressed inbound is **remembered** turns on the target's memory. A target
+that keeps thread memory — an agent that implements the thread-memory append — has the
+inbound appended to that memory, so a later `agent`-mode turn reads it as prior context;
+an append that fails is a loud `error` outcome, never a silent drop. A target with no
+thread memory — a `tool` target, or an agent that does not implement the append — skips
+the step: the transcript is the record, and nothing is lost because such a target never
+had a memory to fall out of. The same conditional append governs an
+[operator send](#operator-send).
+
+**Read** — `GET …/thread/mode?thread_id=` returns `{mode, source}`: `source` is
+`thread` when a per-thread override is set, `route` when the answer is the route's
+`initial_mode` default. The thread id rides the query string, as the transcript door
+takes it.
+
+**Set** — `PUT …/thread/mode` takes `{thread_id, mode}` (`mode` one of `agent`/`manual`)
+and returns `{route_name, thread_id, mode, source}` with `source` always `thread` — a
+set writes an override. This is the door an **external** or programmatic caller names a
+thread through; an agent flipping its **own** live conversation uses the
+`set_conversation_mode` builtin instead, which reads the current thread from the turn
+context rather than naming it. The override carries the answer
+records' `answer_retention_ttl_seconds` and is **refreshed on thread activity** — each
+accepted inbound and each operator send — so it expires *with* the conversation: a
+thread quiet past the retention window loses its override along with its records, and a
+returning address starts again at the route default. A thread delete or a route delete
+reclaims it at once.
+
+Refusals (both mode doors): an unknown route `404`, a blank `thread_id` `400`, a
+route-keyed id off the route `400`, a person thread off the named route `404`; `set`
+adds a `400` for a `mode` outside `agent`/`manual`. Neither mode door takes an address.
+
+### Operator send
+
+`POST …/thread/messages` sends an operator's message **by hand** into a thread. Body:
+`{thread_id, text, address?}`; the answer is `{message_id, thread_id}`. No turn runs:
+the record is minted already `answered` and delivered through the same machine a
+produced answer takes — sent **from the route identity**, with the same chunking,
+delivery ledger, and receipts. It is allowed in **either** mode and **never flips the
+mode**.
+
+The record is `origin: "operator"`: it carries the text as its `answer`, an empty
+`inbound_text`, and names the sending operator in `caller_principal`. For a target that
+**keeps thread memory** the text is appended to the thread's checkpoint as an `assistant`
+reply **before** the record is created — the same [conditional append](#control-mode) a
+suppressed inbound takes, mirroring how the agent's own answer enters memory — so a later
+agent turn reads it as prior context; a target with no thread memory skips it. An append
+that fails is a loud `500` and **no record is created**,
+so the reply never stands in the transcript while absent from the memory a later turn
+reads. The whole append-then-create runs under the thread's **per-thread FIFO** — the
+same lock in-flight turns take — so the send waits behind an in-flight turn on that
+thread and never interleaves its writes; a full queue is a loud, retriable `503`.
+
+`address` picks the send target on a **linked person's** aggregated thread: it must be
+one of the person's addresses (`400` otherwise), and its route is the named route when
+the address wrote under it, else that address's own first route. With no `address` the
+target is the thread's **newest record** — its route and client address — so the reply
+returns where the person last wrote from; an empty person thread with no `address` is a
+`400`. On a route-keyed thread an explicit `address` must equal the address embedded in
+the id.
+
+Refusals: blank `text` `400`, a present-but-blank `address` `400`, the
+thread-belongs-to-route guard's `400`/`404`, an unknown route `404`, a full thread queue
+`503`, no backend `501`, and an **unauthenticated** caller `501` — an operator action
+must be attributable, so access control must be enabled and the caller bound.
+
 ## The delivery lifecycle
 
 An answer record moves through `accepted` → `pending_delivery` → `provisional` →
 `delivered`, or ends `failed` (undelivered past the attempt budget, or reported
 failed by the provider), `shed` (refused by the address rate cap; no turn ran), or
-`silent` (a **channel** `tool` turn whose mapped reply was `null`/blank; the turn ran
-but sends nothing). An **api** `tool` turn that maps to silence does **not** end
+`silent` (nothing sent back for the inbound: a **channel** `tool` turn whose mapped
+reply was `null`/blank, or an ordinary inbound on a `manual`-mode thread whose suppressed
+target turn produced no reply). An **api** turn that resolves silent does **not** end
 `silent`: it rides the delivery pipeline like any answer and ends `delivered`, its
 callback carrying `status: "silent"`. Only the terminal states (`delivered`, `failed`,
 `shed`, `silent`) carry the retention TTL.
