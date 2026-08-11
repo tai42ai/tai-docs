@@ -120,6 +120,7 @@ $ tai conversations create [OPTIONS] {route_name}
 | `--target-kind` `&lt;str&gt;` | What the turn runs: 'agent' or 'tool'. _(default: `agent`)_ |
 | `--payload-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the inbound message to the tool kwargs. |
 | `--reply-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the tool result to the reply. |
+| `--initial-mode` `&lt;str&gt;` | Default control mode when a thread has no override: 'agent' or 'manual'. _(default: `agent`)_ |
 | `--channel` `&lt;str&gt;` | door=channel: the channel registry name (e.g. twilio). |
 | `--identity` `&lt;str&gt;` | door=channel: the medium address we are texted at. |
 | `--callback-url` `&lt;str&gt;` | door=api: the https answer-delivery URL. |
@@ -238,6 +239,82 @@ $ tai conversations list [OPTIONS]
 
 | Option | Description |
 | --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations mode-get`
+
+Show a thread's control mode and where it comes from (a per-thread override, or the
+route's default).
+
+Example: `tai conversations mode-get chat-line bridge:chat-line:+15550001111`
+
+```console
+$ tai conversations mode-get [OPTIONS] {route_name} {thread_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `thread_id` | Thread id (e.g. bridge:chat-line:+15550001111). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations mode-set`
+
+Set a thread's control mode override.
+
+`agent` runs the target turn on the next inbound message; `manual` suppresses it so an
+operator answers by hand, while platform control turns (pairing, greeting) still run. The
+same write grant that forgets threads sets a thread's mode.
+
+Example: `tai conversations mode-set chat-line bridge:chat-line:+15550001111 manual`
+
+```console
+$ tai conversations mode-set [OPTIONS] {route_name} {thread_id} {mode}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `thread_id` | Thread id (e.g. bridge:chat-line:+15550001111). _(required)_ |
+| `mode` | Control mode: 'agent' or 'manual'. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations send`
+
+Send a message BY HAND into one thread, delivered as the route identity — no turn runs.
+
+Allowed in either mode and it never flips the mode. A route-keyed id must carry the
+route's `bridge:&lt;route_name&gt;:` prefix (else 400); a person thread not on the named route
+is a 404. `--address` picks the send target on a linked person's aggregated thread and
+must be one of the person's addresses; without it the target is the thread's newest
+record, and an empty person thread with no `--address` is a 400. A target that keeps
+thread memory gets the message appended to that memory as an assistant reply; a target
+with no thread memory skips it.
+
+The thread id rides the body, so an api-door id — which carries a percent-encoded
+principal — reaches the door spelled exactly as the listing showed it.
+
+Example: `tai conversations send chat-line bridge:chat-line:+15550001111 --text 'On it.'`
+
+```console
+$ tai conversations send [OPTIONS] {route_name} {thread_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `route_name` | Route name (slug). _(required)_ |
+| `thread_id` | Thread id (e.g. bridge:chat-line:+15550001111). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--text` `&lt;str&gt;` | The message to send into the thread. _(required)_ |
+| `--address` `&lt;str&gt;` | Send target on a linked person's thread (one of the person's addresses). |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai conversations threads`
