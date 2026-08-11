@@ -79,6 +79,42 @@ def test_process_listing_renders_header_and_anchors() -> None:
     print("  happy path: header, anchors, image rewrite, registry row")
 
 
+def test_item_group_tag_rendered_when_present() -> None:
+    """A provides item's group tag renders inline in its badge; ungrouped items are untouched."""
+    spec = _spec()
+    spec["provides"][0]["group"] = "core"  # grouped
+    # second item has no `group` key at all — older data, ungrouped
+    page = gen_plugins.process_listing(spec, _files())["pages"]["plugins/tai42/demo"]
+
+    # Grouped item carries the tag in the established ` · ` badge idiom.
+    assert "`Tool` · group `core` — Do a thing." in page
+    # Ungrouped item renders exactly as today — no group tag, no empty noise.
+    assert "`Extension` — Wrap a tool." in page
+    print("  group tag: grouped item tagged, ungrouped item unchanged")
+
+
+def test_absent_and_null_group_are_ungrouped() -> None:
+    """An absent key and an explicit null both mean ungrouped — never a failure."""
+    spec = _spec()
+    spec["provides"][0]["group"] = None  # explicit null
+    page = gen_plugins.process_listing(spec, _files())["pages"]["plugins/tai42/demo"]
+    assert "`Tool` — Do a thing." in page
+    assert "group `" not in page
+    print("  group tag: absent key and null both ungrouped")
+
+
+def test_malformed_group_fails_loud() -> None:
+    """A present-but-malformed group value is a loud failure naming the item."""
+    for bad in ("", "   ", 7, ["core"]):
+        spec = _spec()
+        spec["provides"][0]["group"] = bad
+        with pytest.raises(gen_plugins.GenError) as exc:
+            gen_plugins.process_listing(spec, _files())
+        assert "malformed group tag" in str(exc.value)
+        assert "do_thing" in str(exc.value)
+    print("  group tag: malformed value fails loud naming the item")
+
+
 def test_image_ref_rewrite_variants() -> None:
     out = gen_plugins.rewrite_image_refs("![a](images/x.png) ![b](./docs/images/y.png)", "tai42", "demo")
     assert "/plugins/images/tai42-demo/x.png" in out
@@ -206,6 +242,9 @@ def test_write_outputs_prunes_delisted_plugin(tmp_path, monkeypatch) -> None:
 def main() -> int:
     print("test_gen_plugins:")
     test_process_listing_renders_header_and_anchors()
+    test_item_group_tag_rendered_when_present()
+    test_absent_and_null_group_are_ungrouped()
+    test_malformed_group_fails_loud()
     test_image_ref_rewrite_variants()
     test_third_party_unsafe_mdx_refused()
     test_non_raster_image_refused()
