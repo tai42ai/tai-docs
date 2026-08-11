@@ -39,6 +39,7 @@ to what a turn runs — an agent or a tool — and the execution key that turn r
 | `target_kind` | `agent` (a threaded agent run) or `tool` (a stateless tool dispatch). |
 | `target_name` | The agent or tool the turn runs — it must exist. |
 | `execution_key` | The API-key identity the turn runs **as**. |
+| `initial_mode` | The default [control mode](#control-mode-and-operator-messages): `agent` (run the turn) or `manual` (suppress it for an operator). |
 | `payload_expr` / `reply_expr` | `tool` targets: jq mapping the message to the tool kwargs and the result to the reply. |
 | `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
 | `callback_url` | `api` rows: the HTTPS answer sink. |
@@ -148,9 +149,13 @@ delivery lifecycle:
 - `failed` — undelivered after the attempt budget, or reported failed by the
   provider (loud, retained, and listed on the admin failed-delivery door).
 - `shed` — refused by the address rate cap; no turn ran.
-- `silent` — a **channel** `tool` turn whose mapped reply was `null` or blank; the
-  turn ran but nothing is sent back. An **api** tool turn that maps to silence
-  instead ends `delivered`, its callback carrying `status: "silent"` and no answer.
+- `silent` — nothing is sent back for the inbound. It arises two ways: a **channel**
+  `tool` turn whose mapped reply was `null` or blank, or a `manual`-mode inbound whose
+  suppressed target turn produced no reply (see [control
+  mode](#control-mode-and-operator-messages)) — a due pairing reply or first-contact
+  greeting is sent instead, so those are *not* silent. On an **api** route the silence is
+  communicated instead — the record ends `delivered`, its callback carrying
+  `status: "silent"` and no answer.
 
 A turn's own outcome is orthogonal: `answered`, `error`, or `silent` — an `error`
 answer carries generic client-safe text, never an internal detail, and a `silent`
@@ -162,6 +167,82 @@ Late failures surface too: a channel can send a `2xx` and then a `failed`
 delivery-status webhook (a message rejected outside WhatsApp's 24-hour service
 window arrives this way), which flips the record to `failed`.
 
+## Control mode and operator messages
+
+Every thread runs in one of two **control modes**, and the route carries the default:
+
+- **`agent`** (the default) — an inbound message buys a **target turn**: the agent run
+  or the tool dispatch answers it, exactly as [the round trip](#the-round-trip)
+  describes.
+- **`manual`** — the target turn is **suppressed**. The inbound is recorded but the
+  flow does not answer it, so a human answers by hand. The platform's own control
+  turns are unaffected: pairing and the first-contact greeting still run.
+
+A route's `initial_mode` is the default; a per-thread override wins over it, so the
+mode in force for a thread is its override when one is set, else the route default. A
+linked person's aggregated thread with no override defaults to `manual` when **any**
+route the person spans sets `initial_mode: manual`, else `agent` — one operator control
+decision covers every channel they paired. The override carries the answer records'
+retention TTL and is **refreshed on thread activity** — each accepted inbound and each
+operator send — so it expires *with* the conversation: a thread that falls quiet past
+the retention window loses its override along with its records, and a returning address
+starts again at the route default. An explicit thread
+[delete](#conversation-lifetime), or a route delete, reclaims it at once.
+
+`manual` is valid for **every** target — a `manual` `initial_mode`, a `PUT
+…/thread/mode`, and the `set_conversation_mode` builtin all take it, on a `tool` target
+or an agent alike.
+
+In `manual` mode the client gets **no automatic answer** to an ordinary inbound: its
+target turn is suppressed, so on a `channel` route the record ends terminal `silent`
+and on an `api` route the silence is delivered as a `status: "silent"` marker. The
+platform's own control turns are the exception — a pairing action still gets its reply,
+and on a multichannel route a due first-contact greeting still runs: it is prepended
+onto the otherwise-silent outcome, so **that** record ends `answered` and is delivered
+carrying the greeting text. Whether the suppressed inbound is **remembered** turns on
+the target's memory: a target that keeps thread memory — an agent that implements the
+thread-memory append — has it **appended to that memory**, so a later agent turn once
+the thread is back in `agent` mode reads it as prior context; a target with no thread
+memory — a `tool` target, or an agent without the append — skips the step, its
+transcript standing as the record. An append that fails is a loud `error` outcome, never
+a silent drop.
+
+Three parties flip the switch:
+
+- **An operator**, on a named thread — the Studio's [Conversations
+  screen](/studio/screens#conversations) toggle, `tai conversations mode-set`, or the
+  `PUT …/thread/mode` door.
+- **The agent itself**, from inside its own turn, with the `set_conversation_mode`
+  builtin tool — it flips the **current** conversation (the thread the turn runs on),
+  so a flow can hand its own conversation off to a human. The tool reads the live
+  thread from the turn context and names none; called outside a turn it refuses loudly.
+- **An external system**, through the same `PUT …/thread/mode` door, which names its
+  thread explicitly.
+
+### Operator messages
+
+An operator answers a thread **by hand** with `tai conversations send` (the
+`POST …/thread/messages` door) or the Studio compose box. No turn runs: the message is
+stored already answered and **delivered through the same machine a produced answer
+takes** — sent from the route identity, with the same chunking, ledger, and receipts.
+It is allowed in **either** mode and **never flips the mode**.
+
+The record is marked `origin: "operator"` (a client turn's record is `origin:
+"client"`): it carries the operator's text as its `answer`, an empty `inbound_text`,
+and names the sending operator. For a target that **keeps thread memory** the text is
+appended to the thread's memory as an `assistant` reply — the same conditional append a
+suppressed inbound takes, mirroring how the agent's own answer enters memory — **before**
+the record is created, so a later agent turn reads the operator's reply as prior context;
+a target with no memory skips it. An append that fails is loud and no record is created.
+Memory stays continuous both ways: a manual-mode inbound the flow never answered and the
+operator's own reply both sit in the thread the agent resumes on.
+
+On a linked person's aggregated thread the reply returns to the address they last wrote
+from, or to an explicit `address` that must be one of the person's. Sending is the
+door's **write** action — the same grant that creates a route — and an unauthenticated
+caller is refused (`501`), since an operator action must be attributable. See [operator
+messages and control mode](/reference/conversation-bridge#operator-messages-and-control-mode).
+
 ## Watching a route's conversations
 
 Every route's threads and their transcripts are readable while they are retained,
@@ -172,6 +253,11 @@ list, and a live-tailing transcript — or from the CLI with
 `tai conversations transcript`. A thread listing spans every caller on its route, so
 the listing is admin-only; a transcript read takes the same conversations read grant.
 See [the read doors](/reference/conversation-bridge#the-read-doors).
+
+Each transcript record carries its `origin` — `client` for an inbound turn, `operator`
+for a by-hand reply — so an operator's messages read as distinct from the flow's. From
+the same Studio screen an operator can also flip the thread's [control
+mode](#control-mode-and-operator-messages) and compose a reply by hand.
 
 ## Conversation lifetime
 
