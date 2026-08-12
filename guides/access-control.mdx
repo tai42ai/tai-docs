@@ -63,6 +63,10 @@ tai scopes add read /api/tools
 tai scopes list
 ```
 
+<Warning>
+**Scope a pattern to a surface; never blanket the whole site.** Every API route already declares its own protection — a scope row or pattern *adds* scoping, it is not what keeps `/api` private. Deny wins: a path that matches both a protected pattern and a public mapping resolves protected, so a whole-site pattern like `^/.*$` also matches browser page navigations and blocks the dataless Studio shell — a deep-link refresh then meets a `401` JSON body instead of the app shell and its login flow, and the shell exposes no data anyway. Tighten a real surface with a scoped pattern (`^/api/tools/.*`), never a blanket. The plugin studio-asset door stays public through the `always_public_route_patterns` setting, which resolves it public **alone**, ahead of any route row (a plugin bundle loads as a native ESM import that cannot send an auth header); protect it by editing that setting, not with a scope row.
+</Warning>
+
 ## Write and validate a jq condition
 
 A jq condition compiles against the request context and returns whether the request is allowed. Validate one before you save it — compile it, and optionally sample-evaluate it against a `JqAuthContext`-shaped sample.
