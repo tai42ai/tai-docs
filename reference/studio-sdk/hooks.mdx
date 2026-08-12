@@ -221,6 +221,53 @@ interface ThemeState
 **Related:** [Theme](/reference/studio-sdk/hooks#theme), [ThemePreference](/reference/studio-sdk/hooks#themepreference)
 
 
+## ToolDisplayNamesContextValue
+
+```ts
+interface ToolDisplayNamesContextValue
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `reload` | `() => void` | Re-fetch the overlay (drives the app-level refresh after a display-name edit). |
+| `state` | `ToolDisplayNamesState` | — |
+
+**Related:** [ToolDisplayNamesState](/reference/studio-sdk/hooks#tooldisplaynamesstate)
+
+
+## ToolDisplayNamesProvider
+
+```ts
+function ToolDisplayNamesProvider(
+  props: { children: ReactNode },
+): FunctionComponentElement<ProviderProps<ToolDisplayNamesContextValue | null>>
+```
+
+Fetch the tool-meta overlay once the caller is authenticated and hold its
+display-name map as SDK state. Gated on `isAuthenticated` (the overlay is an authed
+read), so the login screen never fires a doomed request; a fetch failure settles
+into `failed` QUIETLY, because the consuming pickers fall back to the bare raw name.
+`reload` re-fetches on demand, so an app-level display-name write refreshes every
+picker without a remount.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+**Related:** [ToolDisplayNamesContextValue](/reference/studio-sdk/hooks#tooldisplaynamescontextvalue)
+
+
+## ToolDisplayNamesState
+
+```ts
+type ToolDisplayNamesState = { status: "loading" } | { names: Readonly<Record<string, string>>; status: "ready" } | { error: unknown; status: "failed" }
+```
+
+
 ## UnauthorizedProvider
 
 ```ts
@@ -344,6 +391,24 @@ exactly right — and the gate-off synthetic projection (`admin: true`, empty
 | `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 
 
+## toolDisplayLabel
+
+```ts
+function toolDisplayLabel(names: Readonly<Record<string, string>>, rawName: string): string
+```
+
+The option label for a raw tool name under a display-name map: `Display (raw)` when
+a display name maps the name and is non-empty AND differs from the raw name, else
+the bare raw name. Shared so every tool picker labels identically.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `names` | `Readonly<Record<string, string>>` | — | the raw-name → display-name map (from useToolDisplayNames). |
+| `rawName` | `string` | — | the raw tool name to label. |
+
+
 ## useApi
 
 ```ts
@@ -458,6 +523,17 @@ function useOnUnauthorized(): () => void
 ```
 
 
+## useReloadToolDisplayNames
+
+```ts
+function useReloadToolDisplayNames(): () => void
+```
+
+Re-fetch the display-name overlay. A surface that writes a display name calls this
+so the app-level provider — and every picker reading it — refreshes alongside the
+surface's own list invalidation. A no-op when no provider is mounted.
+
+
 ## useSystemKinds
 
 ```ts
@@ -478,4 +554,15 @@ function useTheme(): ThemeState
 ```
 
 **Related:** [ThemeState](/reference/studio-sdk/hooks#themestate)
+
+
+## useToolDisplayNames
+
+```ts
+function useToolDisplayNames(): Readonly<Record<string, string>>
+```
+
+The live raw-name → display-name map — `{}` while the overlay is loading/failed, no
+provider is mounted, or no row carries a display name. A tool picker folds this into
+its option labels; an unmapped name reads the bare raw name.
 
