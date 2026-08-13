@@ -130,7 +130,9 @@ tai interactions answer i_123 --answer '{"name":"Ada","email":"ada@example.com"}
 ```
 
 The value is validated server-side against the question's declared format and
-schema; a mismatch is rejected and the caller stays blocked.
+schema; a mismatch is rejected with a 400 that names the failing field (for
+example, `answer does not match schema at count: ...`), and the caller stays
+blocked.
 
 ## External questions and the callback flow
 
@@ -605,6 +607,26 @@ of the default inbox: the question mints a public callback ticket exactly like a
 the same callback door. An optional `recipient` names the per-call address; an
 unknown channel name or a delivery failure raises loudly before the run would wait
 on an answer that can never arrive.
+
+A `form` ask rides a channel only when that channel advertises
+`supports_form_delivery`; a form sent to a channel without the flag raises loudly,
+naming the channel, before anything leaves the run. Among the bundled channels:
+
+- **web** renders a schema-driven form widget inline in the chat;
+- **Slack** posts a message whose button opens a Block Kit modal;
+- **WhatsApp** sends the form as an in-chat WhatsApp Flow;
+- **Telegram** offers a button that opens the schema-rendered callback form page as
+  an in-chat webview;
+- **Twilio** (SMS and WhatsApp-via-Twilio) advertises no form support, so a form ask to it is refused.
+
+The callback form page the GET callback door renders from the question's schema is
+the generic surface behind those native renderings.
+
+A channel form's `schema` must fall in the renderable
+[channel-deliverable subset](/concepts/interactions#delivering-to-a-channel) —
+scalar properties only — validated when the question is asked, before anything is
+stored; a `ValueError` names the offending property. A form on the default inbox
+surface keeps full schema freedom.
 
 ## See also
 
