@@ -35,11 +35,43 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
 
 <Steps>
   <Step title="Check binding status">
-    Snapshot the live MCP binding state — which servers attached and which were skipped by a failed viability probe.
+    Snapshot the live MCP binding state — which servers attached, which were skipped by a failed viability probe, and each attached server's recent dispatch health.
 
     ```bash
     tai mcp status
     ```
+
+    The payload carries three blocks: `bound` maps each attached server's title to the tool names it serves, `failed` lists the titles a viability probe skipped with a coarse `status`, and `health` reports each server's most recent tool-dispatch outcome, keyed by title.
+
+    ```json
+    {
+      "bound": {
+        "example-http": ["events_get", "events_list"],
+        "example-stdio": ["status_check"]
+      },
+      "failed": [],
+      "health": {
+        "example-http": {
+          "last_success": "2026-01-04T09:12:03.481221+00:00",
+          "last_error": null,
+          "consecutive_failures": 0,
+          "failing_since": null
+        },
+        "example-stdio": {
+          "last_success": "2026-01-04T08:55:10.204118+00:00",
+          "last_error": {
+            "type": "ClientDisconnectedError",
+            "message": "Client disconnected and was removed from the cache. Retry the operation to create a new client. (Original error: Server session was closed unexpectedly)",
+            "at": "2026-01-04T09:14:22.017090+00:00"
+          },
+          "consecutive_failures": 3,
+          "failing_since": "2026-01-04T09:13:47.902551+00:00"
+        }
+      }
+    }
+    ```
+
+    Each `health` entry has four fields, detailed in [the `health` block reference](#the-health-block) below.
   </Step>
   <Step title="Replace the set at runtime">
     Write the full replacement `mcp` list to a JSON file, then apply it. This hot-reloads the section without restarting the server. `set` remains the bootstrap and restore path — use it to lay down the whole section at once.
@@ -61,7 +93,7 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
     </Note>
   </Step>
   <Step title="Reload one server">
-    Re-probe a single server by its manifest title and re-attach it if it is viable.
+    Re-probe a single server by its manifest title and re-attach it if it is viable. A successful reload also drops that server's pooled dispatch session, so the next tool call opens a fresh connection instead of reusing a stale one. A reload that finds the server unreachable reports it unavailable and leaves the session as is — once the server is back, the next tool call reconnects on its own; while it stays down, calls return the structured error described below.
 
     ```bash
     tai mcp reload example-http
@@ -72,6 +104,23 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
 <Note>
 A server that fails its viability probe is skipped, not fatal — the rest of the manifest still loads. Inspect skipped servers under `tai mcp status`.
 </Note>
+
+### The `health` block
+
+Each `health` entry has four fields:
+
+| Field | Meaning |
+| --- | --- |
+| `last_success` | ISO-8601 time of the last completed dispatch, or `null` if the server has never served a call. |
+| `last_error` | The most recent failed dispatch as `{ "type", "message", "at" }`, or `null` if none since the last success. `message` has any URL-embedded credentials redacted. |
+| `consecutive_failures` | Length of the current unbroken run of failed dispatches — `0` when the last dispatch succeeded or none has run. |
+| `failing_since` | ISO-8601 time of the first error in the current failure run, or `null` when the server is not currently failing. Cleared on the next success. |
+
+`health` covers every `bound` and `failed` title. A server that has never been called carries the block at its empty values — `last_success`, `last_error`, and `failing_since` `null`, `consecutive_failures` `0`. A server that has only ever succeeded carries `last_success` with `last_error` and `failing_since` `null`. An auth-blocked dispatch records nothing: it signals credential state, not connection health, so it leaves the health block untouched. The health is this worker's own passive view — per process, so a fleet report reads each worker's dispatches separately.
+
+## When a mounted server's tools fail
+
+A tool call against a mounted server whose connection has dropped gets one automatic reconnect attempt. If the reconnect succeeds the call runs on the fresh session. If the server is still unavailable, the call returns a structured error whose `code` is `upstream_mcp_unavailable`, with a message that names the entry by its configured title. The raw disconnect detail never reaches that message — it is logged at the dispatch seam, not surfaced to the caller.
 
 ## See also
 
