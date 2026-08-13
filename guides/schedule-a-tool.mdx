@@ -22,6 +22,23 @@ tai backend --manifest-path manifest.yml
 
 See [Backends](/concepts/backends) for where tools run.
 
+## Attach the schedule extension
+
+The friendly `tai schedules add` form fires the tool's `<tool>_schedule_task` branch — the backend's `schedule_task` [extension](/concepts/tools-and-extensions). Naming the backend under `backend_module` registers that extension, but it is never attached to a tool on its own: name it in the tool's per-tool `extensions` map so the branch exists.
+
+```yaml manifest.yml
+backend_module: myapp.backend
+
+tools:
+  - title: my_tools
+    module: myapp.tools
+    include: [report]
+    extensions:
+      report: [schedule_task]
+```
+
+Without the extension the tool has no `report_schedule_task` branch, and `tai schedules add report --schedule-kw cron=...` answers a `404` — the cadence has no vehicle to run on.
+
 ## Add a schedule
 
 Name the tool to run and its cadence. Pass tool arguments with `--tool-kw key=value` (or `--tool-kwargs` as JSON), and the cadence with `--schedule-kw` (or `--schedule-kwargs`).
@@ -29,6 +46,17 @@ Name the tool to run and its cadence. Pass tool arguments with `--tool-kw key=va
 ```bash
 tai schedules add report --schedule-kw cron='0 9 * * *'
 ```
+
+Give the cadence one of two ways:
+
+- **`cron`** — a crontab string, as above (`'0 9 * * *'` fires at 09:00 every day).
+- **Structured fields** — `minute`, `hour`, `day_of_month`, `month_of_year`, and `day_of_week` set the crontab parts individually, e.g. `--schedule-kw hour=9 --schedule-kw minute=0`.
+
+Passing both `cron` and a structured field at once is an error. Either form is translated onto the tool's `schedule_task` branch for you.
+
+### The expert form
+
+To hand the cadence to the backend untouched, pass `backend_schedule` (the backend's own schedule spec) and optionally `backend_schedule_name` through `--schedule-kw`, or name the `<tool>_schedule_task` branch as the tool directly. Both skip the translation above and dispatch the backend's scheduling parameters as given.
 
 ## Inspect and remove
 
