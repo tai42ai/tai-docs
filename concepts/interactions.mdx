@@ -36,7 +36,11 @@ through the answer door:
 - **`text`** — free text.
 - **`confirm`** — a yes/no acknowledgement.
 - **`select`** — a choice from options.
-- **`form`** — a typed payload validated against a declared schema.
+- **`form`** — a typed payload validated against a declared schema. Answered
+  in-client through the answer door, or — over a [channel](#delivering-to-a-channel)
+  that supports forms — as an in-chat form: a web widget, a Slack modal, a WhatsApp
+  Flow, or a webview of the schema-rendered callback form page (the generic surface
+  behind them).
 
 The fifth format is **`external`**: the human acts on an outside surface — signs a
 document, approves a request, pays — and the external system delivers the answer
@@ -140,6 +144,26 @@ responds — tapping a control or typing — the answer is the option **text**,
 exactly as a typed reply would deliver it, and it validates against the
 question's options the same way.
 
+A `form` question rides a channel only when that channel advertises
+`supports_form_delivery`; a form sent to a channel without the flag raises loudly,
+naming it, before anything is sent. The person fills it natively — a web form
+widget, a Slack modal, a WhatsApp Flow, or a Telegram webview of the
+schema-rendered callback form page — and the typed answer returns through the
+callback door, validated against the schema exactly as the in-client door validates
+it.
+
+Because a channel form is answered on the server-rendered callback page, its
+`schema` must fall in a renderable **subset**, checked when the question is asked —
+before anything is stored. The root is `{"type": "object"}` with a non-empty
+`properties` map; every property is a scalar (`string`, `boolean`, `integer`, or
+`number`); an `enum` — a non-empty list of strings — is allowed only on a `string`
+property; and `required`, when present, names only declared properties. A property
+without a scalar `type` — a nested object, an array, a bare `anyOf`/`oneOf`/`$ref`,
+a missing type — is refused with a `ValueError` naming the property, while an extra
+constraint keyword alongside a scalar `type` is not rendered but is enforced when
+the answer is validated. A form on the default inbox surface keeps full
+JSON-schema freedom; the subset binds only a channel-delivered form.
+
 ## The doors
 
 The interactions surface exposes four HTTP doors. Two are authenticated and two
@@ -150,7 +174,7 @@ are public:
 | `GET /api/interactions/stream` | authenticated | SSE feed of pending questions |
 | `POST /api/interactions/{id}/answer` | authenticated | the human answer door (in-client formats) |
 | `POST /api/interactions/callback/{ticket}` | **public** | the data door — sensitive answers ride the JSON body |
-| `GET /api/interactions/callback/{ticket}` | **public** | the redirect door — serves a confirm page |
+| `GET /api/interactions/callback/{ticket}` | **public** | the redirect door — serves a confirm or schema-rendered form page |
 
 Publicness is an [access-control](/concepts/access-control) configuration decision,
 not a property of the route code.
@@ -161,8 +185,9 @@ not a property of the route code.
   on its TTL; single use is enforced by an answered-state guard, and a provider
   retry against a live ticket gets an idempotent `200 already_answered`.
 - **GET never mutates.** Link scanners prefetch URLs, so the GET door serves a
-  byte-constant confirm page whose form POSTs back — the human's click performs
-  the claim.
+  byte-constant confirm page — or, for a channel-delivered form, a page rendered
+  from the stored schema — whose form POSTs back; the human's submit performs the
+  claim.
 - **Uniform 404 and no reflected input.** Unknown, expired, and pruned tickets
   return the same response; callback pages interpolate no request-derived value.
 - **Signature verification** runs in core. Bind a

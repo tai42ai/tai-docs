@@ -36,19 +36,22 @@ A channel plugin registers an instance under a name
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
 
-A channel MAY advertise richer ``notify`` support with two OPTIONAL,
-class-level capability flags — ``supports_media_notifications`` and
-``supports_template_notifications`` — set as plain class attributes.
-They are a documented convention, NOT Protocol members: a channel that
-supports the richer notify form sets the matching attribute to ``True``; a
-channel that omits it advertises no support (absent = ``False``). Because
-they are not part of the Protocol, a text-only channel that declares
-neither is still a valid ``Channel`` (both structurally and under runtime
-``isinstance``). The central ``notify_user`` helper reads them defensively
-with ``getattr(channel, "<flag>", False)`` and refuses a media or template
-notification to a channel that does not advertise the matching flag, so a
-sibling channel that reads only ``notification.message`` can never silently
-drop the extra content.
+A channel MAY advertise richer support with three OPTIONAL, class-level
+capability flags — ``supports_media_notifications``,
+``supports_template_notifications`` (both for ``notify``) and
+``supports_form_delivery`` (for ``deliver``) — set as plain class
+attributes. They are a documented convention, NOT Protocol members: a
+channel that supports the richer form sets the matching attribute to
+``True``; a channel that omits it advertises no support (absent =
+``False``). Because they are not part of the Protocol, a text-only channel
+that declares none is still a valid ``Channel`` (both structurally and under
+runtime ``isinstance``). The ask/notify helpers read them defensively with
+``getattr(channel, "<flag>", False)`` and refuse the matching richer send to
+a channel that does not advertise the flag: ``notify_user`` refuses a media
+or template notification, and the ``ask_user`` helper refuses a ``form``
+delivery, to a channel without the flag — so a channel that reads only the
+plain fields can never silently drop the extra content. A channel that does
+not advertise ``supports_form_delivery`` never receives a ``form`` delivery.
 
 ### Members
 
@@ -136,6 +139,7 @@ address only, never a secret or credential.
 | `recipient` | `str \| None` |
 | `question` | `str` |
 | `answer_format` | `str` |
+| `schema` | `dict[str, Any] \| None` |
 | `options` | `list[str] \| None` |
 | `callback_url` | `str` |
 | `timeout_at` | `datetime` |
