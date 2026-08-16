@@ -207,7 +207,7 @@ map flat — one entry per feature surface, matching the shell route map.
 | `presets` | `{ preset?: string }` | — |
 | `scheduling` | `Record<string, never>` | — |
 | `settings` | `Record<string, never>` | — |
-| `storage` | `{ filter?: string }` | — |
+| `storage` | `{ q?: string }` | — |
 | `system` | `Record<string, never>` | — |
 | `templates` | `{ q?: string; template?: string }` | — |
 | `tools` | `{ q?: string; tags?: string[]; tool?: string }` | — |
@@ -222,6 +222,34 @@ type RouteToken = keyof RouteSearchByToken
 An opaque, typed handle to a shell route.
 
 **Related:** [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## SearchCommitParams
+
+```ts
+interface SearchCommitParams<T extends RouteToken>
+```
+
+The inputs a page hands `useSearchCommit`: the route token the commit
+targets, the container whose delegated Enter/blur commits, the search input's
+accessible name (the delegation keys the input on it), the committed value now in
+the URL, the live draft, the page's composer of the full search object from the
+next query (`undefined` when the box is empty), and the loud message thrown if the
+container ref never attaches.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `buildSearch` | `(query: string \| undefined) => RouteSearch<T>` | — |
+| `committedValue` | `string` | — |
+| `containerMissingError` | `string` | — |
+| `containerRef` | `RefObject<HTMLElement \| null>` | — |
+| `draft` | `string` | — |
+| `searchLabel` | `string` | — |
+| `token` | `T` | — |
+
+**Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
 
 
 ## useAppNavigate
@@ -298,4 +326,40 @@ function useResolvePath(): <T extends keyof RouteSearchByToken>(token: T, search
 Resolve a token + search to the href the shell would route to.
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+
+
+## useSearchCommit
+
+```ts
+function useSearchCommit<T extends keyof RouteSearchByToken>(
+  props: SearchCommitParams<T>,
+): void
+```
+
+The shared commit behavior for a filter box that writes its text into a route-token
+search param. The SDK search input is controlled (value/onChange only), so the URL
+commit is delegated on the CONTAINER: Enter or an edited blur of the search box
+writes the URL. The listeners bind once — the latest draft and committed value are
+read from a ref, never re-bound per keystroke.
+
+A commit REPLACES the current history entry rather than pushing: a filter change
+refines the current view, not a place Back should step back through one
+keystroke-commit at a time. A cleared box commits `undefined` so the URL and box
+cannot drift. A redundant commit (the draft already the committed value, trimmed
+both sides, so a padded deep-link never self-commits without a real edit) writes
+nothing.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `buildSearch` | `(query: string \| undefined) => RouteSearch<T>` | — |
+| `committedValue` | `string` | — |
+| `containerMissingError` | `string` | — |
+| `containerRef` | `RefObject<HTMLElement \| null>` | — |
+| `draft` | `string` | — |
+| `searchLabel` | `string` | — |
+| `token` | `T` | — |
+
+**Related:** [SearchCommitParams](/reference/studio-sdk/navigation#searchcommitparams)
 
