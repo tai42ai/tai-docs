@@ -54,6 +54,17 @@ Run an agent and watch its stream from the CLI:
 tai agents run <name> --input '{"text": "hi", "times": 2}'
 ```
 
+## Context management
+
+Before each model call an agent trims its conversation history to fit a token
+budget — the default context-management strategy, configurable via
+`CONTEXT_OVERFLOW_METHODS` — keeping the most recent turns and dropping older
+ones; a trim that drops history logs a warning. The newest human message is never discarded: when the
+budget cannot hold the system prompt plus the current message, the run raises a
+typed `TrimmingBudgetTooSmallError` naming the budget rather than answering from
+the system prompt alone, so an overflow surfaces loudly instead of returning a
+silently wrong reply. Raise the budget with `TRIMMING_MIDDLEWARE_MAX_TOKENS`.
+
 ## Authored agents
 
 Beyond code-defined agents, you can author an agent as a saved spec that rides the
