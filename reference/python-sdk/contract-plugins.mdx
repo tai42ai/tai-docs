@@ -98,6 +98,10 @@ The item shape is kind-conditional (a model validator enforces it, loud
 both ways): an ``mcp-server`` item carries ``mcp`` transport config and no
 ``module``; every other kind carries ``module`` and no ``mcp``.
 
+``routes`` declares the item's HTTP mount: REQUIRED for ``kind: router``,
+OPTIONAL for ``kind: channel``, and FORBIDDEN (must be absent) for every
+other kind.
+
 ``group`` is an OPTIONAL logical family label the author may put on any item
 of any kind: items sharing a value belong to one family, and a consumer may
 summarize the ``provides`` index by group. It is purely a structural
@@ -117,6 +121,7 @@ charset discipline.
 | `description` | `str` |
 | `tags` | `list[str]` |
 | `group` | `str \| None` |
+| `routes` | `RoutesDecl \| None` |
 
 
 ## PluginItemKind
@@ -242,4 +247,65 @@ ref: str
 
 The full listing reference, ``namespace/name``.
 
+
+
+## RouteDecl
+
+`tai42_contract.plugins.RouteDecl`
+
+```python
+class RouteDecl(BaseModel)
+```
+
+One HTTP route a plugin item declares, relative to its mount base.
+
+``path`` is ``/``-prefixed with at least one segment; each segment is a
+literal (`ROUTE_LITERAL_SEGMENT_RE`) or a ``{name}`` template
+(`ROUTE_PARAM_SEGMENT_RE`, a python identifier with no converter
+suffix). ``methods`` is a non-empty set of uppercase HTTP methods, unique
+within the row. ``public`` states — with no default, so the declaration is
+never silent — whether the resolved route answers unauthenticated.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `path` | `str` |
+| `methods` | `list[RouteMethod]` |
+| `public` | `bool` |
+
+
+## RouteMethod
+
+`tai42_contract.plugins.RouteMethod`
+
+```python
+RouteMethod = Literal['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+```
+
+
+## RoutesDecl
+
+`tai42_contract.plugins.RoutesDecl`
+
+```python
+class RoutesDecl(BaseModel)
+```
+
+The route block one item declares: a default mount ``base`` and its rows.
+
+``base`` is RELATIVE — one or more `ROUTE_BASE_SEGMENT_RE` segments
+joined by ``/``, no leading/trailing slash, no templates. The resolved
+absolute path of each row is ``/api/`` + ``base`` + the row's ``path``; the
+``/api/`` root is fixed platform-wide and only ``base`` is remappable.
+``paths`` is non-empty.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `base` | `str` |
+| `paths` | `list[RouteDecl]` |
 
