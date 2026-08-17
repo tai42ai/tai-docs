@@ -1010,8 +1010,13 @@
         "type": "object"
       },
       "MarketplaceInstall": {
-        "description": "Install a marketplace plugin by ref, optionally pinning a version.\n\n``env`` / ``secret_keys`` are accepted for an mcp-server install: an mcp entry's\nrequired ``!ENV`` markers are satisfied by writing these values to the env store\nin the same transaction that writes the entry (never deferred), and ``secret_keys``\nmarks the given keys secret (appended to ``TAI_ENV_SECRET_KEYS``). Declared on the\nmodel so a Studio body carrying them is not silently dropped (pydantic ignores\nunknown fields).",
+        "description": "Install a marketplace plugin by ref, optionally pinning a version.\n\n``env`` / ``secret_keys`` are accepted for an mcp-server install: an mcp entry's\nrequired ``!ENV`` markers are satisfied by writing these values to the env store\nin the same transaction that writes the entry (never deferred), and ``secret_keys``\nmarks the given keys secret (appended to ``TAI_ENV_SECRET_KEYS``). Declared on the\nmodel so a Studio body carrying them is not silently dropped (pydantic ignores\nunknown fields).\n\n``route_mounts`` remaps a route-carrying item's declared base (``{item_name:\nbase}``); ``accept_public_routes`` acknowledges that the install's public routes\nanswer WITHOUT authentication (required when any public route is declared).",
         "properties": {
+          "accept_public_routes": {
+            "default": false,
+            "title": "Accept Public Routes",
+            "type": "boolean"
+          },
           "env": {
             "anyOf": [
               {
@@ -1030,6 +1035,21 @@
           "ref": {
             "title": "Ref",
             "type": "string"
+          },
+          "route_mounts": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Route Mounts"
           },
           "secret_keys": {
             "anyOf": [
@@ -1065,6 +1085,47 @@
         "title": "MarketplaceInstall",
         "type": "object"
       },
+      "MarketplaceInstallPreview": {
+        "description": "Preview an install/update by ref: resolve the target spec and report its\nroutes with any ``route_mounts`` base overrides applied, WITHOUT changing state.",
+        "properties": {
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "route_mounts": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Route Mounts"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "title": "MarketplaceInstallPreview",
+        "type": "object"
+      },
       "MarketplaceUninstall": {
         "description": "Uninstall a marketplace-installed plugin by ref.",
         "properties": {
@@ -1080,8 +1141,13 @@
         "type": "object"
       },
       "MarketplaceUpdate": {
-        "description": "Update an installed plugin to a newer (or named) version.\n\n``env`` / ``secret_keys`` mirror :class:`MarketplaceInstall`: a new mcp-server\nversion adding a required marker is loudly refused unless its value is supplied\nhere.",
+        "description": "Update an installed plugin to a newer (or named) version.\n\n``env`` / ``secret_keys`` mirror :class:`MarketplaceInstall`: a new mcp-server\nversion adding a required marker is loudly refused unless its value is supplied\nhere. ``route_mounts`` remaps a route-carrying item's base (a surviving item with\nno override keeps its stored base); ``accept_public_routes`` acknowledges public\nroutes NOT already approved in the installed version.",
         "properties": {
+          "accept_public_routes": {
+            "default": false,
+            "title": "Accept Public Routes",
+            "type": "boolean"
+          },
           "env": {
             "anyOf": [
               {
@@ -1100,6 +1166,21 @@
           "ref": {
             "title": "Ref",
             "type": "string"
+          },
+          "route_mounts": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Route Mounts"
           },
           "secret_keys": {
             "anyOf": [
@@ -10767,7 +10848,7 @@
     },
     "/api/marketplace/install": {
       "post": {
-        "description": "Resolve, pip install, patch the manifest, reload, and record attribution —\naborting and unwinding on any failure (see :meth:`Installer.install`). For an\nmcp-server install ``env`` / ``secret_keys`` satisfy the entry's required ``!ENV``\nmarkers in the same combined transaction.",
+        "description": "Resolve, pip install, patch the manifest, reload, and record attribution —\naborting and unwinding on any failure (see :meth:`Installer.install`). For an\nmcp-server install ``env`` / ``secret_keys`` satisfy the entry's required ``!ENV``\nmarkers in the same combined transaction. ``route_mounts`` remaps declared route\nbases; ``accept_public_routes`` acknowledges public routes. The result's\n``routes`` lists every route the install mounted.",
         "operationId": "post_api_marketplace_install",
         "requestBody": {
           "content": {
@@ -10904,9 +10985,112 @@
         "x-destructive": true
       }
     },
+    "/api/marketplace/install/preview": {
+      "post": {
+        "description": "Resolve a candidate install/update and report its routes WITHOUT changing any\nstate: the resolved routes per item with ``route_mounts`` overrides applied, the\ncollisions against the live registry (excluding the plugin's own routes on an\nupdate preview), the public routes requiring acceptance, and the ``new`` public\nrows an update has not already approved (see :meth:`Installer.preview`).",
+        "operationId": "post_api_marketplace_install_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketplaceInstallPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Preview a marketplace install",
+        "tags": [
+          "marketplace"
+        ]
+      }
+    },
     "/api/marketplace/installed": {
       "get": {
-        "description": "The installed inventory + the boot-quarantined plugins, in one body:\n``{\"installed\": [...], \"quarantined\": [{\"name\", \"reason\"}, ...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\n``quarantined`` mirrors the boot pass's plugin-quarantine registry — the\nplugins this worker SKIPPED (incompatible or import-broken) with the\nhuman-readable reason each.",
+        "description": "The installed inventory + the boot-quarantined plugins, in one body:\n``{\"installed\": [...], \"quarantined\": [{\"name\", \"reason\"}, ...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\nEach row also carries ``route_mounts`` — the persisted ``{item_name: base}``\nmount the row is installed at (empty means every item at its declared base),\nso Studio seeds its update flow and renders routes at the ACTUAL mounted base.\n\n``quarantined`` mirrors the boot pass's plugin-quarantine registry — the\nplugins this worker SKIPPED (incompatible or import-broken) with the\nhuman-readable reason each.",
         "operationId": "get_api_marketplace_installed",
         "responses": {
           "200": {
@@ -11370,7 +11554,7 @@
     },
     "/api/marketplace/update": {
       "post": {
-        "description": "Resolve the target, pip upgrade, re-patch the manifest, reload, and upsert\nattribution — with the same pre-flights as install (see :meth:`Installer.update`).\n``env`` / ``secret_keys`` satisfy a new mcp-server version's required markers.",
+        "description": "Resolve the target, pip upgrade, re-patch the manifest, reload, and upsert\nattribution — with the same pre-flights as install (see :meth:`Installer.update`).\n``env`` / ``secret_keys`` satisfy a new mcp-server version's required markers.\n``route_mounts`` remaps declared route bases (surviving items keep their stored\nbase); ``accept_public_routes`` acknowledges public routes not already approved.\nThe result's ``routes`` lists every route the update mounted.",
         "operationId": "post_api_marketplace_update",
         "requestBody": {
           "content": {
