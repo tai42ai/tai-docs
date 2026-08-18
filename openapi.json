@@ -2746,6 +2746,14 @@
       "ToolMetaUpsert": {
         "description": "A merge-patch overlay edit. Only the fields PRESENT in the request are\nwritten; a present-null clears (``hidden: null`` writes the tri-state defer\nstate); a present ``tags`` array replaces the whole set. Absent fields are\nunchanged — there is no full-row replace.",
         "properties": {
+          "badges": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Badges",
+            "type": "array"
+          },
           "display_name": {
             "anyOf": [
               {
@@ -8089,6 +8097,100 @@
         ]
       }
     },
+    "/api/conversations/persons/{person_id}": {
+      "delete": {
+        "description": "Erase a LINKED person ENTIRELY, forgetting every store that names it:\n\n- the person's aggregated ``bridge:@person:{person_id}`` thread — its agent checkpoint,\n  and across EVERY route the person wrote under its answer records, per-thread transcript\n  indexes, route-thread index memberships and per-thread mode override (the thread-delete\n  machinery, reused);\n- the person row ``conversations:person:{person_id}``;\n- every ``person_index`` ``door_address_key → person_id`` mapping of its addresses.\n\nCaller authority is the door's grantable ``write`` action — the same grant that forgets a\nthread. IDEMPOTENT and retryable: the person row is the durable marker of an owed erase and\nis deleted LAST (atomically with its index mappings), so an interruption re-reads it and a\nretry FINISHES. A person that is already gone (a retry, or one that never existed) is not a\n404 — its aggregated checkpoint is forgotten regardless (it defaults to keep-forever) and\nthe call answers ``erased=false``. A turn IN FLIGHT on the aggregated thread is a 409\n(retry once it drains), re-checked under the per-thread FIFO before any teardown so an\nadmitted turn cannot re-create memory behind the erase; a full queue is the retriable 503.\nA blank ``person_id`` is a 400; no backend is a loud 501.\n\nReturns ``{\"person_id\", \"removed\", \"erased\"}``, where ``removed`` counts the answer records\nthis call deleted across the person's routes and ``erased`` says whether THIS call removed\nthe person row.",
+        "operationId": "delete_api_conversations_persons_person_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a conversation person",
+        "tags": [
+          "conversations"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/conversations/{route_name}": {
       "delete": {
         "description": "Delete a conversation route by name, along with the thread indexes it owned.\n\nThose indexes carry no TTL and the prune pass only walks LIVE routes, so a delete that\nleft them behind would strand them unreachable forever; the answer records they name\nkeep their own retention TTL and are not touched.\n\nThe reclamation is RETRYABLE, because it can be interrupted (a socket timeout, a\nSIGTERM, a Redis blip) after the routing row is already gone: a name whose route index\nsurvives is one whose reclamation is still owed, so this door re-runs it and answers\n``removed=false`` rather than the 404 that would leave those keys unnameable forever.\nOnly a name that neither routes nor owes reclamation is the loud 404. A name that is not\na valid slug is a 400. Returns ``{\"removed\", \"route_name\"}``, where ``removed`` says\nwhether THIS call removed the routing row.",
@@ -8495,6 +8597,136 @@
           }
         ],
         "summary": "Send a message to a conversation route",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{route_name}/messages/search": {
+      "get": {
+        "description": "Every record on ``route_name`` whose inbound text or answer contains ``q``, across ALL\nthe route's threads, one page at a time.\n\nThe search spans every caller and address on the route, so it is admin-only, and each item\nis the WHOLE record (the same shape the transcript serves an admin). ``q`` is REQUIRED and\nnon-blank. There is no per-route record index, so the search is a BOUNDED nested scan of\nthe route's threads and their records; a page that spent its scan budget answers\n``truncated: true`` LOUDLY, never a silent cut.\n\nAuthorization is decided BEFORE the route is looked up, so a non-admin is refused the same\nway whether the name routes or not. An unknown route is a loud 404 to an admin; a blank\n``q``, a ``page``/``page_size`` below 1, or a ``page`` above the served maximum, is a 400.\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"truncated\"}``, where\n``total`` is the matches the bounded scan found.",
+        "operationId": "get_api_conversations_route_name_messages_search",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page number, newest activity first.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 1000000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page. A larger value is capped to 200, never refused.",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The text to search the route's records for.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Search a conversation route's messages",
         "tags": [
           "conversations"
         ]
@@ -8978,7 +9210,7 @@
     },
     "/api/conversations/{route_name}/threads": {
       "get": {
-        "description": "The threads of ``route_name``, newest activity first, one page at a time.\n\nA thread listing spans every caller and address on the route, so it is admin-only. Each\nitem carries ``thread_id``, ``client_address``, ``message_count``\nand ``last_delivery_status`` summarized from the thread's newest readable record, plus\n``last_activity_at`` — the route index's own score, which is what this listing SORTS by,\nso the moment shown and the position it is shown in always agree. That score is stamped\nwhen a record is created and again when its turn completes; a later delivery transition\non the same record moves the record's ``updated_at`` but not the thread's activity.\n\nAuthorization is decided BEFORE the route is looked up, so a non-admin is refused the\nsame way whether the name routes or not — a 404-here/403-there pair would answer which\nroute names exist to a caller with no business knowing. An unknown route is a loud 404\nto an admin; a ``page`` or ``page_size`` below 1, or a ``page`` above the served\nmaximum, is a 400. Returns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\"}``,\nwhere ``total`` counts the route's indexed threads.",
+        "description": "The threads of ``route_name``, newest activity first, one page at a time.\n\nA thread listing spans every caller and address on the route, so it is admin-only. Each\nitem carries ``thread_id``, ``client_address``, ``message_count``\nand ``last_delivery_status`` summarized from the thread's newest readable record, plus\n``last_activity_at`` — the route index's own score, which is what this listing SORTS by,\nso the moment shown and the position it is shown in always agree. That score is stamped\nwhen a record is created and again when its turn completes; a later delivery transition\non the same record moves the record's ``updated_at`` but not the thread's activity.\n\n``status`` (one of the delivery-status vocabulary) keeps only threads whose summary status\nmatches; ``address`` keeps only threads whose id client-address suffix contains that\nsubstring. Neither has a direct index — the per-status indexes are GLOBAL over\n``message_id``s, not per-route thread ids — so a filter is a BOUNDED app-side post-scan\nand a page that spent its scan budget answers ``truncated: true`` LOUDLY, never a silent\ncut. An unknown ``status`` is a loud 400.\n\nAuthorization is decided BEFORE the route is looked up, so a non-admin is refused the\nsame way whether the name routes or not — a 404-here/403-there pair would answer which\nroute names exist to a caller with no business knowing. An unknown route is a loud 404\nto an admin; a ``page`` or ``page_size`` below 1, or a ``page`` above the served\nmaximum, is a 400. Returns\n``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"truncated\"}``, where ``total``\ncounts the route's indexed threads for an unfiltered listing, or the matches the bounded\nscan found for a filtered one.",
         "operationId": "get_api_conversations_route_name_threads",
         "parameters": [
           {
@@ -9012,6 +9244,26 @@
               "minimum": 1,
               "title": "Pagesize",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Keep only threads whose newest record's delivery_status is this one (validated against the delivery-status vocabulary; an unknown value is a 400).",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Keep only threads whose id client-address suffix contains this substring.",
+            "in": "query",
+            "name": "address",
+            "required": false,
+            "schema": {
+              "title": "Address",
+              "type": "string"
             }
           }
         ],
@@ -9096,7 +9348,7 @@
     },
     "/api/conversations/{route_name}/transcript": {
       "get": {
-        "description": "One thread's records under ``route_name``, one page at a time.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\nAn admin reads whole records; a non-admin reads the caller-safe projection, which\nwithholds the internal detail of the route key's run. An unknown ``route_name`` is a loud\n404. A thread that is absent or keyed to another route answers the uniform thread\nnot-found. A ``page`` or ``page_size`` below 1, a ``page`` above the served maximum, a\nblank ``thread_id`` or an unknown ``order`` is a 400.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\"}``, where\n``total`` counts the thread's indexed records.",
+        "description": "One thread's records under ``route_name``, one page at a time.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\n``q`` filters to records whose inbound text or answer contains that substring — a BOUNDED\nscan (the searched text lives inside the record content blob), so a page that spent its\nscan budget answers ``truncated: true`` LOUDLY. A ``q`` read never 404s: the unknown-thread\n404 below is gated on an UNFILTERED read, so under ``q`` an unknown thread and one that\nmatched nothing alike read as an EMPTY page.\n\nAn admin reads whole records; a non-admin reads the caller-safe projection, which\nwithholds the internal detail of the route key's run. An unknown ``route_name`` is a loud\n404. A thread that is absent or keyed to another route answers the uniform thread\nnot-found. A ``page`` or ``page_size`` below 1, a ``page`` above the served maximum, a\nblank ``thread_id`` or an unknown ``order`` is a 400.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\", \"truncated\"}``,\nwhere ``total`` counts the thread's indexed records for an unfiltered read, or the matches\na bounded ``q`` scan found.",
         "operationId": "get_api_conversations_route_name_transcript",
         "parameters": [
           {
@@ -9156,6 +9408,16 @@
                 "desc"
               ],
               "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional text filter — keep only records whose inbound text or answer contains this substring (a BOUNDED scan, so a filtered page may report ``truncated``).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "title": "Q",
               "type": "string"
             }
           }
@@ -16456,7 +16718,7 @@
         "x-destructive": true
       },
       "patch": {
-        "description": "Merge-patch the overlay row for ``tool_name`` (create it if absent). ``patch``\nholds ONLY the fields the caller sent; each is applied over the current row (or\nthe empty defaults when none exists), absent fields unchanged. A blank\n``display_name`` is refused; a present-null clears; a present ``tags`` array\nreplaces the set. An unknown ``folder_id`` is a loud 400.",
+        "description": "Merge-patch the overlay row for ``tool_name`` (create it if absent). ``patch``\nholds ONLY the fields the caller sent; each is applied over the current row (or\nthe empty defaults when none exists), absent fields unchanged. A blank\n``display_name`` is refused; a present-null clears; a present ``tags`` or\n``badges`` array replaces that set. An unknown ``folder_id`` is a loud 400.",
         "operationId": "patch_api_tool_meta_tools_tool_name",
         "parameters": [
           {
@@ -17185,7 +17447,7 @@
     },
     "/api/tools/tags": {
       "get": {
-        "description": "The per-tool native-``tags`` map plus the plugin-declared visibility — one\n``{name, tags, hidden}`` entry per registered tool, ``tags`` sorted for a stable\nwire order. ``hidden`` is the tool's OWN declaration, read from the FastMCP\n``meta`` under the namespaced ``tai42/hidden`` key (a tool that never declared it\nis not hidden). The tool_meta overlay's tri-state override is merged on top\nclient-side; this read exposes only the declaration. Additive to the flat names\ncontract; a tool with no tags carries an empty list.",
+        "description": "The per-tool native-``tags`` map plus the plugin-declared visibility and\ncapability badges — one ``{name, tags, hidden, badges}`` entry per registered\ntool, ``tags`` and ``badges`` each sorted for a stable wire order. ``hidden`` is\nthe tool's OWN declaration, read from the FastMCP ``meta`` under the namespaced\n``tai42/hidden`` key (a tool that never declared it is not hidden); ``badges`` is\nlikewise the tool's OWN declared INFORMATIONAL capability badges, read from\n``meta`` under ``tai42/badges`` (a tool that declared none carries an empty list).\nThe tool_meta overlay's tri-state override and its own badge set are merged on\ntop client-side; this read exposes only the declaration. Additive to the flat\nnames contract; a tool with no tags carries an empty list.",
         "operationId": "get_api_tools_tags",
         "responses": {
           "200": {
@@ -17220,7 +17482,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List each tool's native tags and declared visibility",
+        "summary": "List each tool's native tags, declared visibility, and badges",
         "tags": [
           "tools"
         ]
