@@ -86,6 +86,92 @@ the manifest file — so a container recreation does not drop the plugin. See
 [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
 </Note>
 
+## Mount the routes
+
+A plugin that mounts HTTP routes — a `router` item, or a `channel` with an inbound
+webhook — [declares](/concepts/marketplace#declared-http-routes) them relative to a
+`base` prefix, and install is where you see the resulting absolute paths, remap the
+prefix if you want, and accept any route the plugin serves without a credential.
+
+<Frame caption="The Studio install dialog: each route resolved to its full path, a per-item base to remap the prefix, and the acceptance checkbox for the routes served without authentication.">
+  <img className="block dark:hidden" src="/images/studio/marketplace-install-light.png" alt="The marketplace install dialog showing the resolved routes for a route-carrying plugin, a base-prefix input to remap them, and a checkbox accepting the public routes served without authentication." />
+  <img className="hidden dark:block" src="/images/studio/marketplace-install-dark.png" alt="The marketplace install dialog showing the resolved routes for a route-carrying plugin, a base-prefix input to remap them, and a checkbox accepting the public routes served without authentication." />
+</Frame>
+
+**Preview first.** Ask the server what a given install would mount — no side
+effects, nothing written:
+
+<CodeGroup>
+
+```bash CLI
+tai plugins install acme/alerts-relay --dry-run
+```
+
+```bash HTTP
+curl -X POST https://<your-server>/api/marketplace/install/preview \
+  -H "x-api-key: $TAI_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"ref": "acme/alerts-relay"}'
+```
+
+</CodeGroup>
+
+The preview resolves each route to its full `/api/...` path, flags which are public,
+and lists any collision with a route the core or an already-installed plugin owns.
+`--dry-run` prints that table and exits non-zero if anything collides.
+
+**Remap the base.** Every route-carrying item mounts under a default `base`; move it
+with `--mount item=base` (repeatable), or a `route_mounts` object in the body. The
+whole item's routes shift together — only the `base` moves, never the `/api/` root
+or a route's own path:
+
+<CodeGroup>
+
+```bash CLI
+tai plugins install acme/alerts-relay --mount relay=alerts/relay-2
+```
+
+```bash HTTP
+curl -X POST https://<your-server>/api/marketplace/install \
+  -H "x-api-key: $TAI_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"ref": "acme/alerts-relay", "route_mounts": {"relay": "alerts/relay-2"}}'
+```
+
+</CodeGroup>
+
+**Accept the public routes.** A route the plugin declares `public` answers
+**without authentication** — an inbound webhook has to. Install refuses until you
+say so: without acceptance it returns `400 PUBLIC_ROUTES_NOT_ACCEPTED` and lists the
+routes, so opening an unauthenticated door is always a deliberate step. Accept with
+`--accept-public-routes` (or `"accept_public_routes": true`). On an **update**, only
+a route that is newly public — not one you already approved on the installed
+version — needs accepting again.
+
+The install receipt returns the mounted routes — each item, full path, methods, and
+public flag — so you can confirm what opened where.
+
+### A collision is a remap
+
+Two plugins can never own the same route. If a plugin's resolved paths clash with a
+route the core or another installed plugin already owns, install stops with
+`409 ROUTE_COLLISION` and names the clashing paths; nothing is installed. The remedy
+is to remap the colliding item onto a free `base` and install again:
+
+```bash
+tai plugins install acme/alerts-relay --mount relay=alerts/relay-b
+```
+
+The same check runs on the manifest patch, so a collision is caught in pre-flight,
+before any package is fetched.
+
+**Mounts persist across restart.** The server stores each item's chosen `base`
+alongside the install record, so a reload or a container recreation brings every
+route back up at the same path — a remapped route stays remapped, with no re-entry
+of the mount. Keep the install record and manifest on
+[persistent storage](/self-hosted/quickstart#the-persistent-mounts) so a recreated
+container does not lose them.
+
 ## Update
 
 ```bash
