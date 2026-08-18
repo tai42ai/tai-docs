@@ -71,12 +71,14 @@ fully revert; package changes the underlying pip run already made are pip's own
 boundary.
 
 Registry-dispatched items — tools, agents, extensions, storages, and a channel's
-registration and outbound delivery — are live the moment that reload lands, but
-two things wait for the next server restart: a **router** or **middleware**
-plugin, whose handlers are frozen into the ASGI app at process build, and a
-Tier-2 channel's inbound webhook route, which is part of that same build-frozen
-HTTP surface (Tier-1 confirm/external channels register no inbound route and are
-fully live). See
+registration and outbound delivery — are live the moment that reload lands, and
+so are the HTTP surfaces. A **router** or **middleware** plugin, and a Tier-2
+channel's inbound webhook route, come live on the next reload / config-apply: the
+[epoch rebuild](/concepts/live-operations#the-mutation-pipeline) re-imports the
+plugin package and its route-sibling modules and re-registers the declared routes,
+so a route-carrying plugin is serving on the same reload as the rest — no full
+process restart required (Tier-1 confirm/external channels register no inbound
+route). See
 [self-hosted upgrades](/self-hosted/upgrades#runtime-installed-plugins).
 
 <Note>

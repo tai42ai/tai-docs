@@ -7,9 +7,9 @@ icon: "tower-broadcast"
 The worker bus is how a live change reaches every process in a deployment. When
 one worker persists a config change — a reloaded tool, a replaced manifest, a
 soft restart, a [settings-profile](/concepts/config-and-secrets#settings-profiles)
-apply — the bus carries that change to every other worker sharing the manifest and
-collects a per-worker outcome, so the whole fleet converges instead of one process
-drifting ahead of its siblings.
+apply, a compiled-template-cache eviction — the bus carries that change to every
+other worker sharing the manifest and collects a per-worker outcome, so the whole
+fleet converges instead of one process drifting ahead of its siblings.
 
 ## It is internal infrastructure, not a plugin
 
@@ -189,6 +189,26 @@ lives ended and the fleet came back to strength. Because that census rides the b
 itself, the bus URL is one key a recycle can never carry — replacements would
 register on a new bus the running census cannot see — so a profile changing
 `TAI_BUS_REDIS_URL` is refused on every shape.
+
+## Template-cache eviction over the bus
+
+A change to stored template content evicts the compiled-template cache fleet-wide,
+not just on the worker that made the change. A template write, a template delete,
+a directory delete, and the manual `tai templates clear-cache` each broadcast a
+cache eviction over the bus, and every worker drops the affected compiled
+templates so none serves a stale compilation. The op response carries the same
+per-worker `fanout` report the mutation pipeline returns — one row per worker — and
+a worker that does not confirm the eviction is logged loudly rather than passed
+over. A **directory delete** evicts by **prefix**: every compiled template under
+the deleted path is dropped, and the eviction is idempotent — it converges even on
+a partial failure, so a re-driven delete or a worker that missed the first pass
+lands on the same end state.
+
+On a persist-across-jobs backend — a **celery prefork** pool, whose forked
+children hold their own in-memory caches for the life of the child — a
+template-eviction or any registry-mutating fleet op turns the pool over **once**
+after it applies, so a forked child can never keep serving a stale compilation or
+a stale registry from before the change.
 
 ## Documented limitations
 

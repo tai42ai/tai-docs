@@ -117,7 +117,15 @@ A [settings-profile](/concepts/config-and-secrets#settings-profiles) apply exten
 this pipeline at the reload step: instead of refreshing in place it builds a fresh
 serving **epoch** off to the side under the proposed env and swaps it in atomically,
 retiring the old one — a failed build is discarded with the old surface still
-serving. For a changed key whose reload class is `recycle`, it then orchestrates a
+serving. This same epoch build backs a plugin install or upgrade: any reload that
+rebuilds the serving surface re-imports each plugin package and its route-sibling
+modules and re-registers the declared routes, so a plugin's HTTP surface — a
+router or middleware, a channel's inbound webhook — comes live on the epoch swap
+of the reload that changed it rather than waiting for a process restart. Before it commits, an epoch route audit
+compares the rebuilt route set against the outgoing one and refuses to swap in an
+epoch that would silently drop a still-declared plugin's routes; the prior epoch
+keeps serving and the failure is surfaced. For a changed key whose reload class is
+`recycle`, it then orchestrates a
 process recycle across the fleet, on the shapes that support one. Its report is
 per worker: each recycled row carries a status and the `generation_before` it was
 recycled from, alongside a per-kind list of the fresh lives that have since
