@@ -64,6 +64,67 @@ it; the installer uses the `provides` list to patch the server
 server manifest: `tai-plugin.yml` describes what a plugin *offers*, the server
 manifest declares what a server *loads*.
 
+## Declared HTTP routes
+
+A plugin that mounts HTTP routes — a `router` item, or a `channel` item with an
+inbound webhook — **declares** them in its descriptor rather than wiring absolute
+paths in code. A `router` item must carry a `routes` block; a `channel` item may;
+no other kind does. The block is two parts:
+
+- **`base`** — the item's default mount prefix, relative and template-free (one or
+  more `[a-z0-9-]` segments joined by `/`). The resolved absolute path of every
+  route is `/api/` + `base` + the route's own `path`. The `/api/` root is fixed
+  platform-wide; only `base` moves, and the operator can remap it at
+  [install](/marketplace/install#mount-the-routes) — always, and as the collision
+  remedy.
+- **`paths`** — the route rows. Each row is a `path` relative to `base`, a
+  non-empty `methods` list, and a required `public` flag. A `path` is `/`-prefixed
+  with at least one segment; a segment is a literal or a `{name}` template. `public`
+  has no default — the declaration always states whether the resolved route answers
+  unauthenticated.
+
+```yaml tai-plugin.yml
+spec_version: 1
+namespace: acme
+name: alerts-relay
+package: acme-alerts-relay
+version: 1.0.0
+description: Relays inbound alerts into the assistant.
+license: MIT
+contract: '>=2,<3'
+categories: [channels]
+provides:
+  - kind: router
+    name: relay
+    module: acme_alerts_relay.routes
+    description: An inbound alerts webhook and its status read.
+    routes:
+      base: alerts/relay
+      paths:
+        - path: /inbound
+          methods: [POST]
+          public: true
+        - path: /status/{event_id}
+          methods: [GET]
+          public: false
+```
+
+Here the webhook resolves to `/api/alerts/relay/inbound` (public, so it answers
+without a credential) and the status read to
+`/api/alerts/relay/status/{event_id}` (authed). The item's route module registers
+each handler against the **relative** `path`; the declaration decides the absolute
+mount and the public-ness, so the code never hardcodes either.
+
+Each declared route has **one owner**. Two routes collide when their resolved path
+*shapes* overlap — same segment count, and at every position both are the same
+literal or one is a template — and they share a method (`GET /api/x/{id}` overlaps
+`GET /api/x/foo`; a different method or a different segment count never collides).
+The server refuses to register a route that collides with one a different plugin or
+the core already owns, and [install](/marketplace/install#a-collision-is-a-remap)
+surfaces the clash up front with remap as the remedy. How a declared `public` route
+is served without a credential is the [declared-public
+tier](/concepts/access-control#plugin-routes-declare-their-own-public-ness).
+
 ## The migrations contract
 
 A plugin that owns tables ships its schema as a **migration chain**, not a

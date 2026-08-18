@@ -134,6 +134,18 @@ plugin's router — mounted on top of the selected default set. Under `all` and
 `api` the loader mounts each core router once even if the manifest re-lists it, so
 an extra never double-mounts a default.
 
+The module list decides **which** modules load; a plugin's own descriptor decides
+**where** its routes mount. An installed router or channel plugin
+[declares its routes](/concepts/marketplace#declared-http-routes) — a relative
+`base` prefix and the rows under it — and the installer records both the module (in
+`routers_modules` or `channel_modules`) and the chosen mount `base`. Every route
+resolves at `/api/` + `base` + its path, so listing the module never picks the URL:
+the declaration does, and the operator can remap the `base` at
+[install](/marketplace/install#mount-the-routes). Your own router modules carry no
+descriptor, so they mount their handlers' absolute paths as written. A plugin route
+that would collide with one the core or another plugin already owns is refused at
+registration, never silently shadowed.
+
 The Studio SPA catch-all matches every unclaimed path, so it must register **last**
 or it shadows the routers after it. Under `all` the loader forces it last, and an
 installed plugin router is inserted before it. Under `none`, where you list routers
