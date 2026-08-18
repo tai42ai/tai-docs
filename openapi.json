@@ -6034,7 +6034,7 @@
     },
     "/api/clear-templates-cache": {
       "post": {
-        "description": "Drop every compiled template from the render cache.",
+        "description": "Drop every compiled template from the render cache, fleet-wide.\n\nThe manual escape hatch that pairs with the automatic per-key eviction: it\nbroadcasts a ``clear_template_cache`` op so every worker cold-starts its compiled\ncache, not only the one that served this call. The response embeds the per-worker\nfleet report.",
         "operationId": "post_api_clear_templates_cache",
         "responses": {
           "200": {
@@ -9231,7 +9231,7 @@
     },
     "/api/delete-template": {
       "post": {
-        "description": "Delete the stored template at ``path``.\n\nIdempotent: an already-absent path is a no-op success (the store treats a\nmissing template as a no-op rather than raising), so this returns ``200``.",
+        "description": "Delete the stored template at ``path``.\n\nIdempotent: an already-absent path is a no-op success (the store treats a\nmissing template as a no-op rather than raising), so this returns ``200``.\n\nThe store delete is followed by a fleet ``evict_template`` broadcast so every\nworker drops the stale compilation, not only the one that served this call; the\nresponse embeds the per-worker fleet report.",
         "operationId": "post_api_delete_template",
         "requestBody": {
           "content": {
@@ -17564,7 +17564,7 @@
     },
     "/api/upload-template": {
       "post": {
-        "description": "Write ``content`` to the template store under ``path`` (create or overwrite).\n\nThe write target is guarded against a root escape before it reaches the store.",
+        "description": "Write ``content`` to the template store under ``path`` (create or overwrite).\n\nThe write target is guarded against a root escape before it reaches the store.\n\nThe store write is a single durable act, but the compiled template is held in a\nper-worker cache, so the write is followed by a fleet ``evict_template`` broadcast:\nthis worker's local apply persists and evicts, and every sibling drops the stale\ncompilation on dispatch. The response embeds the per-worker fleet report so a\ncaller has deterministic proof the eviction propagated; an unconfirmed worker is\nlogged loudly, matching the reload broadcast.",
         "operationId": "post_api_upload_template",
         "requestBody": {
           "content": {
