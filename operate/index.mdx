@@ -102,8 +102,9 @@ ways.
 **Runtime, through the marketplace.** A running server installs, updates, and
 uninstalls plugins against itself — it `pip install`s the package into its own
 environment, patches the [manifest](/concepts/manifest), and reloads, so the
-plugin is live with no restart (router/middleware and channel inbound routes
-activate on restart). See [Install a plugin](/marketplace/install). For
+plugin is live with no restart — router/middleware and channel inbound routes
+come live on that same reload, whose epoch rebuild re-imports the plugin and
+re-registers its routes. See [Install a plugin](/marketplace/install). For
 those installs to survive a container recreation, the server's plugin-prefix
 setting must point at a mounted, persistent directory — see [the persistent
 mounts](/self-hosted/quickstart#the-persistent-mounts).
@@ -190,11 +191,12 @@ mounting pod (disable `backend`, or co-schedule the two onto one node); otherwis
 the shared `ReadWriteMany` mount is required. Every marketplace install/upgrade
 ends in a fleet reload broadcast on the worker bus, so already-running peer pods
 re-import the changed plugin in place — one pod installs, the others pick it up
-live with no restart. **Router** and **middleware** plugins are the exception:
-their handlers and middleware stack are frozen into the ASGI app when the process
-builds, so a router or middleware plugin — net-new or an upgrade — activates only
-after a pod restart (`kubectl rollout restart`). Fleets that want fully static
-rosters can bake them into a [derived image](#add-plugins) instead.
+live with no restart — **router** and **middleware** plugins and a channel's
+inbound webhook route included: the reload rebuilds the serving epoch, which
+re-imports the plugin package and its route-sibling modules and re-registers the
+declared routes, so a net-new or upgraded router serves after the swap without a
+pod restart. Fleets that want fully static rosters can bake them into a
+[derived image](#add-plugins) instead.
 </Note>
 
 ## TLS and the front door

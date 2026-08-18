@@ -39,7 +39,7 @@ Use `include` on an entry to enable a subset of a multi-agent module by name; ea
 
 ## The seven agents
 
-Each worked run below passes that agent's real `ToolInput` fields. A run needs the server up (`tai serve`) with a model configured for the deployment; the stream renders each `StreamEvent` frame — reasoning steps, tool-call/result steps, message deltas and finals, and a run-usage frame — as it arrives.
+Each worked run below passes that agent's real `ToolInput` fields. A run needs the server up (`tai serve`) with a model configured for the deployment; the stream renders each `StreamEvent` frame — reasoning steps, tool-call/result steps, message deltas and finals, and a run-usage frame — as it arrives. A structured-output run adds a terminal structured final and nothing else: the stream carries no synthetic structured-output tool-call/result frame for the internal call that produced it.
 
 ### `tools_agent`
 
@@ -57,7 +57,7 @@ A deepagents-harness agent: planning, a per-thread scratch filesystem, skills, o
 tai agents run deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
 ```
 
-When a run requests a `response_format` (a JSON Schema with a top-level `title`) but produces no structured output, **both faces raise rather than silently omitting the structured frame**: the JSON `run` face raises on drain, and the streaming face raises after the stream drains — unless the run paused on a pending interrupt, which takes precedence over the missing-structured raise.
+When a run requests a `response_format` (a JSON Schema with a top-level `title`, and a non-empty `title` on every `oneOf` variant — missing either is a `ValueError`) but produces no structured output, **both faces raise rather than silently omitting the structured frame**: the JSON `run` face raises on drain, and the streaming face raises after the stream drains — unless the run paused on a pending interrupt, which takes precedence over the missing-structured raise.
 
 ### `retrieval_tools_agent`
 
@@ -105,7 +105,7 @@ tai agents run vqa_agent --input '{"image_url":"https://example.com/chart.png","
 
 ## Structured output and trusted-caller kwargs
 
-Every agent above accepts a `response_format` — a JSON Schema with a **required top-level `title`** (the structured-output name). When set, the run forces the model to emit matching output and returns the validated structured object; a request that produces none raises loudly rather than falling back to text.
+Every agent above accepts a `response_format` — a JSON Schema with a **required top-level `title`** (the structured-output name), and every `oneOf` variant must carry a **non-empty `title`** of its own; a schema missing either raises a `ValueError`. When set, the run forces the model to emit matching output and returns the validated structured object; a request that produces none raises loudly rather than falling back to text. Structured output is always produced through the model's **tool-calling path**, uniformly across every provider (never a provider-native auto-routing mode), and the validated object is returned as `state["structured_response"]`.
 
 `base_url`/`api_key` in an agent's `llm_kwargs`/`embedding_kwargs` legitimately route to a caller-chosen model or embedding endpoint. Expose any agent carrying these kwargs only to trusted callers — an injected parent agent could redirect the call to a hostile endpoint and leak the key or context.
 

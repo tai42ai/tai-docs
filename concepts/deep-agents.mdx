@@ -49,11 +49,15 @@ own `ToolInput`):
 tai agents run deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
 ```
 
-When a run requests a `response_format` (a JSON Schema with a top-level `title`)
-but produces no structured output, both faces **raise rather than silently
-omitting the structured frame**: the JSON `run` face raises on drain, and the
-streaming face raises after the stream drains — unless the run paused on a pending
-interrupt, which takes precedence over the missing-structured raise.
+A `response_format` schema is validated up front: it must carry a top-level
+`title`, and every `oneOf` variant must carry a non-empty `title` of its own — a
+schema missing either raises a `ValueError` before the run starts.
+
+When a run requests a `response_format` but produces no structured output, both
+faces **raise rather than silently omitting the structured frame**: the JSON `run`
+face raises on drain, and the streaming face raises after the stream drains —
+unless the run paused on a pending interrupt, which takes precedence over the
+missing-structured raise.
 
 By contrast, a tool failure is surfaced to the model as an error tool result and the
 loop continues, so the agent can react to a bad call rather than aborting the whole

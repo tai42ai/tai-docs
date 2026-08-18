@@ -92,10 +92,11 @@ tai plugins upgrade --all
 
 This resolves each installed plugin to the newest version compatible with the
 core you are now running and installs it into the same persistent prefix. A
-**router** or **middleware** plugin is the exception to live pickup — its handlers
-are frozen into the ASGI app at process build, so an upgraded router or middleware
-activates only when each container/pod restarts (`docker compose up -d` /
-`kubectl rollout restart`).
+**router** or **middleware** plugin — and a channel's inbound webhook route — comes
+live on the next reload / config-apply, not on a container restart: the epoch
+rebuild that a reload runs re-imports the plugin package and its route-sibling
+modules and re-registers the declared routes, so an upgraded router or middleware
+is serving once that reload lands.
 
 <Warning>
 A plugin that is incompatible with the new core — or otherwise stale — is

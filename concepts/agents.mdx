@@ -48,6 +48,11 @@ tool-call and tool-result steps, structured finals, interrupt finals, and run
 usage. The event producers — the projection over the agent runtime's updates and
 messages — live in the agents runtime; a client renders the frames as they arrive.
 
+When a run carries a `response_format`, the structured result reaches a
+user-visible stream **only** as the terminal structured final — the stream carries
+no synthetic structured-output tool-call/result frame for the internal call that
+produced it.
+
 Run an agent and watch its stream from the CLI:
 
 ```bash
@@ -64,6 +69,12 @@ budget cannot hold the system prompt plus the current message, the run raises a
 typed `TrimmingBudgetTooSmallError` naming the budget rather than answering from
 the system prompt alone, so an overflow surfaces loudly instead of returning a
 silently wrong reply. Raise the budget with `TRIMMING_MIDDLEWARE_MAX_TOKENS`.
+
+The system prompt is **per-run configuration**, supplied fresh at each model call
+(`create_agent(system_prompt=...)`) — it is never stored in thread or checkpoint
+state. Any system message found in replayed thread history is stripped before the
+model sees it, so the prompt comes only from the run's own configuration; it counts
+against the trimming budget above.
 
 ## Authored agents
 
