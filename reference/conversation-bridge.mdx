@@ -132,6 +132,7 @@ offending value**.
 | `GET /api/conversations/{route_name}/messages/{message_id}` | `tai conversations get-message <route> <id>` | Read grant. |
 | `GET /api/conversations/messages/failed` | `tai conversations failed` | Admin only. |
 | `GET /api/conversations/{route_name}/threads` | `tai conversations threads <route>` | Admin only. |
+| `GET /api/conversations/{route_name}/messages/search?q=` | `tai conversations search <route> --q …` | Admin only. |
 | `GET /api/conversations/{route_name}/transcript?thread_id=` | `tai conversations transcript <route> <thread>` | Read grant. |
 
 The single-record door is a plain authed read gated by the **conversations read
@@ -161,9 +162,12 @@ not.
 | --- | --- | --- |
 | `page` | `1` | 1-based page number; at most `1000000`. |
 | `pageSize` | `50` | Items per page. A larger value is **capped to 200**, never refused. |
+| `status` | *(none)* | Keep only threads whose newest record's `delivery_status` is this one. |
+| `address` | *(none)* | Keep only threads whose id client-address suffix **contains** this substring. |
 
-The answer is `{items, total, page, page_size, next_page}`, where `total` counts the
-route's indexed threads and `next_page` is `null` on the last page. Each item carries:
+The answer is `{items, total, page, page_size, next_page, truncated}`, where `total` counts
+the route's indexed threads (or, under a filter, the matches the scan found), `next_page` is
+`null` on the last page, and `truncated` is described below. Each item carries:
 
 | Field | Meaning |
 | --- | --- |
@@ -173,8 +177,41 @@ route's indexed threads and `next_page` is `null` on the last page. Each item ca
 | `message_count` | Exchanges the thread holds. |
 | `last_delivery_status` | The delivery state of the thread's newest readable record. |
 
-Refusals: `400` a non-integer, sub-1, or too-large window; `401` unauthorized; `403`
-a non-admin caller; `404` an unknown route; `501` no conversations backend.
+`status` is validated against the delivery-status vocabulary (`accepted`,
+`pending_delivery`, `provisional`, `delivered`, `failed`, `shed`, `silent`); an unknown value
+is a **loud `400`**, never a silently ignored filter.
+
+<Note>
+**Filters are a bounded post-scan.** The per-status indexes are global over message ids, not
+per-route thread ids, and an address has no index at all, so `status`/`address` are an
+app-side scan bounded by a fixed budget. A page that spends its budget before the route is
+exhausted answers **`truncated: true`** — matches may lie beyond it. An unfiltered listing
+never scans and is never truncated. `truncated` is always present, so a client reads it on
+every page rather than inferring completeness.
+</Note>
+
+Refusals: `400` a non-integer, sub-1, or too-large window, or an unknown `status`; `401`
+unauthorized; `403` a non-admin caller; `404` an unknown route; `501` no conversations
+backend.
+
+### Searching a route's messages
+
+`GET /api/conversations/{route_name}/messages/search?q=…`
+(`tai conversations search <route> --q …`) returns every record on the route whose inbound
+text or answer **contains** `q`, across all its threads, newest-active thread first. It is
+**admin-only** (it spans every caller on the route) and each item is the **whole record** —
+the same shape the transcript serves an admin. `q` is REQUIRED and non-blank.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `q` | *(required)* | The text to search the route's records for. |
+| `page` / `pageSize` | `1` / `50` | The same window as the listing; `pageSize` caps at 200. |
+
+The answer is `{items, total, page, page_size, next_page, truncated}`. There is no per-route
+record index, so the search is a bounded nested scan (the route's threads, then each thread's
+records); a page that spends its budget answers `truncated: true`. Refusals: a blank/absent
+`q` or a malformed window is `400`; a non-admin is `403`; an unknown route is `404`; no
+backend is `501`.
 
 ### The transcript
 
@@ -188,10 +225,19 @@ and a query value is decoded exactly once whatever it holds.
 | `thread_id` | *(required)* | The thread to read, spelled as the listing returned it. |
 | `page` / `pageSize` | `1` / `50` | The same window as the listing; `pageSize` caps at 200. |
 | `order` | `asc` | `asc` reads oldest first; `desc` reads newest first, so page 1 always holds the latest — the order a live tail wants. |
+| `q` | *(none)* | Keep only records whose inbound text or answer **contains** this substring. |
 
-The answer is `{items, total, page, page_size, next_page, order}`, its items the same
-answer records the single-record door serves — whole records for an admin, the
+The answer is `{items, total, page, page_size, next_page, order, truncated}`, its items the
+same answer records the single-record door serves — whole records for an admin, the
 caller-safe projection otherwise.
+
+<Note>
+`q` is a **bounded text search** over the record content (the searched text lives inside the
+record's JSON blob), so a page that spends its scan budget answers `truncated: true`. Under
+`q`, `total` is the number of matches found, and a thread that exists but **matches nothing**
+reads as an **empty page**, never a `404` — the unknown-thread `404` below is reserved for a
+thread the index does not hold at all.
+</Note>
 
 The transcript is a plain authed read gated by the **conversations read grant** — a
 holder reads any thread on the route, whichever door its messages arrived through: an
@@ -238,6 +284,36 @@ one guard stopping a delete on one route from wiping another's memory; a
 that person's routes, is a `404`; a turn in flight on the thread is a `409` (retry
 once it drains); a blank `thread_id` or invalid `route_name` is a `400`; no backend
 is `501`.
+
+## Forgetting a person
+
+`DELETE /api/conversations/persons/{person_id}`
+(`tai conversations delete-person <person_id>`) **erases a linked person ENTIRELY** — every
+store scoped to that identity:
+
+- its aggregated `bridge:@person:{person_id}` thread — the agent checkpoint, and across
+  **every route the person wrote under** its answer records, per-thread transcript indexes,
+  route-thread index memberships and per-thread mode override (the [thread-forget
+  machinery](#forgetting-a-thread), reused);
+- the person row `conversations:person:{person_id}`;
+- **every** `person_index` `door_address_key → person_id` mapping of its addresses.
+
+The person id rides the **path** — it is a uuid4 with no percent-encoded principal, so unlike
+a thread id it round-trips a path segment cleanly. Authority is the door's **write** action —
+the **same conversations write grant that forgets a thread**.
+
+Erasing is **idempotent and retryable**. The person row is the durable marker of an owed
+erase and is deleted **last** (atomically with its index mappings), so an interruption
+re-reads it and a retry finishes. A person that is **already gone** — a retry, or one that
+never existed — is not a `404`: its aggregated checkpoint is forgotten regardless (it defaults
+to keep-forever) and the call answers `erased: false`.
+
+The answer is `{person_id, removed, erased}`, where `removed` counts the answer records
+deleted across the person's routes and `erased` says whether **this** call removed the person
+row. Refusals: a turn in flight on the aggregated thread is a `409` (re-checked under the
+per-thread FIFO before any teardown, so an admitted turn cannot re-create memory behind the
+erase; a full queue is the retriable `503`); a blank `person_id` is a `400`; no backend is a
+loud `501`.
 
 ## Operator messages and control mode
 

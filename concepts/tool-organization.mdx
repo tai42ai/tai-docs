@@ -7,8 +7,9 @@ icon: "folder-tree"
 A running server can register hundreds of tools — your own functions, mounted MCP
 servers, the standard toolbox, [presets](/concepts/presets), and Babelfish
 [flows](/babelfish). **Tool organization** is the layer that makes that namespace
-navigable: an editable overlay of folders, display names, tags, and visibility
-that sits *beside* every tool without touching what the tool does.
+navigable: an editable overlay of folders, display names, tags, visibility, and
+informational capability badges that sits *beside* every tool without touching
+what the tool does.
 
 ## The overlay
 
@@ -82,6 +83,46 @@ A tool's effective tag set is the union of the two. Grouping and filtering a too
 list works over that merged set, so a tool declared `babelfish` by its plugin and
 tagged `reviewed` by you appears under both.
 
+## Capability badges: informational, never enforced
+
+Alongside tags, a tool can carry **capability badges** — short labels that flag
+what a tool touches or does, meant purely to inform the human scanning a tool
+list. Like tags, badges come from **two independent sources** and UIs show them
+merged:
+
+- **Plugin-declared badges** are code-owned. A plugin declares them on the tool
+  itself (Babelfish's `flow_step` declares `flow`, for example), so they ship with
+  the tool.
+- **Operator-overlay badges** are the overlay's editable set, stored on a tool's
+  overlay row and managed from the CLI or API.
+
+A tool's displayed badges are the union of the two.
+
+<Warning>
+Badges are **declarative and informational only — never an enforcement boundary**.
+A badge such as `network` or `storage-write` describes a tool for a human reader;
+it grants and gates nothing. Never treat a badge as a permission — reach for
+[access control](/concepts/access-control) to actually constrain what a tool can
+do.
+</Warning>
+
+Badges are **free-form**: there is no fixed, enforced list. Any label from the
+same charset the tag vocabulary uses is accepted — lowercase alphanumerics,
+hyphens, and underscores (so no slashes; use the hyphen form like
+`storage-read`). To keep badges legible across a deployment, a small **suggested**
+generic vocabulary is worth standardizing on — as guidance, not a rule:
+
+| Badge | Suggested meaning |
+| --- | --- |
+| `llm` | Calls a language model. |
+| `network` | Makes outbound network calls. |
+| `storage-read` | Reads from durable storage. |
+| `storage-write` | Writes to durable storage. |
+| `external-send` | Sends data to an external destination (email, webhook, …). |
+
+Coin your own beyond these whenever a deployment needs a finer signal — the list
+above is only a starting point, never a closed set.
+
 ## Visibility: hidden is not security
 
 The overlay's visibility flag is **tri-state**:
@@ -121,6 +162,7 @@ Edit the overlay from the CLI with `tai tool-meta` — folders and per-tool rows
 ```bash
 tai tool-meta folder-create Research
 tai tool-meta set web_search --display-name 'Web Search' --tag research --folder <folder-id>
+tai tool-meta set web_search --badge network --badge external-send
 tai tool-meta set flow_step --visibility shown
 tai tool-meta list
 ```
