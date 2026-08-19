@@ -254,6 +254,15 @@ list, and a live-tailing transcript — or from the CLI with
 the listing is admin-only; a transcript read takes the same conversations read grant.
 See [the read doors](/reference/conversation-bridge#the-read-doors).
 
+The listing narrows with `?status=` (a delivery-status the thread's newest record must
+match) and `?address=` (a substring of the thread id's client-address suffix); a transcript
+narrows with `?q=` (records whose inbound text or answer contains the substring); and
+`GET …/messages/search?q=` searches every record on the route. None has a dedicated index, so
+each is a **bounded post-scan** whose envelope carries a `truncated` flag — `true` when a page
+spent its scan budget before the route was exhausted, so a client never mistakes a bounded
+page for the whole result. See [the read
+doors](/reference/conversation-bridge#the-read-doors).
+
 Each transcript record carries its `origin` — `client` for an inbound turn, `operator`
 for a by-hand reply — so an operator's messages read as distinct from the flow's. From
 the same Studio screen an operator can also flip the thread's [control
@@ -279,6 +288,14 @@ records, and its indexes — with
 waiting for a TTL. Forgetting is authorized by the same write grant that creates the
 route, and a valid id on its own route always succeeds. See [forgetting a
 thread](/reference/conversation-bridge#forgetting-a-thread).
+
+A **linked person** can be erased ENTIRELY with
+[`tai conversations delete-person`](/reference/cli/conversations) (the
+`DELETE …/persons/{person_id}` door): its aggregated `bridge:@person:{id}` thread (checkpoint,
+records, indexes), its person row, and every address→person index mapping go together, so the
+next message from any of its addresses starts as a fresh provisional person. The erase is
+idempotent — a person already gone is not an error. See [forgetting a
+person](/reference/conversation-bridge#forgetting-a-person).
 
 A `tool` target keeps no **conversation** memory: the dispatch is stateless, so no
 conversation state is carried across messages and each message is answered on its own. Its thread key
