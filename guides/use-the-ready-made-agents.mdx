@@ -109,6 +109,16 @@ Every agent above accepts a `response_format` — a JSON Schema with a **require
 
 `base_url`/`api_key` in an agent's `llm_kwargs`/`embedding_kwargs` legitimately route to a caller-chosen model or embedding endpoint. Expose any agent carrying these kwargs only to trusted callers — an injected parent agent could redirect the call to a hostile endpoint and leak the key or context.
 
+## Prompt caching
+
+`system_content_kwargs` and `user_content_kwargs` merge content-block keys onto a message's text block — the former onto the system message, the latter onto the **last** user turn. With Anthropic's `{"cache_control": {"type": "ephemeral"}}` the key marks the end of the stable prompt prefix, so repeated calls read that prefix from cache instead of reprocessing it. On a thread (`thread_id`) each marked turn persists into history, so cache-control marks accumulate across turns; the provider caps breakpoints per request (Anthropic: 4), so a long-running cached thread eventually gets a loud provider rejection.
+
+```bash
+tai agents run tools_agent --input '{"user_message":"What is the current time in UTC?","tool_names":["current_time_info"],"user_content_kwargs":{"cache_control":{"type":"ephemeral"}}}'
+```
+
+`tools_agent` and `mcp_tools_agent` honor both params. `voting_agent`, `deep_agent`, `retrieval_tools_agent` and `refine_agent` honor `user_content_kwargs` only — for voting/retrieval/refine the system prompt is internal or composed, and `deep_agent`'s caller-supplied prompt is handed to its factory as a plain string (never built as a content block), so in all four `system_content_kwargs` has no content block to ride and is **rejected loudly**; `vqa_agent` takes neither. On `deep_agent`, `user_content_kwargs` alongside a `resume` is likewise rejected — a resume carries no fresh user turn. On `voting_agent` the mark lands on the judge's final voter verdict, which varies per run, so it yields no reusable cache prefix.
+
 <Note>
 The exact agent set and each agent's inputs are also listed on the [agents plugin page](/plugins/tai42/agents); the agents package's own documentation carries the per-agent reference detail. For authoring your own, see [Author an agent](/guides/author-an-agent).
 </Note>
