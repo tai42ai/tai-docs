@@ -250,8 +250,8 @@ a refusal carrying neither is a contract breach and raises.
 
 ```ts
 function hiddenToolNames(
-  tagEntries: readonly ({ hidden: boolean; name: string; tags: string[] })[],
-  overlayRows: readonly ({ display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
+  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[],
+  overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
 ): Set<string>
 ```
 
@@ -269,8 +269,8 @@ plugin-hidden tool correctly keeps it OUT of the set (unhidden).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `tagEntries` | `readonly ({ hidden: boolean; name: string; tags: string[] })[]` | — | — |
-| `overlayRows` | `readonly ({ display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
+| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[]` | — | — |
+| `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 
 ## isFeatureDisabled
@@ -317,6 +317,27 @@ dropped — so a schema carrying `$defs`/`anyOf` round-trips exactly.
 **Related:** [SchemaLintResult](/reference/studio-sdk/utilities#schemalintresult)
 
 
+## mergeToolBadges
+
+```ts
+function mergeToolBadges(
+  nativeBadges: readonly string[],
+  overlayBadges: readonly string[],
+): readonly string[]
+```
+
+A tool's effective badges: native ∪ overlay, deduped and case-insensitively sorted.
+The atomic rule every badge surface merges by, so the tools list and the pickers
+show one and the same set.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `nativeBadges` | `readonly string[]` | — | — |
+| `overlayBadges` | `readonly string[]` | — | — |
+
+
 ## subMcpKey
 
 ```ts
@@ -337,6 +358,30 @@ const tokensPayloadKey: readonly ["auth-tokens-payload"]
 ```
 
 The api-key payloads; read by settings AND the hooks execution-key picker.
+
+
+## toolBadgesByName
+
+```ts
+function toolBadgesByName(
+  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[],
+  overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
+): Readonly<Record<string, readonly string[]>>
+```
+
+The raw-name → merged-badges map a tool picker reads to render the SELECTED tool's
+badges, from the native declarations (`listToolTags`) merged with the tool_meta
+overlay (`listToolMeta`) — the SAME union the tools list shows. Only tools with at
+least one badge appear; a name with none is simply absent (the picker shows no
+chips). Both sources' names are walked, so an overlay row that badges a tool
+carrying no native tag entry is still surfaced.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[]` | — | — |
+| `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 
 ## toolsListKey
