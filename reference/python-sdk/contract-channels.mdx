@@ -36,22 +36,40 @@ A channel plugin registers an instance under a name
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
 
-A channel MAY advertise richer support with three OPTIONAL, class-level
+A channel MAY advertise richer support with four OPTIONAL, class-level
 capability flags — ``supports_media_notifications``,
-``supports_template_notifications`` (both for ``notify``) and
-``supports_form_delivery`` (for ``deliver``) — set as plain class
-attributes. They are a documented convention, NOT Protocol members: a
-channel that supports the richer form sets the matching attribute to
-``True``; a channel that omits it advertises no support (absent =
-``False``). Because they are not part of the Protocol, a text-only channel
+``supports_template_notifications``, ``supports_interactive_notifications``
+(all three for ``notify``) and ``supports_form_delivery`` (for ``deliver``)
+— set as plain class attributes. They are a documented convention, NOT
+Protocol members: a channel that supports the richer form sets the matching
+attribute to ``True``; a channel that omits it advertises no support (absent
+= ``False``). Because they are not part of the Protocol, a text-only channel
 that declares none is still a valid ``Channel`` (both structurally and under
 runtime ``isinstance``). The ask/notify helpers read them defensively with
 ``getattr(channel, "<flag>", False)`` and refuse the matching richer send to
-a channel that does not advertise the flag: ``notify_user`` refuses a media
-or template notification, and the ``ask_user`` helper refuses a ``form``
-delivery, to a channel without the flag — so a channel that reads only the
-plain fields can never silently drop the extra content. A channel that does
-not advertise ``supports_form_delivery`` never receives a ``form`` delivery.
+a channel that does not advertise the flag: ``notify_user`` refuses a media,
+template or options notification, and the ``ask_user`` helper refuses a
+``form`` delivery, to a channel without the flag — so a channel that reads
+only the plain fields can never silently drop the extra content. A channel
+that does not advertise ``supports_form_delivery`` never receives a ``form``
+delivery.
+
+A form channel MAY also declare one OPTIONAL method, ``validate_form_schema``,
+following the same convention as the capability flags — a documented member,
+NOT a Protocol method, so declaring it never tightens the runtime structural
+check. ``ask_user`` reads it defensively with
+``getattr(channel, "validate_form_schema", None)`` right after the generic
+channel-deliverable subset check and, when present, calls
+``channel.validate_form_schema(schema, question)`` at ask-time, BEFORE any
+state is written. It enforces the channel's OWN ask-time-knowable form limits
+(reserved property names, per-medium Block Kit / Flow caps, question-text caps)
+over the schema AND the question text — limits the generic subset does not
+know — raising ``ValueError`` naming the offending property/limit on a
+violation, so a question or schema the channel could never render is refused up
+front instead of persisting a question that only fails at delivery. A channel
+that omits it advertises no extra ask-time limits; its delivery path still
+refuses an unrenderable question or schema (a permanent
+`ChannelInputError`).
 
 ### Members
 
@@ -97,7 +115,10 @@ async notify(self, notification: ChannelNotification) -> list[str]
 Send a fire-and-forget message, or raise `ChannelDeliveryError`.
 
 No interaction, no ticket, no callback, no reply. Any delivery failure raises
-`ChannelDeliveryError`; a return means the medium ACCEPTED the message —
+`ChannelDeliveryError`; a permanent refusal of the input's shape or
+content (an input the medium cannot render BY NATURE) raises
+`ChannelInputError` instead — retrying it cannot succeed. A return means
+the medium ACCEPTED the message —
 not that a human saw it — and yields the per-message ids it assigned this send
 (several when the medium splits a long message, empty when it exposes no id),
 which later correlate an out-of-band delivery receipt back to this send. One
@@ -177,6 +198,24 @@ caller to wait (an HTTP ``Retry-After``, say); meaningful only when
 | `retry_after` | — |
 
 
+## ChannelInputError
+
+`tai42_contract.channels.ChannelInputError`
+
+```python
+class ChannelInputError(Exception)
+```
+
+A permanent refusal of the input's shape or content by the channel.
+
+The input is contract-valid but the medium cannot render it BY NATURE — e.g. a
+``data:`` image URL to a channel that sends only public ``https`` sources.
+Retrying the same input can never succeed, so this is distinct from
+`ChannelDeliveryError` (a delivery failure the caller may retry): the
+operation door maps it to the client-error (400) class, never the retryable
+503 a transient delivery failure earns.
+
+
 ## ChannelNotification
 
 `tai42_contract.channels.ChannelNotification`
@@ -199,17 +238,22 @@ address only, never a secret or credential.
 several operator identities: an internal routing control set by the sending side,
 never caller-supplied, and an address only — never a secret.
 
-``media`` and ``template`` are OPTIONAL richer-send forms reusing the same
-``message`` as the human-readable equivalent. ``media`` is display media the
+``media``, ``template`` and ``options`` are OPTIONAL richer-send forms reusing the
+same ``message`` as the human-readable equivalent. ``media`` is display media the
 channel sends alongside the message (reusing `MediaItem`); a present
 list is non-empty. ``template`` sends a pre-approved `ChannelTemplate`
-for out-of-window delivery. The two are MUTUALLY EXCLUSIVE — a template is the
-out-of-window send and a companion standalone media item would be rejected by
-the medium there, so setting both is refused rather than partially delivered.
+for out-of-window delivery. ``options`` is a list of tappable options; a tap enters
+the conversation as a visitor message on channels that support it — a present list is
+non-empty, each option non-blank and at most ``NOTIFICATION_OPTION_MAX_CHARS`` characters,
+at most ``NOTIFICATION_OPTIONS_MAX`` entries.
+``media`` and ``template`` are MUTUALLY EXCLUSIVE — a template is the out-of-window
+send and a companion standalone media item would be rejected by the medium there, so
+setting both is refused rather than partially delivered; ``options`` is likewise
+incompatible with ``template`` but MAY combine with ``media`` (a card with a list).
 A channel that does not advertise the matching capability flag
-(``supports_media_notifications`` / ``supports_template_notifications``, the
-OPTIONAL class-attribute convention documented on `Channel`) never
-receives these fields.
+(``supports_media_notifications`` / ``supports_template_notifications`` /
+``supports_interactive_notifications``, the OPTIONAL class-attribute convention
+documented on `Channel`) never receives the matching field.
 
 **Attributes**
 
@@ -221,6 +265,7 @@ receives these fields.
 | `sender_identity` | `str \| None` |
 | `media` | `list[MediaItem] \| None` |
 | `template` | `ChannelTemplate \| None` |
+| `options` | `list[str] \| None` |
 
 
 ## ChannelTemplate
