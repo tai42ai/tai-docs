@@ -57,6 +57,87 @@ The first four are answered on the authenticated **in-client** surface. Example
 An optional `group_id` threads related questions, and `timeout` (seconds)
 overrides the configured default before the call raises.
 
+## Block or park: sync and async
+
+By default `ask_user` runs `mode="sync"`: it blocks the caller until a person
+answers or the `timeout` elapses, then returns the typed answer (as above).
+
+`mode="async"` instead **parks** the caller. The call records the question — and,
+with a `channel`, delivers it — exactly as sync does, but returns a **suspension
+sentinel** at once rather than blocking. A later answer, or the question's expiry,
+resumes the run out of band; the parked question is answered through the same
+authenticated answer door or channel callback as any other, never inline.
+
+An async park always carries a deadline. Pass `expiry_at` — a timezone-aware
+moment:
+
+```json
+{"question": "Approve the deploy?", "answer_format": "confirm", "mode": "async", "expiry_at": "2026-06-01T12:00:00Z"}
+```
+
+- `expiry_at` is **required** for `async` — an ask with `mode="async"` and no
+  `expiry_at` raises.
+- `expiry_at` and `timeout` are **mutually exclusive** — they bound the same wait
+  two ways, and passing both raises. `expiry_at` is valid only with `mode="async"`.
+
+When the answer arrives, or when `expiry_at` passes with no answer, the run resumes
+on its own: a stored continuation runs under the **asker's** identity, exactly
+once. On expiry the continuation receives a reserved *interaction expired* marker in
+place of an answer, so the run takes its expiry branch. Async requires the ask to
+be raised from a resumable run — a resuming driver and an execution identity bound
+in scope; raised without one it fails loudly rather than silently blocking.
+
+An async park also requires the run to sit on a **durable, cross-worker
+checkpointer** — `redis` or `postgres`. The parked run's continuation may resume on
+a different worker than the one that parked it, so its checkpoint must live in
+shared storage; an in-memory, sqlite, or checkpointing-disabled configuration
+cannot survive that hop, and a park attempted on one raises loudly rather than
+leaving a run nothing could resume.
+
+### Park several at once
+
+A run can raise more than one async `ask_user` before it suspends — a parallel
+fan-out. Each ask is independent: it carries its own `expiry_at`, and its answer or
+expiry can arrive in any order, from any surface, on any worker. The run stays parked
+until the **last** of them resolves, then resumes once with every answer in hand. An
+ask that expires contributes the reserved *interaction expired* marker to its own
+branch; its siblings' answers ride the same resume. Nothing resumes the run part-way
+— a partial set of answers buys no progress.
+
+### Agents park too
+
+Async parking is not flow-only. An agent whose tool raises `mode="async"` parks the
+whole agent run and resumes it on the answer or expiry, exactly as a flow does. It
+needs the same durable, cross-worker checkpointer (`redis` or `postgres`) — an agent
+run on an in-memory or sqlite checkpointer refuses the async ask loudly instead of
+parking a run nothing could resume.
+
+An agent park also needs the agents package's own durable **park index** — a Redis
+that reverses a parked interaction id back to the run that parked it, independent of
+the checkpoint provider. Configure it with `TAI_AGENTS_REDIS_URL` (or fall back to
+the shared `TAI_DEFAULT_REDIS_URL`), and install the package's `park` extra
+(`pip install 'tai42-agents[park]'`). With no park index configured, a park-capable
+run refuses the async ask loudly before any state is written.
+
+Parallel subagents each park in one step: when several nested subagents raise an
+async ask together, their parks collapse into one suspend and the run resumes once
+when the last resolves, every answer in hand — answers and expiries in any order.
+
+When the agent was reached over a chat channel, its resumed final reply is posted
+back into the originating thread, so a person who asked hours ago sees the answer
+land in the same conversation.
+
+### The deadline and the retention window
+
+`expiry_at` is the ask's own deadline. It is independent of the **checkpoint
+retention** — the horizon the paused run's checkpointer keeps a thread before
+reclaiming it (30 days by default). Choose an `expiry_at` inside that window: a park
+whose deadline lies beyond a bounded retention horizon could lose its checkpoint
+before the answer or expiry arrives, and the run refuses it loudly when it suspends
+rather than parking a run its own storage would later strand.
+
+See [Interactions](/concepts/interactions#sync-and-async) for the model.
+
 ## Show images and links with a question
 
 Any question can carry **media** — images and links shown above the answer
@@ -563,9 +644,14 @@ prompt-injection target. `payment_status` has three values — `paid`, `unpaid`,
 `no_payment_required` (a zero-total session) — and the bridge accepts ONLY `paid`,
 rejecting the other two loudly.
 
-**A captured signed delivery replays successfully inside the verifier's tolerance
-window** — there is no `event.id` dedupe. Impact is bounded to duplicate hook fires
-plus the callback door's idempotent 200; accepted residual.
+**A captured signed delivery is refused on replay inside the tolerance window.** The
+Stripe verifier claims a seen-set entry keyed on the `event.id`, with a TTL anchored to
+the signed timestamp that runs until the freshness window ends (`t + tolerance_seconds`),
+so on the webhook ingress a
+replayed signed delivery draws the idempotent `already_seen` 200 — nothing dispatched,
+no duplicate hook fires. The interactions callback door verifies the signature but does
+not consult that seen-set; there a replay is absorbed by ticket state, where an answered
+ticket returns the idempotent `already_answered` 200 — so no double answer on either door.
 
 ### The callback doors and the ticket-state oracle
 

@@ -27,6 +27,88 @@ flowchart TD
 protocol. Loading it is manifest-driven: opt in the interactions tool module and
 the interactions HTTP router, exactly like any other capability.
 
+## Sync and async
+
+A question also declares a **wait discipline**, `mode`:
+
+- **`sync`** (the default) blocks the caller. The loop above is the sync loop: the
+  caller waits on the answer or the `timeout`, then the typed answer returns (or the
+  call raises).
+- **`async`** parks the caller. `ask_user` records — and, over a channel, delivers —
+  the question exactly as sync does, but returns a **suspension sentinel**
+  immediately instead of blocking. A later answer, or the question's expiry, resumes
+  the run out of band.
+
+An async park always carries a deadline: `expiry_at`, a timezone-aware moment. It is
+**required** for `async` — a park with no deadline could never expire, so the ask
+raises without it — and **mutually exclusive** with a sync `timeout`, which bounds
+the same wait the other way. `expiry_at` is valid only with `mode="async"`.
+
+A parked question is answered **out of band** — through the ordinary authenticated
+answer door or the channel callback, exactly as a sync question, never inline. When
+it resolves — a human answers, or `expiry_at` passes with no answer — the run
+resumes on its own: a stored continuation runs under the **asker's** identity (never
+the answerer's), exactly once. On expiry the continuation receives a reserved
+*interaction expired* marker in place of an answer, so the run takes its expiry
+branch rather than a real answer.
+
+Async requires the run to be resumable: it must be raised where a resuming driver
+and a bound execution identity are in scope, or it raises loudly rather than
+silently blocking.
+
+Async also requires a **durable, cross-worker checkpointer** — `redis` or
+`postgres`. The continuation may resume on a different worker than the one that
+parked the run, so its checkpoint must live in shared storage; an in-memory,
+sqlite, or checkpointing-disabled setup cannot cross that boundary, and an async
+park on one raises loudly.
+
+### Parking several at once
+
+A run can raise more than one async `ask_user` before it suspends — a parallel
+fan-out that parks on all of them together. Each ask is independent: it carries its
+own `expiry_at`, and its answer or expiry can arrive in any order, from any surface,
+on any worker. The run buffers each resolution durably and resumes **once**, when
+the **last** ask resolves — never once per answer, and never part-way on a partial
+set. A mix of real answers and expiries resolves the same way: an expired ask
+contributes the reserved *interaction expired* marker to its own branch while its
+siblings contribute their answers, and the single resume carries them all together.
+A lone async ask is the one-ask case of this same path.
+
+### A flow or an agent parks
+
+The resuming driver is engine-agnostic: a flow and an agent run are both drivers.
+An agent whose tool raises an async `ask_user` parks the whole agent run and resumes
+it on the answer or expiry exactly as a flow resumes — the same stored continuation,
+the same asker identity, the same once-only resume. Parking an agent run needs the
+same durable, cross-worker checkpointer as any park (`redis` or `postgres`); an agent
+run on an in-memory or sqlite checkpointer refuses the async ask loudly rather than
+parking a run nothing could resume. It also needs the agents package's own durable
+park index — a configured Redis that reverses a parked interaction id back to the
+run that parked it, independent of the checkpoint provider; a park-capable run with
+no park index configured refuses the async ask loudly before any state is written.
+
+Parallel subagents each park in one step: when several nested subagents raise an
+async `ask_user` together, all their parks collapse into one suspend, and the run
+resumes **once** when the last of them resolves — answers and expiries arriving in
+any order, from any surface, on any worker, exactly as parallel asks resolve on a
+flow.
+
+When a parked agent was reached over a chat channel, its resumed final reply is
+posted back into the originating conversation thread, so the late answer lands where
+the person is talking.
+
+### Deadlines and retention
+
+An async ask's `expiry_at` is the **deadline** — the moment the question stops
+mattering, which drives its expiry branch. The **checkpoint retention** is a
+different clock: the paused run's checkpoint lives in the checkpointer's own store,
+kept for a bounded horizon (30 days by default) before a sweep reclaims the idle
+thread. The two must agree. If a paused run's checkpointer evicts idle threads at a
+bounded retention horizon, an async ask whose `expiry_at` lies beyond that horizon
+would lose its paused graph before the answer or expiry ever arrives — so the park
+is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
+the horizon it exceeded. A keep-forever retention has no horizon and never refuses.
+
 ## Answer formats
 
 A question declares one of five answer formats. Four are answered on an
@@ -79,11 +161,13 @@ Each item is a `MediaItem` — a `kind`, a `url`, and an optional `caption`:
 
 ### Caps
 
-Media is bounded by the contract. These are wire-contract properties — they bound
-the durable record and the stream frame it is replayed in — not operator settings:
+Media and the question text are bounded by the contract. These are wire-contract
+properties — they bound the durable record and the stream frame it is replayed in —
+not operator settings:
 
 | Cap | Value | What it bounds |
 |---|---|---|
+| `QUESTION_MAX_CHARS` | 8192 | one question's text |
 | `MEDIA_MAX_ITEMS` | 8 | items on one question |
 | `MEDIA_URL_MAX_CHARS` | 8192 | one `http(s)`/`https` URL |
 | `MEDIA_DATA_URI_MAX_CHARS` | 524288 (512 KiB) | one inline `data:image/*` URI |
@@ -135,6 +219,10 @@ the person on that medium, and the reply comes back through the same callback
 door. The asking tool blocks exactly as before — only the delivery leg changes.
 An unknown channel name, or a delivery failure, raises loudly before the run
 would wait on an answer that can never arrive.
+
+A reply that arrives after the question is already gone or expired is not lost:
+with a channel route bound it enters the conversation as an ordinary inbound
+message; with no bound route it is logged and dropped.
 
 A channel may render a `select` question **natively** — WhatsApp, for instance,
 shows the options as tappable reply buttons or a list, and past the medium's
