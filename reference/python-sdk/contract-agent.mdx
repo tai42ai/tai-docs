@@ -124,8 +124,8 @@ async run(
 Run the agent once and return its final value.
 
 Tool inputs (``tools``/``tool_names``/``presets``) are uniform only for
-tools-agent-shaped agents; role-specific agents (voting/vqa/refine/
-mcp_tools) read their own params off ``**kwargs``. ``response_format`` is
+tools-agent-shaped agents; role-specific agents (voting/vqa/refine) read
+their own params off ``**kwargs``. ``response_format`` is
 typed ``Any`` because the deep path passes a JSON-Schema ``dict`` while
 the tools-agent path passes a pydantic class. ``resume_checkpoint_id``
 forks past an aborted turn, distinct from ``resume`` (the interrupt
@@ -430,6 +430,38 @@ the impl) — a vendor type cannot be a runtime pydantic field here.
 | `response_format` | `type[BaseModel] \| dict[str, Any] \| None` |
 | `strategy` | `str \| None` |
 | `subagents` | `list[SubAgentSpec]` |
+
+
+## SuspendedFinal
+
+`tai42_contract.agent.events.SuspendedFinal`
+
+```python
+class SuspendedFinal(StreamEvent)
+```
+
+A generic async park surfaced out of a paused agent graph. Terminal.
+
+The run parked on one or more async ``ask_user`` questions and will resume out
+of band when their answers (or expiries) arrive — it did NOT fail and did NOT
+stop for a live decision, so a non-streaming drain returns a suspended RECEIPT
+for it rather than raising `AgentInterruptedError`.
+
+``interaction_ids`` are the parked questions the resume converges on;
+``expiry_at`` is the earliest park deadline (ISO-8601, or ``None`` when no park
+carried one); ``thread_id`` is the parked run's thread. The vocabulary is
+generic — it names no driver, engine, or resume state, only the parked
+interaction ids the flow-blind platform already holds.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['suspended_final']` |
+| `interaction_ids` | `list[str]` |
+| `thread_id` | `str` |
+| `expiry_at` | `str \| None` |
+| `final` | `bool` |
 
 
 ## ToolCallStep
