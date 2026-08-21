@@ -33,10 +33,10 @@ tai hooks list
 An inbound webhook door is public — bind a verifier so every delivery on the topic is signature-verified before the tool fires. Name a registered verifier and pass its per-binding config. Verification fails closed: a signature failure rejects the delivery and the tool never runs.
 
 ```bash
-tai hooks set-verifier github --verifier shared_secret --config '{"header":"X-Hub-Signature","secret_env":"GITHUB_WEBHOOK_SECRET"}'
+tai hooks set-verifier github --verifier shared_secret --config '{"header":"X-Hub-Signature","secret_env":"GITHUB_WEBHOOK_SECRET","id_header":"X-GitHub-Delivery"}'
 ```
 
-The verifier config never holds a secret value — only the name of the environment variable that holds it, resolved at verify time.
+The verifier config never holds a secret value — only the name of the environment variable that holds it, resolved at verify time. `shared_secret` also requires an `id_header` naming a header the sender fills with a unique per-delivery id; the ingress dedupes on it to refuse replays, so a binding without it fails closed.
 
 <Steps>
   <Step title="Load the verifier">

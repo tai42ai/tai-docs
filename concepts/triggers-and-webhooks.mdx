@@ -31,17 +31,27 @@ bind a verifier to lock it.
 
 Verification **fails closed**: a signature mismatch returns a constant `401`, and a
 missing verifier or secret returns a `500` — either way nothing is recorded and no
-tool runs.
+tool runs. A verified delivery is then deduped against replay: on the
+`/universal_webhook/{topic}` ingress a delivery whose per-delivery id was already
+claimed within the replay window is a replay, answered with the idempotent
+`already_seen` `200` and dispatching nothing.
 
 ## The built-in shared-secret verifier
 
 The skeleton ships a `shared_secret` verifier that checks a named request header
 against a secret read from an environment variable, with a constant-time compare.
-Its config names the header and the env var holding the secret:
+A static secret carries no freshness, so its config also requires an `id_header`
+naming a header the sender fills with a unique per-delivery id, which the ingress
+dedupes on to refuse replays. Its config names the header, the env var holding the
+secret, and that id header:
 
 ```json
-{ "header": "X-Webhook-Secret", "secret_env": "MY_WEBHOOK_SECRET" }
+{ "header": "X-Webhook-Secret", "secret_env": "MY_WEBHOOK_SECRET", "id_header": "X-Delivery-Id" }
 ```
+
+`config` also takes an optional `replay_window_seconds` (a positive int, default `86400`
+— one day) setting how long a delivery id is remembered before the same id would be
+accepted again.
 
 The secret is referenced by env var **name**, never embedded — the binding carries
 no credential. Provider-specific verifiers (for example a signature scheme for a

@@ -1,6 +1,6 @@
 ---
 title: "Use the ready-made agents"
-description: "Enable and run the seven shipped agents."
+description: "Enable and run the six shipped agents."
 icon: "wand-magic-sparkles"
 ---
 
@@ -37,7 +37,7 @@ Use `include` on an entry to enable a subset of a multi-agent module by name; ea
   </Step>
 </Steps>
 
-## The seven agents
+## The six agents
 
 Each worked run below passes that agent's real `ToolInput` fields. A run needs the server up (`tai serve`) with a model configured for the deployment; the stream renders each `StreamEvent` frame — reasoning steps, tool-call/result steps, message deltas and finals, and a run-usage frame — as it arrives. A structured-output run adds a terminal structured final and nothing else: the stream carries no synthetic structured-output tool-call/result frame for the internal call that produced it.
 
@@ -67,17 +67,12 @@ A tools agent that does not bind every tool up front: it embeds each tool's desc
 tai agents run retrieval_tools_agent --input '{"user_message":"Generate a unique identifier for this record.","tool_names":["generate_uuid","current_time_info"],"tools_limit":5}'
 ```
 
-### `mcp_tools_agent`
-
-A tools agent whose tools come from an MCP server named in `mcp_config`. It opens a `fastmcp` client, converts those tools to LangChain tools, and runs with the client held open.
-
-```bash
-tai agents run mcp_tools_agent --input '{"user_message":"List the files in the workspace.","mcp_config":{"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp/workspace"]}}}}'
-```
-
-<Warning>
-`mcp_tools_agent` is admin-curated. Expose it ONLY to trusted, access-controlled callers or agents — never to an agent that processes untrusted content, which could steer it to a hostile MCP server. With `inject_env: true`, only the variable names listed in `env_allowlist` are copied from the process environment into each server's `env`; `inject_env: true` with an empty or missing `env_allowlist` is rejected loudly.
-</Warning>
+<Note>
+To give an agent the tools of an external MCP server, mount the server in the
+manifest's `mcp` section — its tools then register as ordinary tools any of these
+agents can bind by name through `tool_names`. See
+[Bring an MCP server](/guides/bring-an-mcp-server).
+</Note>
 
 ### `voting_agent`
 
@@ -107,7 +102,7 @@ tai agents run vqa_agent --input '{"image_url":"https://example.com/chart.png","
 
 Every agent above accepts a `response_format` — a JSON Schema with a **required top-level `title`** (the structured-output name), and every `oneOf` variant must carry a **non-empty `title`** of its own; a schema missing either raises a `ValueError`. When set, the run forces the model to emit matching output and returns the validated structured object; a request that produces none raises loudly rather than falling back to text. Structured output is always produced through the model's **tool-calling path**, uniformly across every provider (never a provider-native auto-routing mode), and the validated object is returned as `state["structured_response"]`.
 
-`base_url`/`api_key` in an agent's `llm_kwargs`/`embedding_kwargs` legitimately route to a caller-chosen model or embedding endpoint. Expose any agent carrying these kwargs only to trusted callers — an injected parent agent could redirect the call to a hostile endpoint and leak the key or context.
+`base_url`/`api_key` in an agent's `llm_kwargs`/`embedding_kwargs` legitimately route to a caller-chosen model or embedding endpoint. Every agent that carries these kwargs leaves it a caller discipline — expose such an agent only to trusted callers, since an injected parent agent could redirect the call to a hostile endpoint and leak the key or context.
 
 ## Prompt caching
 
@@ -117,7 +112,7 @@ Every agent above accepts a `response_format` — a JSON Schema with a **require
 tai agents run tools_agent --input '{"user_message":"What is the current time in UTC?","tool_names":["current_time_info"],"user_content_kwargs":{"cache_control":{"type":"ephemeral"}}}'
 ```
 
-`tools_agent` and `mcp_tools_agent` honor both params. `voting_agent`, `deep_agent`, `retrieval_tools_agent` and `refine_agent` honor `user_content_kwargs` only — for voting/retrieval/refine the system prompt is internal or composed, and `deep_agent`'s caller-supplied prompt is handed to its factory as a plain string (never built as a content block), so in all four `system_content_kwargs` has no content block to ride and is **rejected loudly**; `vqa_agent` takes neither. On `deep_agent`, `user_content_kwargs` alongside a `resume` is likewise rejected — a resume carries no fresh user turn. On `voting_agent` the mark lands on the judge's final voter verdict, which varies per run, so it yields no reusable cache prefix.
+`tools_agent` honors both params. `voting_agent`, `deep_agent`, `retrieval_tools_agent` and `refine_agent` honor `user_content_kwargs` only — for voting/retrieval/refine the system prompt is internal or composed, and `deep_agent`'s caller-supplied prompt is handed to its factory as a plain string (never built as a content block), so in all four `system_content_kwargs` has no content block to ride and is **rejected loudly**; `vqa_agent` takes neither. On `deep_agent`, `user_content_kwargs` alongside a `resume` is likewise rejected — a resume carries no fresh user turn. On `voting_agent` the mark lands on the judge's final voter verdict, which varies per run, so it yields no reusable cache prefix.
 
 <Note>
 The exact agent set and each agent's inputs are also listed on the [agents plugin page](/plugins/tai42/agents); the agents package's own documentation carries the per-agent reference detail. For authoring your own, see [Author an agent](/guides/author-an-agent).
