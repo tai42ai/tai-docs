@@ -47,6 +47,35 @@ def _spec(namespace: str = "tai42", first_kind: str = "tool") -> dict:
     }
 
 
+def _descriptor_spec() -> dict:
+    """A descriptor-only listing: ``package`` null, one oauth connector item whose
+    provider descriptor names its client credential env vars."""
+    return {
+        "spec_version": 1,
+        "namespace": "tai42",
+        "name": "connector-acme",
+        "display_name": "Acme connector",
+        "package": None,
+        "description": "Connect to Acme.",
+        "premium": False,
+        "permissions": {"network": True, "subprocess": False, "filesystem": False},
+        "provides": [
+            {
+                "kind": "connector",
+                "name": "acme",
+                "description": "Acme OAuth connector.",
+                "provider": {
+                    "id": "acme",
+                    "kind": "oauth",
+                    "origin": "system",
+                    "client_id_env": "CONNECTORS_ACME_CLIENT_ID",
+                    "client_secret_env": "CONNECTORS_ACME_CLIENT_SECRET",
+                },
+            }
+        ],
+    }
+
+
 def _files(body: str = "Body text ![pic](./images/pic.png)\n", image: bytes = _PNG) -> dict[str, bytes]:
     index = f'---\ntitle: "Demo"\ndescription: "A demo."\n---\n\n{body}'.encode()
     return {"docs/index.mdx": index, "docs/images/pic.png": image}
@@ -77,6 +106,54 @@ def test_process_listing_renders_header_and_anchors() -> None:
     assert plan["registry"]["package"] == "tai42-demo"
     assert [i["name"] for i in plan["registry"]["items"]] == ["do_thing", "wrap_it"]
     print("  happy path: header, anchors, image rewrite, registry row")
+
+
+def test_descriptor_listing_install_line_and_registry() -> None:
+    """A descriptor-only listing (package null) installs by ref with env flags, and
+    its registry row carries a null package rather than crashing on a missing key."""
+    plan = gen_plugins.process_listing(_descriptor_spec(), _files(body="Body.\n"))
+    page = plan["pages"]["plugins/tai42/connector-acme"]
+
+    # Install by namespace/name ref, never a null package name.
+    assert "tai plugins install tai42/connector-acme" in page
+    assert "None" not in page.split("## Permissions")[0]
+    # EVERY var gets its VALUE via --env; the secret takes an ADDITIONAL bare
+    # --secret mark (never `--secret NAME=...`, which passes a value to a
+    # mark-only flag).
+    assert "--env CONNECTORS_ACME_CLIENT_ID=..." in page
+    assert "--env CONNECTORS_ACME_CLIENT_SECRET=..." in page
+    assert "--secret CONNECTORS_ACME_CLIENT_SECRET" in page
+    assert "--secret CONNECTORS_ACME_CLIENT_SECRET=..." not in page
+    # The registry snapshot row emits a null package (consumers skip it).
+    assert plan["registry"]["package"] is None
+    # It shelves under the connect group, like a package-delivered connector.
+    assert plan["group"] == "Connect outside systems"
+    print("  descriptor: ref install line + env/secret flags + null registry package")
+
+
+def test_install_command_package_and_descriptor() -> None:
+    """install_command uses the distribution when present, the ref otherwise; a
+    descriptor supplies every value via --env and marks the secret with a BARE
+    --secret (the mark-only flag, no =VALUE)."""
+    assert gen_plugins.install_command(_spec()) == "tai plugins install tai42-demo"
+    assert gen_plugins.install_command(_descriptor_spec()) == (
+        "tai plugins install tai42/connector-acme "
+        "--env CONNECTORS_ACME_CLIENT_ID=... --env CONNECTORS_ACME_CLIENT_SECRET=... "
+        "--secret CONNECTORS_ACME_CLIENT_SECRET"
+    )
+    print("  install_command: package by name, descriptor by ref, --env values + bare --secret")
+
+
+def test_install_command_missing_package_key() -> None:
+    """A spec that OMITS ``package`` entirely (not just ``package: null``) is a
+    descriptor: install_command reads it with .get and never KeyErrors."""
+    spec = _descriptor_spec()
+    del spec["package"]
+    cmd = gen_plugins.install_command(spec)
+    assert cmd.startswith("tai plugins install tai42/connector-acme")
+    assert "--env CONNECTORS_ACME_CLIENT_ID=..." in cmd
+    assert "--secret CONNECTORS_ACME_CLIENT_SECRET" in cmd
+    print("  install_command: absent package key handled as descriptor (no KeyError)")
 
 
 def test_item_group_tag_rendered_when_present() -> None:
@@ -239,9 +316,41 @@ def test_write_outputs_prunes_delisted_plugin(tmp_path, monkeypatch) -> None:
     print("  prune: delisted plugin page + images removed, current output kept")
 
 
+def test_hand_authored_page_survives_prune(tmp_path, monkeypatch) -> None:
+    """A HAND_AUTHORED_PAGES entry (the descriptor-authoring guide) is NOT a
+    generated plugin page and must survive prune_stale_outputs — guards against a
+    keep-set regression silently deleting a hand-committed page under plugins/."""
+    plugins_dir = tmp_path / "plugins"
+    images_dir = plugins_dir / "images"
+    plugins_dir.mkdir(parents=True)
+
+    (plugins_dir / "index.mdx").write_text("landing\n", encoding="utf-8")
+    stale_page = plugins_dir / "tai42" / "old.mdx"
+    stale_page.parent.mkdir(parents=True)
+    stale_page.write_text("stale\n", encoding="utf-8")
+    # Every hand-authored page the generator owns-not is seeded and must remain.
+    for name in gen_plugins.HAND_AUTHORED_PAGES:
+        (plugins_dir / name).write_text("hand-authored guide\n", encoding="utf-8")
+
+    monkeypatch.setattr(gen_plugins, "PLUGINS_DIR", plugins_dir)
+    monkeypatch.setattr(gen_plugins, "IMAGES_DIR", images_dir)
+
+    gen_plugins.prune_stale_outputs()
+
+    assert not stale_page.exists()  # a generated plugin page is pruned
+    assert (plugins_dir / "index.mdx").exists()  # the generator-owned landing survives
+    for name in gen_plugins.HAND_AUTHORED_PAGES:
+        assert (plugins_dir / name).exists(), f"hand-authored {name} was pruned"
+    assert gen_plugins.HAND_AUTHORED_PAGES  # the set is non-empty (there is a page to protect)
+    print("  prune: hand-authored pages survive, generated pages pruned")
+
+
 def main() -> int:
     print("test_gen_plugins:")
     test_process_listing_renders_header_and_anchors()
+    test_descriptor_listing_install_line_and_registry()
+    test_install_command_package_and_descriptor()
+    test_install_command_missing_package_key()
     test_item_group_tag_rendered_when_present()
     test_absent_and_null_group_are_ungrouped()
     test_malformed_group_fails_loud()

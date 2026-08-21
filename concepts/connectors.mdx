@@ -13,9 +13,22 @@ credentials.
 
 The connector engine is provider-agnostic. The domain and wire models and the
 provider ABCs live in the contract; the skeleton owns the runtime — the OAuth
-flow, the token store, the resolver, and the stdio glue. Individual providers
-ship as separate [plugins](/concepts/config-and-secrets) that register through
-`tai42_app` when the [manifest](/concepts/manifest) loads them.
+flow, the token store, the resolver, and the stdio glue.
+
+A provider is one **descriptor** — a `ProviderDescriptor` — declaring the
+provider's id, its OAuth or no-auth mode, the env var names that hold its client
+credentials, its sub-services and their scopes and MCP endpoints, and an `icon_url`
+brand mark. The `icon_url` must be an `https://` URL (the same rule the plugin
+descriptor's `icon` follows), so the catalog serves it verbatim with no bundled
+asset to host. See the [ProviderDescriptor
+reference](/reference/python-sdk/contract-connectors) for the full schema.
+
+Providers come from the server [manifest](/concepts/manifest)'s `connectors`
+list. A [marketplace](/concepts/marketplace) install of a connector patches one
+descriptor into that list; you can also add one by hand. The server registers
+each listed descriptor at boot and on every reload — there is no import
+side-effect and no code to install, so a whole OAuth integration is just a
+manifest entry.
 
 ## Tokens resolved at call time
 
@@ -41,12 +54,11 @@ turns connectors on for a deployment; absent it, connectors are off and startup
 never opens Postgres for them. With the database configured and none reachable,
 startup fails loudly.
 
-The **provider catalog is not loaded from the database**. Every provider registers
-its descriptor in-process at import time — through the `register_connector` call a
-provider plugin makes when the [manifest](/concepts/manifest) loads it (or a plugin
-installed from the marketplace) — so listing and resolving providers reads the
-in-memory registry and never touches Postgres. Only the token store, above, uses
-the database.
+The **provider catalog is not loaded from the database**. The server registers
+each descriptor in the [manifest](/concepts/manifest)'s `connectors` list through
+its `register_connector` seam at boot and on every reload, so listing and
+resolving providers reads the in-memory registry and never touches Postgres. Only
+the token store, above, uses the database.
 
 ## Connection health
 
@@ -58,8 +70,8 @@ raise their own errors.
 ## Engine settings
 
 The engine's own settings apply to every connector, not to any one provider. A
-provider package adds only its own client credentials (its `CONNECTORS_<PROVIDER>_*`
-group); these `CONNECTORS_*` keys are shared:
+provider adds only its own client credentials (the `CONNECTORS_<PROVIDER>_*` env
+var names its descriptor declares); these `CONNECTORS_*` keys are shared:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -88,9 +100,8 @@ tai connectors disconnect <id>
 
 <Note>
 The platform documents connectors at the platform level. A specific provider's
-setup — its scopes, redirect URIs, and environment — lives in that connector
-package's own repository, reachable from the
-[Plugins section](/plugins).
+setup — its scopes, redirect URIs, and environment — lives in that connector's
+own repository, reachable from the [Plugins section](/plugins).
 </Note>
 
 See the [connect-an-OAuth-provider guide](/guides/connect-an-oauth-provider) for

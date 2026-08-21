@@ -6,18 +6,45 @@ icon: "key"
 
 Wire an OAuth connector end to end so tools can call an authenticated third-party API.
 
-A connector is an OAuth connection to an outside app. A connector provider ships as a plugin that declares the provider's OAuth endpoints and sub-services; the connector engine drives the authorize flow, stores the tokens, and launches the provider's sub-service MCP servers. This guide covers the platform flow — loading a provider, running the connect flow, and using the connection. Provider-specific setup (the OAuth app to register, the client-credential environment variables) lives in that provider's own repository README.
+A connector is an OAuth connection to an outside app. A connector provider is a [descriptor](/concepts/connectors) — pure data declaring the provider's OAuth endpoints and sub-services; the connector engine drives the authorize flow, stores the tokens, and launches the provider's sub-service MCP servers. This guide covers the platform flow — loading a provider, running the connect flow, and using the connection. Provider-specific setup (the OAuth app to register, the client-credential environment variables) lives in that provider's own repository README.
 
 ## Load a connector provider
 
-A connector provider registers when the manifest imports its module. Add the provider's module to a `lifecycle_modules` entry (importing it calls `tai42_app.connectors.register_connector`).
+A provider is registered from the manifest's `connectors:` list — the server registers each descriptor there at boot and on every reload, with no module import and no `lifecycle_modules` entry. There are two ways to add one:
 
-```yaml manifest.yml
-lifecycle_modules:
-  - tai42_connector.google.core.connector
-```
+- **Install it from the marketplace.** Installing a connector listing patches its descriptor into the manifest `connectors:` list for you (and takes the client credentials up front):
 
-Set the provider's client-credential environment variables on the server process — each provider names them in its README. With the module loaded and the credentials present, list the available providers:
+  ```bash
+  tai plugins install acme/connector-example \
+    --env CONNECTORS_ACME_CLIENT_ID=... \
+    --env CONNECTORS_ACME_CLIENT_SECRET=... \
+    --secret CONNECTORS_ACME_CLIENT_SECRET
+  ```
+
+- **Add the descriptor by hand.** Put a `connectors:` entry in the manifest — the same `ProviderDescriptor` shape a listing ships:
+
+  ```yaml manifest.yml
+  connectors:
+    - id: acme
+      kind: oauth
+      origin: community
+      category: communication
+      display_name: Acme
+      icon_url: https://cdn.acme.example/icon.png
+      client_id_env: CONNECTORS_ACME_CLIENT_ID
+      client_secret_env: CONNECTORS_ACME_CLIENT_SECRET
+      oauth:
+        authorize: https://acme.example/oauth/authorize
+        token: https://acme.example/oauth/token
+      sub_services:
+        acme:
+          id: acme
+          display_name: Acme
+          scopes: [https://acme.example/auth/acme.readonly]
+          mcp_server: {type: http, url: https://acme.example/mcp}
+  ```
+
+Set the provider's client-credential environment variables on the server process — each provider names them in its README (the `client_id_env` / `client_secret_env` above). With the descriptor in the manifest and the credentials present, list the available providers:
 
 ```bash
 tai connectors providers
@@ -30,7 +57,7 @@ tai connectors providers
     Name the provider, give the connection a unique alias, and enable one or more sub-services. The command prints the authorize URL.
 
     ```bash
-    tai connectors connect google --alias work --sub-service gmail
+    tai connectors connect acme --alias work --sub-service acme
     ```
   </Step>
   <Step title="Authorize">

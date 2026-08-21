@@ -53,6 +53,11 @@ IMAGES_DIR = PLUGINS_DIR / "images"
 REGISTRY_OUT = PLUGINS_DIR / "_registry.json"
 DOCS_JSON = DOCS_ROOT / "docs.json"
 
+# Pages that live under ``plugins/`` but are HAND-AUTHORED, not generated from the
+# registry. The prune step keeps them (see ``prune_stale_outputs``); they carry
+# their own nav entry outside the generated Plugins group.
+HAND_AUTHORED_PAGES: frozenset[str] = frozenset({"authoring-descriptor-plugins.mdx"})
+
 sys.path.insert(0, str(SCRIPT_DIR))
 from kit_docs import DocsValidationError, validate_docs_payload  # noqa: E402
 
@@ -287,6 +292,51 @@ def group_label_for(spec: dict) -> str:
     return label
 
 
+def _descriptor_env_hints(spec: dict) -> list[tuple[str, bool]]:
+    """Ordered ``(env_name, secret)`` pairs a descriptor install must supply.
+
+    A descriptor-only listing (``package`` null) installs nothing but its manifest
+    entry, so the install command names the env the descriptor needs. Derived from
+    each provided item's ``provider`` descriptor, mirroring
+    ``tai42_kit.plugins.required_env`` for the connector payload (the only
+    descriptor payload today): an oauth provider requires its client id (public)
+    and client secret (secret). First-seen order; a name is listed once.
+    """
+    order: list[str] = []
+    secret_by_name: dict[str, bool] = {}
+    for item in spec.get("provides", []):
+        provider = item.get("provider")
+        if not isinstance(provider, dict):
+            continue
+        for env_name, secret in ((provider.get("client_id_env"), False), (provider.get("client_secret_env"), True)):
+            if env_name and env_name not in secret_by_name:
+                order.append(env_name)
+                secret_by_name[env_name] = secret
+    return [(name, secret_by_name[name]) for name in order]
+
+
+def install_command(spec: dict) -> str:
+    """The ``tai plugins install`` line for a listing.
+
+    A package-delivered listing installs by its distribution name. A
+    descriptor-only listing (``package`` null) installs nothing but its manifest
+    entry, so it installs by ``namespace/name`` ref and carries the env flags its
+    descriptor requires. EVERY required var gets its VALUE via ``--env
+    <name>=...`` (``--env KEY=VALUE`` is the only value-supplying flag); a var that
+    must be masked additionally takes a BARE ``--secret <name>`` mark (the server
+    also auto-marks a schema-known ``client_secret_env``).
+    """
+    package = spec.get("package")
+    if package is not None:
+        return f"tai plugins install {package}"
+    ref = f"{spec['namespace']}/{spec['name']}"
+    hints = _descriptor_env_hints(spec)
+    parts = [f"tai plugins install {ref}"]
+    parts += [f"--env {env_name}=..." for env_name, _secret in hints]
+    parts += [f"--secret {env_name}" for env_name, secret in hints if secret]
+    return " ".join(parts)
+
+
 def render_page(spec: dict, body: str) -> str:
     """The full plugin page: GENERATED header (from the spec) + the docs body."""
     ns, name = spec["namespace"], spec["name"]
@@ -311,7 +361,7 @@ def render_page(spec: dict, body: str) -> str:
         "## Install",
         "",
         "```bash",
-        f"tai plugins install {spec['package']}",
+        install_command(spec),
         "```",
         "",
         "## Permissions",
@@ -408,7 +458,9 @@ def process_listing(spec: dict, files: dict[str, bytes]) -> dict:
     registry_row = {
         "namespace": ns,
         "name": name,
-        "package": spec["package"],
+        # ``None`` for a descriptor-only listing (ships no distribution); consumers
+        # of the snapshot skip a null package rather than treat it as a name.
+        "package": spec.get("package"),
         "premium": bool(spec.get("premium", False)),
         "items": [
             {"kind": it["kind"], "name": it["name"], "module": it.get("module"), "description": it["description"]}
@@ -510,10 +562,15 @@ def prune_stale_outputs() -> None:
     under ``plugins/images/``. Nothing outside ``plugins/`` is touched, and
     ``plugins/_registry.json`` (not an ``.mdx``) is left for its own rewrite. The
     current outputs are written back immediately after, so this is a no-op on drift
-    for an unchanged registry (prune the 25 + rewrite the same 25 is byte-identical)."""
-    index_page = PLUGINS_DIR / "index.mdx"
+    for an unchanged registry (prune the 25 + rewrite the same 25 is byte-identical).
+
+    Hand-authored pages that live under ``plugins/`` but are NOT generated from the
+    registry are exempt (``HAND_AUTHORED_PAGES``): the generator writes and owns
+    ``index.mdx``, but a page like the descriptor-authoring guide is committed by
+    hand and must survive every regen."""
+    keep = {PLUGINS_DIR / "index.mdx"} | {PLUGINS_DIR / name for name in HAND_AUTHORED_PAGES}
     for existing in PLUGINS_DIR.rglob("*.mdx"):
-        if existing != index_page:
+        if existing not in keep:
             existing.unlink()
     if IMAGES_DIR.is_dir():
         for child in IMAGES_DIR.iterdir():

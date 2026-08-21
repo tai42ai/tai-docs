@@ -1,0 +1,395 @@
+---
+title: "Plugin I/O and env (tai42_kit.plugins)"
+description: "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires."
+icon: "store"
+---
+
+
+Plugin-spec loading: the YAML I/O for ``tai-plugin.yml``.
+
+Every installable TAI plugin ships a ``tai-plugin.yml`` — at its repo root and
+as package-data inside the built wheel. The schema is
+`tai42_contract.plugins.PluginSpec`; these helpers do the YAML reading the
+pure contract cannot (the contract has no YAML dependency) and validate loudly.
+`parse_plugin_spec` is the shared low-level entry point — it validates
+spec content already in memory (``bytes`` or ``str``), and both loaders route
+through it.
+
+Because a spec may arrive as untrusted network input (an artifact fetched from
+a registry, a wheel of unknown provenance), parsing is hardened against
+resource-exhaustion and ambiguity attacks: content larger than
+`MAX_PLUGIN_SPEC_BYTES` is rejected before parsing; YAML anchors/aliases
+(the billion-laughs expansion vector) and duplicate mapping keys (silent
+last-value-wins) are rejected outright; deeply nested documents that exhaust the
+interpreter stack are caught. A flat ``tai-plugin.yml`` needs none of those
+constructs, so rejecting them costs nothing.
+
+Failure surface: content- and file-level problems (over-size input, missing
+file, non-UTF-8 bytes, unparseable YAML, anchors/aliases, duplicate keys,
+excessive nesting, a non-mapping document, a wheel with zero or several spec
+files, an unreadable archive) raise `PluginSpecLoadError`; schema
+violations inside a well-formed document propagate pydantic's
+``ValidationError``, which already names every offending field. Nothing
+degrades silently.
+
+## MAX_DOCS_FILE_BYTES
+
+`tai42_kit.plugins.MAX_DOCS_FILE_BYTES`
+
+```python
+MAX_DOCS_FILE_BYTES = 2 * 1024 * 1024
+```
+
+
+## MAX_DOCS_TOTAL_BYTES
+
+`tai42_kit.plugins.MAX_DOCS_TOTAL_BYTES`
+
+```python
+MAX_DOCS_TOTAL_BYTES = 16 * 1024 * 1024
+```
+
+
+## MAX_PLUGIN_SPEC_BYTES
+
+`tai42_kit.plugins.MAX_PLUGIN_SPEC_BYTES`
+
+```python
+MAX_PLUGIN_SPEC_BYTES = 256 * 1024
+```
+
+
+## MDX_SAFE_COMPONENTS
+
+`tai42_kit.plugins.MDX_SAFE_COMPONENTS`
+
+```python
+MDX_SAFE_COMPONENTS: frozenset[str] = frozenset()
+```
+
+
+## PLUGIN_DOCS_DIRNAME
+
+`tai42_kit.plugins.PLUGIN_DOCS_DIRNAME`
+
+```python
+PLUGIN_DOCS_DIRNAME = 'docs'
+```
+
+
+## PLUGIN_DOCS_INDEX
+
+`tai42_kit.plugins.PLUGIN_DOCS_INDEX`
+
+```python
+PLUGIN_DOCS_INDEX = 'docs/index.mdx'
+```
+
+
+## PLUGIN_SPEC_FILENAME
+
+`tai42_kit.plugins.PLUGIN_SPEC_FILENAME`
+
+```python
+PLUGIN_SPEC_FILENAME = 'tai-plugin.yml'
+```
+
+
+## EnvRequirement
+
+`tai42_kit.plugins.EnvRequirement`
+
+```python
+class EnvRequirement
+```
+
+One environment variable an installed plugin item requires.
+
+``name`` is the variable name; ``secret`` marks a value the platform masks
+in views and profile snapshots. Secret-ness is a property of the requirement
+the spec DECLARES (an OAuth client secret), not of the marker grammar — a
+``!ENV`` marker cannot know whether its value is sensitive, so marker-derived
+requirements are never secret here.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `secret` | `bool` |
+
+
+## PluginDocsError
+
+`tai42_kit.plugins.PluginDocsError`
+
+```python
+class PluginDocsError(Exception)
+```
+
+Raised when a plugin's in-wheel ``docs/`` tree cannot be read or fails
+the canonical validation contract.
+
+Covers both the extraction family (missing tree, a traversing/absolute
+member, an over-ceiling or bomb member, an unreadable archive) and every
+`validate_docs` violation (set-shape, front matter, unresolvable
+reference, forbidden scheme, un-whitelisted mdx). Nothing degrades silently.
+
+
+## PluginSpecLoadError
+
+`tai42_kit.plugins.PluginSpecLoadError`
+
+```python
+class PluginSpecLoadError(Exception)
+```
+
+Raised when a ``tai-plugin.yml`` cannot be located, read, or parsed.
+
+Covers the I/O and structural-safety failure family only; a well-formed
+YAML mapping that violates the schema raises pydantic's ``ValidationError``
+instead.
+
+
+## accepts_env
+
+`tai42_kit.plugins.accepts_env`
+
+```python
+accepts_env(spec: PluginSpec) -> bool
+```
+
+Whether the installer offers an env-supply step for this spec.
+
+True iff any item carries at least one ``!ENV`` marker (required OR defaulted
+— an operator may override even a defaulted marker) or the spec has a
+non-empty `required_env_for_spec`. This is the installer's
+env-acceptance and routing key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `spec` | `PluginSpec` | — | — |
+
+
+## load_plugin_spec
+
+`tai42_kit.plugins.load_plugin_spec`
+
+```python
+load_plugin_spec(path: Path) -> PluginSpec
+```
+
+Load and validate the ``tai-plugin.yml`` at ``path``.
+
+Raises `PluginSpecLoadError` for an unreadable or over-size file,
+non-UTF-8 bytes, invalid YAML, or a non-mapping document; pydantic
+``ValidationError`` for schema violations. Never returns a partial or
+defaulted spec.
+
+The on-disk size is checked against `MAX_PLUGIN_SPEC_BYTES` via
+``stat`` *before* any bytes are read, so a multi-gigabyte file is refused
+without being slurped into memory. The bytes are then handed to
+`parse_plugin_spec`, which enforces the byte cap and UTF-8 decode
+uniformly with the wheel and in-memory paths — so a non-UTF-8 file raises
+`PluginSpecLoadError` rather than escaping as ``UnicodeDecodeError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `Path` | — | — |
+
+
+## parse_plugin_spec
+
+`tai42_kit.plugins.parse_plugin_spec`
+
+```python
+parse_plugin_spec(data: bytes | str, *, source: str = PLUGIN_SPEC_FILENAME) -> PluginSpec
+```
+
+Parse and validate ``tai-plugin.yml`` content already in memory.
+
+The shared low-level entry point: `load_plugin_spec` and
+`read_wheel_plugin_spec` both route through it, and callers holding
+raw bytes (e.g. an artifact fetched over the network) validate through it
+directly. ``source`` names the content's origin in error messages. Raises
+`PluginSpecLoadError` for over-size input, non-UTF-8 bytes, invalid
+YAML, anchors/aliases, duplicate keys, excessive nesting, or a non-mapping
+document; pydantic ``ValidationError`` for schema violations.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `data` | `bytes \| str` | — | — |
+| `source` | `str` | `PLUGIN_SPEC_FILENAME` | — |
+
+
+## read_dir_docs
+
+`tai42_kit.plugins.read_dir_docs`
+
+```python
+read_dir_docs(plugin_dir: Path) -> dict[str, bytes]
+```
+
+Read the ``docs/`` tree sitting beside ``tai-plugin.yml`` in a plugin dir.
+
+The on-disk counterpart of `read_wheel_docs` for a descriptor-only
+plugin (no wheel): returns ``{relative_path: bytes}`` for every file under
+``<plugin_dir>/docs/``, keyed from ``plugin_dir`` so keys begin ``docs/``
+(e.g. ``docs/index.mdx``) exactly as the wheel reader keys them. The same
+ceilings apply: a member past `MAX_DOCS_FILE_BYTES` or a cumulative
+payload past `MAX_DOCS_TOTAL_BYTES` raises `PluginDocsError`. A
+missing ``docs/`` directory, an empty one, or an unreadable file also raises
+`PluginDocsError`. Never returns a partial tree.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `plugin_dir` | `Path` | — | — |
+
+
+## read_wheel_docs
+
+`tai42_kit.plugins.read_wheel_docs`
+
+```python
+read_wheel_docs(wheel_path: Path) -> dict[str, bytes]
+```
+
+Read the ``docs/`` tree packaged beside ``tai-plugin.yml`` in the wheel.
+
+Returns ``{relative_path: bytes}`` for every file under the packaged
+``docs/`` directory, keyed from the spec's package root so keys begin
+``docs/`` (e.g. ``docs/index.mdx``). The wheel must contain exactly one
+``tai-plugin.yml`` (as `read_wheel_plugin_spec` requires) with a
+``docs/`` directory beside it. Zero or several specs, a missing ``docs/``
+tree, a member escaping via ``..`` or an absolute path, a member using a
+compression method other than stored/deflate, a member inflating past
+`MAX_DOCS_FILE_BYTES`, a cumulative payload past
+`MAX_DOCS_TOTAL_BYTES`, or an unreadable archive raise
+`PluginDocsError`. Never returns a partial tree.
+
+Decompression-bomb discipline mirrors `read_wheel_plugin_spec`: only
+``ZIP_STORED``/``ZIP_DEFLATED`` members are read (CPython threads the length
+cap into the decompressor solely on the deflate path), the caps are enforced
+by BOUNDED streamed reads, and ``ZipInfo.file_size`` — attacker-controlled
+central-directory metadata — is never trusted.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `wheel_path` | `Path` | — | — |
+
+
+## read_wheel_plugin_spec
+
+`tai42_kit.plugins.read_wheel_plugin_spec`
+
+```python
+read_wheel_plugin_spec(wheel_path: Path) -> PluginSpec
+```
+
+Read and validate the spec packaged inside the wheel at ``wheel_path``.
+
+The wheel must contain exactly one ``tai-plugin.yml`` entry (shipped as
+package-data in the plugin's import package); zero or several entries, an
+unreadable archive, a member using a compression method other than
+stored/deflate, an over-size or decompression-bomb member, invalid YAML, or
+a non-mapping document raise `PluginSpecLoadError`, and schema
+violations raise pydantic's ``ValidationError``.
+
+Only ``ZIP_STORED`` and ``ZIP_DEFLATED`` members are read: the bounded read
+that caps a decompression bomb relies on ``ZipExtFile`` threading the length
+cap into the decompressor, which CPython does only on the deflate path, so a
+``ZIP_BZIP2``/``ZIP_LZMA`` member would inflate its whole block unbounded.
+The compression method is checked before any byte is read.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `wheel_path` | `Path` | — | — |
+
+
+## required_env
+
+`tai42_kit.plugins.required_env`
+
+```python
+required_env(item: PluginItem) -> tuple[EnvRequirement, ...]
+```
+
+The environment variables one item requires to install, in first-seen order.
+
+An ``mcp-server`` item requires each REQUIRED (no-default) ``!ENV`` marker
+var in its ``mcp`` block — deduped, ``secret=False`` (the marker cannot know).
+An ``oauth`` connector requires its client-credential pair
+(``client_id_env`` non-secret, ``client_secret_env`` secret). A ``none``
+connector requires nothing at install (its ``config_fields`` are supplied by
+the end user at connect time), and every other kind requires nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `item` | `PluginItem` | — | — |
+
+
+## required_env_for_spec
+
+`tai42_kit.plugins.required_env_for_spec`
+
+```python
+required_env_for_spec(spec: PluginSpec) -> tuple[EnvRequirement, ...]
+```
+
+The ordered union of every item's `required_env`, keyed by name.
+
+First-seen order across ``spec.provides`` is preserved; when the same var is
+required by two items with different secret-ness, ``secret=True`` wins (a
+value masked by any requirement stays masked).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `spec` | `PluginSpec` | — | — |
+
+
+## validate_docs
+
+`tai42_kit.plugins.validate_docs`
+
+```python
+validate_docs(files: dict[str, bytes], *, first_party: bool) -> None
+```
+
+Validate a docs tree (``{docs-relative-path: bytes}``) against the
+canonical contract, raising `PluginDocsError` on the first violation.
+
+The one implementation every enforcement point shares (marketplace ingest,
+the monorepo CI gate, the docs-site generator); each caller owns the
+``first_party`` policy. Enforced for EVERY namespace: the set shape (only
+``.mdx`` pages under ``docs/`` and raster images under ``docs/images/`` — SVG
+and every other type refused, SVG being an XSS surface); a present
+``docs/index.mdx``; per-page front matter of exactly ``title`` +
+``description``, each a single-line plain string with no control characters
+or fence-breaking metacharacters; and relative link/image references that
+resolve within the set. When ``first_party`` is False, additionally: the mdx
+safe-whitelist (`MDX_SAFE_COMPONENTS`) and a link/image scheme of only
+http(s) or an in-set relative path — ``javascript:``/``data:`` refused.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `files` | `dict[str, bytes]` | — | — |
+| `first_party` | `bool` | — | — |
+
