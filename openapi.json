@@ -1010,7 +1010,7 @@
         "type": "object"
       },
       "MarketplaceInstall": {
-        "description": "Install a marketplace plugin by ref, optionally pinning a version.\n\n``env`` / ``secret_keys`` are accepted for an mcp-server install: an mcp entry's\nrequired ``!ENV`` markers are satisfied by writing these values to the env store\nin the same transaction that writes the entry (never deferred), and ``secret_keys``\nmarks the given keys secret (appended to ``TAI_ENV_SECRET_KEYS``). Declared on the\nmodel so a Studio body carrying them is not silently dropped (pydantic ignores\nunknown fields).\n\n``route_mounts`` remaps a route-carrying item's declared base (``{item_name:\nbase}``); ``accept_public_routes`` acknowledges that the install's public routes\nanswer WITHOUT authentication (required when any public route is declared).",
+        "description": "Install a marketplace plugin by ref, optionally pinning a version.\n\n``env`` / ``secret_keys`` are accepted for an install whose spec declares\ninstall-time env (an mcp entry's required ``!ENV`` markers or an oauth connector's\nclient-credential env): these values are written to the env store in the same\ntransaction that writes the provides entry (never deferred), and ``secret_keys``\nmarks the given keys secret (appended to ``TAI_ENV_SECRET_KEYS``; an oauth\nconnector's client secret is masked by derivation with no mark needed). Declared on\nthe model so a Studio body carrying them is not silently dropped (pydantic ignores\nunknown fields).\n\n``route_mounts`` remaps a route-carrying item's declared base (``{item_name:\nbase}``); ``accept_public_routes`` acknowledges that the install's public routes\nanswer WITHOUT authentication (required when any public route is declared).",
         "properties": {
           "accept_public_routes": {
             "default": false,
@@ -1141,7 +1141,7 @@
         "type": "object"
       },
       "MarketplaceUpdate": {
-        "description": "Update an installed plugin to a newer (or named) version.\n\n``env`` / ``secret_keys`` mirror :class:`MarketplaceInstall`: a new mcp-server\nversion adding a required marker is loudly refused unless its value is supplied\nhere. ``route_mounts`` remaps a route-carrying item's base (a surviving item with\nno override keeps its stored base); ``accept_public_routes`` acknowledges public\nroutes NOT already approved in the installed version.",
+        "description": "Update an installed plugin to a newer (or named) version.\n\n``env`` / ``secret_keys`` mirror :class:`MarketplaceInstall`: a new version\nadding a required ``!ENV`` marker or connector-env is loudly refused unless its\nvalue is supplied here. ``route_mounts`` remaps a route-carrying item's base (a\nsurviving item with no override keeps its stored base); ``accept_public_routes``\nacknowledges public routes NOT already approved in the installed version.",
         "properties": {
           "accept_public_routes": {
             "default": false,
@@ -6101,7 +6101,7 @@
     },
     "/api/config/env": {
       "get": {
-        "description": "Return the stored env map alongside the operator's secret-key marks.\n\n``data.env`` is the stored env key-value map (a never-written store yields\nan empty map). ``data.secret_keys`` is the current\n``EnvSecretMarksSettings.secret_keys`` — the env key names the operator\nmarked secret so the editor masks them on display.",
+        "description": "Return the stored env map alongside the operator's secret-key marks.\n\n``data.env`` is the stored env key-value map (a never-written store yields\nan empty map). ``data.secret_keys`` is the DERIVED masked-key set\n(:func:`~tai42_skeleton.settings.env_secret_marks.effective_secret_keys`): the\noperator's stored ``TAI_ENV_SECRET_KEYS`` marks UNIONED with every live\n``connectors[*].client_secret_env``, so an oauth connector's client secret is\nmasked on display even with no operator mark.",
         "operationId": "get_api_config_env",
         "responses": {
           "200": {
@@ -7622,7 +7622,7 @@
     },
     "/api/connectors/providers": {
       "get": {
-        "description": "The provider catalog — one entry per registered connector provider, plus\nthe category groupings the UI arranges them under.\n\nProviders come from the in-memory registry (populated by provider plugins at\nimport), so they list regardless of store configuration. The category\ngroupings live in the connector store's Postgres, so they are served only when\nthat store is configured (otherwise an empty grouping list, mirroring the\nOFF-state connections read).",
+        "description": "The provider catalog — one entry per registered connector provider, plus\nthe category groupings the UI arranges them under.\n\nProviders come from the in-memory registry (populated from the manifest's\n``connectors`` list at boot/reload), so they list regardless of store\nconfiguration. The category\ngroupings live in the connector store's Postgres, so they are served only when\nthat store is configured (otherwise an empty grouping list, mirroring the\nOFF-state connections read).",
         "operationId": "get_api_connectors_providers",
         "responses": {
           "200": {
@@ -11126,7 +11126,7 @@
     },
     "/api/marketplace/install": {
       "post": {
-        "description": "Resolve, pip install, patch the manifest, reload, and record attribution —\naborting and unwinding on any failure (see :meth:`Installer.install`). For an\nmcp-server install ``env`` / ``secret_keys`` satisfy the entry's required ``!ENV``\nmarkers in the same combined transaction. ``route_mounts`` remaps declared route\nbases; ``accept_public_routes`` acknowledges public routes. The result's\n``routes`` lists every route the install mounted.",
+        "description": "Resolve, pip install (nothing for a descriptor-only plugin), patch the manifest,\nreload, and record attribution — aborting and unwinding on any failure (see\n:meth:`Installer.install`). When the spec declares install-time env ``env`` /\n``secret_keys`` satisfy the required ``!ENV`` markers or connector-env in the same\ncombined transaction. ``route_mounts`` remaps declared route bases;\n``accept_public_routes`` acknowledges public routes. The result's ``routes`` lists\nevery route the install mounted.",
         "operationId": "post_api_marketplace_install",
         "requestBody": {
           "content": {
@@ -11368,7 +11368,7 @@
     },
     "/api/marketplace/installed": {
       "get": {
-        "description": "The installed inventory + the boot-quarantined plugins, in one body:\n``{\"installed\": [...], \"quarantined\": [{\"name\", \"reason\"}, ...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\nEach row also carries ``route_mounts`` — the persisted ``{item_name: base}``\nmount the row is installed at (empty means every item at its declared base),\nso Studio seeds its update flow and renders routes at the ACTUAL mounted base.\n\n``quarantined`` mirrors the boot pass's plugin-quarantine registry — the\nplugins this worker SKIPPED (incompatible or import-broken) with the\nhuman-readable reason each.",
+        "description": "The installed inventory + the boot-quarantined plugins, in one body:\n``{\"installed\": [...], \"quarantined\": [{\"name\", \"reason\"}, ...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\nEach row also carries ``route_mounts`` — the persisted ``{item_name: base}``\nmount the row is installed at (empty means every item at its declared base),\nso Studio seeds its update flow and renders routes at the ACTUAL mounted base.\n\nEach row also carries ``delivery`` — ``package`` for a pip-installed plugin,\n``descriptor`` for a descriptor-only plugin whose stored spec names no package.\n\n``quarantined`` mirrors the boot pass's plugin-quarantine registry — the\nplugins this worker SKIPPED (incompatible or import-broken) with the\nhuman-readable reason each.",
         "operationId": "get_api_marketplace_installed",
         "responses": {
           "200": {
@@ -11832,7 +11832,7 @@
     },
     "/api/marketplace/update": {
       "post": {
-        "description": "Resolve the target, pip upgrade, re-patch the manifest, reload, and upsert\nattribution — with the same pre-flights as install (see :meth:`Installer.update`).\n``env`` / ``secret_keys`` satisfy a new mcp-server version's required markers.\n``route_mounts`` remaps declared route bases (surviving items keep their stored\nbase); ``accept_public_routes`` acknowledges public routes not already approved.\nThe result's ``routes`` lists every route the update mounted.",
+        "description": "Resolve the target, pip upgrade (nothing for a descriptor-only plugin), re-patch\nthe manifest, reload, and upsert attribution — with the same pre-flights as install\n(see :meth:`Installer.update`). ``env`` / ``secret_keys`` satisfy a new version's\nrequired ``!ENV`` markers or connector-env. ``route_mounts`` remaps declared route\nbases (surviving items keep their stored base); ``accept_public_routes`` acknowledges\npublic routes not already approved. The result's ``routes`` lists every route the\nupdate mounted.",
         "operationId": "post_api_marketplace_update",
         "requestBody": {
           "content": {
