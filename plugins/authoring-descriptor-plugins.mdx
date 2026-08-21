@@ -1,0 +1,168 @@
+---
+title: "Publish a connector without code"
+description: "Scaffold, fill, and publish a descriptor-only plugin — a whole OAuth connector as one tai-plugin.yml, no Python package."
+icon: "file-code"
+---
+
+A [connector](/concepts/connectors) is data, not code: its whole definition is a
+[`ProviderDescriptor`](/reference/python-sdk/contract-connectors) — the provider's
+OAuth endpoints, its sub-services and scopes, and the env var names that hold the
+operator's client credentials. So a connector ships as a **descriptor-only
+plugin**: a `tai-plugin.yml` with no `package`, [delivered by
+`spec`](/concepts/marketplace#delivery-package-or-descriptor). There is nothing to
+build and nothing to pip-install — publishing the descriptor publishes the whole
+integration.
+
+This page walks the path end to end. For the file-format rules your docs follow,
+see [Author plugin docs](/marketplace/authoring-docs); for the model behind the
+descriptor, see the [ProviderDescriptor
+reference](/reference/python-sdk/contract-connectors).
+
+## Scaffold the plugin
+
+`tai plugins init` writes a valid, ready-to-edit descriptor tree. A connector needs
+`--auth` — `oauth` for an OAuth provider, `none` for a no-auth one:
+
+```bash
+tai plugins init connector-acme --kind connector --auth oauth
+```
+
+The written tree parses as a plugin spec and its docs validate as-is, so you edit
+placeholders rather than start from a blank file. Print the full schema of a
+`tai-plugin.yml` anytime with:
+
+```bash
+tai plugins schema
+```
+
+## Fill the descriptor
+
+Open `tai-plugin.yml` and replace every placeholder — the `acme` identifiers, the
+`example.invalid` endpoints, and the icon — with your provider's real values:
+
+```yaml tai-plugin.yml
+spec_version: 1
+namespace: acme            # your marketplace namespace (never tai42)
+name: connector-acme
+version: 0.1.0
+display_name: Acme
+description: OAuth connector provider for Acme.
+icon: https://cdn.acme.example/icon.png
+license: Apache-2.0
+repository: https://github.com/acme/connector-acme
+contract: '>=2,<3'
+categories: [connectors]
+provides:
+  - kind: connector
+    # The connector item name MUST equal provider.id below — it is the manifest
+    # and uninstall key. Rename both together.
+    name: acme
+    description: OAuth connector for Acme.
+    provider:
+      id: acme
+      kind: oauth
+      origin: community      # 'system' is reserved for the tai42 namespace
+      category: communication
+      display_name: Acme
+      description: Connect your Acme account.
+      icon_url: https://cdn.acme.example/icon.png
+      oauth:
+        authorize: https://acme.example/oauth/authorize
+        token: https://acme.example/oauth/token
+        revoke: https://acme.example/oauth/revoke
+      # The operator sets these to their OWN OAuth client credentials at install;
+      # the client secret is masked automatically.
+      client_id_env: CONNECTORS_ACME_CLIENT_ID
+      client_secret_env: CONNECTORS_ACME_CLIENT_SECRET
+      sub_services:
+        acme:
+          id: acme
+          display_name: Acme
+          description: Acme on its hosted MCP server.
+          scopes: [https://acme.example/auth/acme.readonly]
+          mcp_server:
+            type: http
+            url: https://acme.example/mcp
+```
+
+A few rules the model enforces, loud on validation:
+
+- **No `package`.** Omitting it is what makes the plugin descriptor-only. Its
+  `delivery` derives to `descriptor`, and installing it touches no environment
+  beyond the config it declares.
+- **`icon` and `icon_url` are `https://` URLs.** The catalog serves the brand mark
+  verbatim; there is no bundled asset to host, and a non-https URL is refused.
+- **`origin` matches the namespace.** A `tai42` listing may claim `system`; every
+  community listing is `community`.
+- **The connector item `name` equals `provider.id`.** That id is the manifest key
+  the install patches into the server's `connectors` list.
+
+Then write the operator notes in `docs/index.mdx` — what OAuth client the operator
+registers with the provider, which scopes it needs, and the redirect URI to
+configure. Keep it a thin provider page; link platform features to their central
+docs rather than re-documenting them.
+
+## Publish
+
+<Steps>
+  <Step title="Open a pull request">
+    Commit the filled tree to the plugin's repository and open a PR. The same docs
+    contract the marketplace enforces runs in CI, so a page that would fail ingest
+    fails the PR first.
+  </Step>
+  <Step title="Tag the release">
+    Tag the version to match `tai-plugin.yml` (and `version.txt`, which exists only
+    so release tooling has a version file to read). The marketplace resolves a
+    descriptor listing by its `<namespace>-<name>` tag component.
+  </Step>
+  <Step title="Seed the listing">
+    The marketplace ingests the tag: for a descriptor it fetches the raw
+    `tai-plugin.yml` at that tag, records its digest, and lists it with
+    `source: spec` — no wheel, no PyPI lookup. The listing and its `docs/` render
+    under [Plugins](/plugins) automatically; you never open a PR against the docs
+    site.
+  </Step>
+</Steps>
+
+Once listed, an operator installs it like any plugin — supplying their own client
+credentials — and the server registers the descriptor with no code on the box:
+
+```bash
+tai plugins install acme/connector-acme \
+  --env CONNECTORS_ACME_CLIENT_ID=... \
+  --env CONNECTORS_ACME_CLIENT_SECRET=... \
+  --secret CONNECTORS_ACME_CLIENT_SECRET
+```
+
+`--env KEY=VALUE` supplies every value; `--secret KEY` is a bare mark that hides
+one (the server also auto-marks the connector's `client_secret_env`).
+
+See [Installing a descriptor-only
+plugin](/concepts/marketplace#installing-a-descriptor-only-plugin) for what the
+server does with it.
+
+## Checklist
+
+`tai plugins init` scaffolds every file below; confirm each is filled before you
+tag:
+
+- [ ] **`tai-plugin.yml`** — no `package`; real `namespace`/`name`/`version`,
+      provider endpoints, scopes, and `client_*_env` names.
+- [ ] **`README.md`** — the repository's own front page.
+- [ ] **`docs/index.mdx`** — the operator setup notes rendered under
+      [Plugins](/plugins); front matter is exactly `title` and `description`.
+- [ ] **`icon.png`** — the brand-mark image committed in the repo AND published at
+      a raw `https://` URL; `icon` and `icon_url` both point at that https URL
+      (http, relative, or empty is rejected).
+- [ ] **`version.txt`** — equals the `version` in `tai-plugin.yml`.
+- [ ] **`CHANGELOG.md`** — the Keep-a-Changelog stub, left as scaffolded until the
+      first release.
+- [ ] **`LICENSE`** — the plugin's license.
+- [ ] **`NOTICE`** — attributions, including the source of the icon brand mark.
+
+## See also
+
+- [Connectors](/concepts/connectors) — the engine a descriptor plugs into.
+- [The marketplace](/concepts/marketplace#delivery-package-or-descriptor) — the package/descriptor delivery axis.
+- [Author plugin docs](/marketplace/authoring-docs) — the docs contract every listing follows.
+- [ProviderDescriptor reference](/reference/python-sdk/contract-connectors) — the full descriptor schema.

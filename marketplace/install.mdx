@@ -88,6 +88,36 @@ the manifest file — so a container recreation does not drop the plugin. See
 [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
 </Note>
 
+## Provide required environment
+
+Some plugins need environment values to run — an MCP server's `!ENV` markers, an
+OAuth [connector](/concepts/connectors)'s client id and secret. The **server**
+decides what a given install requires: the install preview computes the listing's
+`required_env` — each variable as `{name, secret}` — and the `missing_env` still
+absent from this server's environment. Every surface reads that one server-computed
+answer; none of them re-derives it.
+
+- **CLI** — `--env KEY=VALUE` supplies a value, and it is the only flag that
+  carries a value. `--secret KEY` is a bare mark (a key, no value) that keeps that
+  key masked in the environment and out of logs; a value you want hidden is still
+  passed with `--env KEY=VALUE` and additionally marked with `--secret KEY`. A
+  connector's client secret is auto-marked, so the mark is optional there. Both
+  flags are repeatable.
+- **Studio** — the install dialog lists the missing variables, prompts for them,
+  and seeds each secret toggle from `required_env`, so you fill exactly what the
+  server says is missing.
+
+```bash
+tai plugins install acme/connector-example \
+  --env ACME_CLIENT_ID=... \
+  --env ACME_CLIENT_SECRET=... \
+  --secret ACME_CLIENT_SECRET
+```
+
+An install that would leave a required variable unresolved is refused before
+anything is written, and the error names the variables. `--dry-run` shows the
+delivery and the required env without installing.
+
 ## Mount the routes
 
 A plugin that mounts HTTP routes — a `router` item, or a `channel` with an inbound

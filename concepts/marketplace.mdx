@@ -14,12 +14,15 @@ This page explains the model. To search it and install from it, start at
 ## A metadata index
 
 The registry stores metadata, never packages. A **listing** points at the
-plugin's real distribution channel — its pip package and its source
-repository — and installing resolves that pointer and installs by source: a
+plugin's real distribution channel — usually a pip package and a source
+repository, or, for a descriptor-only plugin, the `tai-plugin.yml` itself — and
+installing resolves that pointer and installs by source: a
 GitHub-sourced release is downloaded and its SHA-256 verified against the
 digest the registry recorded at ingest, while a PyPI-sourced release pins the
-exact version and relies on PyPI's file immutability. The registry's catalog is
-curated: it lists the ecosystem's
+exact version and relies on PyPI's file immutability. A third source, `spec`,
+backs a [descriptor-only listing](#delivery-package-or-descriptor) that ships no
+package at all — its artifact is the `tai-plugin.yml` itself, pinned at its tag
+and digest. The registry's catalog is curated: it lists the ecosystem's
 first-party plugins, and every listing carries an `official` trust tier.
 
 ## Listings and items
@@ -30,6 +33,14 @@ capability as its own **item** row with a kind, categories, and tags — because
 an item is what you search for. You search at item level and install at plugin
 level: finding the `generate_uuid` tool leads you to install the listing that
 carries it.
+
+An item's **kind** decides how it wires into a server, and it also decides
+whether the item is **code** or **data**. Most kinds are code: the item names a
+Python module the server imports. Two kinds are data — `mcp-server` and
+`connector` — where the item carries a declarative block (an MCP transport entry,
+or a connector's [provider descriptor](/concepts/connectors)) instead of a module,
+so nothing has to be imported to register it. That data-versus-code split is
+independent of how the plugin is **delivered**, below.
 
 ## Versions
 
@@ -53,16 +64,42 @@ See [Advisories](/marketplace/advisories) for how a server checks.
 ## The plugin descriptor: tai-plugin.yml
 
 Every plugin describes itself with a `tai-plugin.yml` — the plugin descriptor —
-at its repository root and inside its built wheel. It names the listing, the
-package, the version, the contract range, the `provides` list of every item the
-plugin carries, and — for a plugin that owns database tables — the `migrations`
-folder that holds its [migration chain](#the-migrations-contract).
+at its repository root and, when it ships one, inside its built wheel. It names
+the listing, the version, the contract range, the `provides` list of every item
+the plugin carries, and — for a plugin that owns database tables — the
+`migrations` folder that holds its [migration chain](#the-migrations-contract).
+It also names the `package`, the pip distribution that backs the listing — but
+`package` is **optional**: a plugin whose every item is data can omit it and
+ship no code at all (see [Delivery](#delivery-package-or-descriptor)).
 
 The registry indexes a plugin from this file and validates the artifact against
 it; the installer uses the `provides` list to patch the server
 [manifest](/concepts/manifest) per provided item. It is a different file from the
 server manifest: `tai-plugin.yml` describes what a plugin *offers*, the server
 manifest declares what a server *loads*.
+
+## Delivery: package or descriptor
+
+A listing carries two independent axes. **Payload** is what each item *is* — code
+or data, decided by its kind (above). **Delivery** is how the plugin *arrives*,
+and it is set by one field: `package`.
+
+- **Package delivery** (`package` present) — the listing points at a pip
+  distribution. Installing pip-installs it into the server's environment, exactly
+  as every code plugin does. A data plugin may still ship a package: an
+  `mcp-server` whose command is a console script the wheel installs, for example,
+  is data-payload *and* package-delivered. Delivery is independent of payload.
+- **Descriptor delivery** (`package` absent) — a *descriptor-only plugin*. Every
+  item is data, so there is nothing to import and nothing to pip-install. The
+  registry lists it with `source: spec`: the artifact is the `tai-plugin.yml`
+  itself, pinned at its tag and digest, with no wheel and no PyPI lookup. Today a
+  [connector](/concepts/connectors) ships this way — a whole OAuth integration as
+  one descriptor, no code.
+
+`delivery` is derived, never declared: it reads `descriptor` when `package` is
+absent and `package` when it is present, and every surface — the CLI, the Studio,
+and the marketplace detail — shows that one word so you always know whether an
+install will touch the environment.
 
 ## Declared HTTP routes
 
@@ -193,6 +230,40 @@ Because the install writes into the server's own environment and manifest, a
 self-hosted deployment keeps both on persistent storage — the plugin-prefix
 directory and the manifest file — so a container recreation does not lose the
 plugin. See [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
+
+### Installing a descriptor-only plugin
+
+A [descriptor-only listing](#delivery-package-or-descriptor) installs with no pip
+run: the server resolves the frozen `tai-plugin.yml`, patches the manifest — a
+connector adds one entry to the manifest `connectors` list — and reloads. Nothing
+lands in the environment except the config it needs.
+
+Because there is no package to carry secrets, a descriptor states the environment
+it needs and the server refuses to write it half-configured. The install
+**preview** computes the `required_env` for the listing — each variable as
+`{name, secret}` — and the `missing_env` still absent from the server. The Studio
+install dialog reads those and prompts for the missing values, seeding the secret
+toggles from `required_env`; the CLI takes them as flags:
+
+```bash
+tai plugins install tai42/connector-acme \
+  --env CONNECTORS_ACME_CLIENT_ID=... \
+  --env CONNECTORS_ACME_CLIENT_SECRET=... \
+  --secret CONNECTORS_ACME_CLIENT_SECRET
+```
+
+`--env KEY=VALUE` supplies every value; `--secret KEY` is a bare mark that keeps a
+value masked and out of logs (a connector's client secret is auto-marked too, and
+`--secret` stays available for any key you want hidden). An install that would
+leave a required variable unresolved is refused up front, naming the variables,
+before anything is written.
+
+Installing a descriptor mutates the running server the same as any install, so it
+sits behind the same **admin-only** trust boundary: scope the
+`/api/marketplace/*` routes with [access control](/concepts/access-control), and
+treat a descriptor's `official` tier the way you treat a code plugin's — a
+first-party connector is a curated, admin-installed integration, not an
+open door.
 
 ## See also
 

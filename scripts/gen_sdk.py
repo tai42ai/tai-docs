@@ -160,6 +160,13 @@ PAGES: list[dict] = [
         "modules": ["tai42_contract.plugins"],
     },
     {
+        "slug": "kit-plugins",
+        "title": "Plugin I/O and env (tai42_kit.plugins)",
+        "description": "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires.",
+        "icon": "store",
+        "modules": ["tai42_kit.plugins"],
+    },
+    {
         "slug": "kit-clients",
         "title": "Pooled clients (tai42_kit.clients)",
         "description": "Pooled Postgres/Redis clients and connection settings.",

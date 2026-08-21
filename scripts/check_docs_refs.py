@@ -237,8 +237,12 @@ def load_distribution_map(docs_root: Path = DOCS_ROOT) -> dict[str, str]:
     distributions declared in this repo's own ``pyproject.toml`` sources, so the
     core skeleton/contract/kit/cli layers -- real distributions that are not
     marketplace listings -- resolve too. The values are unused (only the key set
-    gates distribution names), so each registry package maps to itself."""
-    mapping: dict[str, str] = {listing["package"]: listing["package"] for listing in load_registry()}
+    gates distribution names), so each registry package maps to itself. A
+    descriptor-only listing has ``package`` null (it ships no distribution), so it
+    is skipped -- a null must never seed a spurious ``None -> None`` entry."""
+    mapping: dict[str, str] = {
+        listing["package"]: listing["package"] for listing in load_registry() if listing.get("package") is not None
+    }
     for dist, repo in _pyproject_sources(docs_root).items():
         mapping.setdefault(dist, repo)
     return mapping
