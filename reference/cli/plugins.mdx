@@ -56,14 +56,46 @@ $ tai plugins info [OPTIONS] {ref}
 | --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai plugins init`
+
+Scaffold a descriptor-only plugin directory (yml, docs, licence, changelog).
+
+`--kind connector` needs `--auth &#123;oauth,none&#125;`; `--kind mcp-server` takes no
+`--auth`. The written tree parses as a plugin spec and its docs validate as-is;
+edit the placeholders (`acme`, `example.invalid`, the icon) before publishing.
+
+Example: `tai plugins init connector-acme --kind connector --auth oauth`
+
+```console
+$ tai plugins init [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | Plugin listing name (the 'name' half of namespace/name). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--kind` `&lt;str&gt;` | Item kind to scaffold: connector or mcp-server. _(required)_ |
+| `--auth` `&lt;str&gt;` | Connector auth mode (required for connector, forbidden for mcp-server). |
+| `--dir` `&lt;path&gt;` | Target directory; defaults to ./NAME. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai plugins install`
 
 Install a marketplace plugin by ref, optionally pinning a version.
 
-`--mount` remaps a route-carrying item's base prefix; `--dry-run` previews
-the resolved routes and collisions (exiting non-zero on any collision) without
-installing; `--accept-public-routes` is required when the plugin declares
-routes that answer without authentication.
+`--mount` remaps a route-carrying item's base prefix; `--env KEY=VALUE` and
+`--secret KEY` supply the install-time env the spec declares (an mcp entry's
+`!ENV` markers or an oauth connector's client credentials, the secret
+auto-marked); `--dry-run` previews the resolved routes, delivery, and required
+env (exiting non-zero on any collision) without installing; and
+`--accept-public-routes` is required when the plugin declares routes that
+answer without authentication.
+
+Before installing, the server's preview reports which required env is still
+missing; an unresolved var not passed via `--env` fails the command before any
+install is posted.
 
 Example: `tai plugins install tai42/toolbox`
 
@@ -80,7 +112,9 @@ $ tai plugins install [OPTIONS] {ref}
 | `--version` `&lt;str&gt;` | Pin a specific version; omit for latest. |
 | `--mount` `&lt;str&gt;` | Remap a route-carrying item's mount base as item=base (repeatable). |
 | `--accept-public-routes` | Acknowledge routes that answer without authentication. _(default: `False`)_ |
-| `--dry-run` | Show the resolved routes and collisions without installing. _(default: `False`)_ |
+| `--env` `&lt;str&gt;` | Supply an install-time env value as KEY=VALUE (repeatable). |
+| `--secret` `&lt;str&gt;` | Mark an env KEY secret (repeatable); the server auto-marks schema-known ones. |
+| `--dry-run` | Show the resolved routes, delivery, and required env without installing. _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai plugins installed`
@@ -106,6 +140,23 @@ Example: `tai plugins kinds`
 
 ```console
 $ tai plugins kinds [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai plugins schema`
+
+Print the JSON Schema of a `tai-plugin.yml` (the `PluginSpec` model).
+
+The canonical shape the marketplace validates against, including the `provides`
+index; feed it to an editor or a validator.
+
+Example: `tai plugins schema`
+
+```console
+$ tai plugins schema [OPTIONS]
 ```
 
 | Option | Description |
@@ -161,6 +212,11 @@ $ tai plugins uninstall [OPTIONS] {ref}
 
 Update an installed plugin to a newer (or named) version.
 
+`--env KEY=VALUE` and `--secret KEY` supply env a new version newly requires
+(a fresh `!ENV` marker or connector credential); `--dry-run` previews the
+target's delivery and required env. A required var still missing and not passed
+via `--env` fails the command before any update is posted.
+
 Example: `tai plugins update tai42/toolbox`
 
 ```console
@@ -174,6 +230,9 @@ $ tai plugins update [OPTIONS] {ref}
 | Option | Description |
 | --- | --- |
 | `--version` `&lt;str&gt;` | Target version; omit for latest. |
+| `--env` `&lt;str&gt;` | Supply an install-time env value as KEY=VALUE (repeatable). |
+| `--secret` `&lt;str&gt;` | Mark an env KEY secret (repeatable); the server auto-marks schema-known ones. |
+| `--dry-run` | Show the target's delivery and required env without updating. _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai plugins upgrade`
