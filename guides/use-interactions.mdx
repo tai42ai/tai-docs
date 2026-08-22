@@ -379,11 +379,13 @@ Beyond the manifest, a payments deployment needs:
   one.
 - **A configured versioned-document store.** Without it no preset can be created
   at all — the money pin itself cannot exist.
-- **PUBLIC route rows** for `/universal_webhook/*` and
-  `/api/interactions/callback/*` on an access-control-enabled deployment. Both
-  doors are unauthenticated by nature (Stripe carries no API key; the bridge
-  authenticates with the question's own verifier header). An unconfigured route
-  403s, and a 403 is on the bridge's fail-fast list — i.e. paid-but-unanswered.
+- **A PUBLIC route row** for `/universal_webhook/*` on an access-control-enabled
+  deployment. That door is unauthenticated by nature (Stripe carries no API key)
+  and is a non-`/api` path the gate's declared-public tier does not reach, so it
+  needs the row. An unconfigured route 403s, and a 403 is on the bridge's
+  fail-fast list — i.e. paid-but-unanswered. The `/api/interactions/callback/*`
+  door needs no row: it registers `authed=False`, so the gate publics it straight
+  from its declaration.
 
 ### Bind, register, bake — in this order
 

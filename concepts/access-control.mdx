@@ -135,39 +135,41 @@ surface, never the whole site. The fallback is GET-only and never touches
 turns it off by setting `spa_shell_public` to `false`. See
 [deploying the Studio](/operate/studio#deep-links-under-access-control).
 
-## Plugin routes declare their own public-ness
+## Routes declare their own public-ness
 
-A plugin route carries its own `public` flag in the plugin's
-[descriptor](/concepts/marketplace#declared-http-routes), and the route registry
-records that flag against the route's single owner. The gate reads it as a tier of
+A route declares whether it answers unauthenticated at registration — a core
+native route registered `authed=False` (the interactions callback and served-media
+capability doors), or a plugin route carrying its own `public` flag in the plugin's
+[descriptor](/concepts/marketplace#declared-http-routes). The route registry records
+that declaration against the route's single owner, and the gate reads it as a tier of
 its own: after the always-public prefixes and patterns resolve, and **before** the
 Postgres route-table lookup, the gate matches the request `(path, method)` against
-the registry — a match on a route declared `public` is served unauthenticated. So a
-plugin's inbound webhook is open the moment it registers, with **no** route row to
-add and no pin to remember.
+the registry — a match on a route declared public is served unauthenticated,
+whatever its owner. So a core capability door or a plugin's inbound webhook is open
+the moment it registers, with **no** route row to add and no pin to remember.
 
-The tier is **per-method** and **per-owner**. It resolves only the exact methods a
-route declares public: a `POST` declared public opens, while a `GET` on the same
-path that is not declared public falls straight through to the normal gate. And
-because every route has [one owner](/concepts/marketplace#declared-http-routes) —
-two plugins can never both claim one path shape and method — the declaration is the
-whole source of truth. Nothing is ever written to the `access_control_routes` store
-for a declared-public route, so there is no stored row to drift out of step with the
-code.
+The tier is **per-method**. It resolves only the exact methods a route declares
+public: a `POST` declared public opens, while a `GET` on the same path that is not
+declared public falls straight through to the normal gate. And because every route
+has [one owner](/concepts/marketplace#declared-http-routes) — two owners can never
+both claim one path shape and method — the declaration is the whole source of truth.
+Nothing is ever written to the `access_control_routes` store for a declared-public
+route, so there is no stored row to drift out of step with the code.
 
 The declaration is **authoritative**: because the tier short-circuits above the
 route-table lookup, an operator cannot re-protect a declared-public route in place
-with a later route-table pin — the pin never gets consulted. To close such a door,
-decline it at the install-time public-acceptance gate or uninstall the plugin;
-remapping only relocates the public route, it does not protect it. The operator's own
-hand-pin door stays for the operator's own routes.
+with a later route-table pin — the pin never gets consulted. A core capability
+door's declaration is fixed in the platform code; to close a plugin door, decline it
+at the install-time public-acceptance gate or uninstall the plugin. Remapping only
+relocates the public route, it does not protect it. The operator's own hand-pin door
+stays for the operator's own routes.
 
-The reserved namespace still wins. A declared `public` route resolving under a
+The reserved namespace still wins. A declared public route resolving under a
 reserved prefix — `/api/auth` by default — is refused at boot, not quietly opened,
-so a plugin can never declare its way past the reserved control plane described
-above. The operator's own public-pin door (`tai scopes public-pin`) is unchanged
-and independent — it maps a route row public in the store, which is a separate tier
-from a plugin's declaration.
+so no owner can declare its way past the reserved control plane described above. The
+operator's own public-pin door (`tai scopes public-pin`) is unchanged and
+independent — it maps a route row public in the store, which is a separate tier from
+a route's own declaration.
 
 ## Flood control on public doors
 
