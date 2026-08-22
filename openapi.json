@@ -1278,7 +1278,7 @@
         "type": "object"
       },
       "MediaItem": {
-        "description": "One media item shown WITH a question — display-only, never part of the answer.\n\n``kind`` selects how it renders: an ``image`` inline, a ``link`` as a labelled\nanchor. ``url`` is the source — an ``image`` must be an absolute ``https`` URL or a\n``data:image/*`` URI (remote images are https-only: the inbox CSP ``img-src`` admits\n``https:``/``data:`` but not ``http:``, so an ``http:`` image would be an unrenderable\nrecord), while a ``link`` must be an absolute ``http(s)`` URL (anchors are not governed\nby ``img-src``; the human clicks through). A remote url names a host directly —\nan ASCII DNS name, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply\npunycode); an embedded ``user@`` credential form is rejected as it spoofs the\nauthority — and is always a single line — raw whitespace and control/format\ncharacters are rejected. ``caption`` is the accessibility text — the image's alt text or the\nlink's display label.",
+        "description": "One media item shown WITH a question — display-only, never part of the answer.\n\n``kind`` selects how it renders: an ``image`` inline, a ``link`` as a labelled\nanchor. ``url`` is the source — an ``image`` must be an absolute ``https`` URL, a\n``data:image/*`` URI, or a same-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to\nmedia the skeleton serves by id (remote images are https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an\n``http:`` image would be an unrenderable record), while a ``link`` must be an\nabsolute ``http(s)`` URL (anchors are not governed\nby ``img-src``; the human clicks through). A remote url names a host directly —\nan ASCII DNS name, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply\npunycode); an embedded ``user@`` credential form is rejected as it spoofs the\nauthority — and is always a single line — raw whitespace and control/format\ncharacters are rejected. ``caption`` is the accessibility text — the image's alt text or the\nlink's display label.",
         "properties": {
           "caption": {
             "anyOf": [
@@ -10405,6 +10405,86 @@
         "x-destructive": true
       }
     },
+    "/api/interactions": {
+      "get": {
+        "description": "The pending questions the inbox shows, one page at a time — the initial-load\nsurface a client reads BEFORE applying the live stream\n(``GET /api/interactions/stream``).\n\nOrder is the store's pending order (each group's most-recent question ``created_at``,\nthen stream order within a group). A RESTRICTED caller sees ONLY questions addressed\nto its identity — the audience filter runs BEFORE paging so ``total`` is honest; an\nUNRESTRICTED caller sees every pending question. A ``page`` or ``page_size`` below 1,\nor a ``page`` above the served maximum, is a 400; a ``page_size`` above the cap is\ncapped, never refused. The pending read reconciles phantom/abandoned questions as it\ngoes (phantom-group prune, abandoned past-deadline prune, answered/missing skip). Returns\n``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"truncated\"}`` — ``items``\ncarry the same shape as the stream's add frames, and ``truncated`` is always\n``false`` (the pending index is the whole set, sliced in memory).",
+        "operationId": "get_api_interactions",
+        "parameters": [
+          {
+            "description": "1-based page number, pending order.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 1000000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page. A larger value is capped to 200, never refused.",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List pending interactions",
+        "tags": [
+          "interactions"
+        ]
+      }
+    },
     "/api/interactions/callback/{ticket}": {
       "get": {
         "operationId": "get_api_interactions_callback_ticket",
@@ -10571,6 +10651,63 @@
         ]
       }
     },
+    "/api/interactions/media/{media_id}": {
+      "get": {
+        "operationId": "get_api_interactions_media_media_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "media_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          }
+        },
+        "summary": "Serve interaction media stored by reference",
+        "tags": [
+          "interactions"
+        ]
+      }
+    },
     "/api/interactions/stream": {
       "get": {
         "operationId": "get_api_interactions_stream",
@@ -10611,7 +10748,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Stream the interactions inbox (backlog then live)",
+        "summary": "Stream the interactions inbox live tail",
         "tags": [
           "interactions"
         ]
