@@ -150,34 +150,40 @@ Each item is a `MediaItem` — a `kind`, a `url`, and an optional `caption`:
 ```
 
 - **`kind`** — `image` renders inline; `link` renders as a labelled anchor.
-- **`url`** — the source. An `image` is an absolute **`https`** URL or a
-  `data:image/*` URI; a `link` is an absolute **`http(s)`** URL. Remote images
-  are https-only: the inbox content-security policy admits `https:` and `data:`
-  image sources but not `http:`, so an `http:` image would be a record that could
-  never render — it is rejected up front, not silently dropped. Anchors are not
-  governed by that policy, so an `http:` link stays valid.
+- **`url`** — the source. An `image` is an absolute **`https`** URL, a
+  `data:image/*` URI, or a same-origin **`/api/interactions/media/<id>`** reference
+  to media the deployment serves by id; a `link` is an absolute **`http(s)`** URL.
+  Remote images are https-only: the inbox content-security policy admits `https:`,
+  `data:`, and same-origin image sources but not `http:`, so an `http:` image would
+  be a record that could never render — it is rejected up front, not silently
+  dropped. Anchors are not governed by that policy, so an `http:` link stays valid.
 - **`caption`** — optional accessibility text: an image's alt text or a link's
   display label.
 
 ### Caps
 
 Media and the question text are bounded by the contract. These are wire-contract
-properties — they bound the durable record and the stream frame it is replayed in —
-not operator settings:
+properties — they bound the ask (and notify) **request** a tool submits, not a
+replay — not operator settings:
 
 | Cap | Value | What it bounds |
 |---|---|---|
 | `QUESTION_MAX_CHARS` | 8192 | one question's text |
-| `MEDIA_MAX_ITEMS` | 8 | items on one question |
+| `MEDIA_MAX_ITEMS` | 50 | items on one ask or notify — a loose abuse guard |
 | `MEDIA_URL_MAX_CHARS` | 8192 | one `http(s)`/`https` URL |
-| `MEDIA_DATA_URI_MAX_CHARS` | 524288 (512 KiB) | one inline `data:image/*` URI |
+| `MEDIA_DATA_URI_MAX_CHARS` | 524288 (512 KiB) | one submitted `data:image/*` URI |
 | `MEDIA_CAPTION_MAX_CHARS` | 1000 | one caption |
 | `MEDIA_TOTAL_URI_CHARS` | 1048576 (1 MiB) | the summed url text across all items |
 
-The per-question total budget is load-bearing beyond the per-item cap: the pending
-inbox backlog is replayed whole to every stream consumer on every (re)connect, so a
-per-question ceiling bounds a bytes × pending × clients amplification the per-item
-cap alone does not.
+`MEDIA_MAX_ITEMS` is a loose platform abuse guard on the item count, not a
+per-channel limit: WhatsApp, for one, delivers each image as its own message, so
+the guard — not a native per-message envelope — bounds how many items an ask or
+notify may carry. The byte caps
+bound the submitted request, not a replay: an accepted `data:image/*` image is
+stored by reference — the record keeps a same-origin `/api/interactions/media/<id>`
+url and the bytes are served from that route for the question's lifetime. The
+pending inbox is read as a paged list through `GET /api/interactions`, and the SSE
+stream is tail-only, so nothing is replayed whole on (re)connect.
 
 ### Limits
 
@@ -189,11 +195,13 @@ cap alone does not.
   media stays in the inbox.
 - **Privacy.** A remote `https` image is fetched directly by the reader's
   browser, which discloses the reader's IP (and request timing) to the image
-  host. An agent that must avoid that discloses nothing by using a `data:image/*`
-  URI (the image travels inline in the record) or a same-origin URL the
-  deployment serves itself.
+  host. An agent that must avoid that discloses nothing by submitting a
+  `data:image/*` URI — the deployment stores it by reference and serves the bytes
+  from its own `/api/interactions/media/<id>` route, so the reader's browser only
+  ever contacts the deployment.
 - **Validated before anything is stored.** Invalid media — an empty list, a
-  non-`http(s)` link, a non-`https`/non-`data:image` image, an over-cap url,
+  non-`http(s)` link, an image url that is neither `https`, a `data:image/*` URI,
+  nor a same-origin `/api/interactions/media/<id>` reference, an over-cap url,
   data URI, caption, or total, a blank caption, or more than `MEDIA_MAX_ITEMS`
   items — raises loudly when the question is built, before any state is written.
 
@@ -254,13 +262,15 @@ JSON-schema freedom; the subset binds only a channel-delivered form.
 
 ## The doors
 
-The interactions surface exposes four HTTP doors. Two are authenticated and two
+The interactions surface exposes six HTTP doors. Three are authenticated and three
 are public:
 
 | Door | Auth | Purpose |
 |---|---|---|
-| `GET /api/interactions/stream` | authenticated | SSE feed of pending questions |
+| `GET /api/interactions` | authenticated | paged list of pending questions (`page`/`pageSize`) |
+| `GET /api/interactions/stream` | authenticated | tail-only SSE feed of live `add`/`answered`/`removed` frames |
 | `POST /api/interactions/{id}/answer` | authenticated | the human answer door (in-client formats) |
+| `GET /api/interactions/media/{id}` | **public** | serves media stored by reference — the id is the capability |
 | `POST /api/interactions/callback/{ticket}` | **public** | the data door — sensitive answers ride the JSON body |
 | `GET /api/interactions/callback/{ticket}` | **public** | the redirect door — serves a confirm or schema-rendered form page |
 
