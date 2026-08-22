@@ -1,0 +1,129 @@
+---
+title: "Sandbox"
+description: "Install one sandbox provider — container-isolated or direct-on-host — and wire the engine, durability, and egress."
+icon: "box"
+---
+
+A [sandbox](/concepts/sandbox) is the execution session an agent or a
+`sandbox_exec` preset runs code in. The `sandbox` slot is a scalar single holder:
+install exactly **one** provider, and which one you install **is** the execution
+mode. The consuming agents keep one code path either way.
+
+| Provider | Package | Engine | Isolation |
+| --- | --- | --- | --- |
+| `sandbox-docker` | `tai42-sandbox-docker` | Docker Engine API over a configured mTLS endpoint | an isolated container per session |
+| `sandbox-local` | `tai42-sandbox-local` | the code runs directly on the host under `SANDBOX_LOCAL_ROOT` | **none** — direct on the host |
+
+Each provider's full setup — its `<PREFIX>_*` settings and its engine
+contract — lives on its own plugin page under the [Plugins section](/plugins):
+`plugins/tai42/sandbox-docker` and `plugins/tai42/sandbox-local`. This page is the
+operator narrative that gets you to them.
+
+## Install and wire `sandbox-docker`
+
+Install the provider, name its `sandbox_module` in the manifest, and point it at
+an engine:
+
+```bash
+tai plugins install tai42-sandbox-docker
+```
+
+- Set `SANDBOX_DOCKER_HOST` to the socket path or the `tcp://` engine endpoint.
+- Mount the mTLS client certificates at the fixed path `/certs/client` (a volume
+  mount, **not** an env var).
+- No `TAI_MCP_SANDBOX` selector is needed — installing the plugin patches the
+  `sandbox_module` in.
+
+## Install and wire `sandbox-local`
+
+`sandbox-local` runs the agent's code directly on the host, with no isolation.
+
+```bash
+tai plugins install tai42-sandbox-local
+```
+
+- Name the `sandbox_module`, then set `SANDBOX_LOCAL_ROOT` to the host workspace
+  root. A persistent session lives at `<SANDBOX_LOCAL_ROOT>/<workspace_key>`.
+- It provides isolation `none` **only** and rejects a `container` or `vm`
+  isolation floor. A deployment that keeps the default
+  `sandbox_isolation="container"` must lower the floor to `none` to run under it.
+
+<Warning>
+`sandbox-local` runs the code on the host with no isolation. The code holds the
+credentials the operator injects into the session and, under the default open
+egress, reaches the full host network. Lower `sandbox_isolation` to `none`
+deliberately, and tighten `sandbox_egress` if the workload does not need the
+internet.
+</Warning>
+
+<Note>
+Both agents' `session_image` settings stay required and digest-validated under
+`sandbox-local`, but they are **inert**: the host is the environment, so the
+value is only recorded in session labels and never pulled. Any well-formed
+`...@sha256:` digest reference satisfies them — for example the published image's
+own digest, even though it is never used.
+</Note>
+
+### Running `claude_code` direct-on-host
+
+Running `claude_code` under `sandbox-local` requires the **operator** to install
+the Claude runtime on the host first — the `claude-agent-sdk` wheel (it bundles
+the Claude Code CLI, no separate Node.js) — because the shipped server image
+stays lean and only the container sandbox carries the runtime out of the box.
+`langchain_deep_agent` needs no extra runtime direct-on-host. Under
+`sandbox-docker` both agents run from the pinned session image with nothing extra
+to install.
+
+## The engine under Compose and Kubernetes
+
+Under Compose the engine is opt-in: the `profiles: ["sandbox"]` engine on a
+`sandbox-ctrl` control network. A session is an **inner** container of the
+rootless-dind daemon — NAT'd out for internet egress only, never on the
+deployment network, and unable to address serve, the backend, the datastores, or
+the engine itself.
+
+On Kubernetes, run either the built-in engine workload (its privilege isolated to
+the engine pod, the app pod untouched) or an external endpoint.
+
+## Durability
+
+An ephemeral session's scratch dies with it. A persistent session binds the
+durable `tai-sbx-<workspace_key>` volume.
+
+<Warning>
+A persistent session needs real, node-independent block storage from the
+distribution layer — a PVC on Kubernetes, a named volume in Compose. Without it,
+a session's data does not survive a node move.
+</Warning>
+
+## Security posture
+
+<Warning>
+The engine control endpoint is code-execution authority. Keep it behind mTLS,
+never bare.
+</Warning>
+
+<Warning>
+Egress defaults **open**, so tool-result data is exfiltratable under it. The
+hardening path — a tighter `network` level plus an Anthropic-only proxy — is
+offered, not forced. An in-session model credential lives for the session
+lifetime.
+</Warning>
+
+<Note>
+The platform tools an agent uses are adapter-proxied: the agent uses exactly the
+`tool_names` the caller grants, executed under the run's own identity, with no
+credential or MCP endpoint exposed to the session. There is no scoped mount or key
+to configure for them. (The `sandbox_exec` contrast — code that runs **inside**
+the session with the injected credentials — is on the
+[sandbox concept page](/concepts/sandbox#running-code-as-a-named-tool).)
+</Note>
+
+## See also
+
+- [Sandbox](/concepts/sandbox) — the contract, isolation floor, and durability
+  model.
+- [Use the ready-made agents](/guides/use-the-ready-made-agents) — `claude_code`
+  and `langchain_deep_agent`, the shipped sandbox-driving agents.
+- [Plugins](/plugins) — the `sandbox-docker` and `sandbox-local` plugin pages and
+  their full engine setup.

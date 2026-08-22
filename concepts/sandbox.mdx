@@ -1,0 +1,149 @@
+---
+title: "Sandbox"
+description: "An isolated execution session any plugin can request: workspace, exec, file transfer, and a reap deadline."
+icon: "box"
+---
+
+A sandbox is an execution session a plugin requests when it needs to run code
+away from the server process. A session carries a workspace volume, `exec` (both
+one-shot and interactive), file transfer in and out, and a TTL reap deadline.
+How strongly a session is isolated depends on the provider. It is generic and
+optional, exactly like a [backend](/concepts/backends): a deployment without a
+provider carries nothing for it.
+
+## The sandbox seam
+
+The `Sandbox` ABC is the contract. A consumer acquires a session through the one
+raising chokepoint `tai42_app.sandboxes.require_sandbox()` — every door that runs
+code flows through it, so a single seam owns the policy. An external plugin
+registers a provider through `tai42_app.sandboxes.register_sandbox` when the
+[manifest](/concepts/manifest) names the `sandbox_module`.
+
+With no provider installed the kind row reads `off`, and any consumer that calls
+`require_sandbox()` gets a loud typed `SandboxUnavailableError` naming
+`TAI_MCP_SANDBOX` and the `sandbox_module` — surfaced through that consumer's own
+error path, never a silent no-op.
+
+## Two providers, one execution mode
+
+The `sandbox` slot is a scalar single holder: a deployment installs exactly one
+provider, and which one is installed **is** the execution mode. The consuming
+agents keep one code path either way.
+
+- `sandbox-docker` runs each session as an **isolated container**.
+- `sandbox-local` runs the code **directly on the host** — the workspace is a
+  host directory, with **no isolation**.
+
+Isolation is a contract Literal, `SandboxIsolation = "none" | "container" | "vm"`,
+with floor semantics (`none < container < vm`). The operator's
+`sandbox_isolation` sets the floor (default `container`); a session spec's
+`isolation` field requests at least a level (`None` inherits the floor); and a
+provider must give **at least** the effective level or reject the spec.
+`sandbox-docker` satisfies `none` and `container` and rejects `vm`;
+`sandbox-local` satisfies `none` only and rejects `container` and `vm`. Put
+plainly: `sandbox-local` is the no-isolation, direct-on-the-host provider.
+
+See [operate/sandbox](/operate/sandbox) for installing and wiring a provider.
+
+## Durability
+
+Durability is one tier on the session spec: `durability: "ephemeral" |
+"persistent"`. An ephemeral session's workspace dies with the session. A
+persistent session binds a durable workspace volume (`tai-sbx-<workspace_key>`)
+provisioned at the distribution layer — a PVC in the chart, a named volume in
+Compose — that survives the session and its reap.
+
+There is no platform "git tier": taking data off-box for backup is a consumer's
+own action with its own credentials. The deployment side of durability lives on
+[operate/sandbox](/operate/sandbox).
+
+## Security is configuration
+
+A session is trusted with exactly the credentials and the reach the operator
+grants it. Security is the per-consumer credentials list plus four platform
+settings, all enforced once at the session-create chokepoint every consumer
+flows through — both agents and `sandbox_exec` — so no door bypasses the policy:
+
+| Setting | Env | What it sets |
+| --- | --- | --- |
+| `sandbox_egress` | `TAI_MCP_SANDBOX_EGRESS` | the egress ceiling (default open) |
+| `sandbox_isolation` | `TAI_MCP_SANDBOX_ISOLATION` | the isolation floor (default `container`) |
+| `sandbox_scrub_transcript` | `TAI_MCP_SANDBOX_SCRUB_TRANSCRIPT` | transcript scrub (off by default) |
+| `sandbox_durable` | `TAI_MCP_SANDBOX_DURABLE` | durable persistent workspaces on or off |
+
+<Warning>
+Under the default open egress, any data a session can read is exfiltratable — so
+a session is trusted with exactly the credentials and reach the operator grants
+it. Under `sandbox-local` there is no isolation at all: the code runs on the host.
+Tighten `sandbox_egress` and choose the provider deliberately.
+</Warning>
+
+## Consumers
+
+Three consumers ship in this release, all in the `tai42-agents` package plus the
+base tool:
+
+- the [`sandbox_exec` code tool](/concepts/sandbox#running-code-as-a-named-tool)
+  (below);
+- the [`claude_code` agent](/guides/use-the-ready-made-agents), which drives the
+  Claude Agent SDK inside a session;
+- `langchain_deep_agent`'s scratch filesystem is a durable sandbox backend
+  that reaches the same seam.
+
+The generic seam enables wider consumers not shipped here: any agent execution
+backend, a generic code-execution tool beyond `sandbox_exec`, isolation for
+stdio MCP servers, and skills that bundle executable scripts.
+
+## Running code as a named tool (`sandbox_exec`) {#running-code-as-a-named-tool}
+
+`sandbox_exec` is a generic base tool that ships in the skeleton. It runs a
+command in a sandbox session acquired through `require_sandbox()`, with a durable
+workspace when the preset asks for one. It is domain-agnostic: a delivery turns
+concrete named tools into [presets](/concepts/presets) over it.
+
+Two generic preset mechanisms make that possible, both consulted at the shared
+preset chokepoint so every authoring door is covered:
+
+- **A declarable per-tool input schema** — a preset over a schema-accepting base
+  tool declares the exposed named tool's own typed input contract, and the bind
+  kernel routes the caller's validated object into the base tool's invocation.
+  Most base tools accept none — their schema is fixed — but `sandbox_exec` does.
+  See [presets](/concepts/presets#declarable-per-tool-input-schema).
+- **An admin registration tier** — `sandbox_exec` declares the admin `fenced`
+  tier required to author a preset over it, enforced at the shared chokepoint on
+  every authoring door (HTTP, MCP, CLI, manifest-apply), never one route.
+  Registering a runnable code tool is an admin act. See
+  [presets](/concepts/presets#admin-registration-tier).
+
+<Warning>
+The code a `sandbox_exec` preset runs holds the credentials the operator injects
+into the session and, under the default open egress, reaches the internet. That
+is deliberate — the delivery's own code is trusted with its own credentials — and
+it is why authoring one is admin-fenced.
+
+Contrast this with the adapter-proxied posture an
+[agent](/guides/use-the-ready-made-agents) gets: an agent's platform tools run
+**outside** the session under the run's own identity, with no credential or
+endpoint exposed to the code, whereas `sandbox_exec` code runs **inside** the
+session with the injected credentials in hand. Two deliberate trust models over
+one sandbox seam.
+</Warning>
+
+### Preset network portability across providers
+
+A `sandbox_exec` preset with an explicit `network="none"` (or `"internal"`) runs
+under `sandbox-docker` but is loudly rejected under `sandbox-local`, which honors
+`network="egress"` only and raises `SandboxSpecRejectedError` on `none` or
+`internal`. An unset `network` defaults to `"egress"` (the base tool's schema
+default) and already runs under `sandbox-local` — so only a preset that
+explicitly pins `none` or `internal` must be changed for a `sandbox-local`
+deployment. The mismatch is a loud rejection at session create, never a silent
+failure.
+
+## See also
+
+- [Backends](/concepts/backends) — the sister execution seam for queued work.
+- [Presets](/concepts/presets) — the spine `sandbox_exec` named tools ride on.
+- [operate/sandbox](/operate/sandbox) — install a provider and wire the engine.
+- [Use the ready-made agents](/guides/use-the-ready-made-agents) — `claude_code`
+  and `langchain_deep_agent`, the shipped sandbox-driving agents.
