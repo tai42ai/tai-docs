@@ -121,6 +121,13 @@ PAGES: list[dict] = [
         "modules": ["tai42_contract.backend"],
     },
     {
+        "slug": "contract-sandbox",
+        "title": "Sandbox (tai42_contract.sandbox)",
+        "description": "The Sandbox ABC a sandbox provider implements, plus its session, spec, and policy models.",
+        "icon": "box",
+        "modules": ["tai42_contract.sandbox"],
+    },
+    {
         "slug": "contract-channels",
         "title": "Channels (tai42_contract.channels)",
         "description": "The Channel protocol a delivery channel plugin implements.",
@@ -239,6 +246,7 @@ REQUIRED_SYMBOLS = [
     "ExtensionKind",
     "TaiApp",
     "Backend",
+    "Sandbox",
     "Storage",
     "Channel",
     "PluginSpec",

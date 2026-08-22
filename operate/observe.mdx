@@ -57,6 +57,28 @@ When a flow or agent trace already owns the call, the extension suppresses its o
 Metrics and traces are served by a monitoring backend plugin, registered under `monitoring_module`. Without one, the runtime uses a no-op default and there is nothing to query.
 </Note>
 
+## Attribute a run and roll up cost
+
+Every run's trace can be tagged at the shared run chokepoint with the run's own
+identity — the flow kwargs the operator defines per delivery, carried verbatim as
+a `RunAttribution` of tags and metadata, wired once at the shared seam so every
+door attributes. That lets you **group** cost and tokens by identity when you
+query traces and metrics: per-delivery attribution, with no tenant system and no
+per-tenant isolation — attribution only.
+
+There is **no billing module**. Billing is a flow or a view built over these
+attributed traces: the platform ships the generic attribution enabler, and
+assembling spend into a cost view is delivery work on top of the trace data.
+
+<Note>
+Because the Claude Agent SDK's model calls run inside the sandbox session and
+bypass the platform LLM seam, the [`claude_code`](/guides/use-the-ready-made-agents)
+adapter emits the SDK-reported usage and cost into the active trace itself — so an
+attributed `claude_code` run's spend rolls up with everything else. The boundary:
+the toolbox `prometheus_metrics` extension records latency and count only; it is
+not the cost seam.
+</Note>
+
 ## See also
 
 - [Live operations](/concepts/live-operations) — status, retry, and runtime state.

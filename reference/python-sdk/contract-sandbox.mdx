@@ -1,0 +1,644 @@
+---
+title: "Sandbox (tai42_contract.sandbox)"
+description: "The Sandbox ABC a sandbox provider implements, plus its session, spec, and policy models."
+icon: "box"
+---
+
+
+Sandbox contract: the neutral session models, the resolved
+`SandboxPolicy`, the error family, and the `Sandbox` /
+`SandboxSession` / `SandboxExecHandle` ABCs.
+
+WHAT THE CONTRACT CARRIES: the shape of a session request/result, the security
+policy the kit enforces, the failure family, and the provider face — no logic.
+WHAT THE KIT OWNS: the shared session ledger, TTL/reap bookkeeping, and the
+session-create policy chokepoint (a ``Sandbox`` / ``SandboxSession`` base a
+provider extends). WHAT A PROVIDER IMPLEMENTS: only its runtime I/O — creating
+session resources and running ``exec`` / file transfers against them.
+
+## ExecResult
+
+`tai42_contract.sandbox.models.ExecResult`
+
+```python
+class ExecResult(BaseModel)
+```
+
+The outcome of a completed non-interactive ``exec``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `exit_code` | `int` |
+| `stdout` | `str` |
+| `stderr` | `str` |
+
+
+## Sandbox
+
+`tai42_contract.sandbox.base.Sandbox`
+
+```python
+class Sandbox(ABC)
+```
+
+Abstract sandbox provider for a Tai app.
+
+A provider creates/destroys disposable `SandboxSession` instances and
+reaps expired ones. The app core depends only on this interface and stays
+sandbox-agnostic; concrete providers (a container runtime, a direct-host
+runner) implement it and register via
+``@tai42_app.sandboxes.register_sandbox``.
+
+### Members
+
+#### create_session
+
+`tai42_contract.sandbox.base.Sandbox.create_session`
+
+```python
+async create_session(self, spec: SandboxSessionSpec) -> SandboxSession
+```
+
+Create a session from ``spec`` or REJECT it with
+`SandboxSpecRejectedError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `spec` | `SandboxSessionSpec` | — | — |
+
+
+#### get_session
+
+`tai42_contract.sandbox.base.Sandbox.get_session`
+
+```python
+async get_session(self, session_id: str) -> SandboxSession
+```
+
+Fetch a live session by id. Raise
+`SandboxSessionNotFoundError` if absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `session_id` | `str` | — | — |
+
+
+#### list_sessions
+
+`tai42_contract.sandbox.base.Sandbox.list_sessions`
+
+```python
+async list_sessions(self) -> list[SandboxSessionInfo]
+```
+
+The observable state of every live session.
+
+
+#### destroy_session
+
+`tai42_contract.sandbox.base.Sandbox.destroy_session`
+
+```python
+async destroy_session(self, session_id: str) -> None
+```
+
+Tear a session down. Idempotent on an already-gone session.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `session_id` | `str` | — | — |
+
+
+#### reap
+
+`tai42_contract.sandbox.base.Sandbox.reap`
+
+```python
+async reap(self) -> list[str]
+```
+
+Destroy every session past its ``expires_at`` and return the destroyed
+ids.
+
+
+
+## SandboxDurability
+
+`tai42_contract.sandbox.models.SandboxDurability`
+
+```python
+SandboxDurability = Literal['ephemeral', 'persistent']
+```
+
+
+## SandboxError
+
+`tai42_contract.sandbox.errors.SandboxError`
+
+```python
+class SandboxError(Exception)
+```
+
+Base for every sandbox failure.
+
+
+## SandboxExecHandle
+
+`tai42_contract.sandbox.base.SandboxExecHandle`
+
+```python
+class SandboxExecHandle(ABC)
+```
+
+A live interactive exec started by `SandboxSession.exec_start`.
+
+CONCURRENCY CONTRACT: `write_stdin` / `close_stdin` MUST be safe
+to call concurrently with active `output` iteration — a provider that
+serializes reads and writes on one attach stream does its OWN demux/buffering
+(a deadlocking handle is non-conformant). A single `write_stdin` call
+delivers its bytes intact and in order (the provider must not split or reorder
+them); a consumer multiplexing a line protocol holds its OWN single-writer
+lock so each message is one atomic call — the provider does no framing.
+
+LIFETIME CONTRACT: after the exec has exited, `kill` is idempotent (a
+safe no-op) and `write_stdin` raises a typed `SandboxError`
+(never an arbitrary exception).
+
+### Members
+
+#### write_stdin
+
+`tai42_contract.sandbox.base.SandboxExecHandle.write_stdin`
+
+```python
+async write_stdin(self, data: bytes) -> None
+```
+
+Deliver ``data`` to the exec's stdin intact and in order.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `data` | `bytes` | — | — |
+
+
+#### close_stdin
+
+`tai42_contract.sandbox.base.SandboxExecHandle.close_stdin`
+
+```python
+async close_stdin(self) -> None
+```
+
+Signal end-of-input to the exec.
+
+
+#### output
+
+`tai42_contract.sandbox.base.SandboxExecHandle.output`
+
+```python
+output: AsyncIterator[SandboxStreamChunk | SandboxStreamExit]
+```
+
+The interleaved stdout/stderr stream, terminated by one
+`SandboxStreamExit`. On ``timeout_seconds`` expiry the provider
+kills the exec and the iterator raises `SandboxExecTimeoutError`.
+
+
+#### kill
+
+`tai42_contract.sandbox.base.SandboxExecHandle.kill`
+
+```python
+async kill(self) -> None
+```
+
+Terminate the exec. Idempotent once the exec has exited.
+
+
+
+## SandboxExecTimeoutError
+
+`tai42_contract.sandbox.errors.SandboxExecTimeoutError`
+
+```python
+class SandboxExecTimeoutError(SandboxError)
+```
+
+An ``exec`` / ``exec_start`` exceeded its ``timeout_seconds``.
+
+Carries the partial-output LENGTHS (never the content — output may hold
+secrets read from ``env``) so a caller can log the shape of what was produced
+before the kill.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `timeout_seconds` | — |
+| `stdout_len` | — |
+| `stderr_len` | — |
+
+
+## SandboxIsolation
+
+`tai42_contract.sandbox.models.SandboxIsolation`
+
+```python
+SandboxIsolation = Literal['none', 'container', 'vm']
+```
+
+
+## SandboxNetwork
+
+`tai42_contract.sandbox.models.SandboxNetwork`
+
+```python
+SandboxNetwork = Literal['none', 'internal', 'egress']
+```
+
+
+## SandboxPolicy
+
+`tai42_contract.sandbox.policy.SandboxPolicy`
+
+```python
+class SandboxPolicy(BaseModel)
+```
+
+The resolved security policy the kit enforces at session create.
+
+``egress`` is the network CEILING (a session's ``network`` must be
+at-or-tighter); ``isolation`` is the strength FLOOR (a session runs at
+at-least this level); ``durable`` gates whether a ``persistent`` session is
+permitted at all; ``scrub_transcript`` is carried for the consumer to read —
+it is applied consumer-side, NOT a create-time gate. It is a pure
+platform-policy envelope — no consumer concept lives here.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `egress` | `SandboxNetwork` |
+| `isolation` | `SandboxIsolation` |
+| `scrub_transcript` | `bool` |
+| `durable` | `bool` |
+
+
+## SandboxSession
+
+`tai42_contract.sandbox.base.SandboxSession`
+
+```python
+class SandboxSession(ABC)
+```
+
+One live sandbox session — the unit a consumer runs code in.
+
+### Members
+
+#### id
+
+`tai42_contract.sandbox.base.SandboxSession.id`
+
+```python
+id: str
+```
+
+This session's provider-assigned id.
+
+
+#### workspace_path
+
+`tai42_contract.sandbox.base.SandboxSession.workspace_path`
+
+```python
+workspace_path: str
+```
+
+The provider's ABSOLUTE root path for THIS session's workspace.
+
+Also carried on `SandboxSessionInfo` so a caller can read it off
+``info()`` too. Anchors the workspace-relative resolution of ``cwd`` /
+``path`` (see the module path contract).
+
+
+#### info
+
+`tai42_contract.sandbox.base.SandboxSession.info`
+
+```python
+async info(self) -> SandboxSessionInfo
+```
+
+This session's observable state.
+
+
+#### exec
+
+`tai42_contract.sandbox.base.SandboxSession.exec`
+
+```python
+async exec(
+    self,
+    argv: Sequence[str],
+    *,
+    cwd: str | None = None,
+    env: dict[str, SecretStr] | None = None,
+    stdin: bytes | None = None,
+    timeout_seconds: float,
+) -> ExecResult
+```
+
+Run ``argv`` to completion and return its `ExecResult`.
+
+``timeout_seconds`` is REQUIRED: on expiry the provider kills the exec and
+raises `SandboxExecTimeoutError`. ``env`` overlays the session's
+base ``spec.env`` (per-exec keys override on collision). ``cwd`` is
+WORKSPACE-RELATIVE by default (resolved against ``workspace_path``; unset
+defaults to ``workspace_path``) per the module path contract.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `argv` | `Sequence[str]` | — | — |
+| `cwd` | `str \| None` | `None` | — |
+| `env` | `dict[str, SecretStr] \| None` | `None` | — |
+| `stdin` | `bytes \| None` | `None` | — |
+| `timeout_seconds` | `float` | — | — |
+
+
+#### exec_start
+
+`tai42_contract.sandbox.base.SandboxSession.exec_start`
+
+```python
+async exec_start(
+    self,
+    argv: Sequence[str],
+    *,
+    cwd: str | None = None,
+    env: dict[str, SecretStr] | None = None,
+    timeout_seconds: float,
+) -> SandboxExecHandle
+```
+
+Start ``argv`` as an INTERACTIVE exec, returning a
+`SandboxExecHandle`.
+
+``timeout_seconds`` is REQUIRED: on expiry the provider kills the exec and
+the handle's ``output`` iterator raises `SandboxExecTimeoutError`.
+``env`` and ``cwd`` follow the same rules as `exec`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `argv` | `Sequence[str]` | — | — |
+| `cwd` | `str \| None` | `None` | — |
+| `env` | `dict[str, SecretStr] \| None` | `None` | — |
+| `timeout_seconds` | `float` | — | — |
+
+
+#### put_file
+
+`tai42_contract.sandbox.base.SandboxSession.put_file`
+
+```python
+async put_file(self, path: str, data: bytes) -> None
+```
+
+Write ``data`` to ``path`` (WORKSPACE-RELATIVE by default) in the
+workspace.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+| `data` | `bytes` | — | — |
+
+
+#### get_file
+
+`tai42_contract.sandbox.base.SandboxSession.get_file`
+
+```python
+async get_file(self, path: str) -> bytes
+```
+
+Read ``path`` (WORKSPACE-RELATIVE by default) from the workspace. Raise
+a typed `SandboxError` on a miss.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### touch
+
+`tai42_contract.sandbox.base.SandboxSession.touch`
+
+```python
+async touch(self) -> None
+```
+
+Extend ``expires_at`` by the session's ttl — a keep-alive turn.
+
+
+#### destroy
+
+`tai42_contract.sandbox.base.SandboxSession.destroy`
+
+```python
+async destroy(self) -> None
+```
+
+Tear this session down.
+
+
+
+## SandboxSessionInfo
+
+`tai42_contract.sandbox.models.SandboxSessionInfo`
+
+```python
+class SandboxSessionInfo(BaseModel)
+```
+
+The observable state of a live session, returned by ``info()`` / ``list_sessions()``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `id` | `str` |
+| `image` | `str` |
+| `workspace_key` | `str` |
+| `workspace_path` | `str` |
+| `durability` | `SandboxDurability` |
+| `created_at` | `datetime` |
+| `expires_at` | `datetime` |
+| `labels` | `dict[str, str]` |
+
+
+## SandboxSessionNotFoundError
+
+`tai42_contract.sandbox.errors.SandboxSessionNotFoundError`
+
+```python
+class SandboxSessionNotFoundError(SandboxError)
+```
+
+No live session has the requested id.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `session_id` | — |
+
+
+## SandboxSessionSpec
+
+`tai42_contract.sandbox.models.SandboxSessionSpec`
+
+```python
+class SandboxSessionSpec(BaseModel)
+```
+
+The requested shape of one sandbox session.
+
+The CONSUMER declares the session it needs; the provider maps each field onto
+its runtime or REJECTS with `SandboxSpecRejectedError`
+what it cannot honor — it never silently downgrades a request.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `image` | `str` |
+| `workspace_key` | `str` |
+| `durability` | `SandboxDurability` |
+| `env` | `dict[str, SecretStr]` |
+| `network` | `SandboxNetwork` |
+| `isolation` | `SandboxIsolation \| None` |
+| `cpu` | `float \| None` |
+| `memory_mb` | `int \| None` |
+| `ttl_seconds` | `int` |
+| `labels` | `dict[str, str]` |
+
+
+## SandboxSpecRejectedError
+
+`tai42_contract.sandbox.errors.SandboxSpecRejectedError`
+
+```python
+class SandboxSpecRejectedError(SandboxError)
+```
+
+A `SandboxSessionSpec` cannot be honored.
+
+ONE error for two causes the message distinguishes: EITHER the provider
+cannot enforce the spec (e.g. ``persistent`` on a provider without durable
+storage, an unenforceable cap) OR the spec violates the operator policy at the
+kit session-create chokepoint (a ``network`` looser than the egress ceiling,
+an ``isolation`` below the floor, ``persistent`` while durable is off). The
+message names which; the family never silently downgrades a rejected spec.
+
+
+## SandboxStreamChunk
+
+`tai42_contract.sandbox.models.SandboxStreamChunk`
+
+```python
+class SandboxStreamChunk(BaseModel)
+```
+
+One interleaved output frame from an interactive ``exec_start``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `stream` | `Literal['stdout', 'stderr']` |
+| `data` | `bytes` |
+
+
+## SandboxStreamExit
+
+`tai42_contract.sandbox.models.SandboxStreamExit`
+
+```python
+class SandboxStreamExit(BaseModel)
+```
+
+The interactive iterator's final item, carrying the exec's exit code.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `exit_code` | `int` |
+
+
+## SandboxUnavailableError
+
+`tai42_contract.sandbox.errors.SandboxUnavailableError`
+
+```python
+class SandboxUnavailableError(SandboxError)
+```
+
+No sandbox provider is registered.
+
+Raised by the facet ``require_sandbox()`` acquisition chokepoint so every
+consumer catches this ONE type when no provider backs the seam.
+
+
+## isolation_strength
+
+`tai42_contract.sandbox.policy.isolation_strength`
+
+```python
+isolation_strength(isolation: SandboxIsolation) -> int
+```
+
+The strength rank of an isolation tier (``none`` &lt; ``container`` &lt; ``vm``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `isolation` | `SandboxIsolation` | — | — |
+
+
+## network_openness
+
+`tai42_contract.sandbox.policy.network_openness`
+
+```python
+network_openness(network: SandboxNetwork) -> int
+```
+
+The openness rank of a network tier (``none`` &lt; ``internal`` &lt; ``egress``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `network` | `SandboxNetwork` | — | — |
+
