@@ -38,9 +38,10 @@ Sentinel for a `save_version`
 editable field the caller did not provide — carry the ACTIVE value forward.
 
 ``fixed_kwargs`` / ``extensions`` clear with an empty container, so
-``None`` is their carry-forward sentinel; ``output_schema`` has no empty
-container (its cleared state IS ``None``), so it needs a distinct sentinel to
-tell "not provided" (carry forward) apart from an explicit ``None`` (clear).
+``None`` is their carry-forward sentinel; ``output_schema`` / ``input_schema``
+have no empty container (their cleared state IS ``None``), so each needs a
+distinct sentinel to tell "not provided" (carry forward) apart from an explicit
+``None`` (clear).
 
 
 ## PresetBody
@@ -65,13 +66,18 @@ no extensions; an empty INNER combo is rejected by the validating view).
 schema): on an AGENT base it is baked into the run tool's ``response_format``
 so the agent FORCES a structured output matching it; on a plain tool it is
 advertised as the bound tool's output schema and every result is validated
-against it at run time.
+against it at run time. ``input_schema`` is an optional author-set INPUT JSON
+Schema: it becomes the exposed named tool's input contract, and the caller's
+validated object is routed into the base tool's declared payload argument (see
+`PresetInputSchemaSupport`). Only a base tool that DECLARES input-schema
+support accepts one; otherwise a set ``input_schema`` is a loud authoring error.
 
 Every field must survive carry-forward on a version save: dropping
 ``extensions`` would make the branch tools vanish on reload, dropping
 ``base_tool`` would break the bind, dropping ``description`` would strip the
-tool's description, and dropping ``output_schema`` would silently un-enforce
-the structured output.
+tool's description, dropping ``output_schema`` would silently un-enforce the
+structured output, and dropping ``input_schema`` would silently un-enforce the
+structured input.
 
 **Attributes**
 
@@ -82,6 +88,7 @@ the structured output.
 | `fixed_kwargs` | `dict[str, Any]` |
 | `extensions` | `list[list[ExtensionElement]]` |
 | `output_schema` | `dict[str, Any] \| None` |
+| `input_schema` | `dict[str, Any] \| None` |
 
 
 ## PresetError
@@ -110,6 +117,29 @@ class PresetExistsError(PresetError)
 ```
 
 A preset named ``name`` already exists.
+
+
+## PresetInputSchemaSupport
+
+`tai42_contract.presets.models.PresetInputSchemaSupport`
+
+```python
+class PresetInputSchemaSupport(BaseModel)
+```
+
+A base tool's declaration that it ACCEPTS a per-preset input schema.
+
+Most base tools declare none — their typed schema is fixed. A base tool that
+declares support names, via ``payload_arg``, the base tool's OWN argument the
+validated structured input is delivered under: a preset's ``input_schema``
+becomes the exposed named tool's input contract and the caller's validated
+object is routed into ``payload_arg`` on the base call.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `payload_arg` | `str` |
 
 
 ## PresetNameConflictError
@@ -187,15 +217,16 @@ async create_preset(
     spec: PresetSpec,
     extensions: Sequence[Sequence[ExtensionElement]],
     output_schema: dict[str, Any] | None = None,
+    input_schema: dict[str, Any] | None = None,
 ) -> DocumentRecord
 ```
 
 Create a versioned preset. ``spec`` carries ``name``/``description``/
 ``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
-optional ``output_schema`` ride alongside — all of them land in the
-persisted `PresetBody`. Raise `PresetExistsError` on a
-duplicate name, `PresetNameConflictError` if the name collides with
-a base tool.
+optional ``output_schema`` / ``input_schema`` ride alongside — all of them
+land in the persisted `PresetBody`. Raise `PresetExistsError`
+on a duplicate name, `PresetNameConflictError` if the name collides
+with a base tool.
 
 **Parameters**
 
@@ -204,6 +235,7 @@ a base tool.
 | `spec` | `PresetSpec` | — | — |
 | `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### save_version
@@ -218,6 +250,8 @@ async save_version(
     extensions: Sequence[Sequence[ExtensionElement]] | None = None,
     output_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
     description: str | None = None,
+    *,
+    input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
 ) -> DocumentVersion
 ```
 
@@ -229,10 +263,11 @@ version body, then applying each of ``fixed_kwargs``, ``extensions`` under
 one UNIFORM sentinel: omitted/``None`` = carry the active value forward
 unchanged; an explicit empty list (``extensions=[]``) = deliberately CLEAR
 that field. An explicitly provided empty list is a value, never "not
-provided". ``output_schema`` follows the SAME rule but with a distinct
-`CARRY_FORWARD` sentinel (its cleared state is ``None``, so ``None``
-cannot double as "not provided"): omitted = carry forward, an explicit
-``None`` = clear, an explicit dict = wins. ``description`` is editable per
+provided". ``output_schema`` and ``input_schema`` each follow the SAME rule
+but with a distinct `CARRY_FORWARD` sentinel (their cleared state is
+``None``, so ``None`` cannot double as "not provided"): omitted = carry
+forward, an explicit ``None`` = clear, an explicit dict = wins.
+``description`` is editable per
 version: ``None`` = carry the active description forward, an explicit
 non-empty string = set it. The RESULTING description — explicit or carried
 — is validated non-empty (raising `ValueError`, surfaced as a 400),
@@ -252,6 +287,7 @@ absent.
 | `extensions` | `Sequence[Sequence[ExtensionElement]] \| None` | `None` | — |
 | `output_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `description` | `str \| None` | `None` | — |
+| `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 
 
 #### list_presets

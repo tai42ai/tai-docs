@@ -188,15 +188,23 @@ class AppAgents(Protocol)
 `tai42_contract.app.facets.AppAgents.agent`
 
 ```python
-agent(self, name: str, tags: set[str] | None = None) -> Callable[[type[_AgentT]], type[_AgentT]]
+agent(
+    self,
+    name: str,
+    tags: set[str] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> Callable[[type[_AgentT]], type[_AgentT]]
 ```
 
 Register an `Agent` subclass under ``name`` and auto-register
 its JSON ``run`` tool.
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
-The decorator returns the class unchanged, so the decorated symbol keeps
-its concrete subclass type.
+``meta`` is generic registration metadata threaded onto the same constructed
+run-tool object (naming no consumer concept — a registrant attaches any generic
+``tai42/*`` key, e.g. a crash-resume flag the run-dispatch seam reads). The
+decorator returns the class unchanged, so the decorated symbol keeps its
+concrete subclass type.
 
 **Parameters**
 
@@ -204,6 +212,7 @@ its concrete subclass type.
 |---|---|---|---|
 | `name` | `str` | — | — |
 | `tags` | `set[str] \| None` | `None` | — |
+| `meta` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### get_agent
@@ -523,6 +532,40 @@ token_store: ConnectorTokenStore
 The connector token store (single-namespace, keyed by ``connection_id``).
 
 
+#### resolve_connection_auth
+
+`tai42_contract.app.facets.AppConnectors.resolve_connection_auth`
+
+```python
+async resolve_connection_auth(self, connection_id: str, provider_id: str, sub_service: str) -> ResolvedConnectionAuth | None
+```
+
+Resolve the credential a connection injects, for the CURRENT caller.
+
+The facade accessor an in-process plugin uses to read a skeleton-resolved
+credential (OAuth token / static env / static headers) without importing the
+skeleton — refreshing an expired OAuth token under the connection lock. Async
+because resolution performs I/O (the OAuth refresh under the connection lock);
+callers ``await`` it. Returns ``None`` when the connection injects nothing.
+
+GUARANTEE (enforced by the skeleton implementation): (1) it RAISES a loud
+constant-message error when NO execution identity is bound — the fail-close
+raise fires as the awaited coroutine runs, BEFORE resolving, so an
+identity-less door never gets creds injected; and
+(2) ``connection_id`` is a REFERENCE supplied by operator settings, NEVER
+session-supplied, so a session can neither reach an identity-less door's
+creds nor name another connection. The contract carries no logic — the
+skeleton owns the fail-close enforcement.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `connection_id` | `str` | — | — |
+| `provider_id` | `str` | — | — |
+| `sub_service` | `str` | — | — |
+
+
 
 ## AppConversations
 
@@ -802,6 +845,36 @@ operator-authored module — it raises: those modules own no declared mount.
 
 
 
+## AppInteractions
+
+`tai42_contract.app.facets.AppInteractions`
+
+```python
+class AppInteractions(Protocol)
+```
+
+The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
+
+### Members
+
+#### ask_user
+
+`tai42_contract.app.facets.AppInteractions.ask_user`
+
+```python
+ask_user: AskUser
+```
+
+The bound, `AskUser`-typed ``ask_user``
+callable, so an in-process plugin asks a human without importing the skeleton:
+``await tai42_app.interactions.ask_user(question, ..., mode="async",
+expiry_at=...)``. The return shape is the ``AskUser`` contract's:
+``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
+``SuspendedInteraction``. A facade EXPOSURE of the skeleton helper through the
+already-typed Protocol — no new ask semantics.
+
+
+
 ## AppLifecycle
 
 `tai42_contract.app.facets.AppLifecycle`
@@ -1048,6 +1121,164 @@ base tool with no registered validator gets no extra check.
 |---|---|---|---|
 | `base_tool` | `str` | — | — |
 | `validator` | `PresetWriteValidator` | — | — |
+
+
+#### register_input_schema_support
+
+`tai42_contract.app.facets.AppPresets.register_input_schema_support`
+
+```python
+register_input_schema_support(self, base_tool: str, support: PresetInputSchemaSupport) -> None
+```
+
+Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base
+tool; duplicate registration raises).
+
+A base-tool plugin calls this through the ``tai42_app`` handle when its tool
+module loads. A preset that sets an ``input_schema`` over a base tool with no
+registered support is a loud authoring error at the shared preset-authoring
+chokepoint, never a silently-ignored schema.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `support` | `PresetInputSchemaSupport` | — | — |
+
+
+#### input_schema_support
+
+`tai42_contract.app.facets.AppPresets.input_schema_support`
+
+```python
+input_schema_support(self, base_tool: str) -> PresetInputSchemaSupport | None
+```
+
+The input-schema support ``base_tool`` declared, or ``None`` if it declared
+none (its typed schema is fixed).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+
+
+#### register_registration_tier
+
+`tai42_contract.app.facets.AppPresets.register_registration_tier`
+
+```python
+register_registration_tier(self, base_tool: str, tier: RouteAction) -> None
+```
+
+Declare the authz character required to AUTHOR (create/save/rollback/rename)
+a preset over ``base_tool`` (one per base tool; duplicate registration raises).
+
+Default authoring is the presets' own ``write`` action; a base tool with no
+declaration keeps that default. A base tool declaring ``fenced`` requires the
+admin fence to author a preset over it. The shared preset-authoring chokepoint
+reads this and enforces it BEFORE any store write on every authoring door.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `tier` | `RouteAction` | — | — |
+
+
+#### registration_tier
+
+`tai42_contract.app.facets.AppPresets.registration_tier`
+
+```python
+registration_tier(self, base_tool: str) -> RouteAction | None
+```
+
+The authoring authz tier ``base_tool`` declared, or ``None`` if it declared
+none (authoring keeps the presets' default ``write`` action).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+
+
+
+## AppSandboxes
+
+`tai42_contract.app.facets.AppSandboxes`
+
+```python
+class AppSandboxes(Protocol)
+```
+
+The sandbox-provider namespace (``app.sandboxes``).
+
+### Members
+
+#### register_sandbox
+
+`tai42_contract.app.facets.AppSandboxes.register_sandbox`
+
+```python
+register_sandbox(self, cls: type[Sandbox]) -> type[Sandbox]
+```
+
+Register the `Sandbox` provider (decorator form, returning the class
+unchanged). One provider backs the slot; a second registration is a conflict
+the runtime rejects loudly.
+
+
+#### sandbox
+
+`tai42_contract.app.facets.AppSandboxes.sandbox`
+
+```python
+sandbox: Sandbox | None
+```
+
+The registered provider, or ``None`` — status/introspection ONLY. Never
+gate execution on this nullable read; acquire through `require_sandbox`,
+the every-door guarantee (a ``None`` property is how per-consumer checks
+drift).
+
+
+#### require_sandbox
+
+`tai42_contract.app.facets.AppSandboxes.require_sandbox`
+
+```python
+require_sandbox(self) -> Sandbox
+```
+
+The ONE raising acquisition chokepoint: return the registered provider or
+raise `SandboxUnavailableError` (naming
+``TAI_MCP_SANDBOX`` and ``sandbox_module``) when none is registered. EVERY
+consumer acquires through here.
+
+
+#### sandbox_policy
+
+`tai42_contract.app.facets.AppSandboxes.sandbox_policy`
+
+```python
+sandbox_policy(self) -> SandboxPolicy
+```
+
+The skeleton-resolved `SandboxPolicy` — the
+plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
+session-create chokepoint.
+
+Available REGARDLESS of whether a provider is registered (it reads operator
+config, not a provider). Mirrors the ``ask_user`` / ``resolve_connection_auth``
+facade accessors that let an in-process plugin read a skeleton-resolved value
+without importing the skeleton; a consumer building a policied spec reads the
+network default and ``scrub_transcript`` here. Implemented in the skeleton,
+which resolves the policy once and returns the SAME value it binds to the kit.
 
 
 
@@ -1390,6 +1621,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `tools` *(property)* | `AppTools` |
 | `agents` *(property)* | `AppAgents` |
 | `backends` *(property)* | `AppBackends` |
+| `sandboxes` *(property)* | `AppSandboxes` |
 | `storage` *(property)* | `AppStorage` |
 | `connectors` *(property)* | `AppConnectors` |
 | `accounts` *(property)* | `AppAccounts` |
@@ -1398,6 +1630,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `conversations` *(property)* | `AppConversations` |
 | `monitoring` *(property)* | `AppMonitoring` |
 | `extensions` *(property)* | `AppExtensions` |
+| `interactions` *(property)* | `AppInteractions` |
 | `http` *(property)* | `AppHttp` |
 | `clients` *(property)* | `AppClients` |
 | `lifecycle` *(property)* | `AppLifecycle` |
@@ -1472,15 +1705,23 @@ class AppAgents(Protocol)
 `tai42_contract.app.facets.AppAgents.agent`
 
 ```python
-agent(self, name: str, tags: set[str] | None = None) -> Callable[[type[_AgentT]], type[_AgentT]]
+agent(
+    self,
+    name: str,
+    tags: set[str] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> Callable[[type[_AgentT]], type[_AgentT]]
 ```
 
 Register an `Agent` subclass under ``name`` and auto-register
 its JSON ``run`` tool.
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
-The decorator returns the class unchanged, so the decorated symbol keeps
-its concrete subclass type.
+``meta`` is generic registration metadata threaded onto the same constructed
+run-tool object (naming no consumer concept — a registrant attaches any generic
+``tai42/*`` key, e.g. a crash-resume flag the run-dispatch seam reads). The
+decorator returns the class unchanged, so the decorated symbol keeps its
+concrete subclass type.
 
 **Parameters**
 
@@ -1488,6 +1729,7 @@ its concrete subclass type.
 |---|---|---|---|
 | `name` | `str` | — | — |
 | `tags` | `set[str] \| None` | `None` | — |
+| `meta` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### get_agent
@@ -1545,6 +1787,110 @@ class AppBackends(Protocol)
 ```python
 register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backend]], type[Backend]] | type[Backend]
 ```
+
+
+
+## AppSandboxes
+
+`tai42_contract.app.facets.AppSandboxes`
+
+```python
+class AppSandboxes(Protocol)
+```
+
+The sandbox-provider namespace (``app.sandboxes``).
+
+### Members
+
+#### register_sandbox
+
+`tai42_contract.app.facets.AppSandboxes.register_sandbox`
+
+```python
+register_sandbox(self, cls: type[Sandbox]) -> type[Sandbox]
+```
+
+Register the `Sandbox` provider (decorator form, returning the class
+unchanged). One provider backs the slot; a second registration is a conflict
+the runtime rejects loudly.
+
+
+#### sandbox
+
+`tai42_contract.app.facets.AppSandboxes.sandbox`
+
+```python
+sandbox: Sandbox | None
+```
+
+The registered provider, or ``None`` — status/introspection ONLY. Never
+gate execution on this nullable read; acquire through `require_sandbox`,
+the every-door guarantee (a ``None`` property is how per-consumer checks
+drift).
+
+
+#### require_sandbox
+
+`tai42_contract.app.facets.AppSandboxes.require_sandbox`
+
+```python
+require_sandbox(self) -> Sandbox
+```
+
+The ONE raising acquisition chokepoint: return the registered provider or
+raise `SandboxUnavailableError` (naming
+``TAI_MCP_SANDBOX`` and ``sandbox_module``) when none is registered. EVERY
+consumer acquires through here.
+
+
+#### sandbox_policy
+
+`tai42_contract.app.facets.AppSandboxes.sandbox_policy`
+
+```python
+sandbox_policy(self) -> SandboxPolicy
+```
+
+The skeleton-resolved `SandboxPolicy` — the
+plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
+session-create chokepoint.
+
+Available REGARDLESS of whether a provider is registered (it reads operator
+config, not a provider). Mirrors the ``ask_user`` / ``resolve_connection_auth``
+facade accessors that let an in-process plugin read a skeleton-resolved value
+without importing the skeleton; a consumer building a policied spec reads the
+network default and ``scrub_transcript`` here. Implemented in the skeleton,
+which resolves the policy once and returns the SAME value it binds to the kit.
+
+
+
+## AppInteractions
+
+`tai42_contract.app.facets.AppInteractions`
+
+```python
+class AppInteractions(Protocol)
+```
+
+The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
+
+### Members
+
+#### ask_user
+
+`tai42_contract.app.facets.AppInteractions.ask_user`
+
+```python
+ask_user: AskUser
+```
+
+The bound, `AskUser`-typed ``ask_user``
+callable, so an in-process plugin asks a human without importing the skeleton:
+``await tai42_app.interactions.ask_user(question, ..., mode="async",
+expiry_at=...)``. The return shape is the ``AskUser`` contract's:
+``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
+``SuspendedInteraction``. A facade EXPOSURE of the skeleton helper through the
+already-typed Protocol — no new ask semantics.
 
 
 
@@ -1964,6 +2310,40 @@ token_store: ConnectorTokenStore
 ```
 
 The connector token store (single-namespace, keyed by ``connection_id``).
+
+
+#### resolve_connection_auth
+
+`tai42_contract.app.facets.AppConnectors.resolve_connection_auth`
+
+```python
+async resolve_connection_auth(self, connection_id: str, provider_id: str, sub_service: str) -> ResolvedConnectionAuth | None
+```
+
+Resolve the credential a connection injects, for the CURRENT caller.
+
+The facade accessor an in-process plugin uses to read a skeleton-resolved
+credential (OAuth token / static env / static headers) without importing the
+skeleton — refreshing an expired OAuth token under the connection lock. Async
+because resolution performs I/O (the OAuth refresh under the connection lock);
+callers ``await`` it. Returns ``None`` when the connection injects nothing.
+
+GUARANTEE (enforced by the skeleton implementation): (1) it RAISES a loud
+constant-message error when NO execution identity is bound — the fail-close
+raise fires as the awaited coroutine runs, BEFORE resolving, so an
+identity-less door never gets creds injected; and
+(2) ``connection_id`` is a REFERENCE supplied by operator settings, NEVER
+session-supplied, so a session can neither reach an identity-less door's
+creds nor name another connection. The contract carries no logic — the
+skeleton owns the fail-close enforcement.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `connection_id` | `str` | — | — |
+| `provider_id` | `str` | — | — |
+| `sub_service` | `str` | — | — |
 
 
 
@@ -2613,5 +2993,89 @@ base tool with no registered validator gets no extra check.
 |---|---|---|---|
 | `base_tool` | `str` | — | — |
 | `validator` | `PresetWriteValidator` | — | — |
+
+
+#### register_input_schema_support
+
+`tai42_contract.app.facets.AppPresets.register_input_schema_support`
+
+```python
+register_input_schema_support(self, base_tool: str, support: PresetInputSchemaSupport) -> None
+```
+
+Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base
+tool; duplicate registration raises).
+
+A base-tool plugin calls this through the ``tai42_app`` handle when its tool
+module loads. A preset that sets an ``input_schema`` over a base tool with no
+registered support is a loud authoring error at the shared preset-authoring
+chokepoint, never a silently-ignored schema.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `support` | `PresetInputSchemaSupport` | — | — |
+
+
+#### input_schema_support
+
+`tai42_contract.app.facets.AppPresets.input_schema_support`
+
+```python
+input_schema_support(self, base_tool: str) -> PresetInputSchemaSupport | None
+```
+
+The input-schema support ``base_tool`` declared, or ``None`` if it declared
+none (its typed schema is fixed).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+
+
+#### register_registration_tier
+
+`tai42_contract.app.facets.AppPresets.register_registration_tier`
+
+```python
+register_registration_tier(self, base_tool: str, tier: RouteAction) -> None
+```
+
+Declare the authz character required to AUTHOR (create/save/rollback/rename)
+a preset over ``base_tool`` (one per base tool; duplicate registration raises).
+
+Default authoring is the presets' own ``write`` action; a base tool with no
+declaration keeps that default. A base tool declaring ``fenced`` requires the
+admin fence to author a preset over it. The shared preset-authoring chokepoint
+reads this and enforces it BEFORE any store write on every authoring door.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `tier` | `RouteAction` | — | — |
+
+
+#### registration_tier
+
+`tai42_contract.app.facets.AppPresets.registration_tier`
+
+```python
+registration_tier(self, base_tool: str) -> RouteAction | None
+```
+
+The authoring authz tier ``base_tool`` declared, or ``None`` if it declared
+none (authoring keeps the presets' default ``write`` action).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
 
 

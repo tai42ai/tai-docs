@@ -158,6 +158,15 @@ or filter clause raises ``MonitoringReadNotSupportedError``.
 
 
 
+## RUN_ATTRIBUTION_TRACE_NAME
+
+`tai42_contract.monitoring.writer.RUN_ATTRIBUTION_TRACE_NAME`
+
+```python
+RUN_ATTRIBUTION_TRACE_NAME = 'run'
+```
+
+
 ## MonitoringWriter
 
 `tai42_contract.monitoring.writer.MonitoringWriter`
@@ -461,4 +470,34 @@ Tear the client down so the next use rebuilds clean (fork-safety).
 Must fully evict the underlying client, not merely flush — a forked
 child inherits dead background threads otherwise.
 
+
+
+## attribute_run
+
+`tai42_contract.monitoring.writer.attribute_run`
+
+```python
+attribute_run(writer: MonitoringWriter, attribution: RunAttribution) -> AbstractContextManager[None]
+```
+
+Return the context manager that stamps ``attribution`` on the ambient
+trace for the WRAPPED block.
+
+A free function composing ``writer`` over `MonitoringWriter.trace_attributes`,
+kept off the Protocol so structural writers conform without inheriting it. The
+caller ENTERS the returned manager AROUND the whole run so the run's spans are
+created INSIDE the attribution scope. It RETURNS the manager rather than
+entering it — a one-shot enter/exit here would tear the scope down before any
+span exists and silently no-op the stamp. Guarded by
+`MonitoringWriter.current_trace_id`: a no-op manager outside a trace.
+Fail-safe by construction — the stamp's fail-safety is
+`MonitoringWriter.trace_attributes`'s (it catches + logs on enter/exit,
+never raises).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `writer` | `MonitoringWriter` | — | — |
+| `attribution` | `RunAttribution` | — | — |
 
