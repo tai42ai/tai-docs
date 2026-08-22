@@ -113,6 +113,23 @@ type CapabilityState = { status: "loading" } | { projection: MeProjection; statu
 ```
 
 
+## InteractionsStreamOptions
+
+```ts
+interface InteractionsStreamOptions
+```
+
+The inputs the caller drives the tail-only stream with.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `onResync` | `() => boolean \| Promise<boolean>` | Refetch `seed`. Called on every (re)connect ONLY — the tail carries no backlog, so this reconciles anything missed while disconnected. A live delta never calls it: the overlay updates the list and the derived `count` in place. MUST resolve `true` only when the refetch LANDED a fresh `total`, and `false` when it failed: the hook advances `countEpoch` only on `true`, so terminals and adds already folded into the fresh `total` are not applied to the count again, while after a failed refetch the prior-epoch deltas keep applying against the unchanged prior total instead of being discarded against a stale one. |
+| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "confirm"; audience?: string; channel?: string; created_at: string; format_payload: Record<string, unknown>; group_id: string; interaction_id: string; media?: unknown[]; origin?: string; question: string; recipient?: string; sensitive: boolean; server_verified?: boolean; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
+| `total` | `number` | The door's authoritative pending TOTAL for the current `seed` (the paged response's `total`). The published `count` derives the live pending tally from this plus the overlay delta, so the badge stays live without a refetch. |
+
+
 ## InteractionsStreamState
 
 ```ts
@@ -123,8 +140,8 @@ interface InteractionsStreamState
 
 | Property | Type | Description |
 |---|---|---|
-| `backlogLoaded` | `boolean` | — |
 | `connected` | `boolean` | — |
+| `count` | `number` | The live pending count: the seed `total` adjusted by the overlay delta stamped at or after the last landed resync's epoch (adds not in the seed, minus one per terminal id). Stays live without a refetch; a delta stamped before `countEpoch` is already reflected in `total` and not applied again. |
 | `disabled` | `boolean` | The interactions store is not configured on this deployment: the stream answered with a terminal 501 `interactions-not-configured`. Reconnection is abandoned (retrying would replay the same refusal forever) and the consumer renders the muted OFF state instead of a red error or a floating badge. |
 | `error` | `Error \| null` | — |
 | `interactions` | `StreamInteraction[]` | — |
@@ -510,10 +527,18 @@ kind is on), mirroring `useFeatureOff`'s not-off-until-known default.
 ## useInteractionsStream
 
 ```ts
-function useInteractionsStream(): InteractionsStreamState
+function useInteractionsStream(options: InteractionsStreamOptions): InteractionsStreamState
 ```
 
-**Related:** [InteractionsStreamState](/reference/studio-sdk/hooks#interactionsstreamstate)
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `onResync` | `() => boolean \| Promise<boolean>` | Refetch `seed`. Called on every (re)connect ONLY — the tail carries no backlog, so this reconciles anything missed while disconnected. A live delta never calls it: the overlay updates the list and the derived `count` in place. MUST resolve `true` only when the refetch LANDED a fresh `total`, and `false` when it failed: the hook advances `countEpoch` only on `true`, so terminals and adds already folded into the fresh `total` are not applied to the count again, while after a failed refetch the prior-epoch deltas keep applying against the unchanged prior total instead of being discarded against a stale one. |
+| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "confirm"; audience?: string; channel?: string; created_at: string; format_payload: Record<string, unknown>; group_id: string; interaction_id: string; media?: unknown[]; origin?: string; question: string; recipient?: string; sensitive: boolean; server_verified?: boolean; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
+| `total` | `number` | The door's authoritative pending TOTAL for the current `seed` (the paged response's `total`). The published `count` derives the live pending tally from this plus the overlay delta, so the badge stays live without a refetch. |
+
+**Related:** [InteractionsStreamOptions](/reference/studio-sdk/hooks#interactionsstreamoptions), [InteractionsStreamState](/reference/studio-sdk/hooks#interactionsstreamstate)
 
 
 ## useOnUnauthorized
