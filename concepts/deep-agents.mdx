@@ -1,10 +1,8 @@
 ---
 title: "Deep agents"
-description: "Durable, code-executing agents — two implementations on one contract."
+description: "Durable, code-executing agents on the ordinary Agent contract."
 icon: "diagram-project"
 ---
-
-import EnableDeepAgent from '/snippets/examples/agents/enable_deep_agent.mdx';
 
 A deep agent is a multi-step agent that runs durable, code-executing work — it
 plans, composes other agents, and keeps a working filesystem across steps. It is
@@ -13,18 +11,8 @@ contract — so there is no separate framework to learn. "Deep agents" is a conc
 word for that behavior, **not** a platform module: the depth is durable,
 code-executing behavior, not a new kind of object.
 
-## Two implementations, one contract
-
-The platform ships two deep agents, both ordinary [agents](/concepts/agents)
-against the same `Agent` ABC in the `tai42-agents` package:
-
-- `langchain_deep_agent` — the LangGraph/deepagents harness: planning, a scratch
-  filesystem, skills, one level of nested sub-agents, and human-in-the-loop
-  interrupts.
-- `claude_code` — the Claude Agent SDK driven as a normal platform agent.
-
-There is no separate "deep agent" module or framework behind them; both are
-registered and run exactly like any other agent.
+There is no separate "deep agent" module or framework behind them: a deep agent is
+registered and run exactly like any other agent, against the same `Agent` ABC.
 
 ## Sub-agents
 
@@ -40,29 +28,25 @@ page applies to them: the same registration, the same typed
 
 ## The ready-made agents
 
-The platform ships a set of ready-made agents you enable from the
+The platform ships ready-made deep agents you enable from the
 [manifest](/concepts/manifest), rather than authoring them yourself. They are part
 of the batteries-included default set — usable platform content — so their usage
-lives in-site.
-
-The [use-the-ready-made-agents guide](/guides/use-the-ready-made-agents) covers
-the whole set; per-agent reference detail lives in that package's own repository,
-one click out from the [agents plugin](/plugins/tai42/agents).
+lives in-site: see [the agents plugin](/plugins/tai42/agents) for the per-agent
+reference and [the guide](/guides/use-the-ready-made-agents) for enabling and
+running each one.
 
 ## Durable execution via the sandbox
 
-Both deep agents reach the same [sandbox](/concepts/sandbox) seam the same way.
-`claude_code` drives the Claude Agent SDK inside a session. `langchain_deep_agent`'s
-scratch filesystem is a durable sandbox backend over the same `SandboxSession`
-contract, so its working files persist and reap under the operator's durability
-settings.
-
-<Warning>
-`langchain_deep_agent`'s scratch backend **is** the sandbox: a run with no sandbox
-provider installed fails loudly at `require_sandbox()`. Installing a
-[sandbox provider](/operate/sandbox) is a hard prerequisite for it, not an
+A deep agent reaches the same [sandbox](/concepts/sandbox) seam every
+code-executing agent does, and there are two patterns for how it does so. In the
+**session-driving** pattern the agent drives an external code runtime inside a
+sandbox session over the `SandboxSession` contract. In the
+**durable-scratch-backend** pattern the agent's working filesystem *is* a sandbox
+backend over that same contract, so its scratch files persist and reap under the
+operator's durability settings. Either way the sandbox is a hard prerequisite: an
+agent whose scratch backend is the sandbox fails loudly when no
+[sandbox provider](/operate/sandbox) is installed, so installing one is not an
 optional add-on.
-</Warning>
 
 ## Crash-resume
 
@@ -70,39 +54,6 @@ A long detached run can be re-driven from its durable checkpoint plus its
 persistent workspace after a process recycle — when the operator turns
 crash-resume **on**. Re-drive is at-least-once. With crash-resume off, a recycled
 run accepts the risk and surfaces loudly. It is a setting, not a default.
-
-## Run one
-
-Enable `langchain_deep_agent`'s module and the agents router:
-
-<EnableDeepAgent />
-
-Then stream a run, passing the input as a JSON object (its fields are the agent's
-own `ToolInput`):
-
-```bash
-tai agents run langchain_deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
-```
-
-A `response_format` schema is validated up front: it must carry a top-level
-`title`, and every `oneOf` variant must carry a non-empty `title` of its own — a
-schema missing either raises a `ValueError` before the run starts.
-
-When a run requests a `response_format` but produces no structured output, both
-faces **raise rather than silently omitting the structured frame**: the JSON `run`
-face raises on drain, and the streaming face raises after the stream drains —
-unless the run paused on a pending interrupt, which takes precedence over the
-missing-structured raise.
-
-By contrast, a tool failure is surfaced to the model as an error tool result and the
-loop continues, so the agent can react to a bad call rather than aborting the whole
-run: a `ToolException` — how an in-process tool's own body exception is reported — or
-a pydantic `ValidationError` from a malformed tool call. Failures outside the tool
-call still abort loudly. This holds for the main agent and its explicit and nested
-sub-agents alike. A thread whose previous turn was aborted mid-tool-call is repaired
-at the next turn start (its unanswered tool calls get synthetic error results) so the
-provider stops rejecting the thread, while a thread paused on a real interrupt is left
-untouched.
 
 ## Authored deep agents
 
@@ -112,7 +63,7 @@ fields and rides the [versioning spine](/concepts/versioning-spine). That lets y
 multi-step agent's wiring over time without breaking the callers that run it.
 
 See the [author-an-agent guide](/guides/author-an-agent) for the authoring path,
-the [use-the-ready-made-agents guide](/guides/use-the-ready-made-agents) for the
-`claude_code` worked run, [operate/sandbox](/operate/sandbox) for installing a
-provider, and the [Python SDK reference](/reference/python-sdk/index) for the
-sub-agent descriptor and the `Agent` ABC.
+the [use-the-ready-made-agents guide](/guides/use-the-ready-made-agents) for worked
+runs, [operate/sandbox](/operate/sandbox) for installing a provider, and the
+[Python SDK reference](/reference/python-sdk/index) for the sub-agent descriptor
+and the `Agent` ABC.
