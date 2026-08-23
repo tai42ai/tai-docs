@@ -205,10 +205,9 @@ def fetch_listing(base: str, namespace: str, name: str) -> tuple[dict, dict[str,
             files[path] = entry["content"].encode("utf-8")
         else:
             # An image member: fetch its raw bytes from the asset route. The
-            # stored path begins `docs/`; the asset route addresses it relative
-            # to that prefix.
-            rel = path[len("docs/") :] if path.startswith("docs/") else path
-            files[path] = _get(f"{base}/api/v1/plugins/{namespace}/{name}/docs/assets/{rel}")
+            # route addresses a member by its exact stored key (beginning
+            # `docs/`) — the registry's own route tests pin that full-path form.
+            files[path] = _get(f"{base}/api/v1/plugins/{namespace}/{name}/docs/assets/{path}")
     return spec, files
 
 
