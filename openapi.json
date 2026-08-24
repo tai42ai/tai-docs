@@ -10721,6 +10721,72 @@
         ]
       }
     },
+    "/api/interactions/pending": {
+      "get": {
+        "description": "A read-only admin audit of the parked async asks awaiting an answer — the native\nsurface a scheduled watchdog flow reads to spot parks nearing (or past) their\nexpiry.\n\nAn UNRESTRICTED operator sees the whole cross-audience set — exactly the reach the\noperator inbox (``list_interactions``) already grants. A RESTRICTED caller sees ONLY\nthe parks addressed to its identity, the same audience filter the inbox applies —\nnever a 403: this operation is projected, and a projected route must agree with the\ngate for every identity it is projected to (the owned-keys e2e pins that invariant).\nReads the ``pending:expiry`` index WITHOUT mutating it (no claim, no TTL change):\npurely an audit. ``limit`` is clamped to ``1..``:data:`MAX_PENDING_INTERACTIONS_LIMIT`\n(default :data:`DEFAULT_PENDING_INTERACTIONS_LIMIT`); it bounds the underlying index\nscan, so a restricted caller's filtered slice may hold fewer items. Returns\n``{\"items\", \"count\"}`` — each item carries ``interaction_id``, ``group_id``,\n``question`` (truncated), ``channel``, ``recipient``, ``audience``, ``thread_id``\n(when the park carries one), ``expiry_at``, ``created_at``, ``mode``.",
+        "operationId": "get_api_interactions_pending",
+        "parameters": [
+          {
+            "description": "Max parked asks to return, soonest-expiry first. Bounded to 1..1000; an out-of-range value is clamped, never refused.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List parked (async) interactions awaiting an answer",
+        "tags": [
+          "interactions"
+        ]
+      }
+    },
     "/api/interactions/stream": {
       "get": {
         "operationId": "get_api_interactions_stream",
