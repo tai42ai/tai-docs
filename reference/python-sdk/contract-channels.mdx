@@ -20,6 +20,24 @@ A channel also sends fire-and-forget notifications: ``notify`` pushes one
 reply path, under the same loud-failure rule; it returns the per-message ids the
 medium assigned the send (empty when the medium exposes none), never a bool.
 
+## AnswerForwardError
+
+`tai42_contract.channels.AnswerForwardError`
+
+```python
+class AnswerForwardError(Exception)
+```
+
+The interactions answer door did not accept a forwarded answer on a status the
+shared inbound-answer ladder cannot resolve (401/413/5xx or a transport fault).
+
+Raised by `AppChannels.handle_inbound_answer` WITHOUT releasing the
+correlation, so the channel's transport-level retry (the provider's webhook
+redelivery) re-runs the ladder and the answer is never silently lost. A channel
+lets it propagate out of its inbound webhook so the provider redelivers — the
+same loud-failure contract each channel kept when it hand-rolled the ladder.
+
+
 ## Channel
 
 `tai42_contract.channels.Channel`
@@ -422,4 +440,99 @@ so releasing twice — or racing an expiry — is never an error.
 |---|---|---|---|
 | `key` | `str` | — | — |
 
+
+
+## InboundAnswerOutcome
+
+`tai42_contract.channels.InboundAnswerOutcome`
+
+```python
+class InboundAnswerOutcome(StrEnum)
+```
+
+What the shared inbound-answer ladder decided for one inbound reply on a
+correlation key. A channel maps this to its own transport ack.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `NO_CORRELATION` | — |
+| `FORWARDED` | — |
+| `RETRY_KEPT` | — |
+| `BRIDGED` | — |
+
+
+## InboundAnswerResult
+
+`tai42_contract.channels.InboundAnswerResult`
+
+```python
+class InboundAnswerResult(BaseModel)
+```
+
+The result of one inbound-answer ladder run.
+
+``outcome`` is the ladder's decision. ``retry_reason`` and ``retry_field`` carry the
+door's OWN (already length-bounded) rejection message and the failing field name so a
+channel that OWNS its correction surface (a re-opened WhatsApp Flow, a Slack modal's
+inline Block-Kit error) can render the door's SPECIFIC message rather than a generic
+line. Both are populated when the door rejected the answer's content — on
+`InboundAnswerOutcome.RETRY_KEPT` (either ``notice_owner`` variant) and on a
+hard-mismatch `InboundAnswerOutcome.BRIDGED` — and are ``None`` on every other
+outcome (no correlation, a clean forward, a gone-ask 404 bridge). A channel that
+renders no correction of its own simply ignores them and maps ``outcome``.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `outcome` | `InboundAnswerOutcome` |
+| `retry_reason` | `str \| None` |
+| `retry_field` | `str \| None` |
+
+
+## InboundBridge
+
+`tai42_contract.channels.InboundBridge`
+
+```python
+class InboundBridge(BaseModel)
+```
+
+The context a bridged turn needs when a reply is not (or no longer) an answer.
+
+A channel hands one of these to `AppChannels.handle_inbound_answer` alongside
+the correlation key and answer value. ``channel_id`` is the registered channel
+name; ``our_identity`` and ``client_address`` are the conversation's two addresses
+(the operator identity the turn answers from, and the guest's attested address /
+thread); ``cap_key`` is the party the per-address turn cap holds accountable;
+``provider_message_id`` dedupes a provider redelivery at the conversation seam;
+``bridge_text`` is the channel's faithful rendering of the guest's message for a
+bridged turn.
+
+``owns_retry_notice`` lets a channel OWN the guest-facing correction message on a
+retryable rejection. The default (False) is that the ladder sends the generic
+"that didn't match, try again" notice on `InboundAnswerOutcome.RETRY_KEPT`.
+When True, the channel's correction surface IS a re-ask the channel renders off
+RETRY_KEPT (a re-opened WhatsApp Flow, a Slack modal's inline Block-Kit error), so
+the ladder SKIPS its notice to avoid double-messaging — it still keeps the
+correlation and still emits the operator event (tagged ``notice_owner="channel"``).
+It applies ONLY to the retryable path: on a hard mismatch (a closed ask) the
+channel's re-ask surface is moot, so the ladder always sends the final "question is
+closed" notice regardless of this flag.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `channel_id` | `str` |
+| `our_identity` | `str` |
+| `client_address` | `str` |
+| `cap_key` | `str` |
+| `provider_message_id` | `str` |
+| `bridge_text` | `str` |
+| `owns_retry_notice` | `bool` |
 
