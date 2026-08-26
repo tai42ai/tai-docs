@@ -628,6 +628,19 @@
             "minLength": 1,
             "title": "Target Name",
             "type": "string"
+          },
+          "turns_per_hour_override": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turns Per Hour Override"
           }
         },
         "required": [
@@ -8385,7 +8398,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row's ``callback_secret`` is minted here and returned ONCE.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row's ``callback_secret`` is minted here and returned ONCE. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
