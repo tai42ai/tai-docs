@@ -13988,7 +13988,7 @@
         ]
       },
       "post": {
-        "description": "Create a preset, ATOMIC: ordered name pre-checks run BEFORE any store write,\nthen the base rule + agent-authoring + combo/schema/bind validation, then the\nstore write THEN register (rolling the row fully back on a register failure), one\n``list_changed``, and the bus rebind fan-out. The response embeds the per-worker\nfleet report under ``fanout``.",
+        "description": "Create a preset, ATOMIC: the shared :func:`_create_preset_core` runs the ordered\nname pre-checks, validation, store write THEN register (rolling the row fully back on\na register failure), one ``list_changed``, and the bus rebind fan-out. The response\nembeds the per-worker fleet report under ``fanout``.\n\nA preset's NAME is its identity everywhere — it IS the live tool binding, and every\nreference keys on it deliberately; there are no surrogate ids.",
         "operationId": "post_api_presets",
         "requestBody": {
           "content": {
@@ -14306,7 +14306,7 @@
     },
     "/api/presets/{name}/referees": {
       "get": {
-        "description": "Every OTHER preset whose active authored-agent composition names this one as\na tool — the referees a rename would strand, exposed so the UI can preflight a\nrename. 404 for an unknown preset, the same existence check the rename door runs\nfirst.",
+        "description": "Every live reference a rename of this preset would strand — the SAME full union\nthe rename door blocks on: the OTHER presets whose active body composes it, plus every\nregistered referee (platform wiring — schedules/hooks/routes/extensions/parks — and\nplugin holders). Exposed so the UI can preflight a rename. 404 for an unknown preset,\nthe same existence check the rename door runs first; a referee raising propagates\nloudly, exactly as at the rename gate.",
         "operationId": "get_api_presets_name_referees",
         "parameters": [
           {
@@ -14361,7 +14361,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List presets that reference this preset",
+        "summary": "List live references to this preset",
         "tags": [
           "presets"
         ]
@@ -14369,7 +14369,7 @@
     },
     "/api/presets/{name}/rename": {
       "post": {
-        "description": "Rename a preset, ATOMIC (a preset's name IS its live tool name). Runs create's\nordered name pre-checks on the NEW name, BLOCKS with a 409 listing every referee\nif another preset composes the current name, binds the new tool BEFORE tearing\nthe old one down, fires one ``list_changed``, and fans the rebind out NEW-first\nthen the old removal. The response embeds the primary rebind (new-name) fan-out\nreport under ``fanout``; the old-name removal stays log-only.",
+        "description": "Rename a preset, ATOMIC (a preset's name IS its live tool name). Runs create's\nordered name pre-checks on the NEW name, BLOCKS with a 409 listing every referee\nif any live reference composes the current name, binds the new tool BEFORE tearing\nthe old one down, fires one ``list_changed``, and fans the rebind out NEW-first\nthen the old removal. The response embeds the primary rebind (new-name) fan-out\nreport under ``fanout``; the old-name removal stays log-only.\n\nA preset's NAME is its identity everywhere — it IS the live tool binding, and every\nreference (preset bodies, platform wiring, plugin holders) keys on it deliberately;\nrename integrity is enforced at THIS gate, and there are no surrogate ids.",
         "operationId": "post_api_presets_name_rename",
         "parameters": [
           {
