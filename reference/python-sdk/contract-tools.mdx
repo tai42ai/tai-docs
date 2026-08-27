@@ -171,6 +171,30 @@ tool_refs_extractor(self, name: str) -> ToolRefsExtractor | None
 | `name` | `str` | — | — |
 
 
+#### register_rename_referee
+
+`tai42_contract.tools.AppTools.register_rename_referee`
+
+```python
+register_rename_referee(self, provider: ToolRenameReferee) -> None
+```
+
+Register a `ToolRenameReferee` consulted before a tool rename.
+
+A plugin holding tool-name references calls this through the ``tai42_app``
+handle when its module loads. Every registered referee is asked for the
+old name on a rename; any non-empty answer blocks the rename and its
+descriptions name the holders. Registering the same provider object twice
+raises loudly — a double registration is a plugin bug, never a silent
+duplicate consult.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolRenameReferee` | — | — |
+
+
 
 ## ToolInfo
 
@@ -195,6 +219,26 @@ bound from (a branch tool names itself, e.g. ``name_chain``).
 | `description` | `str` |
 
 
+## ToolInvocation
+
+`tai42_contract.tools.invocation.ToolInvocation`
+
+```python
+class ToolInvocation(BaseModel)
+```
+
+The tool execution currently in flight: ``tool_name`` is the invoked
+tool's registered name. Frozen — a deposited invocation is a fact of the
+active execution, never mutated in place.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `tool_name` | `str` |
+
+
 ## ToolRefsExtractor
 
 `tai42_contract.tools.ToolRefsExtractor`
@@ -202,4 +246,63 @@ bound from (a branch tool names itself, e.g. ``name_chain``).
 ```python
 ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[str]]
 ```
+
+
+## ToolRenameReferee
+
+`tai42_contract.tools.ToolRenameReferee`
+
+```python
+ToolRenameReferee = Callable[[str], Awaitable[list[str]]]
+```
+
+
+## current_tool_invocation
+
+`tai42_contract.tools.invocation.current_tool_invocation`
+
+```python
+current_tool_invocation() -> ToolInvocation | None
+```
+
+The tool execution in flight for the current context, or ``None`` when no
+tool is executing.
+
+
+## reset_current_tool_invocation
+
+`tai42_contract.tools.invocation.reset_current_tool_invocation`
+
+```python
+reset_current_tool_invocation(token: Token[ToolInvocation | None]) -> None
+```
+
+Restore the in-flight tool to the value captured in ``token`` by the
+matching `set_current_tool_invocation` call.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `token` | `Token[ToolInvocation \| None]` | — | — |
+
+
+## set_current_tool_invocation
+
+`tai42_contract.tools.invocation.set_current_tool_invocation`
+
+```python
+set_current_tool_invocation(invocation: ToolInvocation) -> Token[ToolInvocation | None]
+```
+
+Deposit ``invocation`` as the in-flight tool for the current context; pass
+the returned token to `reset_current_tool_invocation` to restore the
+previous value. Nested deposits (a tool invoking another) re-set for the inner
+call and restore the outer value on reset — ContextVar token discipline.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `invocation` | `ToolInvocation` | — | — |
 
