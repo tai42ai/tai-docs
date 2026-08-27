@@ -59,6 +59,20 @@ it with a `409`, and only `delete` clears it (a hard store removal that touches 
 registration). This field is the only place the cause is reported — resolve a
 conflict by deleting the record and re-creating it once its base is back.
 
+## Plugin-shipped defaults
+
+Beyond the tools, extensions, and agents a [plugin](/concepts/marketplace) can
+carry, a plugin may also ship **default presets** — preset definitions it declares
+in code, which the platform seeds at boot. A declared default is created when it is
+absent and upgraded in place when the plugin's shipped definition changes across
+releases, so a fresh install and an upgrade both land the current default without
+any operator step. The seeding is one-directional and deferential: a seeded default
+stays plugin-owned only while it is untouched, and the first time an operator edits
+it the preset becomes operator-owned and the plugin never overwrites it again. A
+seed likewise fills a default's display name, tags, or folder only where the
+[organization overlay](/concepts/tool-organization) leaves them unset, never over an
+operator's own label.
+
 ## Baked values are a may-run boundary
 
 A preset's baked `fixed_kwargs` are a *may-run* boundary, not a *may-read* one.
@@ -91,14 +105,23 @@ Beyond the create/version/rollback core, the surface carries four more doors:
   running the exact pre-write checks the create (new name) or save-version
   (existing name) route runs, without writing anything. A malformed request is a
   `400`; a valid or invalid draft is both a `200` carrying a `valid` verdict.
-- **`referees`** — the other presets whose authored-agent composition names this
-  one as a tool. These are the presets a rename would strand, exposed so a UI (or
-  you) can preflight a rename.
+- **`referees`** — every live reference a rename of this name would strand, listed
+  so a UI (or you) can preflight the rename. The list is the full union: the other
+  presets whose authored-agent composition names this one as a tool, **plus every
+  behavioral holder that wires against the name** — a schedule that fires it, a hook
+  that targets it, a conversation route pointing at it, a tool-extensions map entry
+  carrying it, a parked interaction whose resume continuation is it, and any
+  plugin-held reference a plugin declares through the rename-referee seam. Each
+  holder is named individually.
 - **`rename`** — a preset's name *is* its live tool name, so a rename rebinds the
-  tool (new name bound before the old is torn down). It runs create's name
-  pre-checks on the new name and **blocks with a `409` listing every referee** if
-  another preset composes the current name — update those referees first. It also
-  rejects a conflicted record (`409`) and a no-op rename (`400`).
+  tool (new name bound before the old is torn down). Rename integrity is enforced
+  atomically **at this one gate**: it runs create's name pre-checks on the new name
+  and **blocks with a `409` listing every holder** — the same full referee union
+  above (referencing presets and behavioral wiring alike) — so you update those
+  references first rather than have the rename silently strand them. It also rejects
+  a conflicted record (`409`) and a no-op rename (`400`). Display metadata is not a
+  behavioral reference: a tool's [organization overlay](/concepts/tool-organization)
+  follows the name across a rename rather than blocking it.
 - **`set-version-tags`** — replace one version's `tags` annotation. Tags are
   labels on an immutable version body, so this never rebinds the live tool.
 

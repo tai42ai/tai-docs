@@ -29,41 +29,55 @@ Babelfish Flows ships as one installable plugin carrying two halves:
   top-level **Flows** page and its nav entry. On the canvas, nodes can be gathered
   into named, collapsible groups — a collapsed group renders as one card that hides
   its members and reroutes their boundary edges, and expanding it reveals them
-  again. Groups persist with the flow and carry across the editable, run, and
-  read-only history views, showing an aggregated member status in Run mode; the
-  collapse/expand toggle itself is a transient view preference and is not saved.
+  again. Groups persist with the flow and carry across the editable, run,
+  read-only history, and reading views, showing an aggregated member status in Run
+  mode; the collapse/expand toggle itself is a transient view preference and is not
+  saved.
 
 A saved flow is a versioned [preset](/concepts/presets) with the graph carried in
 the preset's fixed arguments, so flows version, diff, and roll back through the
 [versioning spine](/concepts/versioning-spine) like everything else.
 
+## The explanation layer
+
+A flow carries an explanation layer aimed at the person reading it, not just the
+engine running it. Nodes and flows take plain-language descriptions, the editor
+renders a generated legend that summarizes what a flow does and the pieces it uses,
+and a dedicated reading view presents the whole flow as an annotated walkthrough — a
+calm, non-editable mode for reviewing or explaining a flow without changing it.
+
+## Custom nodes
+
+Beyond the built-in steps, you can define your own palette nodes from saved flows:
+promote a flow into a reusable node, give it a category and an icon, and it appears
+in the editor's palette alongside the defaults for anyone to drop into a new flow.
+Babelfish ships a set of ready-made nodes to start from — an ask, a form, and a
+send-message node — covering the common conversation moves out of the box.
+
+## Inputs and results
+
+Each flow declares its own inputs and results — the values it expects when it starts
+and the values it hands back when it finishes — so a flow presents a clear contract
+to whatever calls it and the editor can prompt for the right inputs when you run one.
+
+## Conversation state
+
+A flow can declare the conversation state it reads and writes — the named pieces of
+context that persist across a conversation. A dedicated State tab in the editor makes
+that state visible: the declared states, the bindings that connect them to a flow
+from either side — what a flow reads out of state and what it writes back — and a
+relations view that maps how flows and state connect across the product.
+
 ## How it plugs in
 
-It is wired like any other plugin — a tools entry for the engine, a
-`studio_plugins` entry for the editor bundle, and the host routers the flow UI
-rides:
-
-```yaml manifest.yml
-tools:
-  - title: babelfish-flows
-    module: tai42_babelfish_flows.tools.tools
-studio_plugins:
-  - tai42_babelfish_flows
-routers_modules:
-  - tai42_skeleton.routers.tools
-  - tai42_skeleton.routers.tool_runs
-  - tai42_skeleton.routers.presets
-  - tai42_skeleton.routers.plugins
-```
-
-The `routers_modules` order is load-bearing: `tai42_skeleton.routers.plugins`
-must be last, because its SPA catch-all matches any path and routers register in
-import order.
+It installs like any other plugin: it registers its **Flows** page and the API
+behind it under its own route mount, and integrates with the Studio the same way
+every plugin does.
 
 The bundle is committed inside the distribution, so installing it needs no
-JavaScript toolchain on the server. The plugin adds no HTTP route of its own and
-claims no backend — see [Studio plugins](/studio/plugins) for how the Studio
-loads a plugin bundle and pins it.
+JavaScript toolchain on the server. The plugin ships its own HTTP API under its own
+route mount and claims no backend — see [Studio plugins](/studio/plugins) for how the
+Studio loads a plugin bundle and pins it.
 
 ## Organizing flows
 
@@ -87,8 +101,7 @@ that overlay directly:
 - **Per-flow editing.** A flow row edits its display name, tags, and folder in
   place. Hiding a tool is centralized on the [Studio Tools
   screen](/studio/screens), not here — the Flows page manages everything except
-  visibility. Babelfish's internal `flow_step` tool ships hidden by default so it
-  stays out of the way while remaining callable.
+  visibility.
 
 The Flows page derives its entire view state — the open flow, the current folder,
 open dialogs, and the active filters — from the URL, so a flow is bookmarkable and
