@@ -167,6 +167,61 @@ class PresetNotFoundError(PresetError)
 No preset (or no active preset) named ``name``.
 
 
+## PresetSeed
+
+`tai42_contract.presets.models.PresetSeed`
+
+```python
+class PresetSeed(BaseModel)
+```
+
+A declared default preset a plugin ships for import-time seeding.
+
+A seed names the preset (``name``), its human ``description``, the
+``base_tool`` it binds, and the ``fixed_kwargs`` baked in — the same body a
+`PresetBody` carries — plus the optional author ``input_schema`` /
+``output_schema`` and optional ``tool_meta`` display seed. The applier creates
+or upgrades the preset from this shape; the contract holds only the SHAPE,
+never the applier logic.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `description` | `str` |
+| `base_tool` | `str` |
+| `fixed_kwargs` | `dict[str, Any]` |
+| `input_schema` | `dict[str, Any] \| None` |
+| `output_schema` | `dict[str, Any] \| None` |
+| `tool_meta` | `PresetSeedToolMeta \| None` |
+
+
+## PresetSeedToolMeta
+
+`tai42_contract.presets.models.PresetSeedToolMeta`
+
+```python
+class PresetSeedToolMeta(BaseModel)
+```
+
+The optional display metadata a `PresetSeed` seeds onto its preset's
+tool_meta. Each field is applied only where the preset's tool_meta leaves it
+absent — a seed never overwrites an operator-set display value.
+
+``display_name`` is the human tool title; ``tags`` label it in listings;
+``folder_path`` is a ``/``-style path the applier resolves into the tool_meta
+folder tree (creating missing segments), never a raw stored string.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `display_name` | `str \| None` |
+| `tags` | `list[str] \| None` |
+| `folder_path` | `str \| None` |
+
+
 ## PresetSpec
 
 `tai42_contract.agent.base.PresetSpec`
@@ -218,15 +273,19 @@ async create_preset(
     extensions: Sequence[Sequence[ExtensionElement]],
     output_schema: dict[str, Any] | None = None,
     input_schema: dict[str, Any] | None = None,
+    *,
+    tags: list[str] | None = None,
 ) -> DocumentRecord
 ```
 
 Create a versioned preset. ``spec`` carries ``name``/``description``/
 ``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
 optional ``output_schema`` / ``input_schema`` ride alongside — all of them
-land in the persisted `PresetBody`. Raise `PresetExistsError`
-on a duplicate name, `PresetNameConflictError` if the name collides
-with a base tool.
+land in the persisted `PresetBody`. ``tags`` labels version 1 in the
+SAME create commit (``None`` leaves it untagged); a caller that must tag the
+first version does so atomically, never through a separate follow-up write.
+Raise `PresetExistsError` on a duplicate name,
+`PresetNameConflictError` if the name collides with a base tool.
 
 **Parameters**
 
@@ -236,6 +295,7 @@ with a base tool.
 | `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 | `input_schema` | `dict[str, Any] \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
 
 
 #### save_version
@@ -252,10 +312,15 @@ async save_version(
     description: str | None = None,
     *,
     input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    tags: list[str] | None = None,
 ) -> DocumentVersion
 ```
 
 Append a new version from the editable body fields.
+
+``tags`` labels the new version in the SAME save commit (``None`` leaves it
+untagged, the door's default); a caller that must tag the version does so
+atomically, never through a separate follow-up write.
 
 A version body is the FULL `PresetBody`, so the view reconstructs
 the new body by ALWAYS carrying ``base_tool`` forward from the ACTIVE
@@ -288,6 +353,7 @@ absent.
 | `output_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `description` | `str \| None` | `None` | — |
 | `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `tags` | `list[str] \| None` | `None` | — |
 
 
 #### list_presets

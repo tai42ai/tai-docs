@@ -189,11 +189,22 @@ migrations/
   0002_add_invite_index.sql
 ```
 
-**One component, one identity.** The chain is recorded in the per-database
-`tai_schema_history` table under the plugin's **distribution name** (`package`) —
-for the accounts plugin, `tai42-accounts-postgres`. That identity is fixed once
-and forever: it never changes across releases, so the runner always reads the
+**The chain's component identity.** By default the chain is recorded in the
+per-database `tai_schema_history` table under the plugin's **distribution name**
+(`package`) — for the accounts plugin, `tai42-accounts-postgres` — and that
+default identity never changes across releases, so the runner always reads the
 exact rows earlier versions wrote.
+
+A plugin whose feature store is a **separate database component** rather than the
+distribution itself may instead declare an explicit `migrations_component` naming
+that component (declaring it requires `migrations`; a component with no chain
+migrates nothing). A component-scoped chain runs only while that component's
+[database binding](/concepts/config-and-secrets#component-bindings) is explicitly
+declared: with the binding set, the chain migrates that component's store under the
+declared name; with it unset, `tai db migrate` **visibly skips** the chain — a
+distinct, logged skip naming which chain did not run — rather than migrating it
+into the default database. So the store stays off until an operator opts it in by
+declaring its binding.
 
 **Checksum immutability — never edit a shipped file.** The runner records a
 SHA-256 of every applied file. On the next migrate or [boot gate](/self-hosted/upgrades#the-boot-gate)
