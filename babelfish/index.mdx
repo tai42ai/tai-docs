@@ -26,7 +26,8 @@ Babelfish Flows ships as one installable plugin carrying two halves:
   schedules, and tracing.
 - **A flow editor in the Studio.** A front-end bundle the runtime serves to the
   [Studio](/studio) through its integrity-pinned import map, contributing a
-  top-level **Flows** page and its nav entry. On the canvas, nodes can be gathered
+  top-level **Babelfish Flows** page (and a companion **Babelfish State** page for
+  the flow engine's declared state) and their sidebar entries. On the canvas, nodes can be gathered
   into named, collapsible groups — a collapsed group renders as one card that hides
   its members and reroutes their boundary edges, and expanding it reveals them
   again. Groups persist with the flow and carry across the editable, run,
@@ -52,7 +53,13 @@ Beyond the built-in steps, you can define your own palette nodes from saved flow
 promote a flow into a reusable node, give it a category and an icon, and it appears
 in the editor's palette alongside the defaults for anyone to drop into a new flow.
 Babelfish ships a set of ready-made nodes to start from — an ask, a form, and a
-send-message node — covering the common conversation moves out of the box.
+send-message node — covering the common conversation moves out of the box. These
+reach the same rich face: the ask and send-message nodes take optional display
+**media** (a list of `{kind: image | link, url, caption?}` items shown with the
+prompt) and optional suggested-reply **options**, while the form takes media
+alongside its schema-driven answer (options do not apply to a form, whose answer
+shape is its schema). Every one of those fields is optional and inert when omitted,
+so a node that sets none keeps its wiring byte-identical.
 
 A custom node is a saved flow published to the palette, and it is managed **as a
 node, not as a flow**. The palette's Custom Nodes section gives each card an edit
@@ -61,8 +68,9 @@ confirm, and a **+ New custom node** action starts a fresh one in place. Deletio
 routes through ordinary [preset](/concepts/presets) deletion, so it unregisters the
 tool; the confirm states the blast radius plainly — the node leaves the palette, and
 any flow that already embeds it keeps a now-dangling reference to it. A custom node
-also stays visible in the flow list, badged **Node** so it reads as palette-managed
-rather than as a standalone flow.
+lives in the palette **only**: the flows list shows flows, never custom nodes — nor a
+category folder emptied by them — so a palette-managed node never surfaces among your
+standalone flows.
 
 ## Looping over a list
 
@@ -94,6 +102,24 @@ mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 Each flow declares its own inputs and results — the values it expects when it starts
 and the values it hands back when it finishes — so a flow presents a clear contract
 to whatever calls it and the editor can prompt for the right inputs when you run one.
+
+## Portable flow files
+
+A flow exports to a single `.babelfish-flow.json` file — the stored graph verbatim —
+and imports back the same way. When the flow carries state bindings, the export gains
+an optional **`state_bindings` sidecar**: each binding travels alongside the graph
+with its state name, its subject expression and fills (guards included), and a stable
+**schema fingerprint** of the state's declaration at export time. The graph itself is
+untouched and the sidecar is never persisted onto the saved preset, so a flow with no
+bindings exports byte-identically to the pre-sidecar format and an older file (no
+sidecar) imports exactly as before.
+
+On import, the editor offers to re-attach each carried binding against the target
+environment's states. A state of that name whose schema fingerprint still matches
+re-attaches straight through; when the schema has changed, each bound path is
+re-checked and the binding re-attaches only if every path still resolves; a state
+that does not exist here, or a bound path that no longer resolves, is reported per
+binding and left unattached rather than silently dropped.
 
 ## Structured agent output
 

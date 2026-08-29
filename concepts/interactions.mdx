@@ -192,10 +192,16 @@ stream is tail-only, so nothing is replayed whole on (re)connect.
 
 - **Display-only.** Media rides the question, never the answer. The person's
   reply carries no media.
-- **Not forwarded to channels.** A question always persists to the inbox, where
-  its media renders. When the same question is also delivered to a
-  [channel](#delivering-to-a-channel), only the question text is forwarded — the
-  media stays in the inbox.
+- **Forwarded to channels that render it.** A question always persists to the
+  inbox, where its media renders. When the same question is also delivered to a
+  [channel](#delivering-to-a-channel), its media rides the delivery too — the channel
+  renders it alongside the question. It is a pure enhancement, not structure: a
+  channel that renders only text simply ignores it (no capability flag, never a
+  refused send). The channel copy carries an **absolute** served url, so a stored
+  `data:image/*` image reaches the medium from the deployment's own
+  `/api/interactions/media/<id>` route rather than as inline bytes — a channel ask
+  that submits a `data:` image therefore needs the deployment's public base URL
+  configured, exactly as a media notification does.
 - **Privacy.** A remote `https` image is fetched directly by the reader's
   browser, which discloses the reader's IP (and request timing) to the image
   host. An agent that must avoid that discloses nothing by submitting a
@@ -242,6 +248,13 @@ channel's choice; the **answer contract is unchanged**. However the person
 responds — tapping a control or typing — the answer is the option **text**,
 exactly as a typed reply would deliver it, and it validates against the
 question's options the same way.
+
+A `text` question may also carry **`options`** as *suggested replies* — a tappable
+shortlist offered alongside the free-text box. Unlike a `select`'s options they
+constrain nothing (a text answer still accepts any string): a tap simply submits the
+option's own text as the free-text answer. A channel that advertises interactive
+support renders them however it chooses; one that cannot falls back to the plain
+prompt.
 
 A `form` question rides a channel only when that channel advertises
 `supports_form_delivery`; a form sent to a channel without the flag raises loudly,
