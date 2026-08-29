@@ -216,7 +216,8 @@ unsaved changes?** confirm; a tab close falls back to the browser's own native
 ## Flows
 
 When the [Babelfish Flows](/babelfish) plugin is installed, it contributes a
-top-level **Flows** page and its own sidebar entry. A plugin's sidebar entries
+top-level **Babelfish Flows** page and its own sidebar entry (and a companion
+**Babelfish State** page for the flow engine's declared state). A plugin's sidebar entries
 collect under a labelled **Plugins** section at the foot of the sidebar, unless
 the entry names one of the built-in sections (such as Administration), in which
 case it joins that group after its core rows. The page is a browser for your
@@ -228,6 +229,64 @@ place; hide management stays centralized on the Tools screen. The whole view —
 open flow, the current folder, dialogs, and the active filters — is derived from
 the URL, so a flow is bookmarkable and the back button works; opening a link to a
 flow that no longer exists renders a loud not-found card, never a blank editor.
+
+Selecting a node on the canvas opens a **tabbed edit panel** — **Settings**,
+**Input**, **Output**, **State**. Settings is the per-kind configuration form and
+its Update-node action. Input and Output are read-only: they render the node's
+declared input and output schemas — with the node's outcomes surfaced on Output —
+so a node's contract is readable in build mode, and each shows an empty state when
+nothing is declared. When an agent node carries a [structured-output
+schema](/babelfish#structured-agent-output), the Output tab renders that schema live
+and its label reads **Output (structured)**. The State tab is the node's fills
+editor — or, on the Start node, this flow's state bindings — and its tab label
+carries a live fill-count.
+
+The **fills editor** on the State tab edits, per node, the state fields the node
+writes. It groups fills by state and defaults to a top-level-field dropdown off the
+state's schema, with an advanced-path affordance that opens a schema-driven path
+picker (drilling into object properties and array items, with an append position for
+lists) plus an operation picker and the fill's jq — and an optional re-run jq for
+the case where the engine detects the node re-ran. Each fill also carries an
+optional compare-and-set [guard](/babelfish#cross-flow-state-writers) behind a
+collapsed disclosure. A save that writes a path another flow also writes **succeeds**
+and surfaces a quiet, non-alarming note beside the affected fill, pointing at the
+guard as the lost-update fix; a genuine write failure still renders loudly. With the
+states feature not configured, the State surfaces self-hide rather than erroring.
+
+The palette's **Custom Nodes** section manages a
+[custom node](/babelfish#custom-nodes) as a node: an edit control opens its flow
+editor, a **+ New custom node** action starts a fresh one, and a delete control
+raises a guarded confirm that states the blast radius — the node leaves the palette
+and any flow already embedding it keeps a dangling reference. When a node edit
+removes an outcome value that wired callers route on, the make-a-node dialog shows an
+**informational** warning naming the removed values and how many flows use the node
+(their routes would go dead) — it never blocks the save. This inform-don't-block
+convention is the editor's house style for changes whose impact lands on callers.
+
+Message and expression slots on the agent, runnable, and branch forms are edited as
+a **Plain / Template** tabbed control. Plain is a raw textarea; Template picks a
+stored [template](/concepts/storage-and-resources) with a deep link to the file and
+a collapsed preview of its first lines, and edits its kwargs through a
+schema-assisted form over the authoritative JSON. The two are mutually exclusive —
+the wire carries one, and switching modes clears the mode being left after a confirm
+when it holds data. A legacy node that carries **both** an inline message and a
+template opens on the Template tab with a rescue note and a one-click "clear inline
+text" action, so the exactly-one-of rule is fixable in place. A node with a return
+result may carry a **return expression** (jq) that shapes the value it contributes
+to the flow result, and a conditional's branch may be marked **pass-through** to
+inject the conditional's single upstream output verbatim — which excludes a
+post-route expression and a return. Settings the form does not model — kwargs an
+API-authored or newer agent carries — are surfaced **read-only** so nothing an agent
+persists is fully invisible, and are round-tripped untouched.
+
+A jq expression slot doubles as a visual **jq editor** that draws the expression as a
+small node graph, and it keeps two independent questions apart — *is the jq valid* and
+*can the editor draw it*. Plenty of valid jq uses shapes the graph has no faithful form
+for, so an expression the editor cannot draw but that compiles and runs shows a neutral
+**"not shown here"** notice ("edit it as text in Plain"), naming the fragment it could
+not draw; only jq that genuinely fails to compile raises the loud **"invalid
+expression"** alert. The two signals never collapse into one, so a sound expression is
+never mislabelled as broken.
 
 The plugin also contributes a **State** page for the flow engine's
 [declared states](/babelfish#flow-states). Its Define view edits a state's JSON

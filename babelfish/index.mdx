@@ -26,7 +26,8 @@ Babelfish Flows ships as one installable plugin carrying two halves:
   schedules, and tracing.
 - **A flow editor in the Studio.** A front-end bundle the runtime serves to the
   [Studio](/studio) through its integrity-pinned import map, contributing a
-  top-level **Flows** page and its nav entry. On the canvas, nodes can be gathered
+  top-level **Babelfish Flows** page (and a companion **Babelfish State** page for
+  the flow engine's declared state) and their sidebar entries. On the canvas, nodes can be gathered
   into named, collapsible groups — a collapsed group renders as one card that hides
   its members and reroutes their boundary edges, and expanding it reveals them
   again. Groups persist with the flow and carry across the editable, run,
@@ -52,13 +53,113 @@ Beyond the built-in steps, you can define your own palette nodes from saved flow
 promote a flow into a reusable node, give it a category and an icon, and it appears
 in the editor's palette alongside the defaults for anyone to drop into a new flow.
 Babelfish ships a set of ready-made nodes to start from — an ask, a form, and a
-send-message node — covering the common conversation moves out of the box.
+send-message node — covering the common conversation moves out of the box. These
+reach the same rich face: the ask and send-message nodes take optional display
+**media** (a list of `{kind: image | link, url, caption?}` items shown with the
+prompt) and optional suggested-reply **options**, while the form takes media
+alongside its schema-driven answer (options do not apply to a form, whose answer
+shape is its schema). Every one of those fields is optional and inert when omitted,
+so a node that sets none keeps its wiring byte-identical.
+
+A custom node is a saved flow published to the palette, and it is managed **as a
+node, not as a flow**. The palette's Custom Nodes section gives each card an edit
+control that opens its flow editor and a delete control that raises a guarded
+confirm, and a **+ New custom node** action starts a fresh one in place. Deletion
+routes through ordinary [preset](/concepts/presets) deletion, so it unregisters the
+tool; the confirm states the blast radius plainly — the node leaves the palette, and
+any flow that already embeds it keeps a now-dangling reference to it. A custom node
+lives in the palette **only**: the flows list shows flows, never custom nodes — nor a
+category folder emptied by them — so a palette-managed node never surfaces among your
+standalone flows.
+
+## Looping over a list
+
+The **map** node is a first-class "friendly foreach": it runs one tool over a list.
+Its face is a list `input` (a jq expression producing the items), the mapped tool,
+per-item keyword arguments (jq expressions that may read the current item and its
+zero-based index through `.iterate.item` and `.iterate.iteration`), and the
+producer nodes whose outputs those expressions may read. It runs either
+`sequential` or `parallel`, with an optional concurrency cap on the parallel mode,
+and an optional `collect` expression that shapes the mapped results — left unset,
+downstream reads the raw per-item output list directly.
+
+A map compiles down to the engine's ordinary loop primitive: on save it becomes one
+loop node plus one body, and on load that marked cluster folds back into the single
+map node, so you never touch the mechanism. A loop authored by hand carries no such
+marker, is never folded into a map, and stays a visible Loop.
+
+**Broadcast** is the map-plus-send-message recipe for fanning one message out to N
+recipients: make the mapped tool the send-message node, set `input` to the
+recipients list, and read the current recipient from `.iterate.item` in the
+per-item arguments. The per-item output list is the delivery transcript — one slot
+per recipient, in order — and because send-message recovers a failed delivery into
+a `failed` outcome in-body, a partial failure simply appears as failed slots in that
+transcript rather than aborting the whole map. Scale a large list with the parallel
+mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 
 ## Inputs and results
 
 Each flow declares its own inputs and results — the values it expects when it starts
 and the values it hands back when it finishes — so a flow presents a clear contract
 to whatever calls it and the editor can prompt for the right inputs when you run one.
+
+## Portable flow files
+
+A flow exports to a single `.babelfish-flow.json` file — the stored graph verbatim —
+and imports back the same way. When the flow carries state bindings, the export gains
+an optional **`state_bindings` sidecar**: each binding travels alongside the graph
+with its state name, its subject expression and fills (guards included), and a stable
+**schema fingerprint** of the state's declaration at export time. The graph itself is
+untouched and the sidecar is never persisted onto the saved preset, so a flow with no
+bindings exports byte-identically to the pre-sidecar format and an older file (no
+sidecar) imports exactly as before.
+
+On import, the editor offers to re-attach each carried binding against the target
+environment's states. A state of that name whose schema fingerprint still matches
+re-attaches straight through; when the schema has changed, each bound path is
+re-checked and the binding re-attaches only if every path still resolves; a state
+that does not exist here, or a bound path that no longer resolves, is reported per
+binding and left unattached rather than silently dropped.
+
+## Structured agent output
+
+An agent node can be constrained to return a validated object instead of free text.
+Its Settings carry a **Structured output** schema editor — a JSON Schema whose
+top-level `title` is required, since the engine uses that title to name the
+structured response and refuses a run it cannot produce against the schema. With a
+schema set, the node's Output contract renders it live and reads **Output
+(structured)**; cleared, the node returns text as before. The constraint is the
+node's own — it shapes what the agent hands back, and downstream steps read the
+validated object.
+
+## Node waits
+
+A fan-in node runs once its **input barrier** releases, and the barrier has three
+mutually exclusive modes set on the node:
+
+- **All inputs (the default).** The node waits for every declared or edge-derived
+  input to arrive, then runs.
+- **Quorum.** A minimum input count releases the node once any that many inputs
+  have arrived; it is purely count-based and never looks at which inputs arrived.
+- **Named release.** A named-producer list releases the node once every named
+  producer is present in the fan-in — a barrier keyed on specific producers rather
+  than a count. Every other input is still consumed if it happened to arrive by
+  release time, but is never waited on.
+
+Named release and quorum are **complementary and mutually exclusive**: named
+answers "wait for these specific producers", quorum answers "wait for any k of
+them", and setting both is rejected at validation. Each named producer must be one
+of the node's inputs after edge-merge, and its unwaited incoming edges render as
+**dashed, read-only** on the canvas so the optional producers are visible at a
+glance.
+
+A named producer counts as present once it produced output **somewhere in the run**
+— which is not the same as that output being delivered to your node as a trigger. If
+the producer sits behind a conditional whose branch routes elsewhere, its output
+lands in state but nothing re-invokes your node, the barrier is never re-evaluated,
+and the node simply does not run (the run goes quiescent and completes as success).
+When a behind-a-condition producer might route away from you, pair the named release
+with a **wait timeout** so a later trigger can force a partial run.
 
 ## Flow states
 
@@ -111,6 +212,26 @@ run's [Langfuse trace](/plugins/tai42/monitoring-langfuse) — direct HTTP write
 outside a run and are not traced, so route external events through flows to keep
 the trail.
 
+### Cross-flow state writers
+
+Because overlapping writers are allowed rather than refused, where two flows race
+on the same field an optional **compare-and-set guard** opts a fill into lost-update
+protection. A guard is a `{path, expected_expr}` pair: `expected_expr` is a jq over
+the fill's own input, evaluated engine-side into a concrete expected value, and at
+write time — **under the record's row lock** — the platform compares the record's
+current value at the guarded path (a missing path reads as null) to it by strict
+JSON equality. Equal, and the write applies; unequal, and that one write is
+guarded-skipped while the rest of the batch still applies, observable both in the
+record and in the run's state-change trace.
+
+The idiomatic use is a **writer token**: pair a field with a companion writer field,
+and have each flow guard its write of the field on the writer equalling its own
+token, so under a real write race exactly the token-holder writes. The guard is
+deliberately narrow — it protects against lost updates only, not multi-step
+invariants, and it compares equality on exactly one path (a null expected value
+means "expect the field absent or null", the first-claim case). It is a flow-engine
+primitive, checked only for writes the engine performs.
+
 ### Enable the states database
 
 The feature keys on its own Postgres component, `flows-states`. Declare the
@@ -139,6 +260,19 @@ the states routes answer a gated refusal, and bound flows simply run stateless.
 | `TAI_DB_BINDING_FLOWS_STATES` | unset | Database name the `flows-states` component binds to; unset = states off. |
 | `FLOW_STATES_DEFAULT_RETENTION_DAYS` | unset | Global record-retention default for the prune sweep; unset = keep forever. |
 | `FLOW_STATES_OP_RETENTION_DAYS` | `30` | Idempotency-ledger retention window in days. |
+
+## Agent session continuity
+
+By default every agent a runnable invokes gets a fresh agent thread per call. A
+runnable may instead opt into **per-node session continuity**, keying that node's
+agent runs to one retained session so memory carries across successive runs of the
+node. The key is a plain-string template — placeholders for the flow-run id and the
+node's raw id are substituted at run time, and the engine always forces the
+reserved `flow:` prefix. Because the key is keyed on the raw node id it is stable
+across iterations, so inside a sequential loop each iteration resumes the previous
+iteration's agent thread; a parallel loop, which would drive the same key
+concurrently, is rejected at build time. Real carry-over needs a
+checkpointer-backed agent — a memoryless agent still runs but remembers nothing.
 
 ## How it plugs in
 
