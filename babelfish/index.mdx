@@ -85,10 +85,11 @@ declaring its own database binding (see enablement below).
   writes, the operation, and two jq expressions — one for a normal run and an
   optional one that fires only when the engine detects the node mistakenly
   re-ran (unset means "same as the normal jq"; a null jq result skips the
-  write). Two flows whose fills would write overlapping paths of one state are
-  refused at bind time — one writer per path, while list appends from many
-  flows compose. In a run, every bound state's record is available to jq as
-  `.states.<name>`.
+  write). Two flows whose fills write overlapping paths of one state are
+  allowed — the save reports an informational `overlaps` signal, and an opt-in
+  per-fill compare-and-set guard is the coordination primitive for a genuine
+  write race — while list appends from many flows always compose. In a run,
+  every bound state's record is available to jq as `.states.<name>`.
 - **Fold subjects together.** When a flow learns two subjects are one person, it
   folds one into the other — *switch* drops the old subject's data, *merge*
   brings its missing members along — and the old key keeps working: runs
@@ -101,8 +102,7 @@ declaring its own database binding (see enablement below).
   raw-JSON hatch for shapes the form cannot represent), wires bindings through a
   path picker, browses/searches/folds records, and imports or exports a state as
   one `.babelfish-state.json` file — name, schema, and bindings
-  (`retention_days` is deployment-local and deliberately not carried). The
-  shipped **remember** default flow is the feature's worked example.
+  (`retention_days` is deployment-local and deliberately not carried).
 
 State declarations and bindings register a `flows-states` section in
 [backup and restore](/operate/backup-and-restore); record data is runtime state
