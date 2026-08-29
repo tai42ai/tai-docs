@@ -60,13 +60,85 @@ Each flow declares its own inputs and results — the values it expects when it 
 and the values it hands back when it finishes — so a flow presents a clear contract
 to whatever calls it and the editor can prompt for the right inputs when you run one.
 
-## Conversation state
+## Flow states
 
-A flow can declare the conversation state it reads and writes — the named pieces of
-context that persist across a conversation. A dedicated State tab in the editor makes
-that state visible: the declared states, the bindings that connect them to a flow
-from either side — what a flow reads out of state and what it writes back — and a
-relations view that maps how flows and state connect across the product.
+Declared states are the flow engine's durable cross-run memory: named, schema'd
+records — one JSON document per state and subject — that a flow reads at run start
+and writes as it executes. The feature is **off by default** and turns on by
+declaring its own database binding (see enablement below).
+
+- **Declare with a full JSON Schema.** A state's shape is a complete JSON Schema
+  (draft 2020-12, object-rooted, nested to any depth), and every write validates
+  the whole merged document against it. Changing a schema over live records goes
+  through a guarded migrate door: a preview dry-runs the impact — how many records
+  fit the new shape and how many do not — and the change itself takes exactly one
+  resolution: a jq transform, an explicit drop, or declarative per-field fixes.
+  All of it applies atomically or not at all.
+- **Write by path.** Writes are path-addressed operations — set or remove any
+  field at any depth, with `"-"` appending a new item to a list — batched
+  atomically and idempotently under an operation id, so a replayed write is a
+  no-op. Records can also be listed per state, searched by content (exact-match
+  filters at any depth, combined with AND — a filter whose path crosses a list
+  matches nothing), and erased per subject as the forget-me door.
+- **Bind nodes to fields.** A binding connects a flow to a state: a jq
+  `subject_expr` picks the record, and per-node fills name the node, the path it
+  writes, the operation, and two jq expressions — one for a normal run and an
+  optional one that fires only when the engine detects the node mistakenly
+  re-ran (unset means "same as the normal jq"; a null jq result skips the
+  write). Two flows whose fills write overlapping paths of one state are
+  allowed — the save reports an informational `overlaps` signal, and an opt-in
+  per-fill compare-and-set guard is the coordination primitive for a genuine
+  write race — while list appends from many flows always compose. In a run,
+  every bound state's record is available to jq as `.states.<name>`.
+- **Fold subjects together.** When a flow learns two subjects are one person, it
+  folds one into the other — *switch* drops the old subject's data, *merge*
+  brings its missing members along — and the old key keeps working: runs
+  arriving with it land on the surviving record, and forget-me on either key
+  erases the record with every alias.
+- **Retention.** A per-state `retention_days` (or a global default) makes stale
+  records eligible for an explicit prune sweep. Nothing is deleted until a
+  retention is configured and the sweep is called.
+- **In the Studio.** The State tab declares schemas in a tree editor (with a
+  raw-JSON hatch for shapes the form cannot represent), wires bindings through a
+  path picker, browses/searches/folds records, and imports or exports a state as
+  one `.babelfish-state.json` file — name, schema, and bindings
+  (`retention_days` is deployment-local and deliberately not carried).
+
+State declarations and bindings register a `flows-states` section in
+[backup and restore](/operate/backup-and-restore); record data is runtime state
+and stays out, like checkpoints. Engine fills emit a state-change event into the
+run's [Langfuse trace](/plugins/tai42/monitoring-langfuse) — direct HTTP writes happen
+outside a run and are not traced, so route external events through flows to keep
+the trail.
+
+### Enable the states database
+
+The feature keys on its own Postgres component, `flows-states`. Declare the
+binding and configure that database:
+
+```bash
+TAI_DB_BINDING_FLOWS_STATES=default
+# plus the TAI_DATABASE_<NAME>_PG_* settings for that database
+```
+
+Then run the migrations — the plugin ships its states chain under
+`migrations_component: flows-states`, discovered by the shared runner:
+
+```bash
+tai db migrate
+```
+
+The boot gate refuses to serve a declared-but-unmigrated database, naming that
+exact step. (Compose deployments that pip-install the plugin outside the
+marketplace apply the same chain through their preinstalled-plugin migration
+helper.) With the binding unset the feature is cleanly off: no tables demanded,
+the states routes answer a gated refusal, and bound flows simply run stateless.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_DB_BINDING_FLOWS_STATES` | unset | Database name the `flows-states` component binds to; unset = states off. |
+| `FLOW_STATES_DEFAULT_RETENTION_DAYS` | unset | Global record-retention default for the prune sweep; unset = keep forever. |
+| `FLOW_STATES_OP_RETENTION_DAYS` | `30` | Idempotency-ledger retention window in days. |
 
 ## How it plugs in
 
