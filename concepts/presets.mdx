@@ -158,6 +158,19 @@ tools declare no support: their typed schema is fixed. The shipped one that does
 is `sandbox_exec` — see the
 [sandbox concept](/concepts/sandbox#running-code-as-a-named-tool).
 
+The declared `input_schema` is part of the **versioned body**, not a create-only
+field: it is set at create and **updated through the save-version door** just like
+the baked kwargs, so a schema change is a new version you can roll back to an earlier
+one.
+
+When a preset bakes the base tool's **payload argument itself**, that baked object is
+treated as a set of partial **defaults** rather than an absolute constant: the
+caller's validated object **deep-merges over** it, caller-wins-per-key — nested
+objects merge recursively, while a list or scalar the caller supplies replaces the
+baked one (lists never concatenate). So a preset can pin default fields while still
+letting a caller override any of them. Every other baked kwarg stays a fixed, hidden
+constant.
+
 ## Admin registration tier
 
 A base tool can declare the authorization tier required to **author** a preset

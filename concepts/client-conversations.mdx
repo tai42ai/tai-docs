@@ -86,6 +86,25 @@ target, its turn can async-park on an `ask_user` — pausing for a person's answ
 its expiry — and deliver its resumed reply back into the originating thread later,
 mapped through the route's reply mapping.
 
+### Rich, multi-message answers
+
+A `tool` target need not answer with a single string. Its `reply_expr` (or, with no
+expr, the tool's own result) may emit an ordered **array of parts** — each element
+either a plain string (a text-only message) or an object carrying `message` with
+optional `media`, tappable `options`, or a pre-approved `template`. The delivery
+machine sends each part as its own message in order, so one turn can reply with
+several bubbles, attach an image, or offer tappable options. A part may be
+**media-only** — an object with `media` and no text — for a caption-less image. The
+array is strict: an unknown key or an empty array is a loud error, never silently
+coerced.
+
+Every reader that consumes a single answer string keeps working unchanged. The parts'
+non-blank message texts are joined with a blank line into the same `answer` an `api`
+callback, a bounded sync-wait, or a transcript reads, while a parts-aware consumer
+reads the ordered parts and delivers each on its own. An `agent` target stays
+single-string — ordered multi-message answers come from tool routes, which carry an
+explicit reply contract.
+
 ## How a route is authorized
 
 Two authorities are separate and both live:
@@ -230,7 +249,10 @@ An operator answers a thread **by hand** with `tai conversations send` (the
 `POST …/thread/messages` door) or the Studio compose box. No turn runs: the message is
 stored already answered and **delivered through the same machine a produced answer
 takes** — sent from the route identity, with the same chunking, ledger, and receipts.
-It is allowed in **either** mode and **never flips the mode**.
+An operator reply may itself carry **media** and tappable **options** — the same rich
+content a produced answer can — validated up front so a bad attachment is a clean
+rejection rather than a failed send. It is allowed in **either** mode and **never
+flips the mode**.
 
 The record is marked `origin: "operator"` (a client turn's record is `origin:
 "client"`): it carries the operator's text as its `answer`, an empty `inbound_text`,
