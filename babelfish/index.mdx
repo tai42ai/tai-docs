@@ -161,6 +161,79 @@ and the node simply does not run (the run goes quiescent and completes as succes
 When a behind-a-condition producer might route away from you, pair the named release
 with a **wait timeout** so a later trigger can force a partial run.
 
+## The visual jq editor
+
+Every jq expression a flow carries — a node's expression, a branch or loop
+condition, a state fill or its guard — can be authored two ways from the same
+field: as **Plain** text, or in a **visual editor** that draws the expression as a
+small, editable node graph and writes it back as jq. The two are views of one
+inline expression; the wire always carries the jq text.
+
+**The node vocabulary.** The canvas paints eight node kinds, each with a semantic
+hue shared with the flow canvas so a colour means the same thing in both editors:
+
+- **Input** (primary) — the data the expression receives, `.`.
+- **Value** (muted) — a literal or a path into the input.
+- **Operator** (muted) — combines two values (`+`, `==`, `//`, …).
+- **Condition** (warning) — chooses a result with if / else.
+- **Try/Catch** (danger) — runs logic and recovers on error.
+- **Call Function** (primary) — applies a built-in or defined function.
+- **Define Function** (primary) — declares a reusable function.
+- **Comment** (muted) — a note; never runs.
+
+Kinds that share a hue (Input, Call Function, and Define Function on primary;
+Value, Operator, and Comment on muted) wear a terse kind badge and are further
+told apart by glyph and shape, so two same-coloured cards never read alike. A
+**Legend** on the toolbar lists every kind and the wire notations — pipe, operand,
+and function grant — generated from the same registry the canvas paints from, so it
+can never drift from what you see.
+
+**The editor shell.** Around the canvas sits a **Test** panel that runs the
+generated jq against sample JSON — seeded per surface with a skeleton of the right
+input shape, editable, and run locally in WASM (Cmd/Ctrl+Enter) — plus, where the
+engine exposes a matching validator, a **Validate** action that checks the
+expression server-side. A **live readout** shows the jq the graph currently
+serialises to as you edit, and an **error summary** chip counts the graph's problems
+and jumps the view to each one in turn.
+
+**The faithfulness guarantee.** The editor draws a graph only when it can prove that
+reading the graph back gives exactly your expression. Before any loaded expression
+is adopted for editing, its graph is serialised back to jq and a WASM oracle checks
+that the two behave identically; only a faithful round-trip is drawn. Everything else
+is non-destructive: an expression the editor cannot draw, or one whose graph would
+read back differently, keeps your text verbatim and shows it as text with a neutral
+**"not shown here"** notice — your expression is never altered, and the editable
+canvas is reached only through an explicit **Start empty** that you choose. This
+keeps two questions apart — *is the jq valid* and *can the editor draw it*. Only jq
+that genuinely fails to compile raises a loud **"invalid expression"** alert; valid
+jq the editor cannot represent is neutral, never flagged as broken.
+
+**The Editor-tab default.** When a field arrives already holding an expression the
+editor can represent faithfully, it opens on the **Editor** tab; otherwise it opens
+on Plain. A tab you pick by hand is sticky for the rest of that field's life.
+
+### Visual jq on every surface
+
+Every jq field carries the same visual-editor door, and each names what `.` is at
+its site so the Test panel seeds the right sample and the server validator checks the
+right shape:
+
+- a node **expression** and a **conditional** or **branch** condition see the **node
+  envelope** — the run's inputs and the upstream nodes' outputs, with this node's
+  `.result` still null;
+- an **on-error** condition or expression sees the **error envelope** — the failed
+  node's error on `.upstream_outputs`;
+- a **state fill** and its **re-run** expression see the **fill envelope**, where
+  `.result` is the filling node's own output (a null result skips the fill);
+- a fill's compare-and-set **guard** sees that same fill envelope — its jq computes
+  the expected value;
+- a binding's **subject** expression sees the bare **flow inputs** document (`.` is
+  `flow_graph_kwargs`, with no envelope);
+- a schema-migration **transform** sees one bare **state record** — the old-schema
+  document — and emits the new-schema object;
+- a **map item argument** sees the **loop-body envelope**, where `.iterate.item` is
+  the current item and `.iterate.iteration` its zero-based position.
+
 ## Flow states
 
 Declared states are the flow engine's durable cross-run memory: named, schema'd
@@ -176,9 +249,10 @@ declaring its own database binding (see enablement below).
   resolution: a jq transform, an explicit drop, or declarative per-field fixes.
   All of it applies atomically or not at all.
 - **Write by path.** Writes are path-addressed operations — set or remove any
-  field at any depth, with `"-"` appending a new item to a list — batched
-  atomically and idempotently under an operation id, so a replayed write is a
-  no-op. Records can also be listed per state, searched by content (exact-match
+  field at any depth, with `"-"` appending a new item to a list, plus the
+  [keyed list ops](#keyed-state-list-ops) that update or remove a list item by its
+  key — batched atomically and idempotently under an operation id, so a replayed
+  write is a no-op. Records can also be listed per state, searched by content (exact-match
   filters at any depth, combined with AND — a filter whose path crosses a list
   matches nothing), and erased per subject as the forget-me door.
 - **Bind nodes to fields.** A binding connects a flow to a state: a jq
@@ -231,6 +305,58 @@ deliberately narrow — it protects against lost updates only, not multi-step
 invariants, and it compares equality on exactly one path (a null expected value
 means "expect the field absent or null", the first-claim case). It is a flow-engine
 primitive, checked only for writes the engine performs.
+
+### Keyed state list ops
+
+A state field that holds a **list of objects** — vetoes, line items, participants —
+can be maintained item by item without ever reading the whole list and setting it
+back. Two path operations do this **atomically at write time on the live record**,
+under its row lock:
+
+- **`set_by_key`** — update or append the list item whose key field equals a given
+  value. The fill's jq produces the **item** itself: a JSON object that must carry
+  its own key field, so the match key can never drift from the payload. The first
+  item whose key field equals that key is replaced in list order; if none matches,
+  the item is appended (upsert). An absent list is created.
+- **`remove_by_key`** — remove the list item(s) whose key field equals a given value.
+  The fill's jq produces the **key** to remove by, and every matching item is dropped.
+  Zero matches, or an absent list, is a quiet no-op.
+
+Both name a `key_field` — a single **top-level** field of the item objects — and
+address the **list** itself, never a new item, so the append token `"-"` is refused:
+the op decides insert-versus-replace by key, not by position. A key is a **string or
+integer** only; floats, booleans, null, and containers are refused as fragile
+identities. A list item that is not an object, or one missing the key field, never
+matches (and is never an error); a non-list already sitting at the path is a loud
+refusal. As with any fill, a null jq result skips the write.
+
+This is the race-free "update the item where key equals X" that a whole-list `set`
+could not express — a whole-list write reads, edits, and sets the entire list back,
+so a concurrent writer's change is lost. Applying by key under the row lock instead
+makes three multi-writer patterns safe with no extra coordination:
+
+- **Distinct keys compose.** Two flows that upsert items under different keys both
+  land — exactly like list appends, which always compose.
+- **Appends compose with a keyed update.** One flow appending a fresh item while
+  another updates an existing one by key keeps both, whatever the commit order.
+- **The same key from two flows needs a guard.** Two flows racing to write the *same*
+  key each replace the whole item, last-writer-wins; where that is a genuine race,
+  pair the fill with a [compare-and-set guard](#cross-flow-state-writers) (the
+  writer-token pattern).
+
+A **key change** is expressed as `remove_by_key(old)` followed by `set_by_key(new)`
+in the **same binding** — one node's fills, one batch, one transaction. In the
+Studio, the fills editor offers `set_by_key` / `remove_by_key` beside `set` /
+`remove`, captures the key field, and captions each fill per op; a run's state-change
+story renders a keyed write as `set /items where id = a` or
+`removed /items where id = a`.
+
+<Note>
+**Downgrade note.** Drain any keyed-fill runs before rolling a server *back* to a
+build that predates keyed ops: an older server would replay a stored keyed fill as a
+whole-list `set` and silently clobber the list. The forward direction is safe — a
+pre-keyed binding never carries a keyed op, and an unknown op fails loud by design.
+</Note>
 
 ### Enable the states database
 
