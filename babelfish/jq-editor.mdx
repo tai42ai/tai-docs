@@ -69,7 +69,11 @@ the **Validate** action checks the right shape server-side:
   is a **hard build error**, not a null;
 - a **state fill** and its **re-run** expression see the **fill envelope**, where
   `.result` is the filling node's own output (a null result skips the fill) and
-  `.upstream_outputs` reads as null;
+  `.upstream_outputs` is the filling node's own resolved fan-in — the same upstream
+  outputs its runnable expression reads — so a `.upstream_outputs.<predecessor>` read
+  is a live cross-node read (validated at binding save and again at run mint against
+  the filling node's predecessors); a node with no upstream fan-in, or a non-object
+  fan-in, still reads it as null;
 - a fill's compare-and-set **guard** sees that same fill envelope — its jq computes
   the expected value (null means "expect the record absent");
 - a binding's **subject** expression sees the bare **flow inputs** document (`.` is
