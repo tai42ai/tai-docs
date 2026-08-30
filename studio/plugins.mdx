@@ -62,6 +62,60 @@ The optional `section` names the sidebar group the entry renders in — one of t
 
 The same set is declared statically in the plugin's `studio-manifest.json` under `contributions.nav_entries`, so the server-side catalog and read surfaces can report a nav-contributing plugin without executing its bundle. That manifest field is the declarative parity of the runtime `registerNavEntry` for the page path only — its schema is a `list[str]` of page paths and cannot carry `section`, which is a runtime-API field alone. It carries the same backing rule: every `nav_entries` entry must appear in the plugin's `pages`, or manifest load fails loudly.
 
+## Expression editors
+
+Beyond the four core methods, the plugin context carries an **optional** fifth,
+`registerExpressionEditor` — the extension point by which a plugin contributes the
+visual editor for an **expression language** (today, `jq`). It is how the
+[jq editor plugin](/babelfish/jq-editor) brings a visual canvas to every expression
+field in the Studio without owning a page of its own, and how any plugin can supply an
+editor for a pipeline language of its own.
+
+**The two halves.** The mechanism has a *contributing* side and a *consuming* side,
+and neither imports the other:
+
+- A plugin **contributes** an editor by calling `registerExpressionEditor` with a
+  contribution naming the `language` it authors and a `load` that resolves the editor
+  component from a **separate lazy chunk** (a visual canvas and a language runtime are
+  heavy, so they are never in the plugin's entry bundle). An optional `preload` warms
+  that chunk on open-intent.
+- A host feature — or another plugin's page — **consumes** it by rendering the SDK's
+  `ExpressionField` (or the standalone `ExpressionEditorLauncher` for a dense grid
+  row) with an **expression-field declaration**: the field's `language`, a
+  *descriptor* of what the expression's input document is, a sample-input provider for
+  the editor's Test panel, and an optional server-validate hook. The whole declaration
+  threads onto the contributed editor, so its context chip, Test seeding, and Validate
+  action all read from one object.
+
+**Graceful absence is the default.** An `ExpressionField` whose language has no editor
+registered — or that renders on a host with no editor bridge at all — stays exactly a
+plain text field. A consumer therefore adopts it with **no dependency** on any editor
+being installed: the visual door simply appears if and when an editor for the language
+is present. A plugin surface can resolve only *its own* language's editor; it can
+never enumerate, count, or mutate the set of registered editors.
+
+**Two loud gates protect the contribution.** A language is a **global key** — at most
+one editor for it across the whole deployment — so a second contribution for a
+language already claimed (by this plugin or another) is **rejected loudly**, exactly as
+a duplicate tool-panel registration is. And every contribution declares the
+**editor-props contract version** it was built against; a contribution whose version is
+not the host's is **rejected during `register()`** as this plugin's own error card,
+never silently skipped — an editor built against an incompatible props contract is a
+visible per-plugin failure, not a blank field. This contract version is **distinct
+from** `STUDIO_PLUGIN_API_VERSION`: the plugin API gained this whole extension point
+*additively* (that version did not move), and the narrower number then versions the
+editor props on their own.
+
+**The method is optional — feature-detect it.** `registerExpressionEditor` is optional
+in the context type itself, so a plugin written against a newer SDK still typechecks
+against — and runs against — an *older* host that predates the extension point. A
+contributing plugin feature-detects it
+(`typeof context.registerExpressionEditor === 'function'`) and **no-ops gracefully**
+where it is absent, rather than throwing. This is the same additive-capability
+discipline the [version gate](#the-api_version-gate) rewards: a host that gains the
+extension point keeps the same plugin API version, and a plugin that uses it degrades
+cleanly on a host that lacks it.
+
 ## The plugin manifest
 
 Every plugin ships a `studio-manifest.json` next to its dist. It is parsed strictly — an unknown field is a loud rejection — and carries:
