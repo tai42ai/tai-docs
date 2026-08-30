@@ -1,0 +1,76 @@
+---
+title: "The jq editor"
+description: "The built-in visual jq editor — jq-studio, the open-source editor the Studio ships and any app can embed."
+icon: "brackets-curly"
+---
+
+The Studio authors every jq expression through a visual editor: a small, editable
+node graph that reads and writes the jq text on the wire. That editor is
+**jq-studio** — an open-source, Apache-2.0 project. It is the Studio's built-in
+editor, and it is a standalone library you can embed in any app of your own.
+
+<Note>
+jq-studio is developed in the open at
+[github.com/tai42ai/jq-studio](https://github.com/tai42ai/jq-studio) and published
+to npm as [`@tai42/jq-studio`](https://www.npmjs.com/package/@tai42/jq-studio)
+(Apache-2.0). Its full component reference — the node vocabulary, the faithfulness
+guarantee, the theming contract, and the worker model — lives in that repository.
+This page covers how the Studio ships it and how to embed it; it does not restate
+the editor's own docs.
+</Note>
+
+## Built in, everywhere
+
+The [Studio SDK](/reference/studio-sdk/index) re-exports jq-studio's `JqField`
+component and its declaration types. The Studio host does two things once, at the
+shell level, so the editor is available to every field:
+
+- it injects the Studio's design system through a **`PrimitivesProvider`**, so the
+  editor renders in the host's own inputs, buttons, and tokens rather than a bundled
+  look; and
+- it installs the editor's **single evaluation worker** — one dedicated Web Worker
+  shared across the page — so jq evaluation runs off the main thread for every field.
+
+Because the host does this, a jq field never installs, registers, or gates the
+editor. A [host field](/concepts/access-control#the-jq-policy) — an access-control
+policy condition, a [hook](/concepts/hooks) condition or expression — offers the
+canvas, a plugin field offers it, and a [flow's](/babelfish) jq field offers it,
+all from the one re-export. There is no "is an editor present?" conditional and no
+provider to opt into: the editor is part of the SDK, so a field that renders
+`JqField` gets the visual canvas by construction.
+
+## A standalone library
+
+`@tai42/jq-studio` embeds in any React app the same way the Studio uses it: render
+`JqField` inside a `PrimitivesProvider` that supplies your design-system primitives.
+
+```tsx
+import { JqField, PrimitivesProvider } from '@tai42/jq-studio';
+
+<PrimitivesProvider primitives={myPrimitives}>
+  <JqField value={expr} onChange={setExpr} />
+</PrimitivesProvider>;
+```
+
+The editor themes itself entirely through CSS custom properties. Every color it
+paints reads from a **`--jq-*`** custom property, and it inherits light or dark from
+the nearest ancestor carrying a **`data-theme`** attribute — so an app themes the
+editor by setting those properties on a wrapper, with no editor configuration of its
+own. See jq-studio's repository for the full `--jq-*` contract and the primitives
+interface.
+
+<Note>
+The editor evaluates jq in a **same-origin Web Worker** and enforces a
+terminate-on-deadline, so a runaway expression is killed rather than left to hang
+the tab. The worker is a real, same-origin file — a `'self'` worker with
+`'wasm-unsafe-eval'`, which is what a strict Content-Security-Policy permits. The
+Studio's own policy already allows it; an embedding app grants the same policy to run
+evaluation off-thread.
+</Note>
+
+## See also
+
+- [jq-studio on GitHub](https://github.com/tai42ai/jq-studio) — the editor's own repository and its component docs.
+- [Author a Studio plugin](/studio/plugins#the-built-in-jq-editor) — how a plugin field renders the built-in editor, and the migration for plugins that used the old extension point.
+- [Visual jq in flows](/babelfish/jq-editor) — how the flow editor authors jq with the same editor.
+- [The jq policy](/concepts/access-control#the-jq-policy) — a host jq field the editor serves.

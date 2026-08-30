@@ -62,59 +62,37 @@ The optional `section` names the sidebar group the entry renders in — one of t
 
 The same set is declared statically in the plugin's `studio-manifest.json` under `contributions.nav_entries`, so the server-side catalog and read surfaces can report a nav-contributing plugin without executing its bundle. That manifest field is the declarative parity of the runtime `registerNavEntry` for the page path only — its schema is a `list[str]` of page paths and cannot carry `section`, which is a runtime-API field alone. It carries the same backing rule: every `nav_entries` entry must appear in the plugin's `pages`, or manifest load fails loudly.
 
-## Expression editors
+## The built-in jq editor
 
-Beyond the four core methods, the plugin context carries an **optional** fifth,
-`registerExpressionEditor` — the extension point by which a plugin contributes the
-visual editor for an **expression language** (today, `jq`). It is how the
-[jq editor plugin](/babelfish/jq-editor) brings a visual canvas to every expression
-field in the Studio without owning a page of its own, and how any plugin can supply an
-editor for a pipeline language of its own.
+A plugin field that holds a jq expression renders the platform's **built-in visual jq
+editor** — no registration, no extension point, no gating. The
+[Studio SDK](/reference/studio-sdk/index) re-exports the
+[jq-studio](/studio/jq-editor) `JqField` component and its declaration types; the
+Studio host injects the design system through a `PrimitivesProvider` and installs the
+editor's evaluation worker once, at the shell. A plugin simply imports `JqField` and
+renders it — the visual canvas is present by construction, exactly as it is on every
+host field and every flow field.
 
-**The two halves.** The mechanism has a *contributing* side and a *consuming* side,
-and neither imports the other:
+```ts
+import { JqField } from '@tai42/studio-sdk';
+```
 
-- A plugin **contributes** an editor by calling `registerExpressionEditor` with a
-  contribution naming the `language` it authors and a `load` that resolves the editor
-  component from a **separate lazy chunk** (a visual canvas and a language runtime are
-  heavy, so they are never in the plugin's entry bundle). An optional `preload` warms
-  that chunk on open-intent.
-- A host feature — or another plugin's page — **consumes** it by rendering the SDK's
-  `ExpressionField` (or the standalone `ExpressionEditorLauncher` for a dense grid
-  row) with an **expression-field declaration**: the field's `language`, a
-  *descriptor* of what the expression's input document is, a sample-input provider for
-  the editor's Test panel, and an optional server-validate hook. The whole declaration
-  threads onto the contributed editor, so its context chip, Test seeding, and Validate
-  action all read from one object.
+A jq field declares what the expression's input document is, seeds a sample for the
+editor's Test panel, and optionally supplies a server-validate hook — the declaration
+threads onto the field so its context chip, Test seeding, and Validate action read
+from one object. See [the jq editor](/studio/jq-editor) for the component and
+[jq-studio's repository](https://github.com/tai42ai/jq-studio) for its full API.
 
-**Graceful absence is the default.** An `ExpressionField` whose language has no editor
-registered — or that renders on a host with no editor bridge at all — stays exactly a
-plain text field. A consumer therefore adopts it with **no dependency** on any editor
-being installed: the visual door simply appears if and when an editor for the language
-is present. A plugin surface can resolve only *its own* language's editor; it can
-never enumerate, count, or mutate the set of registered editors.
-
-**Two loud gates protect the contribution.** A language is a **global key** — at most
-one editor for it across the whole deployment — so a second contribution for a
-language already claimed (by this plugin or another) is **rejected loudly**, exactly as
-a duplicate tool-panel registration is. And every contribution declares the
-**editor-props contract version** it was built against; a contribution whose version is
-not the host's is **rejected during `register()`** as this plugin's own error card,
-never silently skipped — an editor built against an incompatible props contract is a
-visible per-plugin failure, not a blank field. This contract version is **distinct
-from** `STUDIO_PLUGIN_API_VERSION`: the plugin API gained this whole extension point
-*additively* (that version did not move), and the narrower number then versions the
-editor props on their own.
-
-**The method is optional — feature-detect it.** `registerExpressionEditor` is optional
-in the context type itself, so a plugin written against a newer SDK still typechecks
-against — and runs against — an *older* host that predates the extension point. A
-contributing plugin feature-detects it
-(`typeof context.registerExpressionEditor === 'function'`) and **no-ops gracefully**
-where it is absent, rather than throwing. This is the same additive-capability
-discipline the [version gate](#the-api_version-gate) rewards: a host that gains the
-extension point keeps the same plugin API version, and a plugin that uses it degrades
-cleanly on a host that lacks it.
+<Note>
+**Migrating from the expression-editor extension point.** SDK 8 removed the optional
+`registerExpressionEditor` context method, the `ExpressionField` and
+`ExpressionEditorsProvider` components, the expression-editor `contributions`, and the
+separate editor-props contract version. A plugin that consumed those symbols now
+imports `JqField` (and its declaration types) from the SDK's jq re-export and renders
+it directly — there is no editor to contribute, resolve, feature-detect, or version.
+The editor is built in, so a jq field is always available; the "no editor registered"
+degradation the old extension point admitted no longer exists.
+</Note>
 
 ## The plugin manifest
 
@@ -151,6 +129,7 @@ Stylesheet injection is a **host capability**. A plugin shipping a `.css` asset 
 
 ## See also
 
+- [The jq editor](/studio/jq-editor) — jq-studio, the built-in visual jq editor a plugin's jq fields render.
 - [Plugin API reference](/reference/studio-sdk/plugin-api) — the `PluginContext`, contribution types, the `PluginPageParamsSchema`, and the version gate, generated from the SDK.
 - [Navigation reference](/reference/studio-sdk/navigation) — `usePluginNavigation`, `navigatePlugin`, and `resolvePluginPath`.
 - [The manifest](/concepts/manifest) — the `studio_plugins` field that turns a plugin on.
