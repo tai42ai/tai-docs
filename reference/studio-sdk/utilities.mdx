@@ -14,6 +14,370 @@ type ApiClient = ReturnType<typeof createApiClient>
 ```
 
 
+## EXPRESSION_EDITOR_CONTRACT_VERSION
+
+```ts
+const EXPRESSION_EDITOR_CONTRACT_VERSION: 1
+```
+
+The contract version an `ExpressionEditorContribution` must target. Bumped
+only on a BREAKING change to `ExpressionEditorProps` or the contribution
+shape; the registry rejects a contribution whose `contractVersion` is not
+exactly this, so a host never mounts an editor built against an incompatible
+props contract. It is distinct from `STUDIO_PLUGIN_API_VERSION`: the plugin API
+gains this whole extension point ADDITIVELY (that version does not move), and
+this narrower number then versions the editor props independently.
+
+
+## ExpressionControlProps
+
+```ts
+type ExpressionControlProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement> & InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "disabled" | "rows" | "placeholder" | "className" | "spellCheck" | "children">
+```
+
+The native attributes `ExpressionField` FORWARDS to its underlying control
+(`Textarea` or, single-line, `TextInput`), minus the ones the field owns itself.
+Intersecting both attribute sets keeps the pass-through valid whichever element
+`multiline` selects, and omitting the owned keys keeps a caller from
+accidentally severing the value/edit wiring or the monospace class. This is the
+`inputs.tsx` pass-through doctrine (a caller's native attribute reaches the
+element) narrowed to what a field can safely surrender — `name`, `onBlur`,
+`maxLength`, `style`, `data-*`, and the like.
+
+
+## ExpressionEditorContribution
+
+```ts
+interface ExpressionEditorContribution
+```
+
+A plugin's contribution of the editor for one expression language. The editor
+rides a SEPARATE chunk (a visual canvas, converters, a language runtime), so it
+is fetched lazily: `load` resolves the module exposing the `Editor` component,
+and the optional `preload` warms that chunk on open-intent (hover/focus) so the
+editor is ready by the time the user opens it. `contractVersion` must equal
+`EXPRESSION_EDITOR_CONTRACT_VERSION` or the registry rejects it loudly.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `contractVersion` | `number` | The ExpressionEditorProps contract this editor was built against. |
+| `language` | `ExpressionLanguage` | The language this editor authors; the lookup key a field resolves by. |
+| `load` | `() => Promise<{ Editor: ComponentType<ExpressionEditorProps> }>` | Resolve the editor component's chunk; rejection surfaces as the field's loud error. |
+| `preload?` | `() => void` | Best-effort warm of the editor's chunk on open-intent; never awaited by the field. |
+
+**Related:** [ExpressionEditorProps](/reference/studio-sdk/utilities#expressioneditorprops), [ExpressionLanguage](/reference/studio-sdk/utilities#expressionlanguage)
+
+
+## ExpressionEditorLauncher
+
+```ts
+function ExpressionEditorLauncher(
+  props: ExpressionEditorLauncherProps,
+): ReactElement<unknown, string | JSXElementConstructor<any>> | null
+```
+
+The launcher + lazily-loaded editor for one expression field, standalone so a
+compact grid can drop it beside its own input. It resolves the contributed
+editor for `declaration.language` itself and renders NOTHING when none is
+registered (or no `ExpressionEditorsProvider` is mounted) — the same
+graceful absence `ExpressionField` degrades to a plain text field on.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `compact?` | `boolean` | Icon-only launcher for narrow rows; the full name rides `aria-label`. |
+| `declaration` | `ExpressionFieldDeclaration` | What language the field authors, what its input is, and how to sample/validate it. |
+| `editorReadOnly?` | `boolean` | Open the editor READ-ONLY (no Save). This is the launcher's ONLY blocking knob: a launcher has no inline textarea to disable, so — unlike ExpressionField's `disabled`, which conflates textarea-disabled with editor-read-only — the door expresses author-blocking solely here. ExpressionField maps its own `disabled` onto this by default, and its `editorReadOnly` overrides that. |
+| `fieldLabel` | `string` | The label the editor titles itself with; also enriches the launcher's name. |
+| `onSave` | `(expression: string) => void` | Called with the authored expression when the user saves in the editor. |
+| `title?` | `string` | Override the launcher's hover `title` (e.g. a rerun/side-effect hint). Absent, the title is derived from the declaration's shape ("Visual editor · input: …"). |
+| `value` | `string` | The field's current expression ('' when unset), the editor seeds itself with. |
+
+**Related:** [ExpressionEditorLauncherProps](/reference/studio-sdk/utilities#expressioneditorlauncherprops)
+
+
+## ExpressionEditorLauncherProps
+
+```ts
+interface ExpressionEditorLauncherProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `compact?` | `boolean` | Icon-only launcher for narrow rows; the full name rides `aria-label`. |
+| `declaration` | `ExpressionFieldDeclaration` | What language the field authors, what its input is, and how to sample/validate it. |
+| `editorReadOnly?` | `boolean` | Open the editor READ-ONLY (no Save). This is the launcher's ONLY blocking knob: a launcher has no inline textarea to disable, so — unlike ExpressionField's `disabled`, which conflates textarea-disabled with editor-read-only — the door expresses author-blocking solely here. ExpressionField maps its own `disabled` onto this by default, and its `editorReadOnly` overrides that. |
+| `fieldLabel` | `string` | The label the editor titles itself with; also enriches the launcher's name. |
+| `onSave` | `(expression: string) => void` | Called with the authored expression when the user saves in the editor. |
+| `title?` | `string` | Override the launcher's hover `title` (e.g. a rerun/side-effect hint). Absent, the title is derived from the declaration's shape ("Visual editor · input: …"). |
+| `value` | `string` | The field's current expression ('' when unset), the editor seeds itself with. |
+
+**Related:** [ExpressionFieldDeclaration](/reference/studio-sdk/utilities#expressionfielddeclaration)
+
+
+## ExpressionEditorProps
+
+```ts
+interface ExpressionEditorProps
+```
+
+The props a contributed editor component receives when the field opens it. The
+WHOLE `ExpressionFieldDeclaration` crosses (not just `shape` /
+`serverValidate`), so the editor reads the input descriptor for its context
+chip, the sample provider for Test seeding, and the validate hook for its
+Validate action from one object. `onSave` writes the authored expression back
+through the field; `onClose` dismisses without saving.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `declaration` | `ExpressionFieldDeclaration` | What the field feeds and how to sample/validate it (see the type). |
+| `fieldLabel?` | `string` | The field label the editor titles itself with. |
+| `initialExpression` | `string` | The field's current expression ('' when unset), the editor seeds itself with. |
+| `onClose` | `() => void` | Called when the user dismisses the editor without saving. |
+| `onSave` | `(expression: string) => void` | Called with the authored expression when the user saves. |
+| `open` | `boolean` | Whether the editor is open — the field mounts it only while true. |
+| `readOnly?` | `boolean` | Author-blocking: the editor renders read-only (no Save) when true. |
+
+**Related:** [ExpressionFieldDeclaration](/reference/studio-sdk/utilities#expressionfielddeclaration)
+
+
+## ExpressionEditorsProvider
+
+```ts
+function ExpressionEditorsProvider(props: ExpressionEditorsProviderProps): ReactNode
+```
+
+Publishes the contributed editors to the subtree as a lookup. The shell mounts
+this once, above both the host feature routes and the plugin pages, with the
+host registry's `expressionEditors` map. Re-rendering with a new `editors` map
+(the load pass completing) updates every consumer.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `children` | `ReactNode` | — |
+| `editors` | `ReadonlyMap<string, ExpressionEditorContribution>` | The committed editor contributions, keyed by language — exactly the shell's `getContributions().expressionEditors`. Passed as the read-only map it already is; the provider never mutates or re-exposes it, and wraps it in a lookup so a consumer can only resolve, never enumerate. |
+
+**Related:** [ExpressionEditorsProviderProps](/reference/studio-sdk/utilities#expressioneditorsproviderprops)
+
+
+## ExpressionEditorsProviderProps
+
+```ts
+interface ExpressionEditorsProviderProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `children` | `ReactNode` | — |
+| `editors` | `ReadonlyMap<string, ExpressionEditorContribution>` | The committed editor contributions, keyed by language — exactly the shell's `getContributions().expressionEditors`. Passed as the read-only map it already is; the provider never mutates or re-exposes it, and wraps it in a lookup so a consumer can only resolve, never enumerate. |
+
+**Related:** [ExpressionEditorContribution](/reference/studio-sdk/utilities#expressioneditorcontribution)
+
+
+## ExpressionField
+
+```ts
+function ExpressionField(props: ExpressionFieldProps): ReactElement
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `compact?` | `boolean` | Icon-only launcher for narrow rows; the full name rides `aria-label`. |
+| `declaration` | `ExpressionFieldDeclaration` | What language the field authors, what its input is, and how to sample/validate it. |
+| `description?` | `string` | Optional field description rendered under the control. |
+| `disabled?` | `boolean` | Disables INLINE editing (the textarea/input is `disabled`). By default it also opens the editor read-only, so a blocked value can still be inspected; pass editorReadOnly to decouple the two. |
+| `editorReadOnly?` | `boolean` | Whether the visual editor opens READ-ONLY, independent of disabled. Defaults to `disabled` — the historical coupling — so a caller that never sets it keeps today's behaviour. Set it `false` to let the editor author a value whose textarea is disabled, or `true` to lock the editor while the textarea stays editable. |
+| `error?` | `string` | Optional error rendered under the control (also flags the field invalid). |
+| `fieldLabel?` | `string` | The label the editor titles itself with; defaults to label. |
+| `hideLabel?` | `boolean` | Render the label for assistive tech only (visually hidden) — for a dense grid of otherwise-identical expression rows that each need a unique, addressable name but have no room for a visible label. The `label` text is still the accessible name (see Field.hideLabel). |
+| `label` | `string` | The `Field` label; also the editor's title unless fieldLabel overrides it. |
+| `launcherTitle?` | `string` | Override the launcher button's hover `title` (e.g. a rerun/side-effect hint), threaded to ExpressionEditorLauncher.title. |
+| `monospace?` | `boolean` | Render the expression content in the design system's monospace face. Defaults to TRUE: an expression is code, and code reads in a mono font (jq filters, paths, and operators align and disambiguate `l`/`1`/`I` there) — the same face every jq surface in the ecosystem paints. A prose-ish field can opt out with `false`. |
+| `multiline?` | `boolean` | Author the field on a SINGLE line — a `TextInput` instead of a `Textarea` — for a per-argument grid row. Defaults to `true` (multiline). The visual-editor launcher is unaffected. |
+| `onChange` | `(expression: string) => void` | Called with the new expression on both textarea edits and an editor save. |
+| `placeholder?` | `string` | Textarea/input placeholder. |
+| `rows?` | `number` | Textarea row count (defaults to the SDK `Textarea` default); ignored when single-line. |
+| `textareaProps?` | `ExpressionControlProps` | Narrow native-attribute pass-through to the underlying control — `name`, `onBlur`, `maxLength`, `style`, `data-*`, and the like. The field owns value/onChange/disabled/rows/placeholder/spellCheck and the monospace class, so those are not forwardable (see ExpressionControlProps). |
+| `value` | `string` | The field's current expression ('' when unset). |
+
+**Related:** [ExpressionFieldProps](/reference/studio-sdk/utilities#expressionfieldprops)
+
+
+## ExpressionFieldDeclaration
+
+```ts
+interface ExpressionFieldDeclaration
+```
+
+The declaration a host attaches to an expression field: the language, what the
+input document is (descriptor), how to sample it, and how to server-validate it.
+Every property beyond `language` is optional so adoption is incremental — an
+undeclared-but-for-language field behaves exactly as a plain text field. No
+property names anything host-specific. Graduated from jq-studio's
+`JqFieldDeclaration`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `language` | `ExpressionLanguage` | — |
+| `sampleInput?` | `ExpressionSampleInputProvider` | — |
+| `serverValidate?` | `ExpressionServerValidate` | — |
+| `shape?` | `ExpressionShapeDescriptor` | — |
+
+**Related:** [ExpressionLanguage](/reference/studio-sdk/utilities#expressionlanguage), [ExpressionSampleInputProvider](/reference/studio-sdk/utilities#expressionsampleinputprovider), [ExpressionServerValidate](/reference/studio-sdk/utilities#expressionservervalidate), [ExpressionShapeDescriptor](/reference/studio-sdk/utilities#expressionshapedescriptor)
+
+
+## ExpressionFieldProps
+
+```ts
+interface ExpressionFieldProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `compact?` | `boolean` | Icon-only launcher for narrow rows; the full name rides `aria-label`. |
+| `declaration` | `ExpressionFieldDeclaration` | What language the field authors, what its input is, and how to sample/validate it. |
+| `description?` | `string` | Optional field description rendered under the control. |
+| `disabled?` | `boolean` | Disables INLINE editing (the textarea/input is `disabled`). By default it also opens the editor read-only, so a blocked value can still be inspected; pass editorReadOnly to decouple the two. |
+| `editorReadOnly?` | `boolean` | Whether the visual editor opens READ-ONLY, independent of disabled. Defaults to `disabled` — the historical coupling — so a caller that never sets it keeps today's behaviour. Set it `false` to let the editor author a value whose textarea is disabled, or `true` to lock the editor while the textarea stays editable. |
+| `error?` | `string` | Optional error rendered under the control (also flags the field invalid). |
+| `fieldLabel?` | `string` | The label the editor titles itself with; defaults to label. |
+| `hideLabel?` | `boolean` | Render the label for assistive tech only (visually hidden) — for a dense grid of otherwise-identical expression rows that each need a unique, addressable name but have no room for a visible label. The `label` text is still the accessible name (see Field.hideLabel). |
+| `label` | `string` | The `Field` label; also the editor's title unless fieldLabel overrides it. |
+| `launcherTitle?` | `string` | Override the launcher button's hover `title` (e.g. a rerun/side-effect hint), threaded to ExpressionEditorLauncher.title. |
+| `monospace?` | `boolean` | Render the expression content in the design system's monospace face. Defaults to TRUE: an expression is code, and code reads in a mono font (jq filters, paths, and operators align and disambiguate `l`/`1`/`I` there) — the same face every jq surface in the ecosystem paints. A prose-ish field can opt out with `false`. |
+| `multiline?` | `boolean` | Author the field on a SINGLE line — a `TextInput` instead of a `Textarea` — for a per-argument grid row. Defaults to `true` (multiline). The visual-editor launcher is unaffected. |
+| `onChange` | `(expression: string) => void` | Called with the new expression on both textarea edits and an editor save. |
+| `placeholder?` | `string` | Textarea/input placeholder. |
+| `rows?` | `number` | Textarea row count (defaults to the SDK `Textarea` default); ignored when single-line. |
+| `textareaProps?` | `ExpressionControlProps` | Narrow native-attribute pass-through to the underlying control — `name`, `onBlur`, `maxLength`, `style`, `data-*`, and the like. The field owns value/onChange/disabled/rows/placeholder/spellCheck and the monospace class, so those are not forwardable (see ExpressionControlProps). |
+| `value` | `string` | The field's current expression ('' when unset). |
+
+**Related:** [ExpressionControlProps](/reference/studio-sdk/utilities#expressioncontrolprops), [ExpressionFieldDeclaration](/reference/studio-sdk/utilities#expressionfielddeclaration)
+
+
+## ExpressionInputKey
+
+```ts
+interface ExpressionInputKey
+```
+
+One top-level key of the expression's input document, with a one-line gloss the
+editor may surface (a context chip, an input-node body, path suggestions).
+Graduated from jq-studio's `JqInputKey`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `gloss` | `string` | — |
+| `name` | `string` | — |
+
+
+## ExpressionLanguage
+
+```ts
+type ExpressionLanguage = "jq" | string & object
+```
+
+The expression language an expression field authors. `'jq'` is the only language
+that exists today; the tag is an OPEN string union so a host (or a later plugin)
+can name another pipeline language without a change to this type. The literal
+keeps `'jq'` on the autocomplete list while `string` keeps the union open.
+
+
+## ExpressionSampleInputProvider
+
+```ts
+type ExpressionSampleInputProvider = () => unknown
+```
+
+A provider of a concrete sample input for the editor's Test panel. A function
+ (not a value) so a host can supply a static skeleton now and a live sample
+ later without changing this API. Graduated from jq-studio's
+ `SampleInputProvider`.
+
+
+## ExpressionServerValidate
+
+```ts
+type ExpressionServerValidate = (args: { expression: string; sampleInput: unknown }) => Promise<ExpressionValidationResult>
+```
+
+A pluggable server-validate hook. The editor calls it with the current
+ expression and the sample input; the host routes it to its own validator (flows
+ wires babelfish's `validate_jq` endpoint here). Absent = no server validation
+ (a local runtime may still power the Test panel). Graduated from jq-studio's
+ `ServerValidateHook`.
+
+**Related:** [ExpressionValidationResult](/reference/studio-sdk/utilities#expressionvalidationresult)
+
+
+## ExpressionShapeDescriptor
+
+```ts
+interface ExpressionShapeDescriptor
+```
+
+A descriptor of what the expression's input document IS for a field — the shape
+the expression receives as its root. Deliberately open: a host builds these from
+its own domain, so ANY envelope is expressible, including ones the editor has
+never heard of. The `id` is an opaque, host-namespaced string used only for
+memoisation/telemetry. Graduated from jq-studio's `JqInputShapeDescriptor` with
+every field isomorphic, so the flows adapter maps its `JQType` onto this without
+reshaping.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `blurb` | `string` | One sentence: what the input document is in this field. |
+| `caveats?` | `readonly string[]` | Per-field caveats (e.g. ".iterate.item is always null in a while condition"). |
+| `id` | `string` | Stable, host-namespaced id (opaque to the editor). |
+| `keys` | `readonly ExpressionInputKey[]` | The top-level keys of the input document, each with a one-liner. |
+| `label` | `string` | Short chip label — what the input is here, e.g. "node envelope". |
+| `returns` | `string` | What the expression must RETURN, e.g. "true or false" \| "an object". |
+| `sample?` | `unknown` | A static skeleton of the input document — the cheap, honest default a Test  panel seeds its input with. A host may override it dynamically through the  declaration's ExpressionSampleInputProvider. |
+
+**Related:** [ExpressionInputKey](/reference/studio-sdk/utilities#expressioninputkey)
+
+
+## ExpressionValidationResult
+
+```ts
+interface ExpressionValidationResult
+```
+
+The answer a pluggable validator gives for an expression against its declared
+ shape. Mirrors babelfish `validate_jq`'s result WITHOUT importing its types, so
+ the hook stays host-agnostic.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `compiles?` | `boolean` | — |
+| `message?` | `string` | — |
+| `ok` | `boolean` | — |
+| `singleEmit?` | `boolean` | — |
+
+
 ## FeatureDisabled
 
 ```ts
@@ -391,4 +755,27 @@ const toolsListKey: readonly ["tools"]
 ```
 
 The registered-tool master list (`GET /api/tools`).
+
+
+## useExpressionEditor
+
+```ts
+function useExpressionEditor(
+  language: ExpressionLanguage,
+): ExpressionEditorContribution | null
+```
+
+Resolve the contributed editor for one expression language, or `null` when none
+is registered OR no `ExpressionEditorsProvider` is mounted above the caller.
+This is the ONLY way a plugin surface reaches a contributed editor: it cannot
+enumerate or mutate the registry, only ask for one language. `null` is the
+graceful-absence signal `ExpressionField` renders a plain text field on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `language` | `ExpressionLanguage` | — | — |
+
+**Related:** [ExpressionEditorContribution](/reference/studio-sdk/utilities#expressioneditorcontribution), [ExpressionLanguage](/reference/studio-sdk/utilities#expressionlanguage)
 
