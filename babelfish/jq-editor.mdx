@@ -1,0 +1,105 @@
+---
+title: "The jq editor plugin"
+description: "The visual jq editor shipped as a standalone Studio plugin — a pure provider that brings the canvas to any expression field."
+icon: "diagram-project"
+---
+
+The visual jq editor that the [Babelfish Flows](/babelfish#the-visual-jq-editor)
+plugin bundles is also available on its own, as a standalone Studio plugin. Installed
+on a host, it contributes the identical canvas to **any** Studio expression field —
+not just the flow editor's — through the SDK's
+[expression extension point](/studio/plugins#expression-editors). A field that
+declares its language as `jq` is then offered the visual editor; nothing else about
+the field changes.
+
+<Note>
+Like the flow engine, this plugin is part of the proprietary Babelfish family — it
+is licensed commercially, not part of the Apache-2.0 platform, and is not published
+to PyPI or listed in the [marketplace](/concepts/marketplace). Product details live
+at [tai42.ai/babelfish](https://tai42.ai/babelfish).
+</Note>
+
+## A pure provider
+
+This is the leanest kind of Studio plugin: **invisible chrome**. It registers **no
+page and no sidebar entry**, ships **no Python runtime** — no tools, no routes, no
+database binding — and adds no operator-facing surface of its own. Its one job is to
+register the jq editor as the deployment's editor for the `jq` expression language,
+so every `jq` field across the Studio (a flow's, a platform feature's, another
+plugin's) can open it.
+
+Because a jq language is a **global key** — at most one editor for it across a
+deployment — a host runs exactly one jq editor. On a host that also installs the flow
+engine, the flow editor keeps using its own bundled copy of the canvas for its own
+node/condition/fill fields, while this plugin's registration is what lets jq fields
+*outside* the flow editor reach the same canvas.
+
+## How it plugs in
+
+It installs like any other Studio plugin, but with the smallest possible footprint.
+
+The bundle ships committed inside the distribution, so installing it needs no
+JavaScript toolchain on the server. A deployment installs the plugin wheel and adds a
+**single line** to the [manifest](/concepts/manifest)'s `studio_plugins` list — the
+same one-line surface every Studio plugin uses:
+
+```yaml
+studio_plugins:
+  - tai42_babelfish_flows # the flow editor, if installed
+  - tai42_babelfish_jq # the jq expression editor (invisible chrome)
+```
+
+That is the entire deployer change. There is no `tools` entry, no `routers_modules`,
+no `extensions_modules`, and no DB binding to configure, because the plugin carries no
+Python runtime. Once served, the bundle's registration contributes the jq editor to
+the expression extension point, and any consumer that declares a `jq` field is offered
+it. See [Author a Studio plugin](/studio/plugins) for how the Studio loads and pins a
+plugin bundle in general.
+
+<Note>
+This is a proprietary distribution and is **not** published to PyPI. Like the flow
+engine, it is distributed as a **wheel attached to a GitHub Release**; a deployment
+installs that wheel and adds the manifest line above. It has no runtime dependencies
+of its own.
+</Note>
+
+## Host requirement and graceful degradation
+
+The expression extension point is a Studio SDK feature. This plugin activates only on
+a host whose Studio SDK is **7.0.0 or newer** — the release that graduated the
+expression-field vocabulary and the `registerExpressionEditor` contribution into the
+SDK. On an older host the extension point does not exist, and the plugin **no-ops
+gracefully**: the bundle is served, its registration finds no expression-editor door
+to contribute to, and every jq field simply stays a plain text field. Nothing breaks;
+the host is just one where the visual editor is unavailable. Pair the plugin with a
+host built for it to get the canvas.
+
+The editor is also versioned against a narrow **editor-props contract** independent of
+the broader plugin API version. If a future host ships an incompatible props contract,
+the registration is rejected **loudly** as this plugin's own error — never a silently
+blank field. See the [contract gate](/studio/plugins#expression-editors) for how that
+equality check works.
+
+## The evaluation worker
+
+The editor's Test panel runs jq locally, in WebAssembly, so an expression can be tried
+against sample JSON with no round trip. Because the jq runtime evaluates
+**synchronously**, a non-terminating expression would otherwise freeze the browser
+tab. This bundle instead evaluates jq inside a **Web Worker**, with the main thread
+enforcing a **terminate-on-deadline** — a runaway expression is killed rather than
+allowed to hang the tab.
+
+The worker is emitted as a **real, same-origin file** (listed in the bundle's
+integrity map), which is exactly what the Studio's Content-Security-Policy permits: a
+`'self'` worker file is allowed where an inline or `blob:` worker would be refused, and
+the policy's `'wasm-unsafe-eval'` lets the jq runtime instantiate its WebAssembly
+inside the worker. Where no worker can be constructed — an older or more restrictive
+host — the editor falls back to synchronous main-thread evaluation, preserving today's
+behaviour without the deadline guard.
+
+## See also
+
+- [The visual jq editor](/babelfish#the-visual-jq-editor) — the canvas itself: its node vocabulary, the faithfulness guarantee, and the shell around it.
+- [Author a Studio plugin](/studio/plugins#expression-editors) — the SDK extension point this plugin contributes to, and how any host feature or plugin declares a `jq` field.
+- [Babelfish Flows](/babelfish) — the flow engine that bundles the same editor for its own fields.
+- [The manifest](/concepts/manifest) — the `studio_plugins` field that turns the plugin on.

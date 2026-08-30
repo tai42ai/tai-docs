@@ -232,14 +232,36 @@ flow that no longer exists renders a loud not-found card, never a blank editor.
 
 Selecting a node on the canvas opens a **tabbed edit panel** — **Settings**,
 **Input**, **Output**, **State**. Settings is the per-kind configuration form and
-its Update-node action. Input and Output are read-only: they render the node's
+its Update-node action; a fan-in or loop node's Settings also carry the barrier's
+[wait knobs](/babelfish#node-waits) (wait mode and the timeout give-up pair) and,
+where the flow binds states, the opt-in
+[state-refresh](/babelfish#refresh-opt-in-state-re-read) toggle. Input and Output are
+read-only: they render the node's
 declared input and output schemas — with the node's outcomes surfaced on Output —
 so a node's contract is readable in build mode, and each shows an empty state when
 nothing is declared. When an agent node carries a [structured-output
 schema](/babelfish#structured-agent-output), the Output tab renders that schema live
-and its label reads **Output (structured)**. The State tab is the node's fills
-editor — or, on the Start node, this flow's state bindings — and its tab label
-carries a live fill-count.
+and its label reads **Output (structured)**. Editing that schema to **remove** a field
+surfaces a non-blocking honesty note on the agent's Settings: static analysis scans the
+flow for downstream jq that still reads the removed path off this agent
+(`.upstream_outputs.<agent>.<path>`, including the flow-level on-error handler) and
+names the references that would silently start resolving to null — it never blocks the
+save (references built dynamically are, honestly, not detected). The State tab is the
+node's fills editor — or, on the Start node, this flow's state bindings — and its tab
+label carries a live fill-count.
+
+When you run a flow in-page, the run panel and each node's run popup render results
+**schema-aware**. Where a node declared its output shape — an agent's structured-output
+schema, or a custom node's (or the whole flow's) output schema — the actual result
+renders as a **labeled, typed display** keyed off that schema: the schema's titles as
+field labels, its descriptions as captions, enum values as chips, nested objects as
+sections. The view stays honest about the data: value keys the schema does **not**
+declare are never hidden — they render as an appended raw-JSON remainder — a declared
+field absent from the value shows a muted dash, and a value that does not match the
+schema's shape at the top level falls back to the plain JSON tree with a small note
+rather than a crash. A per-instance **Raw** toggle flips the whole view to the plain
+tree, so the underlying data is never more than one click away, and a flow (or node)
+that declares no output shape keeps the plain results tree throughout.
 
 The **fills editor** on the State tab edits, per node, the state fields the node
 writes. It groups fills by state and defaults to a top-level-field dropdown off the
@@ -265,6 +287,15 @@ removes an outcome value that wired callers route on, the make-a-node dialog sho
 **informational** warning naming the removed values and how many flows use the node
 (their routes would go dead) — it never blocks the save. This inform-don't-block
 convention is the editor's house style for changes whose impact lands on callers.
+
+The one thing the make-a-node dialog **does** block on is a genuinely *invalid*
+input-schema edit. The custom-node dialog's input-schema editor nulls its buffer while
+an edit is unparseable, and saving then would silently **erase** the schema — the right
+outcome for a deliberate clear, the wrong one for a typo. So Save is disabled precisely
+while the input-schema buffer is invalid (a bad shape, not an empty one), with an inline
+"fix the input schema before saving" note; a cleared buffer reports valid and saves a
+null schema as intended. This is a validity gate, distinct from the non-blocking
+caller-impact warnings above.
 
 Message and expression slots on the agent, runnable, and branch forms are edited as
 a **Plain / Template** tabbed control — and a jq **expression** slot carries a third

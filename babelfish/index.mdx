@@ -88,6 +88,11 @@ loop node plus one body, and on load that marked cluster folds back into the sin
 map node, so you never touch the mechanism. A loop authored by hand carries no such
 marker, is never folded into a map, and stays a visible Loop.
 
+Because a map *is* a loop on the wire, its entry is a barrier: the map face carries
+the same dispatch controls a hand-authored loop does — the [wait mode and the
+give-up pair](#node-waits), and the opt-in [state refresh](#refresh-opt-in-state-re-read),
+which fires **once at loop entry** so every iteration inherits the same fresh view.
+
 **Broadcast** is the map-plus-send-message recipe for fanning one message out to N
 recipients: make the mapped tool the send-message node, set `input` to the
 recipients list, and read the current recipient from `.iterate.item` in the
@@ -161,6 +166,21 @@ and the node simply does not run (the run goes quiescent and completes as succes
 When a behind-a-condition producer might route away from you, pair the named release
 with a **wait timeout** so a later trigger can force a partial run.
 
+**The give-up pair.** A wait carries an optional **wait timeout** and a
+**raise-on-timeout** flag, and the pair is the barrier's safety valve on any fan-in
+node — and on an **iterate** (or its **map** face), whose loop entry is itself an
+all-or-nothing barrier. Left to force-run (the default), a trigger arriving after the
+deadline releases the barrier with whatever inputs are present and the node runs a
+partial; set raise-on-timeout and that same lapsed deadline instead **fails the node
+loudly**, attributed to the waiting node as an *application* error rather than
+infrastructure — so a flow-level on-error handler sees it exactly as any node
+failure and can route on it. The timeout is lazy either way: it
+can only fire when some trigger arrives after the deadline, so a node whose last
+trigger already fired keeps waiting forever. Because the wait's start clock is
+checkpointed, size the timeout against wall-clock park durations — a long upstream
+park can make the first trigger after a resume find the deadline already elapsed and
+force the give-up immediately.
+
 ## The visual jq editor
 
 Every jq expression a flow carries — a node's expression, a branch or loop
@@ -168,6 +188,14 @@ condition, a state fill or its guard — can be authored two ways from the same
 field: as **Plain** text, or in a **visual editor** that draws the expression as a
 small, editable node graph and writes it back as jq. The two are views of one
 inline expression; the wire always carries the jq text.
+
+<Note>
+The flow editor bundles this visual editor directly. The **same** editor also ships
+as a standalone Studio plugin — [the jq editor plugin](/babelfish/jq-editor) — that
+contributes it to *any* Studio expression field through the SDK's
+[expression extension point](/studio/plugins#expression-editors), so a jq field on a
+host that has that plugin installed offers the identical canvas.
+</Note>
 
 **The node vocabulary.** The canvas paints eight node kinds, each with a semantic
 hue shared with the flow canvas so a colour means the same thing in both editors:
@@ -319,8 +347,11 @@ under its row lock:
   item whose key field equals that key is replaced in list order; if none matches,
   the item is appended (upsert). An absent list is created.
 - **`remove_by_key`** — remove the list item(s) whose key field equals a given value.
-  The fill's jq produces the **key** to remove by, and every matching item is dropped.
-  Zero matches, or an absent list, is a quiet no-op.
+  The fill's jq produces the **key** to remove by — a single scalar, or a **list of
+  scalars** (the MongoDB `$pull` + `$in` idiom) that drops every item matching *any*
+  listed key across all of them, in one fill. Every matching item is dropped; zero
+  matches, or an absent list, is a quiet no-op. A remove list is capped at **200
+  keys**, and an empty list, a nested container, or a duplicate key is refused loudly.
 
 Both name a `key_field` — a single **top-level** field of the item objects — and
 address the **list** itself, never a new item, so the append token `"-"` is refused:
@@ -357,6 +388,41 @@ build that predates keyed ops: an older server would replay a stored keyed fill 
 whole-list `set` and silently clobber the list. The forward direction is safe — a
 pre-keyed binding never carries a keyed op, and an unknown op fails loud by design.
 </Note>
+
+### Refresh: opt-in state re-read
+
+Every run seeds its bound records into `.states.<name>` **once, at mint** — so a node
+reads whatever was persisted when the run started. A node can opt into a fresher view:
+set **refresh state** on it to re-read the persisted record(s) right after its input
+barrier releases and **before** its jq input is built, folding the freshly committed
+docs into `.states.<name>` for that node's own expressions *and* its fills. The toggle
+re-reads **every** state the flow binds, or you narrow it to a named subset; off is the
+default and old flows are unchanged.
+
+- **What it heals — and what it does not.** Refresh heals **causality**: a document an
+  already-**finished** upstream node (or another completed flow) committed after this
+  run's mint-time seed, or a fill whose channel update was rolled back at an interrupt
+  boundary. It is **not** a race primitive — the re-read is a single point-in-time
+  snapshot with no lock span, so a writer racing *concurrently* is still a
+  [keyed-op](#keyed-state-list-ops) or [compare-and-set guard](#cross-flow-state-writers)
+  concern, never this one. A record that reads **absent/erased** skips the landing
+  entirely: a refresh cannot observe a deletion.
+- **Once at loop entry.** On an **iterate** (and its **map** face) the re-read fires
+  **once, at loop entry** — re-entries through the body back-edge skip the barrier — so
+  every iteration's body, and any `while` predicate, inherits the same entry-time
+  refreshed view.
+- **Interrupt-resume caveat.** A tool node that pauses and resumes re-runs on resume, so
+  its refresh re-reads at **resume** time and its fills — and the input recorded for the
+  node — are recomputed over the resume-time view, which can diverge from the arguments
+  the tool actually received on the first drive.
+- **Stateless bypass.** On an unbound run — a raw-graph surface, or a flow imported to an
+  environment where it is unbound — the re-read is a silent no-op, the same shape as
+  fills. But naming, in the subset, a state the flow does **not** bind is a loud binding
+  error whenever bindings do load.
+
+In the Studio the toggle sits on the node's State/Settings surface beside the wait
+knobs, and a refresh lands in the run's [state-change trace](#flow-states) as a
+"refreshed" marker carrying no new writes.
 
 ### Enable the states database
 
@@ -443,6 +509,7 @@ exists renders a loud not-found card rather than a blank editor.
 ## See also
 
 - [Babelfish on tai42.ai](https://tai42.ai/babelfish) — the product, its pricing, and its terms.
+- [The jq editor plugin](/babelfish/jq-editor) — the standalone Studio plugin that brings the visual jq editor to any expression field.
 - [Studio plugins](/studio/plugins) — how a plugin contributes a Studio page.
 - [Presets](/concepts/presets) — the versioned wrap a saved flow becomes.
 - [Tool organization](/concepts/tool-organization) — the folders, display names, tags, and visibility a flow rides.
