@@ -184,17 +184,20 @@ force the give-up immediately.
 ## The visual jq editor
 
 Every jq expression a flow carries — a node's expression, a branch or loop
-condition, a state fill or its guard — can be authored two ways from the same
-field: as **Plain** text, or in a **visual editor** that draws the expression as a
-small, editable node graph and writes it back as jq. The two are views of one
-inline expression; the wire always carries the jq text.
+condition, a state fill or its guard — is authored in one field two ways: by typing
+jq into the field's resting text control, or in a **visual editor**, opened from that
+control, that draws the expression as a small, editable node graph and writes it back
+as jq. The wire always carries the jq text.
 
 <Note>
-The flow editor bundles this visual editor directly. The **same** editor also ships
-as a standalone Studio plugin — [the jq editor plugin](/babelfish/jq-editor) — that
-contributes it to *any* Studio expression field through the SDK's
-[expression extension point](/studio/plugins#expression-editors), so a jq field on a
-host that has that plugin installed offers the identical canvas.
+This visual editor is [**jq-studio**](/studio/jq-editor) — the platform's
+open-source, built-in jq editor. The [Studio SDK](/reference/studio-sdk/index)
+re-exports its `JqField` component and the Studio host provides the design system and
+evaluation worker, so the flow editor renders it directly, with nothing to install.
+The **same** editor serves every jq field across the Studio — a flow's, a host
+feature's, another plugin's — so the canvas below is identical everywhere. See
+[Visual jq in flows](/babelfish/jq-editor) for the flow field's tabs and per-surface
+seeding.
 </Note>
 
 **The node vocabulary.** The canvas paints eight node kinds, each with a semantic
@@ -236,31 +239,20 @@ keeps two questions apart — *is the jq valid* and *can the editor draw it*. On
 that genuinely fails to compile raises a loud **"invalid expression"** alert; valid
 jq the editor cannot represent is neutral, never flagged as broken.
 
-**The Editor-tab default.** When a field arrives already holding an expression the
-editor can represent faithfully, it opens on the **Editor** tab; otherwise it opens
-on Plain. A tab you pick by hand is sticky for the rest of that field's life.
+**Where you open it.** In a flow field, the visual editor opens from the **Inline**
+tab's **Visual editor** button — the field is a two-tab Inline/Template control, and
+the canvas is never a tab of its own. See [Visual jq in flows](/babelfish/jq-editor)
+for the field's tabs. The same editor opens the same way on every other jq field in
+the Studio.
 
 ### Visual jq on every surface
 
-Every jq field carries the same visual-editor door, and each names what `.` is at
-its site so the Test panel seeds the right sample and the server validator checks the
-right shape:
-
-- a node **expression** and a **conditional** or **branch** condition see the **node
-  envelope** — the run's inputs and the upstream nodes' outputs, with this node's
-  `.result` still null;
-- an **on-error** condition or expression sees the **error envelope** — the failed
-  node's error on `.upstream_outputs`;
-- a **state fill** and its **re-run** expression see the **fill envelope**, where
-  `.result` is the filling node's own output (a null result skips the fill);
-- a fill's compare-and-set **guard** sees that same fill envelope — its jq computes
-  the expected value;
-- a binding's **subject** expression sees the bare **flow inputs** document (`.` is
-  `flow_graph_kwargs`, with no envelope);
-- a schema-migration **transform** sees one bare **state record** — the old-schema
-  document — and emits the new-schema object;
-- a **map item argument** sees the **loop-body envelope**, where `.iterate.item` is
-  the current item and `.iterate.iteration` its zero-based position.
+Every jq field carries the same editor, and each names what `.` is at its site so the
+Test panel seeds the right sample and the server validator checks the right shape. The
+per-site input shapes — the node, error, fill, and return envelopes, the loop
+envelopes a `while`/`foreach`/`map` field sees, and the bare flow-inputs and
+state-record documents — are listed in
+[Visual jq in flows](/babelfish/jq-editor#what-each-field-seeds).
 
 ## Flow states
 
@@ -509,7 +501,8 @@ exists renders a loud not-found card rather than a blank editor.
 ## See also
 
 - [Babelfish on tai42.ai](https://tai42.ai/babelfish) — the product, its pricing, and its terms.
-- [The jq editor plugin](/babelfish/jq-editor) — the standalone Studio plugin that brings the visual jq editor to any expression field.
+- [Visual jq in flows](/babelfish/jq-editor) — the flow field's Inline/Template tabs and what each jq field seeds the editor with.
+- [The jq editor](/studio/jq-editor) — jq-studio, the platform's open-source, built-in visual jq editor.
 - [Studio plugins](/studio/plugins) — how a plugin contributes a Studio page.
 - [Presets](/concepts/presets) — the versioned wrap a saved flow becomes.
 - [Tool organization](/concepts/tool-organization) — the folders, display names, tags, and visibility a flow rides.
