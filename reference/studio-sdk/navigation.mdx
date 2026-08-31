@@ -97,10 +97,12 @@ plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
 |---|---|---|
 | `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void` | — |
 | `navigatePlugin` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => void` | — |
+| `navigatePluginWithOptions?` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch, options?: PluginNavigateOptions) => void` | ADDITIVE plugin-page navigation that also carries per-history-entry PluginNavigateOptions. OPTIONAL because a Studio host built before this feature does not provide it; plugins reach it — and require a host that does — through usePluginEntryNavigation, which throws loudly on an older host. It behaves exactly like navigatePlugin for path / params / search, and in addition writes `options.state` onto the DESTINATION entry under the plugin's own namespace slot (see PluginPageProps.entryState).  NEXT-MAJOR (9.0) CONSOLIDATION NOTE: fold `options` into navigatePlugin's own signature and RETIRE this sibling. It exists as a separate optional member ONLY to stay additive under the plugin-API equality gate — a new optional member does not move STUDIO_PLUGIN_API_VERSION, so every existing plugin keeps loading. Cutting a MAJOR now purely to rename one method onto another is the disproportion anti-pattern: a breaking change for a cosmetic merge. The merge therefore waits for the next major that carries real breaks; until then both coexist and navigatePlugin stays byte-for-byte stable. |
 | `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
 | `resolvePluginPath` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => string` | — |
+| `updatePluginEntryState?` | `(pluginId: string, state: unknown) => void` | ADDITIVE: replace the CURRENT history entry's per-entry state slot for `pluginId` IN PLACE (merge-preserving other plugins' slots), WITHOUT navigating — the URL, params, search, and scroll are untouched. A page uses it to checkpoint its live view state onto the entry the reader is already on, so a later back/forward or a hard reload restores it. OPTIONAL for the same additive reason as navigatePluginWithOptions; reached through usePluginEntryNavigation. |
 
-**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginNavigateOptions](/reference/studio-sdk/navigation#pluginnavigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
 ## NavigationGuardHandler
@@ -153,6 +155,41 @@ parameters. Features type their exported page as `PageProps<'tools'>` and read
 | `search` | `RouteSearch<T>` | — |
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## PluginNavigateOptions
+
+```ts
+interface PluginNavigateOptions
+```
+
+Per-navigation options for `navigatePluginWithOptions`.
+
+`replace` mirrors `replace`: overwrite the current history
+entry instead of pushing a new one (a page rewriting its own unrenderable URL).
+
+`state` is an opaque, per-history-ENTRY bag the host stores ON the destination
+history entry, namespaced to the navigating plugin, and hands the page back as
+`entryState`. It survives back/forward traversal AND a hard
+reload — the browser persists `history.state` across a document load, verified in
+a real browser against the router's pinned major before this channel was built.
+Two hard rules bind the value:
+ - JSON-ROUND-TRIP: it is serialized into `history.state`, so it must survive
+   structured-clone / JSON semantics — plain data only, no functions, DOM nodes,
+   or class instances. The page reads back a structural COPY, never the same
+   reference it wrote.
+ - SIZE: `history.state` is browser-bounded (Firefox caps a serialized entry at
+   16 MiB; others higher). Keep a slot SMALL — a soft cap of ~32 KB — and store
+   only view state (a selection, a scroll anchor, a draft id), never bulk data.
+   Oversized state risks a browser-thrown navigation; the host does not police
+   the cap, so the discipline is the plugin's.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `replace?` | `boolean` | Overwrite the current history entry instead of pushing a new one. |
+| `state?` | `unknown` | Opaque, JSON-round-trippable per-entry state (soft cap ~32 KB); see the type doc. |
 
 
 ## PluginSearch
@@ -300,6 +337,24 @@ may each arm one, and any veto blocks.
 | `handler` | `NavigationGuardHandler` | — | — |
 
 **Related:** [NavigationGuardHandler](/reference/studio-sdk/navigation#navigationguardhandler)
+
+
+## usePluginEntryNavigation
+
+```ts
+function usePluginEntryNavigation(): { navigatePluginWithOptions: (pluginId: string, pagePath: string, params?: string, search?: PluginSearch, options?: PluginNavigateOptions) => void; updatePluginEntryState: (pluginId: string, state: unknown) => void }
+```
+
+Plugin-page navigation WITH the per-history-entry state channel:
+`navigatePluginWithOptions` navigates and writes a per-entry state slot, and
+`updatePluginEntryState` checkpoints the CURRENT entry's slot in place (no
+navigation). Both require a host that provides the channel; on an OLDER host that
+predates it, this hook THROWS a loud, descriptive error rather than silently
+degrading — the plugin then knows to fall back or the deployment knows to update the
+host. A plugin that only navigates without carrying state should keep using
+`usePluginNavigation`, which every host supports.
+
+**Related:** [PluginNavigateOptions](/reference/studio-sdk/navigation#pluginnavigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch)
 
 
 ## usePluginNavigation
