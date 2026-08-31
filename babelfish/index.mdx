@@ -107,6 +107,16 @@ mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 Each flow declares its own inputs and results — the values it expects when it starts
 and the values it hands back when it finishes — so a flow presents a clear contract
 to whatever calls it and the editor can prompt for the right inputs when you run one.
+Because a flow is a [tool](/concepts/tools-and-extensions), a parent flow can invoke
+another flow as a subflow through that same contract.
+
+<Warning>
+A subflow's state writes are invisible to a later parent node unless that node opts
+in. A run's `.states` view is its snapshot from run start plus its own fills: a
+subflow's fills land on the shared record immediately, but a later parent node folds
+them in only if it sets [refresh state](#refresh-opt-in-state-re-read). Without it the
+parent keeps reading its mint-time snapshot — a silent stale read.
+</Warning>
 
 ## Portable flow files
 
@@ -394,7 +404,9 @@ default and old flows are unchanged.
 - **What it heals — and what it does not.** Refresh heals **causality**: a document an
   already-**finished** upstream node (or another completed flow) committed after this
   run's mint-time seed, or a fill whose channel update was rolled back at an interrupt
-  boundary. It is **not** a race primitive — the re-read is a single point-in-time
+  boundary. A [subflow](#inputs-and-results) a parent node invokes is this case — its
+  fills commit immediately but stay invisible to a later parent node until that node
+  refreshes. It is **not** a race primitive — the re-read is a single point-in-time
   snapshot with no lock span, so a writer racing *concurrently* is still a
   [keyed-op](#keyed-state-list-ops) or [compare-and-set guard](#cross-flow-state-writers)
   concern, never this one. A record that reads **absent/erased** skips the landing
