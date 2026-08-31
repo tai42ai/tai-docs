@@ -167,6 +167,15 @@ RUN_ATTRIBUTION_TRACE_NAME = 'run'
 ```
 
 
+## RUN_VERSION_METADATA_KEY
+
+`tai42_contract.monitoring.writer.RUN_VERSION_METADATA_KEY`
+
+```python
+RUN_VERSION_METADATA_KEY = 'run_version'
+```
+
+
 ## MonitoringWriter
 
 `tai42_contract.monitoring.writer.MonitoringWriter`
@@ -345,10 +354,19 @@ trace_attributes(
     name: str | None = None,
     tags: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> AbstractContextManager[None]
 ```
 
 Set trace-level name/tags/metadata on the ambient trace for the block.
+
+``user_id`` / ``session_id`` set the backend's native identity dimensions
+when supplied; ``None`` leaves each unset. They are optional and
+keyword-only, so an existing caller that sets only name/tags/metadata is
+unaffected. A ROOT version is carried inside ``metadata`` under
+`RUN_VERSION_METADATA_KEY` (not a discrete parameter) so a backend
+without a native version dimension keeps it as ordinary metadata.
 
 **Parameters**
 
@@ -357,6 +375,8 @@ Set trace-level name/tags/metadata on the ambient trace for the block.
 | `name` | `str \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 | `metadata` | `dict[str, Any] \| None` | `None` | — |
+| `user_id` | `str \| None` | `None` | — |
+| `session_id` | `str \| None` | `None` | — |
 
 
 #### current_trace_id
@@ -488,11 +508,20 @@ kept off the Protocol so structural writers conform without inheriting it. The
 caller ENTERS the returned manager AROUND the whole run so the run's spans are
 created INSIDE the attribution scope. It RETURNS the manager rather than
 entering it — a one-shot enter/exit here would tear the scope down before any
-span exists and silently no-op the stamp. Guarded by
-`MonitoringWriter.current_trace_id`: a no-op manager outside a trace.
-Fail-safe by construction — the stamp's fail-safety is
+span exists and silently no-op the stamp.
+
+It does NOT gate on `MonitoringWriter.current_trace_id`. A stamp deposited
+BEFORE any trace is open is NOT lost: ``trace_attributes`` is context-scoped
+(langfuse's ``propagate_attributes`` writes the attributes into the ambient OTel
+context — see ``propagation.py``'s ``_set_propagated_attribute`` — and the span
+processor lifts them onto the trace ROOT when a span is subsequently opened
+inside the scope, ``span_processor.py``). Short-circuiting to a ``nullcontext``
+when ``current_trace_id()`` is ``None`` therefore DROPPED the attribution on the
+common case — a door that deposits then opens the run's first span — so the guard
+is removed. Fail-safe by construction — the stamp's fail-safety is
 `MonitoringWriter.trace_attributes`'s (it catches + logs on enter/exit,
-never raises).
+never raises), so an emit-incapable writer's ``trace_attributes`` is a safe no-op
+even with no trace ever opened.
 
 **Parameters**
 
