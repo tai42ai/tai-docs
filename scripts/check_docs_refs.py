@@ -100,13 +100,17 @@ ROSTER_MARKER_START = "core-roster:start"
 ROSTER_MARKER_END = "core-roster:end"
 _ROSTER_BLOCK_RE = re.compile(re.escape(ROSTER_MARKER_START) + r"(.*?)" + re.escape(ROSTER_MARKER_END), re.DOTALL)
 
-# A `tai42-<name>` distribution token. The first lookahead forces a maximal
-# token match (so no shorter prefix can be matched); the second excludes image
-# asset paths such as `/tai42-logo-icon.png` (a `tai42-` token immediately
-# followed by an image extension), which are icons, not distribution names. A
-# slash prefix alone is NOT excluded, so a distribution token inside a URL is
-# still detected.
-_DIST_RE = re.compile(r"tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp))")
+# A `tai42-<name>` distribution token. The leading lookbehind anchors the token at
+# the start of its hyphenated word, so a LONGER identifier that merely ENDS in a
+# distribution-shaped suffix is not mistaken for one -- the vendor annotation
+# `x-tai42-expression` names no distribution. It mirrors the trailing lookahead:
+# a distribution token is a whole hyphen-word, never a substring of one. The
+# first lookahead forces a maximal token match (so no shorter
+# prefix can be matched); the second excludes image asset paths such as
+# `/tai42-logo-icon.png` (a `tai42-` token immediately followed by an image
+# extension), which are icons, not distribution names. A slash prefix alone is NOT
+# excluded, so a distribution token inside a URL is still detected.
+_DIST_RE = re.compile(r"(?<![a-z0-9-])tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp))")
 
 # The monorepo that houses every first-party package. Its member directories are
 # addressed as `github.com/tai42ai/tai42/tree/<ref>/<member-path>`.

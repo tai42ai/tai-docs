@@ -1,12 +1,12 @@
 ---
 title: "Observe"
-description: "Collect metrics and traces."
+description: "Collect metrics and traces, and enumerate runs."
 icon: "chart-line"
 ---
 
-Collect metrics and traces from a running server.
+Collect metrics and traces from a running server, and enumerate its runs.
 
-The runtime records what runs. Tool and agent runs produce traces; aggregate counts and latencies roll up into metrics. You query both from the CLI. A monitoring backend plugin persists and serves the data; the `monitor` extension traces a standalone tool call as one span.
+The runtime records what runs. Tool and agent runs produce traces; aggregate counts and latencies roll up into metrics; a platform-side runs index enumerates every preset run. You query all three from the CLI. A monitoring backend plugin persists and serves the metrics and traces; the `monitor` extension traces a standalone tool call as one span.
 
 ## Query metrics
 
@@ -34,6 +34,93 @@ tai obs metrics --from 7d --granularity day
     ```
   </Step>
 </Steps>
+
+Narrow the list to one subject with the [identity
+dimensions](#the-identity-dimensions) the runtime stamps: `--user`, `--session`,
+and `--version` filter to one person, one conversation thread, or one preset
+version.
+
+```bash
+tai traces list --user person_7f3a --from 7d
+```
+
+## List runs without the vendor
+
+The platform keeps its own **runs index**: one row per registered-preset run,
+persisted in the platform's own Postgres — so a deployment enumerates its runs
+without reaching for the monitoring backend at all. Each row carries the
+run id, the preset name and version, the run's [attribution](#attribute-a-run-and-roll-up-cost)
+user and session, its outcome, its start/end window, and the monitoring
+`traceId` as a deep link into the full trace.
+
+```bash
+tai runs list --preset support --outcome error
+```
+
+Filter by `--preset`, `--version`, `--user`, `--session`, `--interaction`,
+`--outcome`, and a `--from`/`--to` start-time range; the same filters ride
+`GET /api/runs` as query params. Outcomes are `running`, `success`, `error`,
+`parked`, and `aborted` — a cancelled run records `aborted`, never `error`, and a
+crash-interrupted run stays honestly `running` with no end time.
+
+A run that parks on an async question and resumes later is two dispatches — two
+rows. The shared `interactionId` joins them: the parked row records the
+interaction it parked on, the resume's row records the same id, and
+`--interaction <id>` returns that park's lifecycle pair.
+
+Rows are kept forever by default. Set `TAI_RUNS_INDEX_RETENTION_DAYS` and call
+the prune on a cadence to bound the table:
+
+```bash
+tai runs prune
+```
+
+<Note>
+Only a **registered preset** run lands in the index, stamped once at the
+outermost dispatch — a nested sub-preset adds no second row, and a raw tool call
+none. The index is fail-safe: a store outage never breaks a run.
+</Note>
+
+## One run, one trace
+
+A run that dispatches nested work keeps a single trace. A subflow invoked as a
+tool and an agent driven as a flow node join the dispatching run's trace — their
+spans nest inside it rather than minting a fresh, orphaned trace — so one guest
+interaction reads end to end as one trace. A run that parks on an async question
+and resumes later — days later, on another worker — rejoins its original trace.
+
+## Send outcomes and delivery receipts
+
+Every outbound channel send made inside a run's trace — a flow's `notify_user`
+send, a question delivered to a person, an inbound guest notice — records a
+`send:{channel}` span around the provider call. The span carries the recipient
+as its input, and the `notify_user` seam adds the provider's message ids as its
+output; a raised delivery or input error marks it `ERROR` with the typed failure
+detail (`error.kind`, `retryable`, any `retry_after`). A seam that retries emits
+one span per attempt, stamped with `retry.attempt`, so "attempt 1 failed
+retryable, attempt 2 accepted" is visible rather than collapsed.
+
+Acceptance is not delivery. On channels with a delivery-status webhook (WhatsApp,
+Twilio), the provider's later status closes the loop: the status is resolved back
+to the originating send and posted as a `delivery_receipt` event on that run's
+trace, nested under its send span — a failed delivery as an `ERROR` event
+carrying the provider's error detail. The receipt is **observability only**: it
+annotates the trace, never re-sends, and never fails the flow.
+
+<Note>
+A [conversation-bridge](/reference/conversation-bridge) reply is covered by
+**receipts, not spans**. Bridge delivery runs in a detached task after the turn's
+trace has closed, so a span there would attach to no run; the record's own delivery
+ledger and its delivery-status receipts are the authoritative accepted-versus-
+delivered signal for bridge messages instead.
+</Note>
+
+<Note>
+The webhook wiring and per-channel status semantics live on the channel plugin
+pages: [channel-whatsapp](/plugins/tai42/channel-whatsapp) and
+[channel-twilio](/plugins/tai42/channel-twilio). A send outside any trace emits
+no span — a rootless span would attach to no run.
+</Note>
 
 ## Trace a standalone tool call
 
@@ -63,12 +150,51 @@ Every run's trace can be tagged at the shared run chokepoint with the run's own
 identity — the flow kwargs the operator defines per delivery, carried verbatim as
 a `RunAttribution` of tags and metadata, wired once at the shared seam so every
 door attributes. That lets you **group** cost and tokens by identity when you
-query traces and metrics: per-delivery attribution, with no tenant system and no
-per-tenant isolation — attribution only.
+query traces: per-delivery attribution, with no tenant system and no
+per-tenant isolation — attribution only. Metrics aggregate over a time range
+alone — `tai obs metrics` takes no identity filter, so slice by identity on the
+trace list and roll the cost up from there.
 
 There is **no billing module**. Billing is a flow or a view built over these
 attributed traces: the platform ships the generic attribution enabler, and
 assembling spend into a cost view is delivery work on top of the trace data.
+
+### The identity dimensions
+
+Beyond the per-delivery tags, the runtime stamps every conversation-driven run
+with generic identity at the same shared seam, and the monitoring backend maps
+them to its native trace dimensions:
+
+- **`user_id`** — person-id-first: a run with a resolved
+  [person](/guides/link-a-person-across-channels) is attributed by that person's
+  stable `person_id`, so one human's runs group together across channels. With no
+  person it falls back to the raw `{channel}:{address}` the door saw, or the bare
+  address on the API door.
+- **`session_id`** — the resolved conversation thread, so a whole back-and-forth
+  reads as one session.
+- **`tags`** — the conversation route as `route:{name}`; a registered preset
+  dispatch adds `preset:{name}` and `preset-v:{version}` and lifts the version
+  onto the trace's native version dimension. Only the **outermost** preset
+  stamps: a nested sub-preset never pollutes the root identity, and a draft run
+  carries no preset stamp at all.
+
+The run list filters by exactly those dimensions: `GET /api/observability/runs`
+takes `user`, `session`, and `version` params, plus any number of
+`meta.<key>=<value>` params — each one a string-equality clause on the trace's
+metadata.
+
+<Warning>
+That identity is personal data, and it lands in **your** monitoring backend — so
+retention and erasure there are yours to govern. The platform sets no trace
+retention on your behalf, and [forgetting a
+person](/reference/conversation-bridge#forgetting-a-person) erases the bridge's
+own stores, never the monitoring backend's traces. Set a deliberate retention
+policy, and honour an erasure request by deleting the subject's traces keyed on
+their `user_id` — person-id-first attribution keeps a linked subject's
+cross-channel history under one deletable key. See the
+[monitoring-langfuse](/plugins/tai42/monitoring-langfuse) page for the
+backend-side duties.
+</Warning>
 
 <Note>
 Because the Claude Agent SDK's model calls run inside the sandbox session and
@@ -83,4 +209,4 @@ not the cost seam.
 
 - [Live operations](/concepts/live-operations) — status, retry, and runtime state.
 - [The MCP-citizen surface](/concepts/mcp-citizen-surface) — progress and structured output that traces capture.
-- [CLI reference](/reference/cli) — the full `tai obs` and `tai traces` surface.
+- [CLI reference](/reference/cli) — the full `tai obs`, `tai traces`, and `tai runs` surface.

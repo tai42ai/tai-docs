@@ -64,6 +64,18 @@ def test_logo_asset_not_mistaken_for_distribution() -> None:
     print("  logo asset path: not mistaken for a distribution")
 
 
+def test_vendor_annotation_not_mistaken_for_distribution() -> None:
+    """`x-tai42-expression` is a JSON-Schema vendor annotation, not a distribution.
+
+    The token is anchored at the start of its hyphenated word, so a longer
+    identifier that merely ENDS in a distribution-shaped suffix never matches."""
+    dist_map = _dist_map()
+    docs = [("fake/api.mdx", "The field carries an `x-tai42-expression` annotation.")]
+    problems = check_docs_refs.check_distribution_names(docs, set(dist_map))
+    assert problems == [], problems
+    print("  x-tai42-expression annotation: not mistaken for a distribution")
+
+
 def test_slash_prefixed_bogus_distribution_flagged() -> None:
     """A slash-prefixed distribution token (e.g. inside a URL) is still detected —
     the exclusion is scoped to image assets, not to any leading slash."""
@@ -349,6 +361,7 @@ def main() -> int:
     test_real_distribution_passes()
     test_bogus_distribution_fails()
     test_logo_asset_not_mistaken_for_distribution()
+    test_vendor_annotation_not_mistaken_for_distribution()
     test_slash_prefixed_bogus_distribution_flagged()
     test_monorepo_url_passes()
     test_monorepo_member_path_offline_notes()
