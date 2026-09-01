@@ -15365,6 +15365,227 @@
         "x-destructive": true
       }
     },
+    "/api/runs": {
+      "get": {
+        "description": "A newest-first, filterable page of the platform runs index.\n\nEnumerated from the ``run_index`` table, so runs are listable without the\nobservability vendor. With the store OFF the honest answer is the empty page.\nEach item carries ``traceId`` for a deep link to the vendor trace view.",
+        "operationId": "get_api_runs",
+        "parameters": [
+          {
+            "description": "Filter to one preset name.",
+            "in": "query",
+            "name": "preset",
+            "required": false,
+            "schema": {
+              "title": "Preset",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter to one preset version.",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter to one run user (the attribution user identity).",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "title": "User",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter to one run session/thread (the attribution session identity).",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "title": "Session",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter to one park lifecycle by interaction id — returns the parked dispatch's row and its resume dispatch's row.",
+            "in": "query",
+            "name": "interaction",
+            "required": false,
+            "schema": {
+              "title": "Interaction",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter to one outcome: running | success | error | parked | aborted.",
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "title": "Outcome",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on the run start as an ISO-8601 instant.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive upper bound on the run start as an ISO-8601 instant.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page number.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page; clamped to the deployment cap, never refused.",
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List platform runs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/prune": {
+      "post": {
+        "description": "Delete runs-index rows older than the configured retention window; return the\nwindow and the number pruned.\n\nA no-op (nothing deleted) when the store is OFF or ``TAI_RUNS_INDEX_RETENTION_DAYS``\nis unset — each reported in ``skipped``, mirroring the checkpoint-retention sweep's\ndisabled-retention posture (unset = rows kept forever).",
+        "operationId": "post_api_runs_prune",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Prune the platform runs index",
+        "tags": [
+          "runs"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/sandbox": {
       "get": {
         "operationId": "get_api_sandbox",
