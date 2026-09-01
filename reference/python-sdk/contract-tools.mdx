@@ -12,6 +12,33 @@ registration sub-protocol. Vendor return types (fastmcp ``Tool``, langchain
 ``AppTools`` is the ``app.tools`` namespace of the assembled facade
 (`tai42_contract.app`).
 
+## DEFAULT_RETRYABLE_KINDS
+
+`tai42_contract.tools.retry.DEFAULT_RETRYABLE_KINDS`
+
+```python
+DEFAULT_RETRYABLE_KINDS: frozenset[ErrorKind] = frozenset({ErrorKind.TIMED_OUT, ErrorKind.UNAVAILABLE})
+```
+
+
+## MAX_ATTEMPTS_CEILING
+
+`tai42_contract.tools.retry.MAX_ATTEMPTS_CEILING`
+
+```python
+MAX_ATTEMPTS_CEILING = 10
+```
+
+
+## NEVER_RETRYABLE_KINDS
+
+`tai42_contract.tools.retry.NEVER_RETRYABLE_KINDS`
+
+```python
+NEVER_RETRYABLE_KINDS: frozenset[ErrorKind] = frozenset({ErrorKind.UNKNOWN, ErrorKind.CANCELLED})
+```
+
+
 ## AppTools
 
 `tai42_contract.tools.AppTools`
@@ -255,6 +282,72 @@ ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[str]]
 ```python
 ToolRenameReferee = Callable[[str], Awaitable[list[str]]]
 ```
+
+
+## ToolRetryBackoff
+
+`tai42_contract.tools.retry.ToolRetryBackoff`
+
+```python
+class ToolRetryBackoff(BaseModel)
+```
+
+The exponential-backoff shape between attempts: attempt ``n`` waits
+``min(cap_seconds, initial_seconds * multiplier**(n-1))`` before attempt
+``n+1``. A server-provided ``retry_after`` on the failed attempt's error
+WIDENS the wait when it asks for longer (the medium's own ask wins, even
+past the cap — the cap bounds the platform's growth, not the server's
+explicit request).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `initial_seconds` | `float` |
+| `multiplier` | `float` |
+| `cap_seconds` | `float` |
+
+
+## ToolRetryPolicy
+
+`tai42_contract.tools.retry.ToolRetryPolicy`
+
+```python
+class ToolRetryPolicy(BaseModel)
+```
+
+A tool's declared retry policy, consumed by the host dispatch seam.
+
+``max_attempts`` is the TOTAL attempt budget, first attempt included
+(``1`` = no retry, just per-attempt monitoring). ``idempotent`` is the
+author's explicit claim that re-firing the body is safe — REQUIRED, and a
+retrying policy (``max_attempts > 1``) without it is rejected (the
+double-send guard).
+
+``retryable`` is the classification door — an explicit allowlist, never a
+blanket:
+
+* ``True`` — retry the `DEFAULT_RETRYABLE_KINDS`;
+* a tuple of `ErrorKind` — retry exactly those kinds
+  (`NEVER_RETRYABLE_KINDS` are rejected at declaration);
+* ``False`` — no kind-based retry at all.
+
+In every mode, an error carrying its OWN boolean ``retryable`` verdict (the
+``ChannelDeliveryError`` shape) wins in BOTH directions: ``True`` admits it
+even off-list, ``False`` vetoes it even on-list — the raiser knows its
+failure better than any kind bucket. An error with neither a verdict nor an
+allowlisted kind is never retried.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `max_attempts` | `int` |
+| `backoff` | `ToolRetryBackoff` |
+| `retryable` | `bool \| tuple[ErrorKind, ...]` |
+| `idempotent` | `bool` |
 
 
 ## current_tool_invocation
