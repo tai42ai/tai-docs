@@ -39,6 +39,21 @@ all from the one re-export. There is no "is an editor present?" conditional and 
 provider to opt into: the editor is part of the SDK, so a field that renders
 `JqField` gets the visual canvas by construction.
 
+## From the schema, with no code
+
+A form does not have to name its jq fields at all. `SchemaForm` reads the
+[`x-tai42-expression` annotation](/reference/api/index#expression-fields) the server
+puts on a jq-typed string property and renders `JqField` for it — the resting
+control plus the visual-editor door — carrying the annotation's label, blurb, input
+keys, and Test-panel sample straight onto the field. So the server decides which
+properties are expressions, and every form over that schema agrees.
+
+The door is code-split. `SchemaForm` reaches the editor through a dynamic import
+behind a lazy boundary, taken only when a field actually carries a well-formed
+annotation — a form with no expression fields never pulls the editor, its worker, or
+its wasm into the bundle. A malformed annotation, or a `language` this client does
+not know, degrades silently to the ordinary text input rather than throwing.
+
 ## A standalone library
 
 `@tai42/jq-studio` embeds in any React app the same way the Studio uses it: render

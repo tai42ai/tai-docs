@@ -134,10 +134,16 @@ originating thread.
 
 `expiry_at` is the ask's own deadline. It is independent of the **checkpoint
 retention** — the horizon the paused run's checkpointer keeps a thread before
-reclaiming it (30 days by default). Choose an `expiry_at` inside that window: a park
+reclaiming it. It is unbounded by default, and which setting bounds it depends on
+the durable provider: the `postgres` checkpointer takes a
+[retention window](/babelfish#checkpoint-retention) in days, and the `redis` one
+its native [idle TTL](/reference/conversation-bridge#checkpoint-retention).
+Choose an `expiry_at` inside that window: a park
 whose deadline lies beyond a bounded retention horizon could lose its checkpoint
 before the answer or expiry arrives, and the run refuses it loudly when it suspends
-rather than parking a run its own storage would later strand.
+rather than parking a run its own storage would later strand. Under a bounded
+horizon an ask with no `expiry_at` at all is rejected — a deadline that cannot be
+proven durable is never parked.
 
 See [Interactions](/concepts/interactions#sync-and-async) for the model.
 

@@ -57,6 +57,44 @@ Errors return an `error` field carrying a human-readable message:
 
 The two envelopes never mix — a response carries `data` or `error`, never both.
 
+## Expression fields
+
+Some string properties in the schema hold a **jq expression** rather than an
+ordinary value. Those properties declare themselves: each carries an
+`x-tai42-expression` vendor annotation, so a client recognizes the field as an
+expression and learns its input and output without guessing from the field name.
+
+```json
+"condition": {
+  "type": "string",
+  "x-tai42-expression": {
+    "language": "jq",
+    "label": "condition",
+    "blurb": "the declaring surface's input document",
+    "returns": "truthy to proceed; a falsy result gates the surface's action off"
+  }
+}
+```
+
+`language` is always present and is `jq`. The rest describe the expression's
+context and are emitted only when the declaring surface supplies them: `label` is a
+short name for what `.` is, `blurb` says what the input document is, `keys` glosses
+the input's known top-level keys as `name`/`gloss` pairs, `returns` says what the
+result is consumed as, `caveats` lists evaluation edge cases, and `sample` carries a
+representative input document.
+
+The annotation is metadata only. An `x-`-prefixed keyword is ignored by JSON Schema
+validation, so it can never change which values a schema accepts, and a field
+without one generates a byte-identical schema to a plain string declaration. A
+client that does not recognize the annotation, or the `language` it declares,
+renders the field as a plain string input.
+
+<Note>
+The [Studio SDK's](/reference/studio-sdk/schema-forms) `SchemaForm` acts on this
+annotation directly: an annotated field renders the
+[visual jq editor](/studio/jq-editor) instead of a text box, with no per-field code.
+</Note>
+
 ## Error model
 
 | Status | Meaning |

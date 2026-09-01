@@ -110,6 +110,11 @@ to whatever calls it and the editor can prompt for the right inputs when you run
 Because a flow is a [tool](/concepts/tools-and-extensions), a parent flow can invoke
 another flow as a subflow through that same contract.
 
+A subflow also **joins the dispatching run's trace** rather than minting a separate
+one, and so does an agent a node drives — see [one run, one
+trace](/operate/observe#one-run-one-trace). The join survives parking, including a
+completing child cascading into its parked parent.
+
 <Warning>
 A subflow's state writes are invisible to a later parent node unless that node opts
 in. A run's `.states` view is its snapshot from run start plus its own fills: a
@@ -143,9 +148,14 @@ Its Settings carry a **Structured output** schema editor — a JSON Schema whose
 top-level `title` is required, since the engine uses that title to name the
 structured response and refuses a run it cannot produce against the schema. With a
 schema set, the node's Output contract renders it live and reads **Output
-(structured)**; cleared, the node returns text as before. The constraint is the
+(structured)**; cleared, the node returns text. The constraint is the
 node's own — it shapes what the agent hands back, and downstream steps read the
 validated object.
+
+A finished run mirrors that declared shape onto the **actual** result: the value reads
+against the schema rather than as a raw tree, and the mirror never hides data that
+does not fit it. See [the Studio screens](/studio/screens#flows) for the rendered view
+and the guarantees it makes.
 
 ## Node waits
 
@@ -190,6 +200,93 @@ trigger already fired keeps waiting forever. Because the wait's start clock is
 checkpointed, size the timeout against wall-clock park durations — a long upstream
 park can make the first trigger after a resume find the deadline already elapsed and
 force the give-up immediately.
+
+## Handling a node's error
+
+A node — and a conditional branch, and the flow itself — can carry an **on-error
+handler**. When the node fails, the handler runs, its result becomes the failed
+node's output, and the run continues from there rather than aborting.
+
+A handler's jq reads the failure through `.upstream_outputs`, the same namespace
+predecessor outputs use, alongside the ordinary run channels:
+
+| jq path | What it holds |
+| --- | --- |
+| `.upstream_outputs.error` | The exception payload as raised — a dict is carried verbatim so jq can navigate it (`.upstream_outputs.error.code == 404`), anything else is its string form. |
+| `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
+| `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
+| `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
+| `.states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
+
+There are two ways to dispatch a handler, and they are exclusive — declaring both
+is refused rather than silently preferring one:
+
+- **A wired handler node.** Name another runnable in the flow. It is dispatched only
+  through the error-recovery seam.
+- **An inline handler tool.** Attach a **tool** directly to On Error, with optional
+  baseline keyword arguments that the handler's expression overrides map onto. Any
+  registered tool qualifies — including a flow-call preset, which makes the handler
+  an arbitrary **nested flow**.
+
+A handler may also be a bare expression that shapes a recovery value without
+dispatching anything. Baseline kwargs without a tool to receive them are refused, and
+a handler with no tool, node, or expression at all is refused as inert.
+
+<Warning>
+A **recovery-only** handler node — one no ordinary routing reaches — never runs as a
+live graph step, so an edge **out** of it can never fire and an `inputs` reference
+**to** it reads an output that is never written. Both leave a downstream node waiting
+on its barrier forever, so both are rejected as dead wires. Wire the handler into the
+flow's ordinary routing if you need its output downstream.
+</Warning>
+
+Validation also **warns** when a wired handler has no incoming routing and the flow
+declares no entry points: the builder auto-promotes every unrouted node to a start
+entry, so that handler would run unconditionally at flow start *as well as* on error.
+Wire an incoming edge to it, or declare the flow's entry points explicitly, to keep it
+handler-only.
+
+**A flow-level handler is a different job.** A handler attached to the flow itself —
+the Start-attached one — runs only on the terminal error path, and the run still
+**fails**. It decorates the failure: it can send a notification or shape the error
+that surfaces, but it cannot rescue the run.
+
+To recover from a failure and keep running, put the handler on the failing node
+instead. The editor names which of the two you are editing on the form itself, so
+the rescuing kind and the decorating kind are never confused.
+
+A finished run shows what the handler did. A node that failed and was rescued reads
+as recovered, and the handler that ran — whether the On Error attachment or the wired
+target — reads as having run through the recovery path rather than as an ordinary
+step. A node reached both ways keeps its own status and gains the handler mark.
+
+## Routing with an LLM
+
+A **router** node classifies its input with an LLM and routes on the result — one
+card instead of an agent node wired into a hand-built conditional. You declare the
+**kinds** it may classify into, each with a name and a description, and the node
+generates the structured-output schema and appends the kinds to your prompt, so the
+classification and the routing can never drift apart. A kind may carry extra
+per-kind fields, merged into each extracted item beside its text.
+
+Three kinds of edge leave the card, each drawn distinctly:
+
+- **Kind** — fires when the classifier produced that kind. An optional jq guard is
+  combined with it, so "this kind, but only when…" stays one edge.
+- **Condition** — the branch condition *is* an authored jq expression with full
+  access to the run, `.states` included. It is a condition route, not a disguised
+  kind, and the canvas says so.
+- **Otherwise** — the default branch, taken when no other branch matched.
+
+Several branches may share one target, and a declared kind that is not wired is
+still classified — it stays in the generated schema and in the model's output, it
+just routes nowhere.
+
+Renaming a kind re-keys its branch, its schema property, and its prompt bullet
+together, so every wired edge survives the rename untouched. On save the card lowers
+to ordinary engine parts — one agent call plus one hidden conditional — and folds
+back into the single card on load, the same way a [map](#looping-over-a-list) folds.
+A conditional you author by hand carries no such marker and stays a visible decision.
 
 ## The visual jq editor
 
@@ -308,6 +405,13 @@ declaring its own database binding (see enablement below).
   path picker, browses/searches/folds records, and imports or exports a state as
   one `.babelfish-state.json` file — name, schema, and bindings
   (`retention_days` is deployment-local and deliberately not carried).
+- **Typed list items.** An `array` field declares what its **items** are, not just
+  that it is a list: pick the item type and the editor nests the matching form —
+  an object item grows its own child fields, and an array item recurses again for a
+  list of lists. Leaving the item type as *any* drops the items spec and keeps the
+  array untyped. This is what makes a list of objects declarable in the tree editor,
+  so the [keyed list ops](#keyed-state-list-ops) have a schema to write against
+  without the raw-JSON hatch.
 
 State declarations and bindings register a `flows-states` section in
 [backup and restore](/operate/backup-and-restore); record data is runtime state
@@ -340,28 +444,56 @@ primitive, checked only for writes the engine performs.
 
 A state field that holds a **list of objects** — vetoes, line items, participants —
 can be maintained item by item without ever reading the whole list and setting it
-back. Two path operations do this **atomically at write time on the live record**,
+back. Five path operations do this **atomically at write time on the live record**,
 under its row lock:
 
 - **`set_by_key`** — update or append the list item whose key field equals a given
   value. The fill's jq produces the **item** itself: a JSON object that must carry
   its own key field, so the match key can never drift from the payload. The first
   item whose key field equals that key is replaced in list order; if none matches,
-  the item is appended (upsert). An absent list is created.
+  the item is appended (upsert). An absent list is created. The jq may also produce
+  a **list** of complete items, applied in payload order — one op, many upserts.
+- **`merge_by_key`** — patch fields on items that already exist. The fill's jq
+  produces a list of **partial** items, each carrying the key field; each partial is
+  shallow-merged into the first stored item with that key (`{**existing, **partial}`,
+  top level only — a nested object replaces wholesale rather than deep-merging).
+  Null-valued fields are dropped before merging, so `null` never deletes a field. A
+  partial matching nothing is skipped: unlike `set_by_key` this **never inserts**.
+- **`unset_by_key`** — the deleting dual of `merge_by_key`: remove named fields from
+  items that already exist. The jq produces a list of entries, each exactly
+  `{<key_field>: <key>, "fields": [<name>, …]}` — the item's identity plus the
+  top-level field names to delete. An already-absent field is an idempotent no-op and
+  an entry matching nothing is skipped; the key field itself may never be listed,
+  since an item keeps its identity. Stray keys on an entry, a duplicate field name,
+  and a duplicate entry key are all refused loudly.
+- **`set_by_key_each`** — the keyed **fan-out** of the upsert, for a classifier
+  envelope. The jq produces an object mapping fan-out keys to lists of complete
+  items; each `(key, items)` pair applies the `set_by_key` list semantics into the
+  list one level deeper, at the path plus that key. One op and one atomic apply
+  replace one fill per fan-out key. A fan-out key must be a non-empty string and
+  never `"-"`; a key mapping to an empty list contributes nothing.
 - **`remove_by_key`** — remove the list item(s) whose key field equals a given value.
   The fill's jq produces the **key** to remove by — a single scalar, or a **list of
   scalars** (the MongoDB `$pull` + `$in` idiom) that drops every item matching *any*
   listed key across all of them, in one fill. Every matching item is dropped; zero
   matches, or an absent list, is a quiet no-op. A remove list is capped at **200
-  keys**, and an empty list, a nested container, or a duplicate key is refused loudly.
+  keys**; a nested container or a duplicate key is refused loudly, while an **empty**
+  list is accepted as a no-op — a jq selection that legitimately matched nothing lands
+  as a traced no-op rather than raising.
 
-Both name a `key_field` — a single **top-level** field of the item objects — and
-address the **list** itself, never a new item, so the append token `"-"` is refused:
-the op decides insert-versus-replace by key, not by position. A key is a **string or
+Every keyed op names a `key_field` — a single **top-level** field of the item
+objects — and addresses the **list** itself (for `set_by_key_each`, the object holding
+the fanned lists), never a new item, so the append token `"-"` is refused: the op
+decides insert-versus-replace by key, not by position. A key is a **string or
 integer** only; floats, booleans, null, and containers are refused as fragile
-identities. A list item that is not an object, or one missing the key field, never
-matches (and is never an error); a non-list already sitting at the path is a loud
-refusal. As with any fill, a null jq result skips the write.
+identities, and a payload list refuses duplicate keys loudly. A list item that is not
+an object, or one missing the key field, never matches (and is never an error); a
+non-list already sitting at the path is a loud refusal. As with any fill, a null jq
+result skips the write.
+
+`set_by_key`, `merge_by_key`, and `unset_by_key` touch exactly **one** stored item
+per supplied key — the first match. `remove_by_key` keeps its remove-**all**
+semantics.
 
 This is the race-free "update the item where key equals X" that a whole-list `set`
 could not express — a whole-list write reads, edits, and sets the entire list back,
@@ -379,10 +511,9 @@ makes three multi-writer patterns safe with no extra coordination:
 
 A **key change** is expressed as `remove_by_key(old)` followed by `set_by_key(new)`
 in the **same binding** — one node's fills, one batch, one transaction. In the
-Studio, the fills editor offers `set_by_key` / `remove_by_key` beside `set` /
-`remove`, captures the key field, and captions each fill per op; a run's state-change
-story renders a keyed write as `set /items where id = a` or
-`removed /items where id = a`.
+Studio, the fills editor offers every keyed op beside `set` / `remove`, captures the
+key field, and captions each fill per op; a run's state-change story renders a keyed
+write as `set /items where id = a` or `removed /items where id = a`.
 
 <Note>
 **Downgrade note.** Drain any keyed-fill runs before rolling a server *back* to a
@@ -397,9 +528,29 @@ Every run seeds its bound records into `.states.<name>` **once, at mint** — so
 reads whatever was persisted when the run started. A node can opt into a fresher view:
 set **refresh state** on it to re-read the persisted record(s) right after its input
 barrier releases and **before** its jq input is built, folding the freshly committed
-docs into `.states.<name>` for that node's own expressions *and* its fills. The toggle
-re-reads **every** state the flow binds, or you narrow it to a named subset; off is the
-default and old flows are unchanged.
+docs into `.states.<name>` for that node's own expressions *and* its fills. Refresh
+re-reads **every** state the flow binds, or you narrow it to a named subset.
+
+The node's own control has three states:
+
+| Node setting | Effect |
+| --- | --- |
+| *unset* | Inherit the flow's default. |
+| *off* | Never refresh — an explicit per-node off-switch that **beats** a flow default. |
+| *on* (or a named subset) | Re-read every bound state, or just the named ones. |
+
+A flow sets `refresh_states_default` once and every node that leaves its own control
+unset inherits it, so a flow whose nodes should all read fresh does not repeat the
+setting on each card. A node that sets its own value always wins — including the
+explicit off, which is why the control is three-state: "off" and "not configured"
+are different answers once a flow default exists. With no flow default and no node
+setting, a node reads the mint-time snapshot.
+
+The default is scoped to the flow that declares it. A subflow dispatched as a tool
+compiles from its own graph and resolves against its own config, so a parent's
+default never crosses the flow-call boundary in either direction. A `SubFlowStart`
+card therefore edits the **sub-flow's** default, and offers that sub-flow's bound
+states as its subset options — never the parent's.
 
 - **What it heals — and what it does not.** Refresh heals **causality**: a document an
   already-**finished** upstream node (or another completed flow) committed after this
@@ -424,7 +575,7 @@ default and old flows are unchanged.
   fills. But naming, in the subset, a state the flow does **not** bind is a loud binding
   error whenever bindings do load.
 
-In the Studio the toggle sits on the node's State/Settings surface beside the wait
+In the Studio the control sits on the node's State/Settings surface beside the wait
 knobs, and a refresh lands in the run's [state-change trace](#flow-states) as a
 "refreshed" marker carrying no new writes.
 
@@ -456,6 +607,49 @@ the states routes answer a gated refusal, and bound flows simply run stateless.
 | `TAI_DB_BINDING_FLOWS_STATES` | unset | Database name the `flows-states` component binds to; unset = states off. |
 | `FLOW_STATES_DEFAULT_RETENTION_DAYS` | unset | Global record-retention default for the prune sweep; unset = keep forever. |
 | `FLOW_STATES_OP_RETENTION_DAYS` | `30` | Idempotency-ledger retention window in days. |
+
+## Checkpoint retention
+
+A run's pause/resume memory lives in its durable checkpointer, and on the
+`postgres` provider that history is kept until a thread is explicitly deleted —
+so completed and abandoned runs accumulate. An opt-in retention window bounds
+them, mirroring the states record-retention idiom: configure the window, then
+drive an explicit prune on a cadence (a schedule or your own cron) — never a
+silent background loop.
+
+```bash
+FLOW_CHECKPOINT_RETENTION_DAYS=90
+```
+
+`POST /api/babelfish/checkpoints/prune` reaps every thread whose newest
+checkpoint is older than the window and answers `{pruned, provider}` — plus a
+`reason` whenever it did nothing. A **live async park is always spared**, whatever
+its age; on this provider the window also doubles as the park-admission horizon, so
+an async ask whose deadline lies beyond it is refused loudly at suspend rather than
+parking a run whose checkpoints could be reaped before the answer arrives. Under a
+bounded window an ask carrying **no** deadline is refused too — a park that cannot
+be proven durable is never admitted.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FLOW_CHECKPOINT_RETENTION_DAYS` | unset | Day window the checkpoint prune reaps past, and the park-admission horizon on `postgres`; unset = keep forever, prune is a no-op. |
+
+A non-positive value, or one past the integer ceiling, is a loud configuration
+error rather than a silently ignored setting.
+
+<Note>
+The sweep covers the `postgres` checkpoint provider only. On **any** other provider
+it reports a benign no-op naming that reason — `redis` bounds itself with its native
+idle TTL (`LLM_PROVIDER_CHECKPOINT_TTL_MINUTES`), and `memory`/`sqlite` are dev-only
+and never durable enough to park on at all.
+</Note>
+
+<Warning>
+The prune sweeps the checkpoint tables, which the `postgres` provider shares with
+every other graph pointed at the same connection — conversation and agent threads
+included. It reaps any aged, unparked thread it finds there, not only a flow's. Point
+the flow checkpointer at its own database if that blast radius is not what you want.
+</Warning>
 
 ## Agent session continuity
 

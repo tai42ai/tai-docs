@@ -38,6 +38,62 @@ re-probe a failed MCP server. Each operation projects as a first-class tool (unl
 extension wraps it, a [preset](/concepts/presets) bakes over it, and `tai tools
 run` or an agent dispatches it exactly as with any other tool.
 
+## Retrying a tool call
+
+A tool declares its own retry policy, and the host dispatch seam honours it. With
+no declaration a dispatch is one attempt, exactly — retry is opt-in per tool,
+never a platform-wide default.
+
+```python
+from tai42_contract.tools import ToolRetryBackoff, ToolRetryPolicy
+
+
+@tai42_app.tools.tool(
+    retry=ToolRetryPolicy(
+        max_attempts=3,
+        idempotent=True,
+        backoff=ToolRetryBackoff(initial_seconds=0.5, multiplier=2.0, cap_seconds=10.0),
+    )
+)
+def fetch_quote(symbol: str) -> dict:
+    """Read a quote from the upstream price feed."""
+    ...
+```
+
+`max_attempts` is the **total** attempt budget with the first attempt included, so
+`1` means no retry. `idempotent` is the author's explicit claim that re-firing the
+body is safe: it is required, and a retrying policy without it is rejected — the
+double-send guard.
+
+`retryable` is the classification door, an explicit allowlist rather than a
+blanket. `True` retries the default transient kinds, a tuple of `ErrorKind` retries
+exactly those kinds, and `False` turns kind-based retry off. In every mode an error
+that carries its own boolean `retryable` verdict wins in both directions — it
+admits a failure that is off the list and vetoes one that is on it, because the
+raiser knows its own failure better than any kind bucket. An error with neither a
+verdict nor an allowlisted kind is never retried.
+
+Backoff is exponential: attempt *n* waits
+`min(cap_seconds, initial_seconds * multiplier ** (n - 1))` before the next one. A
+server that answers with its own `retry_after` **widens** that wait when it asks
+for longer — the cap bounds the platform's own growth, not the server's explicit
+request.
+
+<Note>
+A policy is declared on the **registered base tool name**. A
+[preset](/concepts/presets) runs the base tool's body with baked constants, so an
+undeclared preset inherits the first declared ancestor's policy — the idempotency
+claim travels with the body. An extension branch inherits nothing: its stack can
+compose or relocate execution the base never spoke for, so only an exact-name
+declaration arms it.
+</Note>
+
+Every attempt is visible in [observability](/operate/observe) rather than collapsed
+into one result, and the whole dispatch stays a single runs-index row whatever the
+attempt count. See the
+[Python SDK reference](/reference/python-sdk/contract-tools) for `ToolRetryPolicy`,
+`ToolRetryBackoff`, and the retryable-kind constants.
+
 ## Extensions
 
 An extension is a plain callable registered against an `ExtensionKind` and applied
