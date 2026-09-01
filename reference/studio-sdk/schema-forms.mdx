@@ -36,6 +36,117 @@ A Pydantic-style discriminated-union tag: which property selects the variant.
 | `propertyName` | `string` | — |
 
 
+## ExpressionFieldComponent
+
+```ts
+type ExpressionFieldComponent = ComponentType<ExpressionFieldProps>
+```
+
+The expression-authoring door a host INJECTS into the form — `JqField`, imported
+by the host straight from the SDK's jq surface.
+
+It is a COMPONENT, rendered as an element, never called as a function: the door
+owns hooks and state (editor open, worker handle), which only survive as its own
+element identity. A host may inject a `lazy` door to keep the jq subgraph in a
+split chunk — the form mounts it inside a Suspense boundary that paints the
+resting shell while that chunk resolves.
+
+**Related:** [ExpressionFieldProps](/reference/studio-sdk/schema-forms#expressionfieldprops)
+
+
+## ExpressionFieldContext
+
+```ts
+const ExpressionFieldContext: Context<ExpressionFieldComponent | undefined>
+```
+
+The ambient door for the whole form. Absent (the default), an
+expression-annotated field renders the PLAIN string input, byte-identically to
+an unannotated one — the jq authoring door is opt-in, because the dynamic import
+that would fetch it on demand still EMITS its chunks, worker, and wasm into
+every consumer that bundles the SDK.
+
+A host wires it ONCE above its tree (`SchemaEditor`'s preview and
+`ElicitationForm` render forms a caller does not own the props of, and a plugin
+page renders its own); the form's own `expressionField` prop overrides it for a
+single form.
+
+**Related:** [ExpressionFieldComponent](/reference/studio-sdk/schema-forms#expressionfieldcomponent)
+
+
+## ExpressionFieldProps
+
+```ts
+interface ExpressionFieldProps
+```
+
+Exactly the props the form hands an injected expression field — no more, so any
+expression editor can satisfy the contract, and no less, so the form is free to
+pass all of them. The label/description/error slots are the door's own chrome:
+an expression field brings its a11y-linked label and helper slots, so the form
+does NOT wrap it in the usual `Field`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `description?` | `ReactNode` | — |
+| `error?` | `ReactNode` | — |
+| `label` | `string` | — |
+| `multiline?` | `boolean` | Render a multiline resting control; the form always asks for one. |
+| `onChange` | `(value: string) => void` | — |
+| `shape?` | `ExpressionInputShape` | — |
+| `value` | `string` | — |
+
+**Related:** [ExpressionInputShape](/reference/studio-sdk/schema-forms#expressioninputshape)
+
+
+## ExpressionInputKey
+
+```ts
+interface ExpressionInputKey
+```
+
+One top-level key of the expression's input document, with a one-line gloss.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `gloss` | `string` | — |
+| `name` | `string` | — |
+
+
+## ExpressionInputShape
+
+```ts
+interface ExpressionInputShape
+```
+
+What `.` IS for an expression-annotated field, as the form hands it to the
+injected door. Built by the renderer from the schema's `x-tai42-expression`
+annotation.
+
+Like the annotation type it is built from, this MIRRORS jq-studio's input-shape
+descriptor without importing it: the schema-form tree names no jq type, in code
+OR in its declarations, which is what keeps a consumer that never injects a door
+free of the jq subgraph. `JqField` satisfies it structurally; a test pins that.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `blurb` | `string` | One sentence: what `.` is in this field. |
+| `caveats?` | `readonly string[]` | Per-field caveats. |
+| `id` | `string` | Stable, host-namespaced id, opaque to the door (memoisation/telemetry). |
+| `keys` | `readonly ExpressionInputKey[]` | The top-level keys of `.`, each with a one-liner. |
+| `label` | `string` | Short chip label — what `.` is here, e.g. "node envelope". |
+| `returns` | `string` | What the expression must RETURN, e.g. "true or false". |
+| `sample?` | `unknown` | A static skeleton of `.` for the door's test surface. |
+
+**Related:** [ExpressionInputKey](/reference/studio-sdk/schema-forms#expressioninputkey)
+
+
 ## JsonSchema
 
 ```ts
@@ -151,6 +262,7 @@ input schema); a scalar/array/union root renders as a single field group.
 |---|---|---|
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
+| `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — the SDK's `JqField`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -183,13 +295,14 @@ interface SchemaFormProps
 |---|---|---|
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
+| `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — the SDK's `JqField`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
 | `schema` | `JsonSchema` | — |
 | `value` | `unknown` | — |
 
-**Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+**Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [ExpressionFieldComponent](/reference/studio-sdk/schema-forms#expressionfieldcomponent), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
 
 ## SecretRef
