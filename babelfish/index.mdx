@@ -260,6 +260,50 @@ as recovered, and the handler that ran — whether the On Error attachment or th
 target — reads as having run through the recovery path rather than as an ordinary
 step. A node reached both ways keeps its own status and gains the handler mark.
 
+## Run condition
+
+Any scheduled node — a runnable, an agent, a flow call, a map, and a router's
+classifier — can carry an optional **run condition**: a jq predicate authored as an
+inline expression or a stored template with kwargs (the same field triple every jq
+site uses), answering one question — *should this node run at all?* Left empty, the
+node is unconditional and runs exactly as it did before the feature existed.
+
+The condition is evaluated at fire time — after the node's input barrier releases and
+after its [state refresh](#refresh-opt-in-state-re-read), before the node does any work
+of its own, including its own expression — over the same namespace that node's
+expression reads. It is **bool-strict**, like a conditional's condition: anything but
+`true` or `false` is an authoring defect, and a condition that raises fails the node
+down its normal error path. It is statically checked like every other jq slot, so an
+unresolvable upstream read or a schema-impossible comparison is a build error.
+
+- **True** runs the node normally.
+- **False** *skips* it: the node does not execute, its output is `null`, and its status
+  reads **skipped**. The output key is still written, so every downstream input barrier
+  still releases and the flow **continues past** the node — the gate stops the one node,
+  not the path. To stop a whole path, use a conditional or a router instead.
+
+A skip is not a failure, so a skipped node never reaches its own [on-error
+handler](#handling-a-nodes-error) — the skip happens before any execution that could
+fail — and it **settles** the node, so a re-drive of the run re-evaluates nothing. A
+node flagged to return a result still contributes its key when skipped, with the value
+`null`, so a return expression on a node you might skip must tolerate a null input.
+
+The gate belongs on a **scheduled** node. A node that runs only as an [on-error
+handler](#handling-a-nodes-error) is dispatched directly and never scheduled, so a
+condition on it would never be evaluated; the editor does not offer the field there —
+unless one is already stored, in which case it renders with that fact stated, so the
+dead value is visible and clearable rather than silently kept.
+
+<Note>
+A node whose tool pauses and resumes re-runs its whole node function on resume, so its
+run condition is evaluated **again** over the resume-time view — one a peer may have
+moved during the pause. A condition that answered true on the first drive and false on
+the resume drive reports the node skipped with a null output even though the tool
+already ran. This is inherent to interrupt-resume re-execution: a condition over values
+that can change while the node waits carries the edge, one over the node's settled
+fan-in does not.
+</Note>
+
 ## Routing with an LLM
 
 A **router** node classifies its input with an LLM and routes on the result — one
@@ -287,6 +331,85 @@ together, so every wired edge survives the rename untouched. On save the card lo
 to ordinary engine parts — one agent call plus one hidden conditional — and folds
 back into the single card on load, the same way a [map](#looping-over-a-list) folds.
 A conditional you author by hand carries no such marker and stays a visible decision.
+
+### Every match or first match
+
+A router's routes fire under one of two **dispatch** disciplines, set on the card:
+
+- **Every match (the default).** Every route whose condition holds fires, in parallel
+  — the multi-fire fan-out. This is the discipline every router has always run under,
+  and it carries no wire marker: a router that never touched the mode is byte-identical
+  to before the setting existed.
+- **First match.** The routes are evaluated in **row order** and only the **first** one
+  that matches fires; the rest are never evaluated. This is the classic single-path
+  routing table — at most one route ever fires.
+
+Because a router lowers to a hidden conditional, its dispatch *is* that conditional's
+routing discipline and its routes *are* the conditional's branches: a kind route or a
+when route is a predicate branch, and the single **otherwise** route is the default
+branch, taken only when nothing else matched.
+
+Under first match, row order is **semantic**, so it cannot ride the member order of a
+JSON object — object member order is not meaningful and does not survive every store a
+flow passes through (Postgres `jsonb`, for one, re-keys members by key length then
+bytewise). The order instead rides an explicit **array** of route keys that no store can
+permute, written on save from the routes table below. A flow authored before that
+carrier existed keeps running in whatever order it already had, and the first
+arrangement made in the table pins it. The array must list every route exactly once — a
+partial or unknown listing is refused at load rather than guessed at runtime.
+
+First-match order carries two guard rails, refused loudly at load and scoped to first
+match (every-match routing is order-free, so neither rule constrains it):
+
+- **At most one catch-all, and an unconditional one comes last.** An always-true route
+  makes every route below it unreachable, and a second catch-all can never fire — so
+  declaring either is refused with the dead rows named. A plain **otherwise** route is
+  order-free (it fires only when nothing matched, wherever it sits) and may be declared
+  anywhere.
+- **Route keys are never plain numbers.** A numeric branch key is an array index that a
+  JSON-object client silently re-orders ahead of every other key; the router never mints
+  one, and the engine refuses it whether or not an order carrier rides, so the two
+  spellings of a first-match table cannot disagree.
+
+### The routes table
+
+Below the card, the **routes table** is one view over the router's routes: one row per
+wired route, in the order they lower. Each row shows its flavor — **kind**, **when**
+(the table's name for a Condition route), or **otherwise** — the kind or
+when-condition, an optional per-kind **guard**, and its
+**target**. Conditions and guards are edited in place; a route's target is the edge you
+drew from its chip on the card, so the table **shows** it, never picks it — the canvas
+stays the one place edges are drawn.
+
+A kind row's guard is AND-composed with the pinned non-empty check for that kind, so the
+route fires only when the kind matched *and* the guard holds. A when row's condition *is*
+its branch condition, reading the classified output, other node outputs, and `.states`.
+
+Under **first match** the table also **orders** the rows — the row number is the
+evaluation priority. Reorder a row two ways: drag it by its grip, or step it with its
+move buttons (the keyboard and assistive-technology path). The reorder is a plain array
+move with no wire format of its own; targets, guards, and conditions ride along
+untouched. Under the every-match default the order is only a position, so the reorder
+controls are absent.
+
+The table also carries **advisory** notes — never a block on saving — when a first-match
+row is already covered by an earlier one, when a row repeats an earlier one to the same
+target, or when the otherwise row sits above rows still being evaluated and so reads out
+of order.
+
+### Turn-level output fields
+
+A router can describe not just the items it **extracts** but facts about the **whole
+turn**. Beside the kinds, declare optional **turn-level output fields** — a JSON-Schema
+`properties` fragment merged into the generated response format and required alongside
+the kinds — so a field like `staff` or `sentiment` becomes an ordinary top-level output
+read as `.upstream_outputs.<router>.staff`, typed and statically checked like any other
+output rather than modelled as a kind or dug out of an item. The declaration rides the
+card's marker exactly as the kinds do (the response format is regenerated on every save)
+and follows the same absent-key discipline as dispatch: declare none and the router is
+byte-identical on the wire. Because a turn field and a kind are siblings in one output
+namespace, a turn field named after a kind — which would shadow that kind's array — is
+refused.
 
 ## The visual jq editor
 
