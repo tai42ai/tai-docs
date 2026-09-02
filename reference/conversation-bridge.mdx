@@ -83,8 +83,10 @@ on the door. On a `channel` route the record ends in the terminal `silent` state
 nothing is sent to the client. On an `api` route the silence is **communicated**: the
 turn rides the normal delivery pipeline and its callback (or sync-wait reply) carries
 `status: "silent"` with no `answer` text, so the caller still gets a terminal result.
-A mapping fault, a denied or failed dispatch, or a wrong-typed result is a client-safe
-`error` outcome instead.
+A mapping fault, a denied or failed dispatch, a wrong-typed result, or a tool turn
+that ends on a **non-success terminal status** (`aborted`, `stopped`, `error`) is a
+client-safe `error` outcome instead — `reply_expr` maps only the success shape, so a
+non-success terminal never reaches the mapping and diverts straight to the error reply.
 
 ### A flow preset as a tool target
 
@@ -101,7 +103,9 @@ tai conversations create flow-line \
 ```
 
 `.result.answer` is the flow's answer node; `// null` stays silent when the flow
-produces nothing to say.
+produces nothing to say. This mapping only ever sees the **success** shape: if the
+flow or tool turn ends on a non-success terminal status (`aborted`, `stopped`,
+`error`) the turn diverts to the `error` outcome and `reply_expr` never runs.
 
 Such a flow or tool turn need not answer synchronously: if it raises an async
 `ask_user`, the turn parks and its resumed reply is delivered back into the
@@ -444,11 +448,15 @@ Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
 
-Client-facing text on the failure paths is fixed, not configurable:
+Client-facing text on the failure paths is always client-safe — an internal detail
+never crosses to the guest. The turn-error reply is configurable per route; the
+rate-cap notice is fixed:
 
-- **Turn error** — `"Sorry, something went wrong handling your message. Please try
-  again."` An `error` answer never carries an internal detail; the detail is
-  retained in the record's `error` field for the admin read door only.
+- **Turn error** — the route's own `error_reply_text` (set with `--error-reply-text`)
+  when it carries one, otherwise the built-in default `"Sorry, something went wrong
+  handling your message. Please try again."` An `error` answer never carries an
+  internal detail; the detail is retained in the record's `error` field for the admin
+  read door only.
 - **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
   Please wait a moment and try again."` — sent once per cooldown window; further
   over-limit messages are dropped as `shed`.
