@@ -239,7 +239,13 @@ where the flow binds states, the opt-in
 read-only: they render the node's
 declared input and output schemas — with the node's outcomes surfaced on Output —
 so a node's contract is readable in build mode, and each shows an empty state when
-nothing is declared. When an agent node carries a [structured-output
+nothing is declared. A scheduled node's Settings also carry an optional [**run
+condition**](/babelfish#run-condition) — a jq predicate that gates whether the node
+runs at all. A false condition *skips* the node: it does not execute, its output is
+null, its status reads **skipped** in Run mode, and the flow continues past it (the
+gate stops the one node, not the path). The field is absent on a node that runs only as
+an on-error handler, since such a node is dispatched directly and never scheduled. When
+an agent node carries a [structured-output
 schema](/babelfish#structured-agent-output), the Output tab renders that schema live
 and its label reads **Output (structured)**. Editing that schema to **remove** a field
 surfaces a non-blocking honesty note on the agent's Settings: static analysis scans the
@@ -262,6 +268,18 @@ schema's shape at the top level falls back to the plain JSON tree with a small n
 rather than a crash. A per-instance **Raw** toggle flips the whole view to the plain
 tree, so the underlying data is never more than one click away, and a flow (or node)
 that declares no output shape keeps the plain results tree throughout.
+
+The [**LLM router**](/babelfish#routing-with-an-llm) card carries its own edit surface:
+the **kinds** it classifies into, optional **turn-level output fields** that describe
+the whole classified turn (each a top-level output beside the kinds), the author's
+system prompt, a **routing** mode — every match (the default, firing every matching
+route) or first match (the first matching route wins) — and a **routes table** listing
+every wired route with its flavor, condition, guard, and target. A route's target is
+the edge drawn from its chip on the card, so the table shows it rather than picking it.
+Under first match the table also orders the rows — the row number is the evaluation
+priority — and a row reorders by [dragging its grip or stepping its move
+buttons](/babelfish#the-routes-table); the table's advisory notes flag a row an earlier
+one already covers, without ever blocking the save.
 
 The **fills editor** on the State tab edits, per node, the state fields the node
 writes. It groups fills by state and defaults to a top-level-field dropdown off the
