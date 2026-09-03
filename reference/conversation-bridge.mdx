@@ -67,6 +67,17 @@ create (an `agent` target carries neither):
   string or `null`: the reply text. Omitted, the result must itself be a string or
   `null`.
 
+The payload also carries a **`form`** object when the inbound message brought an
+[ask-less form](/concepts/notifications#ask-less-forms) submission — the structured
+copy of the values whose rendered text is the `message` itself. The key is present
+**only** when the inbound carried one, so a `payload_expr` over a form-less inbound
+sees a byte-identical payload, and the default no-expr kwargs stay the fixed
+`{message, sender}` either way — a route maps the form deliberately or not at all.
+An `agent` target never sees it: an agent reads the rendered text only. The values
+are bounded as transport (serialized size and nesting) and **never validated against
+the form's schema** — guest-shaped data a tool target checks itself. The record
+publishes the same object as `inbound_form` on both the admin and caller-safe reads.
+
 The payload also carries a **`params`** object when the inbound entry supplied one —
 a web channel's [link parameters](/plugins/tai42/channel-web#link-parameters) captured
 with the visitor session, or the [message door](#the-message-door)'s `params` body
@@ -120,7 +131,15 @@ a step-mode tool to a conversation and every inbound fails this way.
 
 `POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
 message and runs its turn as the route's execution key. Body: `external_user_id`,
-`text`, optional `wait_seconds`, optional `params`.
+`text`, optional `wait_seconds`, optional `params`, optional `form`.
+
+`form` is an optional structured guest submission (an
+[ask-less form](/concepts/notifications#ask-less-forms)'s answers) riding **with**
+the required `text` — the text stays the carrier every consumer sees, while a tool
+target's payload gains the structured copy under its `form` key. It must be a JSON
+object within the transport bounds (serialized size and nesting); a violation is a
+loud `400`, and the refusal never echoes the submitted values. Nothing validates the
+object against any schema — it is guest data.
 
 `params` is an optional object of string values delivered to a **tool** target's
 payload under `.params` — the same key a channel entry's link parameters use — for a
@@ -159,7 +178,10 @@ authorization verdict.
 Every record carries an `origin` — `client` for an inbound message's turn, `operator`
 for a message an operator sent into the thread [by
 hand](#operator-messages-and-control-mode) — published in both the admin and the
-caller-safe projections.
+caller-safe projections. A record whose inbound message brought an
+[ask-less form](/concepts/notifications#ask-less-forms) submission also publishes the
+structured object as **`inbound_form`**, in both projections, beside the rendered
+`inbound_text` that stays the message every consumer reads.
 
 The failed-delivery listing spans every route and caller, so it is admin-only.
 
@@ -406,14 +428,27 @@ adds a `400` for a `mode` outside `agent`/`manual`. Neither mode door takes an a
 ### Operator send
 
 `POST …/thread/messages` sends an operator's message **by hand** into a thread. Body:
-`{thread_id, text, address?}`; the answer is `{message_id, thread_id}`. No turn runs:
-the record is minted already `answered` and delivered through the same machine a
-produced answer takes — sent **from the route identity**, with the same chunking,
-delivery ledger, and receipts. It is allowed in **either** mode and **never flips the
-mode**.
+`{thread_id, text, address?, media?, template?, options?, schema?}`; the answer is
+`{message_id, thread_id}`. No turn runs: the record is minted already `answered` and
+delivered through the same machine a produced answer takes — sent **from the route
+identity**, with the same chunking, delivery ledger, and receipts. It is allowed in
+**either** mode and **never flips the mode**.
+
+`media`, `template`, `options`, and `schema` (an
+[ask-less form](/concepts/notifications#ask-less-forms)'s answer schema — the channel
+renders `text` as the form's prompt, and the guest's submission enters the
+conversation as an ordinary inbound message) are optional richer-send forms delivered
+**alongside** `text`: the message is stored and delivered as one rich part, exactly
+as a produced rich answer is, including the delivery machine's capability gate — a
+channel that does not advertise the matching `supports_*_notifications` flag never
+receives the part; the record fails loudly instead of the field dropping. A
+contract-invalid value (an empty list or dict, an over-cap value, or the mutually
+exclusive media+template / options+template / schema+template / schema+options) is a
+loud `400`; omit all four for a plain text send.
 
 The record is `origin: "operator"`: it carries the text as its `answer`, an empty
-`inbound_text`, and names the sending operator in `caller_principal`. For a target that
+`inbound_text`, never an `inbound_form` (an operator answers, it does not submit),
+and names the sending operator in `caller_principal`. For a target that
 **keeps thread memory** the text is appended to the thread's checkpoint as an `assistant`
 reply **before** the record is created — the same [conditional append](#control-mode) a
 suppressed inbound takes, mirroring how the agent's own answer enters memory — so a later
