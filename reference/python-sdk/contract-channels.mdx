@@ -54,23 +54,25 @@ A channel plugin registers an instance under a name
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
 
-A channel MAY advertise richer support with four OPTIONAL, class-level
+A channel MAY advertise richer support with five OPTIONAL, class-level
 capability flags — ``supports_media_notifications``,
-``supports_template_notifications``, ``supports_interactive_notifications``
-(all three for ``notify``) and ``supports_form_delivery`` (for ``deliver``)
-— set as plain class attributes. They are a documented convention, NOT
-Protocol members: a channel that supports the richer form sets the matching
-attribute to ``True``; a channel that omits it advertises no support (absent
-= ``False``). Because they are not part of the Protocol, a text-only channel
+``supports_template_notifications``, ``supports_interactive_notifications``,
+``supports_form_notifications`` (all four for ``notify``) and
+``supports_form_delivery`` (for ``deliver``) — set as plain class
+attributes. They are a documented convention, NOT Protocol members: a
+channel that supports the richer form sets the matching attribute to
+``True``; a channel that omits it advertises no support (absent =
+``False``). Because they are not part of the Protocol, a text-only channel
 that declares none is still a valid ``Channel`` (both structurally and under
 runtime ``isinstance``). The ask/notify helpers read them defensively with
 ``getattr(channel, "<flag>", False)`` and refuse the matching richer send to
 a channel that does not advertise the flag: ``notify_user`` refuses a media,
-template or options notification, and the ``ask_user`` helper refuses a
-``form`` delivery, to a channel without the flag — so a channel that reads
-only the plain fields can never silently drop the extra content. A channel
-that does not advertise ``supports_form_delivery`` never receives a ``form``
-delivery.
+template, options or schema notification, and the ``ask_user`` helper
+refuses a ``form`` delivery, to a channel without the flag — so a channel
+that reads only the plain fields can never silently drop the extra content.
+A channel that does not advertise ``supports_form_delivery`` never receives
+a ``form`` delivery, and one that does not advertise
+``supports_form_notifications`` never receives a ``schema`` notification.
 
 A form channel MAY also declare one OPTIONAL method, ``validate_form_schema``,
 following the same convention as the capability flags — a documented member,
@@ -87,7 +89,10 @@ violation, so a question or schema the channel could never render is refused up
 front instead of persisting a question that only fails at delivery. A channel
 that omits it advertises no extra ask-time limits; its delivery path still
 refuses an unrenderable question or schema (a permanent
-`ChannelInputError`).
+`ChannelInputError`). The SAME hook is reused for a form notification:
+the notify helper calls ``channel.validate_form_schema(schema, message)`` with
+the notification's ``message`` as the ``question`` argument before the send, so
+one declared method covers both the ask and the notify form surfaces.
 
 A channel MAY also declare one OPTIONAL method, ``deliver_ordered(notifications)``,
 for a NATIVE in-order batch (a bulk API, a transactional transcript append) — the
@@ -304,8 +309,26 @@ setting both is refused rather than partially delivered; ``options`` is likewise
 incompatible with ``template`` but MAY combine with ``media`` (a card with a list).
 A channel that does not advertise the matching capability flag
 (``supports_media_notifications`` / ``supports_template_notifications`` /
-``supports_interactive_notifications``, the OPTIONAL class-attribute convention
-documented on `Channel`) never receives the matching field.
+``supports_interactive_notifications`` / ``supports_form_notifications``, the
+OPTIONAL class-attribute convention documented on `Channel`) never receives
+the matching field.
+
+``schema`` is the form answer schema for an ASK-LESS FORM: the channel renders
+``message`` as the form's prompt and ``schema`` as the fillable form, and the
+guest's submission enters the conversation as a guest message — no interaction,
+no ticket, no callback, the same inbound path a tapped option takes. A present
+``schema`` is a non-empty dict; its deep shape is the sender's shared
+channel-deliverable subset walk (the same split `ChannelDelivery` keeps),
+never re-checked here. ``schema`` REQUIRES a non-blank ``message`` — a form needs
+a prompt — and is MUTUALLY EXCLUSIVE with ``template`` and with ``options`` (one
+message carries ONE interactive surface); it MAY combine with ``media``. It rides
+the ``supports_form_notifications`` capability flag, and a form channel's OPTIONAL
+``validate_form_schema(schema, question)`` hook (see `Channel`) is reused
+at notify time with this ``message`` as the ``question`` argument, so the
+channel's own form limits refuse an unrenderable form before the send. Some channels
+also constrain WHEN a form may be sent: WhatsApp delivers a notify-form only inside
+the provider's customer-service window, and an out-of-window send fails loudly at the
+channel — never silently downgraded.
 
 **Attributes**
 
@@ -318,6 +341,7 @@ documented on `Channel`) never receives the matching field.
 | `media` | `list[MediaItem] \| None` |
 | `template` | `ChannelTemplate \| None` |
 | `options` | `list[str] \| None` |
+| `schema` | `dict[str, Any] \| None` |
 
 
 ## ChannelTemplate
