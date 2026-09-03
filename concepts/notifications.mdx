@@ -37,12 +37,20 @@ that is not registered is a loud error, never a silent drop.
 | `media` | Display images and links sent with the message. Requires a channel that advertises media support. |
 | `template` | A pre-approved out-of-window template send. Requires a channel that advertises template support. |
 | `options` | A tappable option list (at most 10, each non-blank). A tap enters the conversation as a message from the person. Requires a channel that advertises interactive support. |
+| `schema` | An [ask-less form](#ask-less-forms)'s answer schema. The channel renders `message` as the form's prompt and `schema` as the fillable form; the submission enters the conversation as an ordinary message from the person. Requires a named channel that advertises form support. |
 
-With a named channel, `media`, `template`, and `options` deliver only where the
-channel advertises the matching capability; with no channel, they are stored on
-the inbox record as given. `template` is the out-of-window send and stands alone: it is
-mutually exclusive with both `media` and `options`. `media` and `options` may
-combine on one send — a card with a tappable list beneath it. A channel that does
+With a named channel, `media`, `template`, `options`, and `schema` deliver only where
+the channel advertises the matching capability; with no channel, `media`, `template`,
+and `options` are stored on the inbox record as given — `schema` alone **requires** a
+named channel (`400` without one): the internal sink has no delivery vehicle to render
+a form and no submission door for its answers, so a stored form nobody could submit is
+refused up front, never recorded. `template` is the out-of-window send and stands
+alone: it is mutually exclusive with `media`, `options`, and `schema`. One message
+carries at most **one interactive surface** — a tappable option list or a form, never
+both — so `schema` and `options` are mutually exclusive too. `media` may combine with
+either interactive surface: a card with a tappable list beneath it, or a form with
+display media above it. A form needs a prompt, so `schema` also requires a non-blank
+`message` (only a media-only send may leave the message blank). A channel that does
 not advertise the matching capability rejects the send with `501 not supported`
 rather than silently downgrading it to text.
 
@@ -53,8 +61,14 @@ Media and tappable options are broadly supported. Every shipped channel advertis
 [web chat](/plugins/tai42/channel-web) channels. All of those except the SMS/MMS
 Twilio channel advertise **interactive options** (an SMS has no tappable control).
 **Templates** are a vendor construct only the WhatsApp Cloud API channel advertises.
-So `media` reaches all five, `options` reach all but Twilio, and `template` is
-WhatsApp-only.
+**Forms** are narrower still: only the WhatsApp Cloud API and web chat channels
+advertise form notifications. An ask-less form is ticketless — its submission must
+ride the channel's ordinary inbound path — and on Telegram and Slack the form
+vehicle is the schema-rendered callback page, which only an [ask](/concepts/interactions)'s
+ticket machinery serves, so those channels take a channel-delivered form **question**
+but no form notification; SMS has no form vehicle at all. So `media` reaches all
+five, `options` reach all but Twilio, `template` is WhatsApp-only, and `schema`
+reaches WhatsApp and the web chat.
 
 <Note>
 The sending identity a channel message leaves **from** is set only by the
@@ -78,6 +92,56 @@ is refused with a `403`. See
 [owned keys](/concepts/owned-keys#audience--one-concept-across-interactions-and-notifications)
 for the full read/write isolation model.
 
+## Ask-less forms
+
+Passing `schema` — a [JSON-schema form](/concepts/interactions#delivering-to-a-channel)
+in the same channel-deliverable subset a channel-delivered form question uses — turns
+the notification into an **ask-less form**: the channel renders `message` as the
+form's prompt and `schema` as the fillable form, and the send returns immediately,
+exactly as every notification does.
+
+```bash
+tai notifications notify "fill this in" --channel whatsapp \
+  --schema '{"type": "object", "properties": {"name": {"type": "string"}}}'
+```
+
+What comes back is **not an answer** — nothing is waiting for one. A submission
+enters the conversation as an **ordinary message from the person**, riding the same
+inbound path a tapped option takes: rendered text as the message every consumer
+sees, with the structured values beside it for a
+[conversation route's tool target](/concepts/client-conversations#structured-guest-messages)
+to map deliberately. There is **no interaction, no ticket, no expiry, and no
+validation loop**: unlike a form [ask](/concepts/interactions), nothing blocks,
+nothing re-prompts on a bad value, and the platform never checks the submission
+against the schema — the values are **guest-shaped data**, bounded as transport
+(size and nesting) but carrying no more trust than typed guest text. A tool that
+consumes them validates them itself.
+
+When to use which: a form **ask** (`ask_user` with `answer_format="form"`) suspends
+the caller until a validated answer or an expiry — reach for it when the flow cannot
+proceed without the answer. An ask-less form sends the form and moves on — reach for
+it when the submission is welcome whenever (and however often) it arrives, as each
+submission is simply the person's next message.
+
+On the **web chat** the form renders as a card in the transcript. Like the option
+chips it has no deadline and no answered state: submitting shows a local "Sent"
+badge, the card stays fillable (each submission is its own guest message), and an
+expired form shows an inline "no longer available" line:
+
+<Frame caption="The web chat's ask-less form card — the prompt, the schema-rendered fields, and the send control.">
+  <img className="block dark:hidden" src="/images/channel-web/form-card-light.png" alt="The web chat form card rendering a prompt and a schema-driven form with text, choice, and number fields above a send button." />
+  <img className="hidden dark:block" src="/images/channel-web/form-card-dark.png" alt="The web chat form card rendering a prompt and a schema-driven form with text, choice, and number fields above a send button, in the dark theme." />
+</Frame>
+
+On **WhatsApp** the form delivers as a native Flow — and, like every freeform send,
+only inside the provider's 24-hour customer-service window. An out-of-window form
+notification **fails loudly** (synchronously or as a `failed` delivery status),
+never silently downgraded to a template or to text.
+
+With an `audience`, the in-app record stores the `schema` alongside the message,
+so the feed shows what was asked for — but the inbox record itself is never
+submittable, which is why a form notification with no channel is refused.
+
 ## Reading the inbox
 
 The inbox is read on demand — there is no streaming surface. List the recorded
@@ -96,13 +160,15 @@ inbox.
 
 <Note>
 The CLI `tai notifications notify` exposes `--channel`, `--recipient`, `--media`,
-`--template`, and `--options`, but **no `--audience`** — addressing a specific identity is
-available on the tool and the API only.
+`--template`, `--options`, and `--schema`, but **no `--audience`** — addressing a specific
+identity is available on the tool and the API only.
 </Note>
 
 ## See also
 
-- [Interactions](/concepts/interactions) — the blocking counterpart, `ask_user`.
+- [Interactions](/concepts/interactions) — the blocking counterpart, `ask_user`, and
+  the form **ask** an ask-less form contrasts with.
 - [Owned keys](/concepts/owned-keys#audience--one-concept-across-interactions-and-notifications) — the `audience` isolation model in full.
-- [Client conversations](/concepts/client-conversations) — the channels a notification pushes to.
+- [Client conversations](/concepts/client-conversations) — the channels a notification
+  pushes to, and the structured guest message a form submission arrives as.
 - [CLI reference](/reference/cli/notifications) — the full `tai notifications` surface.
