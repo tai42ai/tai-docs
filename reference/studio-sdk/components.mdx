@@ -615,6 +615,27 @@ interface DialogProps
 | `trigger?` | `ReactElement<unknown, string \| JSXElementConstructor<any>>` | A trigger element; when omitted, control the dialog via `open`/`onOpenChange`.  It is a single ELEMENT, not any node: Radix clones its props onto it, so a string throws. The type admits a FRAGMENT — `<></>` is a `ReactElement` — which would render openers carrying neither the `aria-haspopup`/`aria-expanded`/`aria-controls` wiring nor a click handler, so assertSlotElement rejects that one at runtime. |
 
 
+## DirtyGuardBoundary
+
+```ts
+function DirtyGuardBoundary(props: { children: ReactNode }): ReactNode
+```
+
+Boundary that guards navigation away from a region holding a dirty editor. Editors
+inside it arm the guard through `useRegisterDirty`; while any is dirty a route
+navigation (a route-token/plugin navigate, an `AppLink`, or a browser
+back/forward) confirms through the shared discard dialog, and a full-page unload
+raises the native prompt. Use this directly to guard a dirty editor that is a plain
+page section (no tabs); `GuardedTabs` wraps this same boundary to additionally
+guard tab switches.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ children: ReactNode }` | — | — |
+
+
 ## Drawer
 
 ```ts
@@ -1194,7 +1215,7 @@ function FleetReport(props: FleetReportProps): ReactNode
 
 | Prop | Type | Description |
 |---|---|---|
-| `action?` | `"reload" \| "save"` | Whose framing the copy takes: a saved config change, or a dispatched reload. |
+| `action?` | `"reload" \| "save" \| "deregister" \| "remove"` | Whose framing the copy takes: a saved config change (`'save'`), a dispatched reload (`'reload'`), a connector detach fan-out (`'deregister'`), or a live-registry tool removal (`'remove'`). All but `'save'` drop the "Change saved" framing; `'deregister'` and `'remove'` also point remediation back at re-running that same detach, since a reload would re-attach the detached server or tool. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 **Related:** [FleetReportProps](/reference/studio-sdk/components#fleetreportprops)
@@ -1214,7 +1235,7 @@ beside their own success line.
 
 | Property | Type | Description |
 |---|---|---|
-| `action?` | `"reload" \| "save"` | Whose framing the copy takes: a saved config change, or a dispatched reload. |
+| `action?` | `"reload" \| "save" \| "deregister" \| "remove"` | Whose framing the copy takes: a saved config change (`'save'`), a dispatched reload (`'reload'`), a connector detach fan-out (`'deregister'`), or a live-registry tool removal (`'remove'`). All but `'save'` drop the "Change saved" framing; `'deregister'` and `'remove'` also point remediation back at re-running that same detach, since a reload would re-attach the detached server or tool. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 
@@ -1424,7 +1445,7 @@ function GuardedTabs(props: { defaultValue?: string; items: readonly TabItem[] }
 ```
 
 A drop-in replacement for `Tabs` that guards a switch away from a dirty
-editor. Wraps the tabs in a `DirtyGuardProvider`, so an editor rendered in
+editor. Wraps the tabs in a `DirtyGuardBoundary`, so an editor rendered in
 any panel can arm the guard through `useRegisterDirty`.
 
 **Parameters**
@@ -1998,6 +2019,17 @@ the gap = 3.5343 each, giving 16 even segments and no seam.
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
+## PluginIcon
+
+```ts
+const PluginIcon: IconComponent
+```
+
+Plugin: a puzzle piece — the host's provenance mark for plugin-contributed nav.
+
+**Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
 ## PresetsIcon
 
 ```ts
@@ -2320,6 +2352,17 @@ The FLAT listbox: one ungrouped run of options.
 | `value?` | `string` | — |
 
 **Related:** [SelectOption](/reference/studio-sdk/components#selectoption)
+
+
+## ServedEndpointsIcon
+
+```ts
+const ServedEndpointsIcon: IconComponent
+```
+
+Served endpoints: a broadcast node radiating to the tools it serves.
+
+**Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
 ## SettingsIcon
@@ -3595,9 +3638,9 @@ alone.
 function useRegisterDirty(dirty: boolean): void
 ```
 
-Report an editor's dirty state to the enclosing `GuardedTabs`. A no-op
-outside a provider (an editor rendered standalone, e.g. in isolation tests) so
-the hook is always safe to call.
+Report an editor's dirty state to the enclosing `DirtyGuardBoundary` (which
+`GuardedTabs` also provides). A no-op outside a boundary (an editor rendered
+standalone, e.g. in isolation tests) so the hook is always safe to call.
 
 **Parameters**
 
