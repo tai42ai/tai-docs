@@ -4,10 +4,20 @@ description: "A tour of every surface in the Studio sidebar."
 icon: "table-columns"
 ---
 
-The Studio's left sidebar is one link per feature. Each screen drives one slice
-of the server's `/api/*` surface, and every screen renders its own loading,
-empty, and error states rather than a blank page. This page tours the surfaces
-you reach most.
+The Studio's left sidebar leads with the **Dashboard** row, then groups every
+feature into five intent sections:
+
+- **Capabilities** — Tools, Agents, Presets, Extensions, Templates.
+- **Connections** — Connectors, Served endpoints.
+- **Triggers** — Hooks, Scheduling.
+- **Activity** — Conversations, Interactions, Notifications.
+- **Administration** — Settings, Storage, Marketplace, Manifest, System.
+
+Each screen drives one slice of the server's `/api/*` surface, and every screen
+renders its own loading, empty, and error states rather than a blank page. This
+page tours the surfaces you reach most. A [Studio plugin](/studio/plugins) adds
+its own links to one of these sections, or to a section of its own named for the
+plugin.
 
 ## Tools
 
@@ -39,6 +49,17 @@ shown`); once shown it appears here again. The per-tool **edit dialog** is the o
 surface that edits all four overlay fields: display name, user tags, folder, and a
 three-way visibility control (**Default** defers to the plugin's declaration,
 **Shown** forces it visible, **Hidden** forces it out of the lists).
+
+Each folder row carries **Rename** and **Move** actions; Move offers the folder
+tree as a parent picker (with inline create) and excludes the folder and its own
+descendants, so a folder can never become its own ancestor. Both appear only for a
+session that can write the overlay.
+
+The screen also carries the app-tool live-registry admin card — **Reload** re-registers
+one app tool and **Remove** detaches it from the running registry, each named by its
+reloader `kind` and `name` and applied across the fleet. Reload is non-destructive;
+Remove asks the house confirm first. The card renders only for a session whose
+projection reaches those fenced doors.
 
 ## Agents
 
@@ -75,7 +96,10 @@ render it. The upload form writes new resources two ways: a **Text** mode types 
 single template inline, and a **Files** mode picks many files at once — each file
 becomes a template keyed by its name. A files upload checks every path for a
 conflict up front and blocks the whole batch before writing if any name already
-exists or repeats, so a bulk upload never half-overwrites the store.
+exists or repeats, so a bulk upload never half-overwrites the store. Each folder
+row carries a delete affordance — a destructive confirm that removes every template
+filed under that prefix — and a selected template's detail deletes it behind its own
+confirm.
 
 <Frame caption="The Templates screen: stored resources with a viewer and an upload form.">
   <img className="block dark:hidden" src="/images/studio/templates-light.png" alt="The Templates screen listing stored template resources." />
@@ -105,18 +129,29 @@ renders a clean empty state instead.
 
 The Conversations screen, under **Activity** in the sidebar, is the operator's window
 over the [conversation bridge](/concepts/client-conversations) — every route, whichever
-door it listens on, in one place. It is mostly a monitor, with two by-hand actions
-grafted onto an open thread (below). It drills down in three levels, each of them a URL
-you can share or bookmark: the route picker, that route's threads, and one thread's
-transcript.
+door it listens on, in one place. It both **manages** routes and **monitors** their
+traffic, and drills down in three levels, each of them a URL you can share or bookmark:
+the route picker, that route's threads, and one thread's transcript.
 
-The picker lists every route with the door it answers (a channel's registry name,
-or the authed API), the identity that medium reaches you at, and the agent or tool
-a turn runs. Selecting a route opens its **threads** — one row per client address,
-with when it last spoke, how many exchanges it holds, and where its newest answer's
-delivery stands. Selecting a thread opens its transcript beside the list; below a
-1024px viewport the split collapses to whichever pane the selection names, with a
-Back link.
+The landing carries three tabs — **Routes**, **Per-target configs**, and **Failed
+deliveries** — so only the open one reads its door; on a no-backend deployment each
+reports its own off state rather than three stacked empties.
+
+The **Routes** tab is the route picker: it lists every route with the door it answers
+(a channel's registry name, or the authed API), the identity that medium reaches you
+at, and the agent or tool a turn runs. **Create route** opens an upsert dialog, and
+each row edits or deletes its route. The dialog authors the route through a schema
+form whose fields follow the target and door — an `agent` target hides the tool-only
+jq fields, and each door shows only its own delivery fields. The `payload_expr` and
+`reply_expr` fields render the [visual jq editor](/studio/jq-editor) in place. An
+`api`-door save mints a fresh `callback_secret` and **reveals it exactly once** in the
+dialog under a loud caption — every save rotates it and no door can re-read it, so copy
+it then; a `channel` save carries no secret and closes straight away.
+
+Selecting a route opens its **threads** — one row per client address, with when it
+last spoke, how many exchanges it holds, and where its newest answer's delivery stands.
+Selecting a thread opens its transcript beside the list; below a 1024px viewport the
+split collapses to whichever pane the selection names, with a Back link.
 
 <Frame caption="The Conversations screen: the thread list for a route beside the selected thread's transcript.">
   <img className="block dark:hidden" src="/images/studio/conversations-light.png" alt="The Conversations screen with a route's thread list beside a selected thread's transcript." />
@@ -152,6 +187,28 @@ read-only monitor:
 
 Both are the door's **write** action. A capability-scoped or read-only session may set
 neither: the refusal is shown inline, never swallowed.
+
+An open thread also carries two destructive actions, each behind the house confirm:
+
+- **Delete thread** forgets this one thread — its transcript records and the agent's
+  checkpoint memory of it — so a later message on the same address starts fresh.
+- **Erase person** is the GDPR right-to-erasure action, offered only on a linked
+  person's aggregated thread. It erases the person entirely — their aggregated thread
+  and checkpoint, their person row, and every address-to-person link — across every
+  route they ever wrote under. The confirm states that blast radius plainly.
+
+The **Per-target configs** tab is the per-target admin surface: each row is a stored
+config for one target (its kind and name), whether the target opts into person linking,
+and its first-contact greeting. **Create config** opens an upsert dialog; each row edits
+or deletes its config behind a confirm. The greeting is a `str.format` template — plain
+text, not jq — and may reference at most the `{pairing_code}` placeholder minted at
+greeting time; a blank template means no greeting.
+
+The **Failed deliveries** tab lists every answer whose delivery ended `failed`, across
+every route and caller, each rendered with the route and address it belongs to and an
+admin-only error disclosure. It is an **admin-only** door — a scoped session's refusal
+reads as a capability boundary — and it refreshes on its own so a delivery a retry has
+since cleared drops off.
 
 <Note>
 A thread listing spans every caller on a route, so its door is **admin-only** — a
@@ -189,38 +246,74 @@ The health badge reads `Healthy` on this demo instance, confirming the server is
 up and answering its liveness probe.
 </Note>
 
-## Manifest
+## Connectors
 
-The Manifest screen renders the live [manifest](/concepts/manifest) the server
-loaded — the mounted MCP servers and user tools that make up the running system —
-as an expandable tree. The **MCP** and **Sub-MCP** tabs break out the mounted MCP
-surface; the manifest document itself is read-only here, edited on disk and
-reloaded, never mutated from the screen. The **Sub-MCP** tab lists each
-[private tool set](/guides/private-tool-set) by slug, its transport, and its
-`/app/{slug}` connect URL — with a copy control — and registers or removes a
-sub-MCP app in place.
+The Connectors screen, under **Connections**, is the unified surface for outside
+apps and mounted MCP servers. Two provider sections list the
+[OAuth providers](/concepts/connectors) you can connect to (grouped by category,
+each showing its connection state) and your existing connections; selecting a
+connection opens its routed detail, and a popup-blocked sign-in that redirected the
+whole tab completes its exchange back here.
+
+The same page is the **two ways to add MCP**. Its MCP section carries both:
+
+- **Status** — every mounted MCP server, healthy or failed, each with a **Reload**
+  control. A failed server can be reloaded, or deregistered, in place.
+- **Config** — an editor for the manifest's `mcp` array with a form view (one editor
+  per entry: a schema-driven transport form plus a tool composer for the
+  `include`/`exclude` lists) and a raw-JSON escape hatch over the same working list.
+  A connector-owned entry renders read-only — it is kept in sync by its connection, so
+  you remove it by disconnecting. Saves cross the config pipeline and reload the fleet;
+  a malformed edit is a loud inline error and no request is sent.
 
 <Note>
-The editable tabbed surfaces — the MCP configuration here and the environment
-editor under **Settings** — each carry an unsaved-changes guard. Switching tabs,
-navigating away, or pressing browser Back with edits in flight raises a **Discard
-unsaved changes?** confirm; a tab close falls back to the browser's own native
-"leave site?" prompt. Either way a half-finished edit is never dropped silently.
+The MCP configuration editor and the environment editor under **Settings** each carry
+an unsaved-changes guard: navigating away or a full-page unload with edits in flight
+first confirms, so a half-finished edit that would reload the fleet is never dropped
+silently.
 </Note>
 
-<Frame caption="The Manifest screen: the live manifest as an expandable tree, with MCP and Sub-MCP tabs.">
-  <img className="block dark:hidden" src="/images/studio/manifest-light.png" alt="The Manifest screen showing the live manifest as an expandable JSON tree with Manifest, MCP, and Sub-MCP tabs." />
-  <img className="hidden dark:block" src="/images/studio/manifest-dark.png" alt="The Manifest screen showing the live manifest as an expandable JSON tree with Manifest, MCP, and Sub-MCP tabs." />
+## Served endpoints
+
+The Served endpoints screen, under **Connections**, manages the derived sub-MCP
+servers — the [private tool sets](/concepts/private-tool-sets) that serve a curated
+subset of tools under their own slug and MCP endpoint. It lists every entry with its
+transport and its concrete `/app/{slug}` connect URL (copy-to-clipboard) and a
+delete control behind a confirm. **Create** builds a new entry from a slug, a
+multi-select of tool names, and a transport; a slug that already exists is flagged and
+the replacement confirmed, because register is a silent-swap upsert.
+
+## Manifest
+
+The Manifest screen, under **Administration**, is the config-artifact inspector: it
+renders the live [manifest](/concepts/manifest) the server loaded — its `mcp` and
+`user_tools` — as an expandable tree. The document is read-only here; it is edited on
+disk and reloaded, never mutated from the screen. (MCP server status and config live
+on the [Connectors](#connectors) page, and the derived sub-MCP servers on
+[Served endpoints](#served-endpoints).)
+
+Below the tree, the screen carries the granular section-editing doors: the `tools` and
+`agents` per-entry add and remove controls (an entry is added by pasting its JSON with
+its title validated, removed by naming its title), and the `api_tools`
+include/exclude curation (a name is added to or removed from a list). These are a
+deliberate delta surface — the manifest read serves only `mcp` and `user_tools`. Every
+write crosses the config pipeline and reloads the fleet, so a save re-reads the
+artifact and reports any failed propagation; removes ask the house confirm. Each door
+renders only for a session whose projection can reach it.
+
+<Frame caption="The Manifest screen: the live manifest config artifact as an expandable tree.">
+  <img className="block dark:hidden" src="/images/studio/manifest-light.png" alt="The Manifest screen showing the live manifest config artifact as an expandable JSON tree." />
+  <img className="hidden dark:block" src="/images/studio/manifest-dark.png" alt="The Manifest screen showing the live manifest config artifact as an expandable JSON tree." />
 </Frame>
 
 ## Flows
 
 When the [Babelfish Flows](/babelfish) plugin is installed, it contributes a
 top-level **Babelfish Flows** page and its own sidebar entry (and a companion
-**Babelfish State** page for the flow engine's declared state). A plugin's sidebar entries
-collect under a labelled **Plugins** section at the foot of the sidebar, unless
-the entry names one of the built-in sections (such as Administration), in which
-case it joins that group after its core rows. The page is a browser for your
+**Babelfish State** page for the flow engine's declared state). A plugin entry that
+names one of the built-in sections joins that group after its core rows; an entry that
+names none renders in a first-class section of its own, named for the plugin and
+carrying a host-applied provenance badge. The page is a browser for your
 saved flows that mirrors the Tools screen's organization: it navigates
 [folders](/concepts/tool-organization) with a breadcrumb, toggles between a list
 and a card view (the choice persists per browser), and filters the list with a tag
@@ -428,17 +521,21 @@ walks the full flow.
 The remaining links follow the same shape — a master list on the left, a detail
 or editor on the right:
 
-- **Presets** — [versioned tool-wraps](/concepts/presets) and their version
-  history; each preset also renders and edits its
+- **Presets** *(Capabilities)* — [versioned tool-wraps](/concepts/presets) and their
+  version history; each preset also renders and edits its
   [tool-organization](/concepts/tool-organization) display name and tags (folder
   navigation and hide controls stay on the Tools screen).
-- **Interactions** — the [human-in-the-loop](/concepts/interactions) inbox of
-  pending questions.
-- **Connectors** — [OAuth connections](/concepts/connectors) to outside apps.
-- **Hooks** — [event hooks](/concepts/hooks) wired to the server.
-- **Scheduling** — [scheduled tool runs](/concepts/triggers-and-webhooks).
-- **Settings** — server configuration, environment values, and API keys (see
-  [Admin console](/studio/admin-console) and [API keys](/studio/api-keys)).
+- **Hooks** *(Triggers)* — [event hooks](/concepts/hooks) wired to the server.
+- **Scheduling** *(Triggers)* — [scheduled tool runs](/concepts/triggers-and-webhooks).
+- **Interactions** *(Activity)* — the [human-in-the-loop](/concepts/interactions)
+  inbox of pending questions.
+- **Notifications** *(Activity)* — the [notifications](/concepts/notifications) inbox.
+- **Settings** *(Administration)* — server configuration, environment values, and API
+  keys (see [Admin console](/studio/admin-console) and [API keys](/studio/api-keys)).
+  A **Reload config** control re-reads env and re-initializes the deployment from its
+  manifest in place, applied on the serving worker and broadcast to the fleet.
+- **Storage** *(Administration)* — the [stored-resource](/concepts/storage-and-resources)
+  backend surface.
 
 Several of these surfaces are backed by Redis or Postgres in the running server;
 a screen whose store is not provisioned says so plainly instead of showing a
