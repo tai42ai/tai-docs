@@ -52,20 +52,29 @@ calm, non-editable mode for reviewing or explaining a flow without changing it.
 Beyond the built-in steps, you can define your own palette nodes from saved flows:
 promote a flow into a reusable node, give it a category and an icon, and it appears
 in the editor's palette alongside the defaults for anyone to drop into a new flow.
-Babelfish ships a set of ready-made nodes to start from — an ask, a form, a
-send-message, and a send-form node — covering the common conversation moves out of
-the box. The send-form node is the send-message shape with a form face: it delivers
-a schema-rendered [ask-less form](/concepts/notifications#ask-less-forms) one-way
-and **never waits** — the outcome is `sent` or `failed`, and the submission, if it
-comes, arrives as the person's next message on the conversation route (waiting for
-a validated structured answer stays the form node's job). These reach the same rich
-face: the ask and send-message nodes take optional display **media** (a list of
-`{kind: image | link, url, caption?}` items shown with the prompt) and optional
-suggested-reply **options**, while the form and send-form nodes take media
-alongside their schema (options do not apply to a form, whose answer shape is its
-schema — one message carries one interactive surface). Every one of those fields is
-optional and inert when omitted, so a node that sets none keeps its wiring
-byte-identical.
+
+Babelfish ships two ready-made interaction nodes to start from — **send** and
+**ask** — one full surface each, covering the common conversation moves out of the
+box. **Send** delivers one-way and **never waits**: a text message, display
+**media** (a list of `{kind: image | link, url, caption?}` items), tappable
+**options**, a pre-approved **template**, or a fillable form **schema** delivering
+a schema-rendered [ask-less form](/concepts/notifications#ask-less-forms) — the
+outcome is `sent` or `failed`, and a form's submission, if it comes, arrives as the
+person's next message on the conversation route. Its face opens on a **kind**
+selector — message, media, options, template, or form — that guides the fields
+while the node stays one delivery whatever the face: `kind` is face-only and never
+delivered, every send carries a message or media, and one message carries one
+interactive surface (a template stands alone). **Ask** pauses for a person's reply
+and **always waits**, re-asking until the answer is valid or the attempts run out;
+its **format** selects how the answer is collected — `text` (free text, with
+optional `options` as tap-to-send suggested replies), `confirm` (a yes/no —
+declining is an answer), `select` (one pick from `options`), `form` (an answer
+validated against `schema`), or `external` (an action completed on a surface
+reached through `link`, with the callback payload as the answer) — and the same
+format drives the face's variant picker. Both nodes take optional display media
+beside their prompt, every optional field is inert when omitted, and field
+combinations richer than any single face stay expressible through each node's
+full-surface **Anything** face.
 
 A custom node is a saved flow published to the palette, and it is managed **as a
 node, not as a flow**. The palette's Custom Nodes section gives each card an edit
@@ -99,11 +108,11 @@ the same dispatch controls a hand-authored loop does — the [wait mode and the
 give-up pair](#node-waits), and the opt-in [state refresh](#refresh-opt-in-state-re-read),
 which fires **once at loop entry** so every iteration inherits the same fresh view.
 
-**Broadcast** is the map-plus-send-message recipe for fanning one message out to N
-recipients: make the mapped tool the send-message node, set `input` to the
+**Broadcast** is the map-plus-send recipe for fanning one message out to N
+recipients: make the mapped tool the **send** node, set `input` to the
 recipients list, and read the current recipient from `.iterate.item` in the
 per-item arguments. The per-item output list is the delivery transcript — one slot
-per recipient, in order — and because send-message recovers a failed delivery into
+per recipient, in order — and because send recovers a failed delivery into
 a `failed` outcome in-body, a partial failure simply appears as failed slots in that
 transcript rather than aborting the whole map. Scale a large list with the parallel
 mode and a concurrency cap, and shape a sent/failed summary with `collect`.
