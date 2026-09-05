@@ -28,14 +28,15 @@ $ tai notifications list [OPTIONS]
 
 Send a human a one-way, fire-and-forget notification.
 
-`--media`, `--template`, `--options` and `--schema` are JSON strings (the nested
-shapes have
-no flat-flag form). The CLI checks only their shape before the request — a list of
-`MediaItem` for `--media`, `list[str]` for `--options`, a `ChannelTemplate` for
-`--template`, a JSON object for `--schema` — so a mis-shaped value raises loudly
-here; the contract's richer rules
-(caps, non-blank, exclusivity, the channel-deliverable form subset) are enforced by the
-server.
+The rich-send forms are JSON strings validated into their contract models before the
+request — a list of `MediaItem` for `--media`, a discriminated `Option` list
+(reply/link) for `--options`, an `OptionSection` list for `--sections`, a
+`ChannelTemplate` for `--template`, a `LocationElement` for `--location`, a
+`MediaItem` for `--header`, a JSON object for `--schema` — so a mis-shaped value
+(including an unknown template/location/header key, which the contract would otherwise
+silently drop) raises loudly here; the contract's cross-field rules (caps, non-blank,
+the options-XOR-sections choice surface, header/footer requiring a choice surface,
+template exclusivity, the channel-deliverable form subset) are enforced by the server.
 
 Example: `tai notifications notify "Deploy finished" --channel telegram`
 
@@ -52,7 +53,11 @@ $ tai notifications notify [OPTIONS] {message}
 | `--channel` `&lt;str&gt;` | Named channel to send on; omit to record to the internal sink. |
 | `--recipient` `&lt;str&gt;` | Optional per-call address (chat id, phone number, ...). |
 | `--media` `&lt;str&gt;` | JSON array of display-media items sent WITH the message, e.g. '[&#123;"kind":"image","url":"https://…"&#125;]'. |
-| `--template` `&lt;str&gt;` | JSON object for an out-of-window template send, e.g. '&#123;"name":"status_update","language":"en_US"&#125;'. |
-| `--options` `&lt;str&gt;` | JSON array of tappable options, e.g. '["Item A","Item B"]'. |
+| `--template` `&lt;str&gt;` | JSON object for an out-of-window template send with contract-7 components — `name`, `language` and optional `header_media` / `body_parameters` / `buttons`, e.g. '&#123;"name":"status_update","language":"en_US","body_parameters":["A-42"]&#125;'. |
+| `--options` `&lt;str&gt;` | JSON array of tappable options — each a reply (`&#123;"kind":"reply","text":"Yes","description":"…","id":"…"&#125;`, description/id optional) or a link (`&#123;"kind":"link","label":"Docs","url":"https://…"&#125;`), e.g. '[&#123;"kind":"reply","text":"Yes"&#125;,&#123;"kind":"link","label":"Docs","url":"https://x/d"&#125;]'. |
+| `--sections` `&lt;str&gt;` | JSON array of titled option sections (the sectioned alternative to --options), each `&#123;"title":"…","rows":[&#123;"kind":"reply","text":"…"&#125;]&#125;`, e.g. '[&#123;"title":"Fruit","rows":[&#123;"kind":"reply","text":"Apple"&#125;]&#125;]'. |
+| `--location` `&lt;str&gt;` | JSON object for a shared map pin, `&#123;"latitude":51.5,"longitude":-0.12,"name":"…","address":"…"&#125;` (name/address optional). |
+| `--header` `&lt;str&gt;` | JSON object for a single display-media header above an interactive message (requires --options or --sections), e.g. '&#123;"kind":"image","url":"https://…"&#125;'. |
+| `--footer` `&lt;str&gt;` | Short trailing line under an interactive message (requires --options or --sections). |
 | `--schema` `&lt;str&gt;` | JSON object holding an ask-less form's answer schema (channel-only; the message is the form's prompt), e.g. '&#123;"type":"object","properties":&#123;"name":&#123;"type":"string"&#125;&#125;&#125;'. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |

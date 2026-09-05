@@ -323,8 +323,47 @@
         "type": "object"
       },
       "ChannelTemplate": {
-        "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window\n(e.g. WhatsApp's 24-hour customer-service window); outside it, the sole\naccepted send is an operator-authored template referenced by ``name`` in an\napproved ``language`` — both required and non-blank. ``parameters`` is the\nPOSITIONAL list of body-text values substituted into the template's body\nplaceholders in order; it is empty when the template has no placeholders.\nBody text only — templates with header media, button parameters, or typed\nparameters (currency, date-time) are out of scope for this contract.",
+        "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window (e.g. WhatsApp's\n24-hour customer-service window); outside it, the sole accepted send is an operator-authored\ntemplate referenced by ``name`` in an approved ``language`` — both required and non-blank.\n\nThe template's runtime arguments are its NAMED components (never one flat positional list):\n\n* ``header_media`` — the media argument for a media HEADER component (a display item:\n  image/document/video/audio, never a ``link``); ``None`` when the template has no media\n  header (or a static/text header needing no argument).\n* ``body_parameters`` — the POSITIONAL body-text values substituted into the body's\n  placeholders in order; empty when the body has no placeholders. Typed values (currency,\n  date-time) ride as their pre-formatted STRING here — the contract does not model the type.\n* ``buttons`` — the POSITIONAL per-button arguments of the buttons component\n  (:data:`TemplateButtonParam`: a :class:`QuickReplyButtonParam` payload or a\n  :class:`UrlButtonParam` url suffix); the i-th entry parameterises the i-th button, at most\n  ``TEMPLATE_BUTTONS_MAX``. Empty when no button needs a runtime argument.",
         "properties": {
+          "body_parameters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Body Parameters",
+            "type": "array"
+          },
+          "buttons": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "quick_reply": "#/components/schemas/QuickReplyButtonParam",
+                  "url": "#/components/schemas/UrlButtonParam"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/QuickReplyButtonParam"
+                },
+                {
+                  "$ref": "#/components/schemas/UrlButtonParam"
+                }
+              ]
+            },
+            "title": "Buttons",
+            "type": "array"
+          },
+          "header_media": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaItem"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "language": {
             "title": "Language",
             "type": "string"
@@ -332,13 +371,6 @@
           "name": {
             "title": "Name",
             "type": "string"
-          },
-          "parameters": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Parameters",
-            "type": "array"
           }
         },
         "required": [
@@ -478,6 +510,22 @@
       "ConversationMessage": {
         "description": "The client-facing inbound body of the authed API door\n``POST /api/conversations/{route_name}/messages``.\n\n``external_user_id`` is the caller's handle for the end user: it becomes the\n``client_address`` the answer is delivered against and the conversation's thread\nkey. Frozen.",
         "properties": {
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MediaItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Structured media the caller sent WITH the text (image/document/video/audio) — the inbound counterpart of an outbound answer's media. Delivered to a tool target's payload under ``attachments`` only when present; the ``text`` stays the whole turn every reader consumes.",
+            "title": "Attachments"
+          },
           "external_user_id": {
             "minLength": 1,
             "title": "External User Id",
@@ -494,8 +542,20 @@
               }
             ],
             "default": null,
-            "description": "A structured guest submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and a future ``media`` sibling rides the same pattern without a break. The platform attaches no meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant — a target that reads it validates it itself.",
+            "description": "A structured guest submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and the ``attachments``/``location`` siblings ride the same pattern. The platform attaches no meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant — a target that reads it validates it itself.",
             "title": "Form"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationElement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A geographic point the caller shared WITH the text. Delivered to a tool target's payload under ``location`` only when present; the ``text`` stays the whole turn every reader consumes."
           },
           "params": {
             "anyOf": [
@@ -665,6 +725,14 @@
                 {
                   "gloss": "a structured form submission, present only when the inbound carried one",
                   "name": "form"
+                },
+                {
+                  "gloss": "inbound media the guest sent, present only when the inbound carried some",
+                  "name": "attachments"
+                },
+                {
+                  "gloss": "a geographic point the guest shared, present only when the inbound carried one",
+                  "name": "location"
                 }
               ],
               "label": "payload expression",
@@ -1021,6 +1089,74 @@
           "at"
         ],
         "title": "LastOp",
+        "type": "object"
+      },
+      "LinkOption": {
+        "description": "A tappable link action. Tapping OPENS ``url`` (an absolute ``http(s)`` URL) in the human's\nbrowser — NO message is submitted, distinct from a :class:`ReplyOption`. ``label`` is the\nbutton text. The URL-button / call-to-action case. Frozen.",
+        "properties": {
+          "kind": {
+            "const": "link",
+            "default": "link",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "url"
+        ],
+        "title": "LinkOption",
+        "type": "object"
+      },
+      "LocationElement": {
+        "description": "A geographic point shared on a message — the one shape used BOTH ways: an outbound place a\nflow shares and the inbound location a guest sent.\n\n``latitude``/``longitude`` are WGS84 decimal degrees, bounded to their valid ranges\n(latitude -90..90, longitude -180..180). ``name`` is an optional place label and ``address``\nan optional street address, each a single-line non-blank string within its cap when present\n(raw whitespace and control/format characters are rejected, as on a media url — an embedded\nnewline or bidi spoof would corrupt the rendered pin label). A channel that cannot render a\nmap renders the coordinates (and any name/address) as text. Frozen.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Address"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "LocationElement",
         "type": "object"
       },
       "MCPConfig": {
@@ -1381,7 +1517,7 @@
         "type": "object"
       },
       "MediaItem": {
-        "description": "One media item shown WITH a question — display-only, never part of the answer.\n\n``kind`` selects how it renders: an ``image`` inline, a ``link`` as a labelled\nanchor. ``url`` is the source — an ``image`` must be an absolute ``https`` URL, a\n``data:image/*`` URI, a same-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to\nmedia the skeleton serves by id, or an absolute ``http(s)`` served reference of\nthat same ``{MEDIA_ROUTE_PREFIX}{id}`` path a channel send mints from\n``public_base_url`` (remote images are https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an\n``http:`` remote image would be an unrenderable record), while a ``link`` must be an\nabsolute ``http(s)`` URL (anchors are not governed\nby ``img-src``; the human clicks through). A remote url names a host directly —\nan ASCII DNS name, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply\npunycode); an embedded ``user@`` credential form is rejected as it spoofs the\nauthority — and is always a single line — raw whitespace and control/format\ncharacters are rejected. ``caption`` is the accessibility text — the image's alt text or the\nlink's display label.",
+        "description": "One media item shown WITH a message — a display element, and inbound the shape a guest's\nsent media takes.\n\n``kind`` selects how it renders: an ``image`` inline, a ``document``/``video``/``audio`` as\nthe matching file bubble, a ``link`` as a labelled anchor. ``url`` is the source. A file\nkind (``image``/``document``/``video``/``audio``) must be an absolute ``https`` URL, a\nsame-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to media the skeleton serves by id, or an\nabsolute ``http(s)`` served reference of that same ``{MEDIA_ROUTE_PREFIX}{id}`` path a\nchannel send mints from ``public_base_url`` (remote file media is https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an ``http:``\nremote source would be an unrenderable record); ``image`` ADDITIONALLY admits an inline\n``data:image/*`` URI — that inline form is image-only, a ``data:`` URI on any other file\nkind is refused. A ``link`` must be an absolute ``http(s)`` URL (anchors are not governed by\n``img-src``; the human clicks through). A remote url names a host directly — an ASCII DNS\nname, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply punycode); an embedded\n``user@`` credential form is rejected as it spoofs the authority — and is always a single\nline — raw whitespace and control/format characters are rejected. ``caption`` is the\naccessibility text — the image's alt text, a file's label, or the link's display label.\n``filename`` is the document's suggested display name; it is meaningful ONLY for a\n``document`` item and is refused on every other kind.",
         "properties": {
           "caption": {
             "anyOf": [
@@ -1394,6 +1530,18 @@
             ],
             "default": null,
             "title": "Caption"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Filename"
           },
           "kind": {
             "$ref": "#/components/schemas/MediaKind"
@@ -1413,7 +1561,10 @@
       "MediaKind": {
         "enum": [
           "image",
-          "link"
+          "link",
+          "document",
+          "video",
+          "audio"
         ],
         "title": "MediaKind",
         "type": "string"
@@ -1446,6 +1597,43 @@
             "default": null,
             "title": "Channel"
           },
+          "footer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional short trailing line under an interactive message. Like the header it COMPOSES an interactive message, so it REQUIRES options or sections; it rides the choice surface's own capability (no separate flag) and mutually exclusive with template.",
+            "title": "Footer"
+          },
+          "header": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaItem"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional single display-media header above an interactive message. It COMPOSES an interactive message, so it REQUIRES options or sections; it rides the interactive choice surface's own capability (no separate flag) and mutually exclusive with template."
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationElement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional shared geographic point sent WITH the message (a map pin). On a named channel it requires a channel that advertises location support (else a 501); with no channel it is stored on the internal inbox record. It may carry the message content on its own (a blank message is admissible when media or a location carries it). Mutually exclusive with template."
+          },
           "media": {
             "anyOf": [
               {
@@ -1470,7 +1658,21 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "discriminator": {
+                    "mapping": {
+                      "link": "#/components/schemas/LinkOption",
+                      "reply": "#/components/schemas/ReplyOption"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReplyOption"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LinkOption"
+                    }
+                  ]
                 },
                 "type": "array"
               },
@@ -1479,7 +1681,7 @@
               }
             ],
             "default": null,
-            "description": "Optional tappable options sent WITH the message; a tap enters the conversation as a visitor message on channels that support it. On a named channel it requires a channel that advertises interactive support (else a 501); with no channel it is stored on the internal inbox record. Mutually exclusive with template, may combine with media.",
+            "description": "Optional FLAT tappable options sent WITH the message — each a reply option (a tap submits its text as a visitor message) or a link option (a tap opens its url). On a named channel it requires a channel that advertises interactive support (else a 501); with no channel it is stored on the internal inbox record. One message carries ONE interactive surface: mutually exclusive with template, sections and schema; may combine with media and location.",
             "title": "Options"
           },
           "recipient": {
@@ -1507,6 +1709,22 @@
             "default": null,
             "description": "Optional form answer schema for an ask-less form: the channel renders the message as the form's prompt and this schema as the fillable form, and a submission enters the conversation as a message from the person. Requires a named channel (else a 400 — the internal sink has no submission door) that advertises form support (else a 501). Mutually exclusive with template and with options, may combine with media.",
             "title": "Schema"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OptionSection"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional SECTIONED tappable options — titled groups of reply rows, the sectioned alternative to the flat options list (rows summed across sections stay within the same cap). On a named channel it requires a channel that advertises interactive support (else a 501); with no channel it is stored on the internal inbox record. One message carries ONE interactive surface: mutually exclusive with options, template and schema; may combine with media and location.",
+            "title": "Sections"
           },
           "sender_identity": {
             "anyOf": [
@@ -1597,6 +1815,28 @@
         ],
         "title": "OpOutcome",
         "type": "string"
+      },
+      "OptionSection": {
+        "description": "One titled section of a sectioned option list. ``title`` is the section header; ``rows`` are\nits entries — a sectioned list holds :class:`ReplyOption` rows ONLY (a tapped row submits its\ntext; a link action is a button, never a list row). A present ``rows`` is non-empty. Frozen.",
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyOption"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "rows"
+        ],
+        "title": "OptionSection",
+        "type": "object"
       },
       "PatchSubServicesRequest": {
         "properties": {
@@ -2099,6 +2339,26 @@
         "title": "PublicRouteUnpin",
         "type": "object"
       },
+      "QuickReplyButtonParam": {
+        "description": "The runtime argument for one QUICK-REPLY button of a template's buttons component:\n``payload`` is the string the medium returns when the human taps the button. Frozen.",
+        "properties": {
+          "kind": {
+            "const": "quick_reply",
+            "default": "quick_reply",
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "QuickReplyButtonParam",
+        "type": "object"
+      },
       "ReloadConfig": {
         "description": "A fleet reload-config request — an optional ``targets`` list restricting the\nsoft-restart to named workers (all workers when omitted).",
         "properties": {
@@ -2158,6 +2418,50 @@
           "error",
           "reloading"
         ],
+        "type": "object"
+      },
+      "ReplyOption": {
+        "description": "A tappable suggested reply. Tapping SUBMITS ``text`` as the guest's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the guest's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. WhatsApp forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id as today. Bounded by ``OPTION_ID_MAX_CHARS`` and a\nsingle-line non-blank label — the strictest carrier's rule. Frozen.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "kind": {
+            "const": "reply",
+            "default": "reply",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ReplyOption",
         "type": "object"
       },
       "ResourceGet": {
@@ -3191,6 +3495,26 @@
           "ttl_seconds"
         ],
         "title": "TriggerLinkCreate",
+        "type": "object"
+      },
+      "UrlButtonParam": {
+        "description": "The runtime argument for one URL button of a template's buttons component:\n``url_parameter`` is the dynamic suffix substituted into the button's pre-approved URL.\nFrozen.",
+        "properties": {
+          "kind": {
+            "const": "url",
+            "default": "url",
+            "title": "Kind",
+            "type": "string"
+          },
+          "url_parameter": {
+            "title": "Url Parameter",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_parameter"
+        ],
+        "title": "UrlButtonParam",
         "type": "object"
       },
       "WorkerKind": {
@@ -9113,7 +9437,7 @@
     },
     "/api/conversations/{route_name}/thread/messages": {
       "post": {
-        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity, and\nreturn ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?}`` display items), ``template`` (a\npre-approved ``{\"name\", \"language\", \"parameters\"?}`` out-of-window template),\n``options`` (a list of tappable suggested replies) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the guest's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or the mutually exclusive\nmedia+template / options+template / schema+template / schema+options) is a loud 400;\nomit all four for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
+        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity, and\nreturn ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?, \"filename\"?}`` display items),\n``location`` (a shared map pin ``{\"latitude\", \"longitude\", \"name\"?, \"address\"?}``),\n``template`` (a pre-approved ``{\"name\", \"language\", \"header_media\"?, \"body_parameters\"?,\n\"buttons\"?}`` out-of-window template), ``options`` (a list of FLAT tappable option objects —\neach a ``{\"kind\": \"reply\", \"text\"}`` reply or a ``{\"kind\": \"link\", \"label\", \"url\"}`` link\naction), ``sections`` (the SECTIONED tappable-options alternative — titled groups of reply\nrows), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the guest's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms — FULL parity with the flow answer path's ``AnswerPart`` vocabulary —\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or a combination the shared\ncomposition matrix refuses — ``options`` XOR ``sections``, ``schema`` excludes both,\n``header``/``footer`` require a choice surface, ``template`` standalone) is a loud 400;\nomit them all for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
         "operationId": "post_api_conversations_route_name_thread_messages",
         "parameters": [
           {
@@ -11084,6 +11408,90 @@
           }
         ],
         "summary": "Answer a pending interaction",
+        "tags": [
+          "interactions"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/interactions/{interaction_id}/cancel": {
+      "post": {
+        "description": "Cancel a pending interaction — WITHDRAW one specific ask without answering it and\nwithout deleting its conversation thread.\n\nThe mirror of ``answer_interaction`` for the terminal-without-an-answer case: it\ntears the pending question down via the store's status-gated ``prune_pending`` (the\nsame primitive the timeout path and the thread-delete cascade use), so NO continuation\nfires — a parked async flow is never resumed — and the removed event rides tagged\n``reason=\"cancelled\"`` so a live operator surface tells a deliberate withdrawal apart\nfrom a timeout/expiry removal.\n\nStatus-gated exactly like the answer door: only a PENDING (or parked) question cancels.\nA question already ``answered`` (its state retained) is a loud ``409`` conflict; a\nquestion whose state is GONE — expired, already cancelled, or never existed (all\nleave no distinguishable tombstone, the same limit the answer door has) — is a ``404``.\nIdempotent at the store seam: ``prune_pending`` re-run on a withdrawn question is a\nclean no-op, so a re-cancel simply reports the question gone (``404``) rather than\ndouble-tearing anything down. Unlike the answer door it is answer-format-AGNOSTIC: an\nEXTERNAL ask is a pending ask an operator may withdraw, so it is cancellable too.\n\nChannel-blind by construction: a channel-side pending correlation is NOT proactively\ntorn down. A later guest reply forwarded to the callback door finds the state gone and\nthe door answers ``404``, which the inbound ladder maps to a fresh bridged turn — the\nidentical path a timeout/expiry removal already takes.\n\nAudience gate identical to ``answer_interaction`` (after the existence/status guards):\na question's ``audience`` identity OR any unrestricted caller (the operator can always\nwithdraw a stuck question) may cancel; every other restricted caller is a loud ``403``.",
+        "operationId": "post_api_interactions_interaction_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interaction_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cancel a pending interaction",
         "tags": [
           "interactions"
         ],
@@ -13172,7 +13580,7 @@
         ]
       },
       "post": {
-        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message with no media to carry it (the contract admits a blank message\n  only for a media-only send), an unknown channel name, a blank recipient/audience, a\n  caller-supplied ``sender_identity``, a contract-invalid ``media``/``template``/\n  ``options``/``schema`` combination (an empty list/dict, an over-cap value, or a\n  mutually exclusive\n  media+template / options+template / schema+template / schema+options), a ``schema``\n  with no channel (the internal sink has no submission door) or one the channel's form\n  subset/hook refuses, or a channel's permanent refusal of the input's\n  shape (retrying cannot succeed) → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify, or does not advertise the\n  ``media``/``template``/``options``/``schema`` capability the send needs → 501;\n* a transient channel delivery failure (the raised error's ``retryable``) → 503,\n  carrying the medium's ``retry_after`` when it named one;\n* a permanent channel delivery refusal → 502.\n\n``media`` (display media sent with the message), ``template`` (a pre-approved\nout-of-window send), ``options`` (tappable options a tap of which enters the\nconversation) and ``schema`` (an ask-less form's answer schema — the channel renders the\nmessage as the form's prompt, and a submission enters the conversation as a message from\nthe person) are OPTIONAL richer-send forms; the contract enforces media/template,\noptions/template, schema/template and schema/options are each mutually exclusive\n(options and schema may each combine with media). On a\nnamed channel each needs a channel that advertises the matching capability — otherwise\nthe send is refused as a 501, never downgraded to a silent freeform send. With no\nchannel media/template/options are stored on the internal inbox record and rendered\nthere; ``schema`` alone REQUIRES a channel (a 400 without one) — a stored form nobody\ncould submit would be a dead surface, not a notification.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
+        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message with no media to carry it (the contract admits a blank message\n  only for a media-only send), an unknown channel name, a blank recipient/audience, a\n  caller-supplied ``sender_identity``, a contract-invalid ``media``/``template``/\n  ``options``/``schema`` combination (an empty list/dict, an over-cap value, or a\n  mutually exclusive\n  media+template / options+template / schema+template / schema+options), a ``schema``\n  with no channel (the internal sink has no submission door) or one the channel's form\n  subset/hook refuses, or a channel's permanent refusal of the input's\n  shape (retrying cannot succeed) → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify, or does not advertise the\n  ``media``/``template``/``options``/``schema`` capability the send needs → 501;\n* a transient channel delivery failure (the raised error's ``retryable``) → 503,\n  carrying the medium's ``retry_after`` when it named one;\n* a permanent channel delivery refusal → 502.\n\n``media`` (display media sent with the message), ``location`` (a shared map pin),\n``template`` (a pre-approved out-of-window send), ``options`` (FLAT tappable options a tap\nof which enters the conversation), ``sections`` (the SECTIONED tappable-options\nalternative), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's answer schema — the channel renders the\nmessage as the form's prompt, and a submission enters the conversation as a message from\nthe person) are OPTIONAL richer-send forms — FULL parity with the flow answer path's\n``AnswerPart`` vocabulary. The contract's shared composition matrix is enforced on this\nrequest model identically: ``options`` XOR ``sections`` (one choice surface); ``schema``\nexcludes both; ``header``/``footer`` require a choice surface; ``template`` is the standalone\nout-of-window send exclusive with every other content/interactive field; ``options``/\n``sections`` may each combine with ``media``/``location`` (a contract-invalid combination is\na 400). On a\nnamed channel each needs a channel that advertises the matching capability\n(``media``→media, ``location``→location, ``template``→template, ``options``/``sections``→\ninteractive, ``schema``→form; ``header``/``footer`` ride the choice surface's capability, no\nflag of their own) — otherwise\nthe send is refused as a 501, never downgraded to a silent freeform send. With no\nchannel media/location/template/options/sections/header/footer are stored on the internal\ninbox record and rendered\nthere; ``schema`` alone REQUIRES a channel (a 400 without one) — a stored form nobody\ncould submit would be a dead surface, not a notification.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
         "operationId": "post_api_notifications",
         "requestBody": {
           "content": {

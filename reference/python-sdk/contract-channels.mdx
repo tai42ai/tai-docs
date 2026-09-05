@@ -20,6 +20,51 @@ A channel also sends fire-and-forget notifications: ``notify`` pushes one
 reply path, under the same loud-failure rule; it returns the per-message ids the
 medium assigned the send (empty when the medium exposes none), never a bool.
 
+## NOTIFICATION_FOOTER_MAX_CHARS
+
+`tai42_contract.channels.NOTIFICATION_FOOTER_MAX_CHARS`
+
+```python
+NOTIFICATION_FOOTER_MAX_CHARS = MEDIA_CAPTION_MAX_CHARS
+```
+
+
+## NOTIFICATION_SECTIONS_MAX
+
+`tai42_contract.channels.NOTIFICATION_SECTIONS_MAX`
+
+```python
+NOTIFICATION_SECTIONS_MAX = 10
+```
+
+
+## OPTION_ID_MAX_CHARS
+
+`tai42_contract.channels.OPTION_ID_MAX_CHARS`
+
+```python
+OPTION_ID_MAX_CHARS = 256
+```
+
+
+## TEMPLATE_BUTTONS_MAX
+
+`tai42_contract.channels.TEMPLATE_BUTTONS_MAX`
+
+```python
+TEMPLATE_BUTTONS_MAX = 10
+```
+
+
+## TEMPLATE_PARAM_MAX_CHARS
+
+`tai42_contract.channels.TEMPLATE_PARAM_MAX_CHARS`
+
+```python
+TEMPLATE_PARAM_MAX_CHARS = 4096
+```
+
+
 ## AnswerForwardError
 
 `tai42_contract.channels.AnswerForwardError`
@@ -54,11 +99,12 @@ A channel plugin registers an instance under a name
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
 
-A channel MAY advertise richer support with five OPTIONAL, class-level
+A channel MAY advertise richer support with six OPTIONAL, class-level
 capability flags — ``supports_media_notifications``,
 ``supports_template_notifications``, ``supports_interactive_notifications``,
-``supports_form_notifications`` (all four for ``notify``) and
-``supports_form_delivery`` (for ``deliver``) — set as plain class
+``supports_location_notifications``, ``supports_form_notifications`` (all
+five for ``notify``) and ``supports_form_delivery`` (for ``deliver``) — set
+as plain class
 attributes. They are a documented convention, NOT Protocol members: a
 channel that supports the richer form sets the matching attribute to
 ``True``; a channel that omits it advertises no support (absent =
@@ -67,7 +113,8 @@ that declares none is still a valid ``Channel`` (both structurally and under
 runtime ``isinstance``). The ask/notify helpers read them defensively with
 ``getattr(channel, "<flag>", False)`` and refuse the matching richer send to
 a channel that does not advertise the flag: ``notify_user`` refuses a media,
-template, options or schema notification, and the ``ask_user`` helper
+template, options, sections, location or schema notification, and the
+``ask_user`` helper
 refuses a ``form`` delivery, to a channel without the flag — so a channel
 that reads only the plain fields can never silently drop the extra content.
 A channel that does not advertise ``supports_form_delivery`` never receives
@@ -209,6 +256,8 @@ submits its own text as the free-text answer; every other format carries none.
 | `schema` | `dict[str, Any] \| None` |
 | `options` | `list[str] \| None` |
 | `media` | `list[MediaItem] \| None` |
+| `on_mismatch` | `AnswerMismatchPolicy` |
+| `mismatch_notice` | `str \| None` |
 | `callback_url` | `str` |
 | `timeout_at` | `datetime` |
 
@@ -286,32 +335,37 @@ several operator identities: an internal routing control set by the sending side
 never caller-supplied, and an address only — never a secret.
 
 ``message`` is the human-readable text, non-blank BY DEFAULT — EXCEPT it may be the empty
-string ``""`` for a MEDIA-ONLY send: a caption-less image or other bubble that is just
-``media``, with no text carrier. The admissible states are "``message`` non-blank" OR
-"blank ``message`` WITH non-empty ``media``"; a blank ``message`` and no media has nothing
-to deliver and is refused. (``message`` stays REQUIRED — a media-only sender passes ``""``
-explicitly — because every caller constructs it in code with the text in hand.) ``options``
-REQUIRE a non-blank ``message`` — a tappable choice needs a prompt — so a media-only send
-carries none; a ``template`` likewise rides a non-blank ``message`` (it is not ``media``, so
-a blank message with only a template is refused).
+string ``""`` for a CONTENT-ONLY send: a caption-less bubble that is just ``media`` or a
+``location``, with no text carrier. The admissible states are "``message`` non-blank" OR
+"blank ``message`` WITH non-empty ``media`` OR a ``location``"; a blank ``message`` with no
+such content has nothing to deliver and is refused. (``message`` stays REQUIRED — a
+content-only sender passes ``""`` explicitly — because every caller constructs it in code
+with the text in hand.) An interactive surface (``options``, ``sections`` or ``schema``)
+REQUIRES a non-blank ``message`` — a choice or a form needs a prompt — so a content-only
+send carries none; a ``template`` likewise rides a non-blank ``message``.
 
-``media``, ``template`` and ``options`` are OPTIONAL richer-send forms reusing the
-same ``message`` as the human-readable equivalent. ``media`` is display media the
-channel sends alongside the message (reusing `MediaItem`); a present
-list is non-empty. ``template`` sends a pre-approved `ChannelTemplate`
-for out-of-window delivery. ``options`` is a list of tappable options; a tap enters
-the conversation as a visitor message on channels that support it — a present list is
-non-empty, each option non-blank and at most ``NOTIFICATION_OPTION_MAX_CHARS`` characters,
-at most ``NOTIFICATION_OPTIONS_MAX`` entries.
-``media`` and ``template`` are MUTUALLY EXCLUSIVE — a template is the out-of-window
-send and a companion standalone media item would be rejected by the medium there, so
-setting both is refused rather than partially delivered; ``options`` is likewise
-incompatible with ``template`` but MAY combine with ``media`` (a card with a list).
-A channel that does not advertise the matching capability flag
-(``supports_media_notifications`` / ``supports_template_notifications`` /
-``supports_interactive_notifications`` / ``supports_form_notifications``, the
-OPTIONAL class-attribute convention documented on `Channel`) never receives
-the matching field.
+The OPTIONAL richer-send forms reuse the same ``message`` as the human-readable
+equivalent. ``media`` is display media the channel sends alongside the message (reusing
+`MediaItem`, image/document/video/audio/link); a present list is non-empty.
+``location`` is a shared geographic point (`LocationElement`). ``template`` sends a
+pre-approved `ChannelTemplate` for out-of-window delivery. ``options`` is a flat
+list of tappable `Option` entries — a `ReplyOption` (a tap submits its text
+as a visitor message) or a `LinkOption` (a tap opens its url) — at most
+``NOTIFICATION_OPTIONS_MAX``. ``sections`` is the sectioned alternative: titled
+`OptionSection` groups of reply rows (rows summed across sections stay within
+``NOTIFICATION_OPTIONS_MAX``). ``header`` is a single display-media header and ``footer`` a
+short trailing line, each composing an interactive message (they REQUIRE ``options`` or
+``sections``).
+
+The composition rules (`check_interactive_composition`): ``options`` XOR
+``sections`` (one choice surface); ``schema`` excludes both (one interactive surface); a
+``template`` is the standalone out-of-window send, MUTUALLY EXCLUSIVE with every other
+content and interactive field; ``options``/``sections`` and ``schema`` MAY each combine
+with ``media`` and ``location``. A channel that does not advertise the matching capability
+flag (``supports_media_notifications`` / ``supports_location_notifications`` /
+``supports_template_notifications`` / ``supports_interactive_notifications`` /
+``supports_form_notifications``, the OPTIONAL class-attribute convention documented on
+`Channel`) never receives the matching field.
 
 ``schema`` is the form answer schema for an ASK-LESS FORM: the channel renders
 ``message`` as the form's prompt and ``schema`` as the fillable form, and the
@@ -339,8 +393,12 @@ channel — never silently downgraded.
 | `recipient` | `str \| None` |
 | `sender_identity` | `str \| None` |
 | `media` | `list[MediaItem] \| None` |
+| `location` | `LocationElement \| None` |
 | `template` | `ChannelTemplate \| None` |
-| `options` | `list[str] \| None` |
+| `options` | `list[Option] \| None` |
+| `sections` | `list[OptionSection] \| None` |
+| `header` | `MediaItem \| None` |
+| `footer` | `str \| None` |
 | `schema` | `dict[str, Any] \| None` |
 
 
@@ -354,14 +412,22 @@ class ChannelTemplate(BaseModel)
 
 A pre-approved, named template a channel sends outside its freeform window.
 
-Some media only accept arbitrary text inside a bounded conversation window
-(e.g. WhatsApp's 24-hour customer-service window); outside it, the sole
-accepted send is an operator-authored template referenced by ``name`` in an
-approved ``language`` — both required and non-blank. ``parameters`` is the
-POSITIONAL list of body-text values substituted into the template's body
-placeholders in order; it is empty when the template has no placeholders.
-Body text only — templates with header media, button parameters, or typed
-parameters (currency, date-time) are out of scope for this contract.
+Some media only accept arbitrary text inside a bounded conversation window (e.g. WhatsApp's
+24-hour customer-service window); outside it, the sole accepted send is an operator-authored
+template referenced by ``name`` in an approved ``language`` — both required and non-blank.
+
+The template's runtime arguments are its NAMED components (never one flat positional list):
+
+* ``header_media`` — the media argument for a media HEADER component (a display item:
+  image/document/video/audio, never a ``link``); ``None`` when the template has no media
+  header (or a static/text header needing no argument).
+* ``body_parameters`` — the POSITIONAL body-text values substituted into the body's
+  placeholders in order; empty when the body has no placeholders. Typed values (currency,
+  date-time) ride as their pre-formatted STRING here — the contract does not model the type.
+* ``buttons`` — the POSITIONAL per-button arguments of the buttons component
+  (`TemplateButtonParam`: a `QuickReplyButtonParam` payload or a
+  `UrlButtonParam` url suffix); the i-th entry parameterises the i-th button, at most
+  ``TEMPLATE_BUTTONS_MAX``. Empty when no button needs a runtime argument.
 
 **Attributes**
 
@@ -370,7 +436,9 @@ parameters (currency, date-time) are out of scope for this contract.
 | `model_config` | — |
 | `name` | `str` |
 | `language` | `str` |
-| `parameters` | `list[str]` |
+| `header_media` | `MediaItem \| None` |
+| `body_parameters` | `list[str]` |
+| `buttons` | `list[TemplateButtonParam]` |
 
 
 ## Correlation
@@ -402,6 +470,8 @@ once the reply is forwarded, withdrawn or expired.
 | `callback_url` | `str` |
 | `interaction_id` | `str` |
 | `ttl_deadline` | `datetime` |
+| `on_mismatch` | `AnswerMismatchPolicy` |
+| `mismatch_notice` | `str \| None` |
 
 
 ## CorrelationStore
@@ -519,6 +589,7 @@ correlation key. A channel maps this to its own transport ack.
 | `FORWARDED` | — |
 | `RETRY_KEPT` | — |
 | `BRIDGED` | — |
+| `BRIDGED_KEPT` | — |
 
 
 ## InboundAnswerResult
@@ -581,6 +652,16 @@ It applies ONLY to the retryable path: on a hard mismatch (a closed ask) the
 channel's re-ask surface is moot, so the ladder always sends the final "question is
 closed" notice regardless of this flag.
 
+``params`` is the OPTIONAL opaque channel enrichment this inbound reply carries — the
+ANSWER-path counterpart of a conversation entry's ``params``: a tapped reply id, a template
+button payload, a referral, the reply-to context the guest quoted. The ladder threads it BOTH
+ways with the same seam symmetry — forwarded to the ask's callback door alongside the answer
+(landing on `params`, read by
+the asking flow beside ``answer``) AND, when the reply is instead BRIDGED as a fresh turn,
+passed to ``accept`` as its ``params`` — so enrichment is never dropped on either arm. The
+SAME transport vocabulary (`validate_entry_params`) bounds
+it; the platform attaches no meaning and NO TRUST. ``None`` means no enrichment.
+
 **Attributes**
 
 | Attribute | Type |
@@ -593,6 +674,271 @@ closed" notice regardless of this flag.
 | `provider_message_id` | `str` |
 | `bridge_text` | `str` |
 | `owns_retry_notice` | `bool` |
+| `params` | `dict[str, str] \| None` |
+
+
+## LinkOption
+
+`tai42_contract.channels.LinkOption`
+
+```python
+class LinkOption(BaseModel)
+```
+
+A tappable link action. Tapping OPENS ``url`` (an absolute ``http(s)`` URL) in the human's
+browser — NO message is submitted, distinct from a `ReplyOption`. ``label`` is the
+button text. The URL-button / call-to-action case. Frozen.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['link']` |
+| `label` | `str` |
+| `url` | `str` |
+
+
+## Option
+
+`tai42_contract.channels.Option`
+
+```python
+Option = Annotated[ReplyOption | LinkOption, Field(discriminator='kind')]
+```
+
+
+## OptionSection
+
+`tai42_contract.channels.OptionSection`
+
+```python
+class OptionSection(BaseModel)
+```
+
+One titled section of a sectioned option list. ``title`` is the section header; ``rows`` are
+its entries — a sectioned list holds `ReplyOption` rows ONLY (a tapped row submits its
+text; a link action is a button, never a list row). A present ``rows`` is non-empty. Frozen.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `title` | `str` |
+| `rows` | `list[ReplyOption]` |
+
+
+## QuickReplyButtonParam
+
+`tai42_contract.channels.QuickReplyButtonParam`
+
+```python
+class QuickReplyButtonParam(BaseModel)
+```
+
+The runtime argument for one QUICK-REPLY button of a template's buttons component:
+``payload`` is the string the medium returns when the human taps the button. Frozen.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['quick_reply']` |
+| `payload` | `str` |
+
+
+## ReplyOption
+
+`tai42_contract.channels.ReplyOption`
+
+```python
+class ReplyOption(BaseModel)
+```
+
+A tappable suggested reply. Tapping SUBMITS ``text`` as the guest's next inbound message —
+the quick-reply / list-row case, where the option's own text becomes the turn. ``description``
+is an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that
+renders flat buttons (no descriptions) ignores it.
+
+``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel
+sends it verbatim on the wire and the guest's tap echoes it back (a channel surfaces the echoed
+id to the inbound turn as opaque enrichment — e.g. WhatsApp forwards it as ``params.reply_id``);
+when ``None`` the channel mints its own id as today. Bounded by ``OPTION_ID_MAX_CHARS`` and a
+single-line non-blank label — the strictest carrier's rule. Frozen.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['reply']` |
+| `text` | `str` |
+| `description` | `str \| None` |
+| `id` | `str \| None` |
+
+
+## TemplateButtonParam
+
+`tai42_contract.channels.TemplateButtonParam`
+
+```python
+TemplateButtonParam = Annotated[QuickReplyButtonParam | UrlButtonParam, Field(discriminator='kind')]
+```
+
+
+## UrlButtonParam
+
+`tai42_contract.channels.UrlButtonParam`
+
+```python
+class UrlButtonParam(BaseModel)
+```
+
+The runtime argument for one URL button of a template's buttons component:
+``url_parameter`` is the dynamic suffix substituted into the button's pre-approved URL.
+Frozen.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['url']` |
+| `url_parameter` | `str` |
+
+
+## check_footer
+
+`tai42_contract.channels.check_footer`
+
+```python
+check_footer(value: str | None) -> str | None
+```
+
+A footer is the short trailing line under an interactive message: None means none; a
+present value is non-blank and within ``NOTIFICATION_FOOTER_MAX_CHARS``. Raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `str \| None` | — | — |
+
+
+## check_header
+
+`tai42_contract.channels.check_header`
+
+```python
+check_header(value: MediaItem | None) -> MediaItem | None
+```
+
+A header is a SINGLE display-media item shown above an interactive message: None means
+none; a present item is display media (image/document/video/audio), never a ``link`` (an
+anchor is content, not a header). The item's own url/kind shape is `MediaItem`'s
+concern. Raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `MediaItem \| None` | — | — |
+
+
+## check_interactive_composition
+
+`tai42_contract.channels.check_interactive_composition`
+
+```python
+check_interactive_composition(
+    *,
+    message: str,
+    media: list[MediaItem] | None,
+    location: LocationElement | None,
+    template: ChannelTemplate | None,
+    options: list[Option] | None,
+    sections: list[OptionSection] | None,
+    schema: dict[str, Any] | None,
+    header: MediaItem | None,
+    footer: str | None,
+    noun: str,
+) -> None
+```
+
+The shared cross-field rules every option-carrying message carrier
+(`ChannelNotification`, `AnswerPart`) enforces, so
+the two can never drift. ``noun`` names the carrier for the raised messages
+(``"notification"`` / ``"part"``). Rules:
+
+* message is non-blank BY DEFAULT, EXCEPT blank for a CONTENT-ONLY send — a blank message
+  carried by non-empty ``media`` OR a ``location`` (a caption-less image / a bare pin).
+* an interactive surface (``options``, ``sections``, ``schema``) REQUIRES a non-blank message
+  — a choice or a form needs a prompt — so a content-only send carries none of them.
+* ``options`` XOR ``sections`` — one choice surface (flat buttons OR a sectioned list).
+* ``schema`` is exclusive with both ``options`` and ``sections`` — one interactive surface
+  (a form's fields OR a choice list), never both.
+* ``header`` and ``footer`` compose an interactive message, so each REQUIRES ``options`` or
+  ``sections`` present.
+* ``template`` is the standalone out-of-window send: exclusive with every other content and
+  interactive field (``media``, ``location``, ``options``, ``sections``, ``schema``; and
+  transitively ``header``/``footer``, which require ``options``/``sections``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `message` | `str` | — | — |
+| `media` | `list[MediaItem] \| None` | — | — |
+| `location` | `LocationElement \| None` | — | — |
+| `template` | `ChannelTemplate \| None` | — | — |
+| `options` | `list[Option] \| None` | — | — |
+| `sections` | `list[OptionSection] \| None` | — | — |
+| `schema` | `dict[str, Any] \| None` | — | — |
+| `header` | `MediaItem \| None` | — | — |
+| `footer` | `str \| None` | — | — |
+| `noun` | `str` | — | — |
+
+
+## check_options
+
+`tai42_contract.channels.check_options`
+
+```python
+check_options(value: list[Option] | None) -> list[Option] | None
+```
+
+List-level caps on a flat interactive option list: None means none; a present list is
+non-empty and holds at most ``NOTIFICATION_OPTIONS_MAX`` entries. Each option's own shape
+(reply text / link label+url bounds) is the `ReplyOption`/`LinkOption` concern.
+Raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `list[Option] \| None` | — | — |
+
+
+## check_sections
+
+`tai42_contract.channels.check_sections`
+
+```python
+check_sections(value: list[OptionSection] | None) -> list[OptionSection] | None
+```
+
+List-level caps on a sectioned option list: None means none; a present list is non-empty,
+holds at most ``NOTIFICATION_SECTIONS_MAX`` sections, and its rows summed across every section
+stay within ``NOTIFICATION_OPTIONS_MAX`` (one message never fans out an unbounded tap set).
+Raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `list[OptionSection] \| None` | — | — |
 
 
 ## notify_in_order
