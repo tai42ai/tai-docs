@@ -30,51 +30,162 @@ that is not registered is a loud error, never a silent drop.
 
 | Field | Effect |
 | --- | --- |
-| `message` | The text shown to the person. Required; it may be blank only when `media` carries the content (a media-only send). |
+| `message` | The text shown to the person. Required; it may be blank only when `media` or `location` carries the content (a content-only send). |
 | `channel` | A registered channel to deliver on. Omit to record to the inbox only. |
 | `recipient` | The per-call **delivery address** on that channel — a chat id, a phone number. Omit to use the channel's operator-default recipient. |
 | `audience` | The **identity** whose in-app inbox shows the record (see below). |
-| `media` | Display images and links sent with the message. Requires a channel that advertises media support. |
-| `template` | A pre-approved out-of-window template send. Requires a channel that advertises template support. |
-| `options` | A tappable option list (at most 10, each non-blank). A tap enters the conversation as a message from the person. Requires a channel that advertises interactive support. |
+| `media` | Display media sent with the message — `image`, `document`, `video`, and `audio` file items plus labelled `link` anchors (see [media kinds](#media-kinds-and-typed-options)). Requires a channel that advertises media support. |
+| `location` | A shared geographic point — latitude/longitude with an optional place `name` and `address`. Requires a channel that advertises location support. |
+| `template` | A pre-approved out-of-window [template](#out-of-window-templates) send, addressed by its `name` + `language` with **named components** (a media header, positional body values, per-button arguments). Requires a channel that advertises template support. |
+| `options` | A flat list of tappable [typed options](#media-kinds-and-typed-options) (at most 10) — a `reply` (its text becomes the person's next message) or a `link` (opens a URL). Requires a channel that advertises interactive support. |
+| `sections` | The sectioned alternative to `options` — titled groups of reply rows (rows summed across sections stay within 10). Requires interactive support. |
+| `header` / `footer` | A single media `header` above, and a short text `footer` below, an interactive message. Each requires `options` or `sections`. |
 | `schema` | An [ask-less form](#ask-less-forms)'s answer schema. The channel renders `message` as the form's prompt and `schema` as the fillable form; the submission enters the conversation as an ordinary message from the person. Requires a named channel that advertises form support. |
 
-With a named channel, `media`, `template`, `options`, and `schema` deliver only where
-the channel advertises the matching capability; with no channel, `media`, `template`,
-and `options` are stored on the inbox record as given — `schema` alone **requires** a
+With a named channel, the richer forms deliver only where the channel advertises the
+matching capability; with no channel, `media`, `location`, `template`, `options`, and
+`sections` are stored on the inbox record as given — `schema` alone **requires** a
 named channel (`400` without one): the internal sink has no delivery vehicle to render
 a form and no submission door for its answers, so a stored form nobody could submit is
-refused up front, never recorded. `template` is the out-of-window send and stands
-alone: it is mutually exclusive with `media`, `options`, and `schema`. One message
-carries at most **one interactive surface** — a tappable option list or a form, never
-both — so `schema` and `options` are mutually exclusive too. `media` may combine with
-either interactive surface: a card with a tappable list beneath it, or a form with
-display media above it. A form needs a prompt, so `schema` also requires a non-blank
-`message` (only a media-only send may leave the message blank). A channel that does
-not advertise the matching capability rejects the send with `501 not supported`
-rather than silently downgrading it to text.
+refused up front, never recorded. The composition rules are:
 
-Media and tappable options are broadly supported. Every shipped channel advertises
-**media** — the [WhatsApp Cloud API](/plugins/tai42/channel-whatsapp),
-[Telegram](/plugins/tai42/channel-telegram), [Slack](/plugins/tai42/channel-slack),
-[Twilio](/plugins/tai42/channel-twilio) (as MMS), and the
-[web chat](/plugins/tai42/channel-web) channels. All of those except the SMS/MMS
-Twilio channel advertise **interactive options** (an SMS has no tappable control).
-**Templates** are a vendor construct only the WhatsApp Cloud API channel advertises.
-**Forms** are narrower still: only the WhatsApp Cloud API and web chat channels
-advertise form notifications. An ask-less form is ticketless — its submission must
-ride the channel's ordinary inbound path — and on Telegram and Slack the form
-vehicle is the schema-rendered callback page, which only an [ask](/concepts/interactions)'s
-ticket machinery serves, so those channels take a channel-delivered form **question**
-but no form notification; SMS has no form vehicle at all. So `media` reaches all
-five, `options` reach all but Twilio, `template` is WhatsApp-only, and `schema`
-reaches WhatsApp and the web chat.
+- **One choice surface.** `options` **XOR** `sections` — a flat button list or a
+  sectioned list, never both.
+- **One interactive surface.** `schema` (a form) excludes both `options` and
+  `sections` — a message carries a form or a choice list, never both.
+- **`header`/`footer` compose a choice surface.** Each requires `options` or
+  `sections` present.
+- **`template` stands alone.** The out-of-window send is mutually exclusive with every
+  other content and interactive field — `media`, `location`, `options`, `sections`,
+  `schema`, and (transitively) `header`/`footer`.
+- **`media` and `location` combine freely** with a choice surface or a form: a card
+  with a tappable list beneath it, a form with display media above it, a pin beside a
+  choice.
+
+A form or a choice needs a prompt, so `schema`, `options`, and `sections` each require
+a non-blank `message` (only a content-only `media`/`location` send may leave the
+message blank). A channel that does not advertise the matching capability rejects the
+send with `501 not supported` rather than silently downgrading it to text.
 
 <Note>
 The sending identity a channel message leaves **from** is set only by the
 [conversation bridge](/reference/conversation-bridge), never by a caller — a
 caller-supplied sender is refused with a `400`.
 </Note>
+
+## Media kinds and typed options
+
+**Media** is a list of `MediaItem`s, each a `kind` + `url` + optional `caption`. The
+file kinds — `image`, `document`, `video`, `audio` — carry a fetchable body (an
+absolute `https` URL, a same-origin `/api/interactions/media/<id>` served reference,
+or, for `image` only, an inline `data:image/*` URI); a `link` is a labelled `http(s)`
+anchor the person clicks through. A `document` item may also carry a **`filename`** —
+the suggested display name the medium shows for the download; it is meaningful only on
+a `document` and is refused on any other kind.
+
+**Options** are a **typed, discriminated** list — the clean break from the old
+text-only `list[str]`. Each entry is one of two shapes, tagged by `kind`:
+
+```json
+{"kind": "reply", "text": "Yes, book it", "description": "Confirms the 3pm slot", "id": "confirm-3pm"}
+{"kind": "link",  "label": "Open the docs", "url": "https://docs.example.com"}
+```
+
+- A **`reply`** is a quick-reply / list-row: tapping it **submits `text`** as the
+  person's next inbound message, exactly as if they had typed it. `description` is an
+  OPTIONAL secondary line a sectioned-list row renders under its `text` (a channel
+  that renders flat buttons ignores it — see the [matrix](#channel-capability-matrix)).
+  `id` is an OPTIONAL author-set stable identifier: when set, the channel sends it
+  verbatim on the wire and the person's tap **echoes it back** to the inbound turn as
+  `params.reply_id` (opaque enrichment a [conversation](/concepts/client-conversations)
+  tool target reads beside the message); when omitted the channel mints its own id.
+- A **`link`** is a call-to-action button: tapping it **opens `url`** in the browser
+  and submits **no** message — distinct from a reply.
+
+### Sectioned lists, headers, and footers
+
+`sections` is the sectioned alternative to a flat `options` list: titled
+`OptionSection` groups, each holding reply rows only (a link is a button, never a list
+row). Use it to group a longer choice under headings; the rows summed across every
+section still obey the 10-option cap. A message carries `options` **or** `sections`,
+never both.
+
+An interactive message may also carry a **`header`** — a single display-media item
+(image/document/video/audio, never a link) shown above it — and a **`footer`**, a
+short trailing line beneath it. Each composes a choice surface, so both require
+`options` or `sections` to be present.
+
+### Location
+
+`location` shares a geographic point — `latitude`/`longitude` in WGS84 decimal
+degrees, with an optional place `name` and street `address`. A channel that renders
+maps drops a native pin; one that cannot renders the coordinates (and any
+name/address) as text. It combines with a choice surface or a form, and a
+location-only send may leave `message` blank.
+
+### Out-of-window templates
+
+`template` is a pre-approved `ChannelTemplate` for delivery **outside** a medium's
+freeform window (e.g. WhatsApp's 24-hour customer-service window). It is addressed by
+`name` + `language` and parameterised by its **named components**, never a flat
+positional list:
+
+- `header_media` — the media argument for a media header component (a display item,
+  never a link);
+- `body_parameters` — the positional body-text values substituted into the body's
+  placeholders in order (typed values ride as their pre-formatted strings);
+- `buttons` — the positional per-button arguments (a quick-reply `payload` or a URL
+  suffix), the i-th entry parameterising the i-th button.
+
+<Note>
+The named-component shape is a **clean break**: the old flat `parameters` list is
+**removed**. A template's runtime arguments are `header_media`, `body_parameters`, and
+`buttons` — nothing else.
+</Note>
+
+## Channel capability matrix
+
+Every shipped channel renders the shared vocabulary as far as its medium allows and
+**declines** — never silently downgrades — a shape it cannot render: a send of an
+unadvertised capability is refused loudly (`501 not supported`) so content is never
+dropped. Where a medium lacks a native construct but can approximate one, the channel
+**degrades honestly** rather than declining. The support each channel advertises:
+
+| Shape | [WhatsApp](/plugins/tai42/channel-whatsapp) | [Web chat](/plugins/tai42/channel-web) | [Telegram](/plugins/tai42/channel-telegram) | [Slack](/plugins/tai42/channel-slack) | [Twilio](/plugins/tai42/channel-twilio) |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| `media` — image | native | inline | `sendPhoto` | image block | MMS `MediaUrl` |
+| `media` — document/video/audio | native, per item | download card / native players | `sendDocument`/`Video`/`Audio` | labelled link line¹ | `MediaUrl`; document → `filename: url` line |
+| `media` — link | appended to body | outbound anchor | inline with body | labelled link line | body line |
+| `options` (reply / link) | reply buttons or list; link → CTA URL button | tappable chips; link → button | inline keyboard | Block Kit buttons | **declined** |
+| `reply.description` | list-row secondary line | secondary line | `params.reply_description`² | folded into a context block | — |
+| `reply.id` → `params.reply_id` | yes | yes | yes | yes | — |
+| `sections` | multi-section list | titled groups | grouped buttons, title as text header³ | section header + reply buttons | **declined** |
+| `header` / `footer` | media header / text footer | media header / muted footer | header as caption or a separate message; footer as a trailing italic line | image block / muted context block | **declined** |
+| `location` | native pin | map-pin + OpenStreetMap link | `sendLocation` / `sendVenue` | section + OpenStreetMap link | **declined** |
+| `template` | native (named components) | **declined**⁴ | **declined** | **declined**⁵ | **declined**⁶ |
+| `schema` (ask-less form) | native Flow (in-window)⁷ | form card | **declined** | **declined**⁸ | **declined** |
+| `form` **question** delivery (`ask_user`) | Flow | web widget | webview of the callback form page | Block Kit modal | **declined** |
+
+¹ Slack has no `files.upload` seam here, so a `document`/`video`/`audio` item degrades
+to a labelled link line rather than an uploaded file.
+² Telegram carries a bridged tap's author-set `id` back as `params.reply_id` and a
+sectioned row's `description` as `params.reply_description`.
+³ Telegram has no native sectioned list, so `sections` degrade to grouped buttons with
+each section title rendered as a text header.
+⁴ ⁵ ⁶ A `template` is a **vendor** construct (a pre-approved WhatsApp template
+referenced by name/language). Web chat, Slack, and Twilio have no such registry to
+render one into, so they decline the capability outright.
+⁷ On WhatsApp a form notification is a native Flow, and — like every freeform send —
+only inside the provider's 24-hour customer-service window; an out-of-window form
+notification fails loudly, never downgraded.
+⁸ Telegram and Slack deliver a form **question** (`ask_user` with
+`answer_format="form"`) but not an ask-less form **notification**: an ask-less form is
+ticketless and their form vehicle (a callback page / a Block Kit modal) needs an ask's
+ticket machinery to open. SMS has no form vehicle at all.
+
+`reply.description` support is **channel-dependent**: a medium with sectioned rows
+(WhatsApp list rows, Telegram sectioned rows) renders it, Slack folds it into a muted
+context line, and a channel that renders only flat buttons ignores it.
 
 ## `audience` versus `recipient`
 
@@ -160,8 +271,10 @@ inbox.
 
 <Note>
 The CLI `tai notifications notify` exposes `--channel`, `--recipient`, `--media`,
-`--template`, `--options`, and `--schema`, but **no `--audience`** — addressing a specific
-identity is available on the tool and the API only.
+`--template`, `--options`, `--sections`, `--location`, `--header`, `--footer`, and
+`--schema` (each rich form a JSON string validated into its contract model), but **no
+`--audience`** — addressing a specific identity is available on the tool and the API
+only.
 </Note>
 
 ## See also

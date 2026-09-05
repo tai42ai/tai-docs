@@ -145,23 +145,34 @@ renders with the question both while it is pending and after it is answered.
   <img className="hidden dark:block" src="/images/studio/scoped-interactions-dark.png" alt="The Interactions inbox showing a question with its attached images and links rendered above the answer controls." />
 </Frame>
 
-Each item is a `MediaItem` — a `kind`, a `url`, and an optional `caption`:
+Each item is a `MediaItem` — a `kind`, a `url`, an optional `caption`, and (for a
+document) an optional `filename`:
 
 ```json
-{"kind": "image", "url": "https://cdn.example.com/chart.png", "caption": "The weekly chart"}
-{"kind": "link",  "url": "https://docs.example.com/reports",  "caption": "Open the full report"}
+{"kind": "image",    "url": "https://cdn.example.com/chart.png",  "caption": "The weekly chart"}
+{"kind": "document", "url": "https://cdn.example.com/report.pdf", "filename": "report.pdf", "caption": "Q3 report"}
+{"kind": "video",    "url": "https://cdn.example.com/clip.mp4",   "caption": "The walkthrough"}
+{"kind": "audio",    "url": "https://cdn.example.com/note.mp3"}
+{"kind": "link",     "url": "https://docs.example.com/reports",   "caption": "Open the full report"}
 ```
 
-- **`kind`** — `image` renders inline; `link` renders as a labelled anchor.
-- **`url`** — the source. An `image` is an absolute **`https`** URL, a
-  `data:image/*` URI, or a same-origin **`/api/interactions/media/<id>`** reference
-  to media the deployment serves by id; a `link` is an absolute **`http(s)`** URL.
-  Remote images are https-only: the inbox content-security policy admits `https:`,
-  `data:`, and same-origin image sources but not `http:`, so an `http:` image would
-  be a record that could never render — it is rejected up front, not silently
-  dropped. Anchors are not governed by that policy, so an `http:` link stays valid.
-- **`caption`** — optional accessibility text: an image's alt text or a link's
-  display label.
+- **`kind`** — one of five. The **file kinds** `image`, `document`, `video`, and
+  `audio` carry a fetchable body and render as the matching bubble (an `image`
+  inline, the others as the matching file element); a `link` renders as a labelled
+  anchor the person clicks through.
+- **`url`** — the source. A file kind is an absolute **`https`** URL or a same-origin
+  **`/api/interactions/media/<id>`** reference to media the deployment serves by id;
+  `image` **additionally** admits an inline `data:image/*` URI (that inline form is
+  image-only — a `data:` URI on any other kind is refused). A `link` is an absolute
+  **`http(s)`** URL. Remote file media is https-only: the inbox content-security policy
+  admits `https:`, `data:`, and same-origin sources but not `http:`, so an `http:`
+  file source would be a record that could never render — it is rejected up front, not
+  silently dropped. Anchors are not governed by that policy, so an `http:` link stays
+  valid.
+- **`caption`** — optional accessibility text: an image's alt text, a file's label, or
+  a link's display label.
+- **`filename`** — optional suggested display name for a **`document`** download; it is
+  meaningful only on a `document` item and is refused on any other kind.
 
 ### Caps
 
@@ -282,6 +293,42 @@ When you don't need to **wait** for the answer, send the form as a
 no expiry, no validation loop — and the submission enters the conversation as an
 ordinary message from the person. The ask is for answers the caller blocks on; the
 ask-less form is for submissions that are welcome whenever they arrive.
+
+### When a channel reply doesn't match
+
+On a chat medium the person can type anything, so a channel-delivered ask may receive
+a reply the answer door **rejects** (a `400` — the reply doesn't fit the question's
+format). What happens next is the ask's **`on_mismatch`** policy, set per ask by the
+tool author:
+
+- **`retry`** (the default, and today's behaviour) — the ask stays parked and the
+  person is told what's expected, so they can answer again in place. The optional
+  **`mismatch_notice`** replaces the platform's built-in retry line with your own text;
+  a literal `{reason}` token in it is filled with the door's rejection reason by a plain
+  substitution (a notice without the token is sent verbatim). A channel that owns its
+  own correction surface — a re-opened WhatsApp Flow, a Slack modal's inline error —
+  renders the door's specific reason itself and ignores `mismatch_notice`.
+- **`bridge`** — an unmatched reply is treated as a **digression**: the ask stays
+  parked with **no** notice, and the reply is handed to the
+  [conversation](/concepts/client-conversations) as a fresh routed turn so the flow
+  handles it. The ask then ends only by a real answer or its timeout, never by
+  unmatched input. `mismatch_notice` is ignored under this policy — a digression never
+  notifies.
+
+Both policies keep the ask alive; they differ only in whether an off-format reply
+re-prompts the person or is routed onward as a new turn.
+
+### Enrichment on the answer
+
+When the person answers by **tapping** a control the channel offered, the tap may
+carry channel-specific context back with the answer — the tapped option's author-set
+`id`, a template button payload, a referral. A channel surfaces it as opaque
+**`params`** on the answer (for example WhatsApp forwards a tapped reply's id as
+`params.reply_id`), which the asking flow reads **beside** the `answer`. It is the
+answer-path counterpart of the same enrichment a
+[bridged conversation turn](/concepts/client-conversations) carries: bounded as
+transport, carrying **no trust or meaning** the platform attaches — a plain typed
+answer carries none.
 
 ## The doors
 
