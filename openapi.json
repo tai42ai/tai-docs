@@ -11414,6 +11414,90 @@
         "x-destructive": true
       }
     },
+    "/api/interactions/{interaction_id}/cancel": {
+      "post": {
+        "description": "Cancel a pending interaction — WITHDRAW one specific ask without answering it and\nwithout deleting its conversation thread.\n\nThe mirror of ``answer_interaction`` for the terminal-without-an-answer case: it\ntears the pending question down via the store's status-gated ``prune_pending`` (the\nsame primitive the timeout path and the thread-delete cascade use), so NO continuation\nfires — a parked async flow is never resumed — and the removed event rides tagged\n``reason=\"cancelled\"`` so a live operator surface tells a deliberate withdrawal apart\nfrom a timeout/expiry removal.\n\nStatus-gated exactly like the answer door: only a PENDING (or parked) question cancels.\nA question already ``answered`` (its state retained) is a loud ``409`` conflict; a\nquestion whose state is GONE — expired, already cancelled, or never existed (all\nleave no distinguishable tombstone, the same limit the answer door has) — is a ``404``.\nIdempotent at the store seam: ``prune_pending`` re-run on a withdrawn question is a\nclean no-op, so a re-cancel simply reports the question gone (``404``) rather than\ndouble-tearing anything down. Unlike the answer door it is answer-format-AGNOSTIC: an\nEXTERNAL ask is a pending ask an operator may withdraw, so it is cancellable too.\n\nChannel-blind by construction: a channel-side pending correlation is NOT proactively\ntorn down. A later guest reply forwarded to the callback door finds the state gone and\nthe door answers ``404``, which the inbound ladder maps to a fresh bridged turn — the\nidentical path a timeout/expiry removal already takes.\n\nAudience gate identical to ``answer_interaction`` (after the existence/status guards):\na question's ``audience`` identity OR any unrestricted caller (the operator can always\nwithdraw a stuck question) may cancel; every other restricted caller is a loud ``403``.",
+        "operationId": "post_api_interactions_interaction_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interaction_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cancel a pending interaction",
+        "tags": [
+          "interactions"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/login/claim": {
       "post": {
         "description": "Burn a one-time claim token and return the raw API key it carried — the public\nexchange leg of QR onboarding (``authed=False``; runtime public-ness comes from the\nalways-public ``/api/login`` prefix).\n\nThe claim record is single-use: a used / unknown / expired token all answer the SAME\n404 (no oracle distinguishing them). The handed-out key is guaranteed not-REVOKED\n(re-validated at exchange), NOT owner-alive — owner-death is enforced by the gate on\nevery request. Response mirrors the ``loginResult`` wire shape:\n``{\"data\": {\"token\": <raw key>, \"user_id\": ...}}``.\n\n``authority_changing=True`` keeps this OFF the default MCP tool surface: a\ncredential-exchange login door is not an agent tool (it sits outside the\n``/api/auth/*`` prefix, so the flag is what excludes it, not the prefix).",
