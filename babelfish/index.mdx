@@ -171,6 +171,12 @@ in. A run's `.states` view is its snapshot from run start plus its own fills: a
 subflow's fills land on the shared record immediately, but a later parent node folds
 them in only if it sets [refresh state](#refresh-opt-in-state-re-read). Without it the
 parent keeps reading its mint-time snapshot — a silent stale read.
+
+A subflow reads only the states **it** is bound to, fresh at its own start; an
+unbound `.states.<name>` reads as **null** — bind it, or the `state_unbound` lint
+flags it. The lint runs per subflow against **that subflow's own** bindings — a state
+the parent binds never masks a read the subflow makes unbound — and its findings carry
+the subflow's path into the Studio problems panel like the parent's.
 </Warning>
 
 ## Portable flow files
@@ -780,6 +786,278 @@ the states routes answer a gated refusal, and bound flows simply run stateless.
 | `TAI_DB_BINDING_FLOWS_STATES` | unset | Database name the `flows-states` component binds to; unset = states off. |
 | `FLOW_STATES_DEFAULT_RETENTION_DAYS` | unset | Global record-retention default for the prune sweep; unset = keep forever. |
 | `FLOW_STATES_OP_RETENTION_DAYS` | `30` | Idempotency-ledger retention window in days. |
+
+## State modules
+
+A **state module** is one JSON document you add to a state to give it a *declared
+structure* — a schema fragment, per-path writer rules, a shared view library, a trace
+switch, a declarations section, an optional loop contract, and shipped node presets —
+all written in **module-relative** names that mounting translates to concrete paths
+once, at bind time. You author a module by hand or in the Studio, upload it as a
+document, and **mount** it on a state; a state can carry several mounts, each at its own
+path. A module is data and the runtime is generic: nothing in a module is a use-case
+feature — it is a mechanism any state can reuse.
+
+### The module document
+
+A module is a single JSON object with a self-describing `kind`:
+
+```jsonc
+{
+  "kind": "state-module",
+  "name": "alpha",                          // [a-z][a-z0-9-]{0,62}; the jq identifier form maps "-" → "_"
+  "description": "A small worked module.",
+  "parameters": {                           // each: a JSON schema for the value + an optional default
+    "kinds": {"schema": {"type": "array", "items": {"type": "string"}}, "default": ["status", "note"]}
+  },
+  "schema": {                               // an object-rooted JSON-Schema fragment; a {"$parameter": "<name>"} marker anywhere is substituted at mount
+    "type": "object",
+    "properties": {
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "string"},
+            "kind": {"type": "string", "enum": {"$parameter": "kinds"}},
+            "value": {"type": "string"},
+            "done": {"type": "boolean"}
+          },
+          "required": ["id", "kind"]
+        }
+      },
+      "cursor": {"type": "object", "properties": {"at": {"type": "string"}}}
+    }
+  },
+  "regimes": [                              // module-relative paths; "*" matches one list index or key; an undeclared path is "free"
+    {"path": ["entries"], "regime": "composing"},
+    {"path": ["cursor"], "regime": "single"}
+  ],
+  "views": {                                // a jq library; each view's input is the mount ENVELOPE, siblings callable by relative name
+    "pending":    {"expr": ".data.entries // [] | map(select(.done | not))"},
+    "pending_of": {"params": ["kind"], "expr": "pending | map(select(.kind == $kind))"}
+  },
+  "declarations": {                         // static data the mount stores under the module's name, with its own schema
+    "schema": {"type": "object", "properties": {"labels": {"type": "array", "items": {"type": "string"}}}},
+    "check": "if (.labels | length) == (.labels | unique | length) then true else \"labels must be unique\" end"
+  },
+  "trace": {"enabled": true},               // default false
+  "nodes": [                                // node presets shipped with the module, bound at mount with module-relative fills
+    {"preset": "alpha-record", "subject_expr": ".subject",
+     "fills": [{"node_id": "record", "path": ["entries"], "op": "set_by_key", "key_field": "id", "expr": ".result"}]}
+  ]
+}
+```
+
+Validation is loud, at save and at upload: the `name` form; the fragment is a valid
+object schema after parameter defaults are substituted; every regime path lies inside
+the fragment (a `"*"` only where the schema has `items`/`additionalProperties`); every
+view compiles inside the emitted prelude; an optional [`loop`](#the-loop-contract) names
+existing views with the right arities; and every node fill is a valid fill whose path
+lies inside the fragment and obeys the regimes. The first violation raises with the
+offending rule and path named — never a silent accept.
+
+### Parameters
+
+Each `parameters.<name>` is `{schema, default?}` — a JSON schema for the value and an
+optional default. A `{"$parameter": "<name>"}` marker anywhere in the fragment is
+replaced at mount by the value the mount supplies (or the default). A parameter with
+**no** default must appear as a marker and be supplied at mount; a marker naming an
+undeclared parameter is a save-time error, and a leftover unsupplied no-default marker
+refuses the mount.
+
+### Writer regimes
+
+A `regimes` entry declares, per module-relative path, one of three writer rules; an
+undeclared path is `free`, and the rule on the **longest** matching prefix governs. A
+`"*"` segment matches one list index or key.
+
+- **`single`** — one writer only. The set of `(flow, node)` writing at, under, or over
+  the path across every binding on the state must be ≤ 1; a second writer is **refused**
+  at bind time (not merely signalled, as an unregimed cross-flow overlap is). The refusal
+  names both: *"single-writer path […] of module 'alpha' on state 's' admits one writer,
+  but 'f1'/'n1' and 'f2'/'n2' both write it"*.
+- **`composing`** — many writers, keyed or append only. Every overlapping fill must use a
+  [keyed op](#keyed-state-list-ops) or a `set` whose path ends with `"-"`. A whole-path
+  `set`/`remove` is refused: *"composing path […] admits only keyed ops or an append set
+  (path ending '-'); fill for node 'n' uses 'set'"*.
+- **`free`** — unchecked; the ordinary [cross-flow overlap](#cross-flow-state-writers)
+  signal still applies.
+
+The refusal holds on **every** door that can add a writer — a binding `PUT`, a binding
+import, the mount's own materialized bindings, and a backup import — because they all
+pass through the one validate/apply chokepoint. A binding **move** (renaming a fill's
+owning flow) can not add a writer or change an op, so it stays outside the check.
+Row-field discipline — which node may write which field *inside* a row — is not
+statically checkable (a row's contents are jq output), so it is documented and **traced**
+rather than refused: the trace stamp records the writing node on every row.
+
+### Views and the mount envelope
+
+A module's `views` are a jq library shared by every node and prompt input on a state that
+mounts it. Each view compiles into a `def <module>_<view>(…)` in a prelude prepended at
+the one jq compile seam, so a node expression calls it by that name — the identifier form
+maps `-` to `_`:
+
+```
+mount("s"; "alpha") | alpha_pending_of("status")
+```
+
+Every view takes the mount **envelope** as its input. The generic locator
+`mount($state; $module)` in the prelude returns:
+
+```json
+{"state": "…", "module": "…", "path": ["…"], "parameters": {"…": "…"}, "declarations": {"…": "…"}, "data": "…"}
+```
+
+`.data` is the mounted subtree (a `getpath` over an unseeded state answers `null`, never
+raises), `.declarations` are the values the mount stored, and `.parameters` are the
+resolved parameter values — so a view reads a client's declarations by name with no
+second seam. **Sibling views are called by relative name** — `pending_of` above calls
+`pending` — because each `<module>_<view>` def nests every sibling def (dependency-first,
+unprefixed) around its own body. Emission is deterministic (modules and views in a fixed
+order) so the compile cache hits, and a module mounted twice emits its defs once.
+
+Every jq input also carries **`.mounts`** = `{<state>: {<module>: {path, parameters,
+declarations}}}` — the data the locator reads — resolved from the run scope like `.run`.
+Outside a run (a validation-time compile) `.mounts` is `null` and the validation doors
+pass the prelude explicitly. Views and `.mounts` are **read-only**; nothing derived is
+ever stored.
+
+### Trace fields
+
+When a module's `trace.enabled` is true, every fill under one of its mounts stamps a
+`_trace` object into each **object** it writes:
+
+```json
+{"node": "record", "run": "…", "turn": "…", "inbound": "…", "at": "2026-01-01T00:00:00+00:00"}
+```
+
+`node` is the writing node and `at` is the write time (ISO-8601 UTC) — always present.
+`run`/`turn`/`inbound` come from `.run.id` and the [turn payload](#inputs-and-results)
+and read **`null`** when the flow was not called as a turn. The boundary: only ops whose
+absolute path lies under a tracing mount are stamped, and only object values — the item
+object(s) of a keyed op, the fanned items of `set_by_key_each`, and an object-valued
+`set` (including a `"-"` append of an object). Scalars, arrays of scalars, and remove
+keys are untouched. A rerun re-stamps. The stamp lands **before** validation, so the
+effective schema's `_trace` property (added to every object under a tracing mount) admits
+it, and the state-change trace marks the write `traced`.
+
+### Declarations
+
+The `declarations` section carries static data a module ships next to its schema, with
+its **own** schema. A mount supplies the values; the Studio renders an editing form from
+the schema, and the values are stored under the module's name on the mount record and
+read by a view as `.declarations`. An optional `declarations.check` is a jq predicate
+over the values that expresses a structural rule the schema cannot — it returns `true` or
+a message string, and at mount (and on a declarations edit) a non-`true` result refuses
+the operation with the returned message.
+
+### Mounting and unmounting
+
+Mounting a module on a state names the module, a mount `path` (a list of object keys — no
+indices), the parameter values, and the declaration values. The mount, at one seam:
+
+1. checks the state declaration and the module exist, and the path collides with neither
+   a base property nor another mount (`MountConflictError`, 409);
+2. validates the parameters against their schemas (defaults applied) and the declarations
+   against `declarations.schema` and any `check`;
+3. checks the shipped node presets exist (`MountPresetMissingError` — a module may ship
+   before its presets are seeded on a server);
+4. writes the mount row and composes + validates the effective schema;
+5. materializes one binding per `nodes[]` entry, its fills translated to absolute paths
+   (mount path + relative) and each tagged with its `mount` for display, scoped with a
+   generic `scope_expr` of `.state == "<state>"`.
+
+A mount's `path` and `parameters` are **immutable** — change them by unmounting and
+mounting again; only the declarations edit in place. Unmounting is refused while any
+client binding still references the mount; it then removes the materialized bindings, the
+mount row, and shrinks the effective schema.
+
+**Binding scope.** `scope_expr` is a generic jq predicate over the run's raw kwargs,
+evaluated **first** in the per-binding loop at mint — before the subject is resolved. A
+`false` result skips the whole binding (its fills and its refresh) and records a
+`binding_skipped` state-change event; a non-boolean raises; unset means always engaged.
+This is how one shipped module preset, bound by mounts on several states, writes only the
+state its caller names.
+
+### The effective schema
+
+A state keeps **two** schemas. The author's `schema` is what you declared and a mount
+never rewrites it. The **effective schema** is a separate stored column: the base schema
+with each mount's fragment placed at its path (parameters substituted and, under a
+tracing mount, a `_trace` property added to every object). The service rewrites the
+effective column in one transaction on every declaration or mount change, and **every**
+validation reader uses it — a document that violates a mounted fragment is refused just
+like one that violates the base. Migration stays a base-vs-base question: the preview and
+the migrate door decide narrowing over the old and new **base** schemas, refuse a new
+base that collides with a mount, and validate/convert records against the recomposed
+effective schema.
+
+### The loop contract
+
+A module may declare an optional `loop` block — the contract the Router card's loop mode
+consumes:
+
+```jsonc
+"loop": {
+  "seed": "alpha-seed", "record": "alpha-record", "outcome": "alpha-outcome", "mint": "alpha-mint",
+  "views": {"anything_due": "anything_due", "due": "due", "due_set": "due_set", "expectations": "expectations"},
+  "manifest": {"intents": ["intents"], "phases": ["phases"]},   // paths INTO the declarations schema
+  "max_iterations": 10
+}
+```
+
+`seed`/`record`/`outcome` (and optional `mint`) are preset names; `views` names existing
+views by their required loop arity (`anything_due(run)`, `due(kind; phase; run)`,
+`due_set(run)`, `expectations(run)`); `manifest.intents`/`.phases` are paths into the
+declarations schema whose array items declare the required fields (`kind`, `description` /
+`key`, `kind`, `handler`), so the Studio reads them without jq. The contract's shape and
+validation are defined here; the Router card's loop mode reads it to generate the loop.
+
+### Shipped module seeds
+
+A module can ship as a default. On boot the seed applier reconciles the store against the
+registered seeds by a content hash: it **creates** a module when absent, **upgrades** one
+still equal to its shipped hash whose shipped body has drifted, **skips** an
+operator-edited module (its hash no longer matches — left untouched, logged), and
+**deletes** a retired name that is still unedited (an edited or still-mounted one is kept
+and logged). An operator upload clears the shipped hash, so a later upgrade never clobbers
+a hand edit.
+
+## Upload — one door, three kinds
+
+`POST /api/babelfish/upload` is one door for three self-describing document kinds — the
+JSON's `kind` routes it:
+
+- **`flow`** / **`node`** → a preset over the `flow` base tool, through the same
+  in-process authoring path the preset HTTP doors use (create for a new name, a new active
+  version for an existing one — earlier versions kept). A **`node`** additionally writes
+  its palette tool-meta overlay: the `palette-node` tag lists it in the custom-node
+  palette, an optional `folder` places its card, and a `module: <name>` field writes the
+  `module:<name>` grouping tag so the palette and the module's page group it under the
+  module. The overlay is merged, never replaced, so an operator-added tag survives a
+  re-upload.
+- **`state-module`** → `put_module` — a plain document, no versions. An existing name
+  refuses with `409 {"error": "<message>", "reason": "module_exists"}` unless `?replace=true`; the
+  Studio shows a confirm and retries with the flag.
+
+An unknown or missing `kind` is `422`; the response is `{kind, name}` (plus `version` for
+a preset). Modules, mounts, and their documents also have direct routes:
+`GET/PUT/DELETE /api/babelfish/state-modules/{name}` (PUT honors `?replace=`) and
+`GET /api/babelfish/state-modules`; `GET /api/babelfish/states/{name}/mounts` and
+`PUT/PATCH/DELETE /api/babelfish/states/{name}/mounts/{module}`;
+`GET /api/babelfish/states/{name}/schema` returns the effective schema and the mounts.
+
+## Shipped defaults are files
+
+The shipped defaults live as files beside the code: one JSON document per default (each
+with its `kind`), a `retired.json` withdrawal manifest (`{presets, modules}`), and a `<name>.md` prose note beside each
+document. A loader reads the folder at import and turns `node`/`flow` files into preset
+seeds and `state-module` files into module seeds; both are applied **in-process** through
+the same seed appliers the upload door's writes reach — never by the server calling its
+own HTTP. The document is the source of truth, and a default is told from an operator edit
+by a content hash.
 
 ## Checkpoint retention
 
