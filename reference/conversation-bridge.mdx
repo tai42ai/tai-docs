@@ -57,11 +57,12 @@ A `tool` target shapes the call with two optional jq programs, both compiled at
 create (an `agent` target carries neither):
 
 - **`payload_expr`** — jq over the inbound payload `{message, sender, our_identity,
-  channel}` — carrying `person_id` and `person_addresses` too when the target's
-  multichannel is on — emitting exactly one JSON object: the tool's kwargs. Omitted,
-  the kwargs are the fixed `{message, sender}`. `person_id` is the person the sending
-  address resolves to and `person_addresses` its address rows; `person_id` gives a flow
-  a channel-stable key for a linked person, one and the same across the channels they
+  channel, turn}` — carrying `person_id` and `person_addresses` too when the target's
+  multichannel is on, and `event` on an [event turn](#the-event-door) — emitting exactly
+  one JSON object: the tool's kwargs. Omitted, the kwargs are the fixed
+  `{message, sender, turn}` (plus `event` on an event turn). `person_id` is the person the
+  sending address resolves to and `person_addresses` its address rows; `person_id` gives a
+  flow a channel-stable key for a linked person, one and the same across the channels they
   paired.
 - **`reply_expr`** — jq over the tool's result, emitting exactly one value that is a
   string or `null`: the reply text. Omitted, the result must itself be a string or
@@ -95,6 +96,24 @@ checks in its own store. Bounds: at most **16** params, each key
 `^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized
 — a violation is refused at the door.
 
+The payload also carries a **`turn`** block on **every** tool turn — whichever door
+it entered through:
+
+```json
+{ "id": "<turn id>", "inbound": { "id": "<inbound id>", "kind": "message", "source": "<source>" } }
+```
+
+`turn.id` is the turn's stable id — the answer record's `message_id`, not a new mint.
+`turn.inbound` describes the entry: `inbound.kind` is `"message"` or `"event"`,
+`inbound.id` is the channel provider message id / the [event](#the-event-door)'s own
+`event_id` / (on the api message door) the record's `message_id`, and `inbound.source`
+is the channel registry name / `event:<kind>` / `api`. On an **event turn** the payload
+also carries an **`event`** block `{id, kind, payload}` (the submitted event) and both
+`message` and `sender` are `null` — an event has no human sender and no text. The
+default no-`payload_expr` kwargs therefore become `{message, sender, turn}` (plus
+`event` on an event turn); a `payload_expr` reads `.turn` and `.event` off the payload
+and forwards what it needs.
+
 A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
 on the door. On a `channel` route the record ends in the terminal `silent` state and
 nothing is sent to the client. On an `api` route the silence is **communicated**: the
@@ -123,6 +142,14 @@ tai conversations create flow-line \
 produces nothing to say. This mapping only ever sees the **success** shape: if the
 flow or tool turn ends on a non-success terminal status (`aborted`, `stopped`,
 `error`) the turn diverts to the `error` outcome and `reply_expr` never runs.
+
+The whole kwargs object is validated against the preset's `input_schema` and routed
+into the flow's `flow_graph_kwargs` argument, so with no `payload_expr` a flow preset
+reads the default kwargs directly as `.flow_graph_kwargs.message`, `.sender`, and
+`.turn` (plus `.event` on an [event turn](#the-event-door)) — no route jq needed. A
+conversation-target flow preset must therefore admit `turn` (and `event`) in its
+`input_schema`; one that declares `additionalProperties: false` without them refuses
+the routed kwargs.
 
 Such a flow or tool turn need not answer synchronously: if it raises an async
 `ask_user`, the turn parks and its resumed reply is delivered back into the
@@ -172,6 +199,85 @@ both are untrusted transport, never schema-validated. See
   `wait_seconds` is clamped to `sync_wait_max_seconds`.
 - Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
   address rate cap, `501` no backend, `503` thread queue full.
+
+## The event door
+
+`POST /api/conversations/{route_name}/events` (authed) delivers a **structured event**
+into an **existing** thread as a turn. An event carries no human text: it runs the
+route's `tool` target through the same per-thread FIFO an inbound message takes — as a
+turn, never a detached [tool run](/studio/running-tools) — so it is ordered behind any
+message turn already on the thread. It never mints a thread. On a linked-person thread the
+event turn's payload carries `person_id` and `person_addresses` exactly as a message turn
+does — the existing person is resolved read-only, never provisioned.
+
+Body (`ConversationEventSubmission`):
+
+```json
+{
+  "address": "<the thread's client address>",
+  "thread_id": "<or the thread id the listing exposes>",
+  "event": { "event_id": "<idempotency key>", "kind": "provider.update", "payload": {} },
+  "wait_seconds": 0
+}
+```
+
+- **`address` XOR `thread_id`** — exactly one, non-blank, names the target thread; both
+  or neither is a `400`.
+- **`event.event_id`** — the idempotency key: non-blank after trimming, ≤ 256 characters.
+- **`event.kind`** — an identifier-like label matching `^[A-Za-z0-9_.:-]{1,128}$` (dotted
+  and colon-segmented labels like `provider.update` are admitted); it becomes the turn's
+  `inbound.source` as `event:<kind>`.
+- **`event.payload`** — an opaque JSON object, bounded as pure transport exactly like the
+  message door's `form` (a serialized-size and nesting cap); never validated against any
+  schema.
+- **`wait_seconds`** — the same bounded sync-wait window as the message door, clamped to
+  `sync_wait_max_seconds`; `0` (the default) is an async `202`.
+
+Responses:
+
+- `200` with the answer inline — a `wait_seconds` turn on an **api**-door thread that
+  finished in time; its callback is suppressed so it never double-fires.
+- `202 {message_id, thread_id}` — accepted; the answer is delivered later by the target
+  route's door (a channel send, or an api route's signed callback).
+- `404` — the thread does not exist on the route (an event enters an existing thread, so
+  an unknown `(route, address)` or `thread_id` is refused, never opened).
+- `409` — the route's target is an **agent**: an event has no rendered text to hand an
+  agent, so only a `tool` target may run one.
+- `400` — a bad body: the `address`/`thread_id` rule, a blank/over-long
+  `event_id`, a malformed `kind`, or an over-bound `payload`.
+- Also loud: `401` unauthorized, `429` address rate cap, `501` no backend, `503` thread
+  queue full.
+
+**Idempotency.** The door is idempotent on `event_id`, per route, in its own key family
+(`conversations:event-dedupe:{route_name}:{event_id}`, held for `inbound_dedupe_ttl_seconds`
+— never the channel dedupe namespace). A redelivered `event_id` starts **no** second turn
+and returns the **original** turn's `message_id` (a `202`). A refused or failed admission
+— a rate cap, a full queue — never burns the key, so a retry after one runs cleanly.
+
+**Thread addressing.** The thread must already exist on the route; the platform recomposes
+the id through the same function the route's own door uses, never trusting a caller-composed
+key. By `address`: a **channel** route composes the address exactly as its channel door
+does; an **api** route qualifies the address by the calling principal (as the message door
+does), so by `address` a caller reaches only its **own** threads on that route — another
+principal's api thread is reachable only by its listed `thread_id`. By `thread_id`: the id
+the [thread listing](#the-thread-listing) or [transcript](#the-transcript) returns,
+verified to be a member of the route's threads.
+
+**Delivery** follows the **target** route's door: a channel route's answer is sent to the
+thread's address; an api route's answer is POSTed to the **route's** `callback_url`, signed
+with the route's `callback_secret` — or returned inline on a bounded `wait_seconds`, or
+recorded only when the route has no callback (retrievable through
+`GET /api/conversations/{route_name}/messages/{message_id}`). There is **no** per-request
+callback field: a caller-named sink would make the platform emit a validly signed POST to
+an arbitrary host.
+
+<Note>
+**The event door is a trusted-integration surface.** Authorization is the conversations
+**write** action with a mandatory caller principal — the same primitive that creates a
+route. An authorized writer may address **any** existing thread of the route by
+`thread_id`, a channel guest's thread included, so grant the door's write action to
+**service principals**, not to low-trust API keys.
+</Note>
 
 ## The read doors
 

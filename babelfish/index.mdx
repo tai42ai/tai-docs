@@ -88,6 +88,22 @@ drop its empty values, so it **contributes nothing** — the node falls back to 
 you address it to by hand. A reply that rides the route itself needs no addressing at
 all.
 
+A conversation-routed flow also reads **`.flow_graph_kwargs.turn`** — the turn the
+inbound entered as, surfaced on every conversation turn as `{id, inbound: {id, kind,
+source}}`. `turn.id` is the turn's stable id (the answer record's id); `turn.inbound`
+describes the entry — `inbound.kind` is `"message"` or `"event"`, `inbound.id` is the
+channel provider message id, the event id, or the api record id, and `inbound.source`
+is the channel name, `event:<kind>`, or `api`. An [event
+turn](/reference/conversation-bridge#the-event-door) additionally carries
+`.flow_graph_kwargs.event` (`{id, kind, payload}`) with `.flow_graph_kwargs.message`
+and `.sender` both `null`. These arrive under `flow_graph_kwargs` because the
+conversation route's default no-`payload_expr` kwargs are `{message, sender, turn}`
+(plus `event` on an event turn); a route with its own `payload_expr` reads `.turn` and
+`.event` on the payload and forwards what it wants. A conversation-target flow preset
+must not declare `additionalProperties: false` without admitting `turn` (and `event`)
+in its input schema, or the routing that validates the kwargs against the preset's
+input schema refuses them.
+
 A custom node is a saved flow published to the palette, and it is managed **as a
 node, not as a flow**. The palette's Custom Nodes section gives each card an edit
 control that opens its flow editor and a delete control that raises a guarded
@@ -141,6 +157,13 @@ A subflow also **joins the dispatching run's trace** rather than minting a separ
 one, and so does an agent a node drives — see [one run, one
 trace](/operate/observe#one-run-one-trace). The join survives parking, including a
 completing child cascading into its parked parent.
+
+Every jq input also carries **`.run`** — the executor's identity for the run the
+expression evaluates in — as `{id, epoch}`. `.run.id` is the run's session id (the
+run registry key), so a flow-as-tool subflow reads a **distinct** `.run.id` from its
+parent — the sub-run's own id. `.run.epoch` is the state-mint epoch, `null` on a
+stateless run and until the run's stateful mint has run. Outside a run — a
+validation-time compile — `.run` is `null`.
 
 <Warning>
 A subflow's state writes are invisible to a later parent node unless that node opts

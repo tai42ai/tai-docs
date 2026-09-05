@@ -8,6 +8,14 @@ Bind a tool to an inbound webhook behind a verifier and a condition filter.
 
 The runtime fires a tool when a signed webhook arrives. A hook binds a topic to a tool; a verifier authenticates each delivery over its raw bytes before the payload is parsed; an optional condition filters which deliveries fire the tool. This guide covers the platform wiring — the hook, the verifier binding, and the filter. Provider-specific signature schemes live in that verifier plugin's own repository README.
 
+<Note>
+An event that belongs to an existing **conversation** goes through the [event
+door](/reference/conversation-bridge#the-event-door), not a hook: it enters that thread
+as a turn on the conversation's own FIFO, rather than firing a **detached** tool run
+with no thread. Use a hook when the event is standalone; use the event door when it must
+be ordered and answered inside a live conversation.
+</Note>
+
 ## Register a hook
 
 A hook names the topic to listen on and the tool to fire. Register it from a `HookParams` JSON body. Add a `condition` (a jq expression over the delivery) to fire the tool only on matching deliveries.
