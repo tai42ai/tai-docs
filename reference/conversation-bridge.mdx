@@ -80,9 +80,15 @@ publishes the same object as `inbound_form` on both the admin and caller-safe re
 
 The payload also carries a **`params`** object when the inbound entry supplied one —
 a web channel's [link parameters](/plugins/tai42/channel-web#link-parameters) captured
-with the visitor session, or the [message door](#the-message-door)'s `params` body
-field — string values reachable as `.params.<name>`. The key is present **only** when
-the entry carried non-empty params, so guard for it (`.params.key // …`). The values
+with the visitor session, the [message door](#the-message-door)'s `params` body field,
+or a channel's **tap enrichment** when the person taps a control the flow offered (a
+tapped reply's author-set id as `params.reply_id`, a template quick-reply as
+`params.button_payload`, a click-to-chat referral as its `referral_*` fields — what
+each channel forwards is on its [plugin page](/plugins)) — string values reachable as
+`.params.<name>`. The key is present **only** when the entry carried non-empty params,
+so guard for it (`.params.key // …`). The same enrichment rides an
+[answer's](/concepts/interactions#enrichment-on-the-answer) `params` when the tap
+instead answers a pending `ask_user`. The values
 are **untrusted transport**: the platform caps and delivers them but attaches no
 signature, expiry, or meaning, so a value a flow must trust is a secret the flow
 checks in its own store. Bounds: at most **16** params, each key
@@ -131,7 +137,8 @@ a step-mode tool to a conversation and every inbound fails this way.
 
 `POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
 message and runs its turn as the route's execution key. Body: `external_user_id`,
-`text`, optional `wait_seconds`, optional `params`, optional `form`.
+`text`, optional `wait_seconds`, optional `params`, optional `form`, optional
+`attachments`, optional `location`.
 
 `form` is an optional structured guest submission (an
 [ask-less form](/concepts/notifications#ask-less-forms)'s answers) riding **with**
@@ -147,6 +154,15 @@ uniform tool-payload contract across both doors. It is validated to the same bou
 (at most 16 entries, key `^[A-Za-z0-9_-]{1,64}$`, value ≤ 512 characters, ≤ 2048
 bytes); an invalid set is a `400` that names the violated bound **without echoing the
 offending value**.
+
+`attachments` and `location` are the media and geographic siblings of `form` — a list
+of `MediaItem`s (image/document/video/audio) the caller sent with the text, and a
+shared `LocationElement` (latitude/longitude with an optional name/address). Each
+rides **beside** the required `text` (which stays the whole turn every reader
+consumes) and reaches a **tool** target's payload under its own `attachments` /
+`location` key, present only when supplied. `attachments` obeys the shared media caps;
+both are untrusted transport, never schema-validated. See
+[structured guest messages](/concepts/client-conversations#structured-guest-messages).
 
 - `202 {message_id, thread_id}` — accepted, answer delivered later by signed
   callback (default).
@@ -441,10 +457,13 @@ conversation as an ordinary inbound message) are optional richer-send forms deli
 **alongside** `text`: the message is stored and delivered as one rich part, exactly
 as a produced rich answer is, including the delivery machine's capability gate — a
 channel that does not advertise the matching `supports_*_notifications` flag never
-receives the part; the record fails loudly instead of the field dropping. A
-contract-invalid value (an empty list or dict, an over-cap value, or the mutually
-exclusive media+template / options+template / schema+template / schema+options) is a
-loud `400`; omit all four for a plain text send.
+receives the part; the record fails loudly instead of the field dropping. `options`
+are the [typed reply/link shapes](/concepts/notifications#media-kinds-and-typed-options)
+(a bare string is not an option); `template` carries its **named components**
+(`header_media`, `body_parameters`, `buttons`). A contract-invalid value (an empty
+list or dict, an over-cap value, or the mutually exclusive media+template /
+options+template / schema+template / schema+options) is a loud `400`; omit all four
+for a plain text send.
 
 The record is `origin: "operator"`: it carries the text as its `answer`, an empty
 `inbound_text`, never an `inbound_form` (an operator answers, it does not submit),
