@@ -467,6 +467,123 @@ byte-identical on the wire. Because a turn field and a kind are siblings in one 
 namespace, a turn field named after a kind — which would shadow that kind's array — is
 refused.
 
+### Loop mode
+
+A router can instead run as a **bounded loop** over the open intents a [mounted state
+module](#state-modules) tracks. One card becomes the whole loop: the classifier runs
+once over the inbound, then the engine iterates — each pass firing the handler of every
+intent phase currently **due** — until nothing is due or a pass cap is hit. With loop
+mode on the card stops being author-drawn: its kinds and its routes are **generated**
+from the module's manifest, one branch per phase, and the routes table is read-only.
+
+**The contract it needs.** Loop mode binds to a **state** this flow is bound to and a
+**module** mounted on it whose document declares a [`loop` contract](#the-loop-contract).
+The card reads that block for everything it lowers: the shipped preset names (`mint?`,
+`seed`, `record`, `outcome`), the view role map (`anything_due(run)`,
+`due(kind; phase; run)`, `due_set(run)`, `expectations(run)` — it always emits the
+module's mapped view *name*, never the role name), and the manifest paths (`intents`,
+`phases`, and the optional `talk_slot`) into the mount's **declarations**. Nothing here
+is read from a running flow: the kinds come from the manifest's intents, one phase branch
+comes from each manifest phase, and each phase's handler tool name is its `handler`
+column. The card reads that snapshot from the mounted module's document and the mount's
+declaration values, never from live state.
+
+**What it lowers to.** On save the card expands to one cluster, every node marked so it
+folds back to the single card on load:
+
+- `<name>__mint` *(optional)* — the module's `mint` preset, opening the run: it mounts
+  the subject and hands the classifier the open expectations and the spans left to
+  classify. Omitted when the contract names no mint, and the classifier then runs
+  unconditionally over the inbound.
+- `<name>` — the classifier itself, run once per inbound, gated (when a mint exists) on
+  the mint leaving spans to classify.
+- `<name>__record` — the module's `record` preset, behind an all-inputs barrier over the
+  mint and the classifier, so it releases whether the classifier ran or was skipped.
+- `<name>__loop` — the engine [`iterate`](#looping-over-a-list) (`do_while: true`) whose
+  body entry is the seed and whose stop condition is the contract's `anything_due` view.
+  It refreshes the bound state **once at loop entry**, so the rows the mint and record
+  wrote — each its own store-committing sub-run — are visible to the first pass.
+- `<name>__seed` — the body entry, the module's `seed` preset: each pass writes the
+  follow-ons that pass makes due.
+- `<name>__router` — the hidden conditional (`dispatch: all`, refreshing state each pass),
+  one branch per manifest phase.
+- per phase, `<name>__h_<phase>` → `<name>__o_<phase>` — the handler fan-out and the
+  outcome recorder (below).
+
+**The generated stop and branch conditions.** Authors never write these. The loop's
+`while_cond` and each branch's condition are compiled from the mapped views, with the
+state, module, kind, and phase emitted as JSON string literals rather than raw
+interpolation:
+
+```text
+# while_cond on <name>__loop
+(.flow_graph_kwargs.turn.id) as $run | mount("journey"; "planner") | planner_has_open($run)
+
+# one branch on <name>__router — kind "alpha", phase "gather"
+(.flow_graph_kwargs.turn.id) as $run | mount("journey"; "planner") | planner_is_due("alpha"; "gather"; $run)
+```
+
+The `$run` a view reads is the [turn id](/operate/observe#one-run-one-trace); the "not
+already settled this run" exclusion the routing needs lives **inside** the module's `due`
+view, so the card owes nothing beyond passing `$run`.
+
+**Handlers are fixed tool names.** Each phase branch calls the manifest's `handler` as a
+plain runnable `tool` — a fixed name written into the flow JSON and validated at bind like
+every node's tool, never read from state at run time. Change a handler (or any consumed
+manifest field) and the card is stale: the lowering stamps a **manifest hash** on the loop
+node, the save gate recomputes it from the current mount declarations, and on a mismatch
+the card blocks with a *regenerate from manifest* lint. Regenerating re-derives the kinds
+and phase branches from the manifest and clears it. A handler naming a tool that no longer
+exists is linted in the Studio and refused at bind.
+
+**Per-item fan-out.** A phase branch is itself a parallel foreach over the due items of
+that kind and phase, calling the handler **once per item** — so a kind with three open
+intents fires three handler calls in one pass. A kind outside any sequence group fans out
+under the engine's default concurrency; a kind in a **sequence group** pins
+`max_concurrency: 1`, firing its items one at a time in the view's rank order. The foreach
+reads its items through the `due_set` view.
+
+**The outcome recorder.** After each phase's fan-out, `<name>__o_<phase>` calls the
+module's `outcome` preset. The foreach hands it a terminal aggregate — a list, in item
+order, of per-item wrappers `{"<name>__h_<phase>__item": {status, value}}` — and the
+recorder **unwraps** it to the bare list of `ok` outcomes the preset is typed for. Each
+`value` is the handler's **run envelope**, so the lowering reads through it the same way it
+reads every loop preset: the loop contract is that a preset returns its value under exactly
+one `return_result` node, so the bare value is the sole member of `result`, read as
+`.result | [.[]] | first`. The outcome node also **refreshes** the bound state after the preset
+commits the pass's rows, so `anything_due` sees them at the next `while_cond` instead of
+the loop over-running an empty pass. The handler tool never touches state itself; the
+outcome preset's mount-materialized fill writes the ledger rows, so every state write stays
+on a shipped preset.
+
+**The classifier in loop mode.** The forced response schema gains a required `bindings`
+array beside the per-kind arrays: one verdict per input span the model reads as
+**answering** (or as **ambiguous** against) an open expectation, each
+`{relation, target, text}` with the expectation's key as `target` (an ambiguous span lists
+its candidate keys). A span that opens a *new* intent stays in that kind's array. The
+classifier's run-time inputs ride **accepted agent kwargs** (never bare ones the agent
+would reject): the spans to classify go through `user_message`, and the open expectations
+ride `system_message_kwargs` so the expectations block's `{{ expectations | tojson }}` slot
+renders them into the system message — both read off the mint through the same envelope
+unwrap. When the manifest sets `talk_slot`, the schema also gains
+an optional `talk` string — free text the model wants said beside the outcomes — which the
+module's `record` preset stores and compose speaks last.
+
+**The pass cap.** `max_iterations` resolves in order: the card's own override, else the
+module's `loop.max_iterations`, else the platform default of **10**. Because a sequence
+group spends one pass per intent, the cap must cover the longest sequence. Reaching the
+cap is a **bug, not a conversation state**: the loop raises, and the failure travels the
+flow's ordinary [`on_error`](#handling-a-nodes-error) path — never a settle branch.
+
+**No parking ask in the loop.** A handler must not be an `ask` (or any interactive)
+preset: a parking ask inside a fan-out re-runs its siblings on resume, so the card lints
+one out of the loop body. Loop mode also forces `dispatch: all` — a first-match discipline
+would starve the other phases — and refuses an `otherwise` route, which would fire every
+pass and never let the loop settle.
+
+The contract's own shape is defined with the [module document](#the-loop-contract); loop
+mode is one consumer of it, and any module that declares a `loop` block can drive it.
+
 ## The visual jq editor
 
 Every jq expression a flow carries — a node's expression, a branch or loop
@@ -1012,8 +1129,14 @@ consumes:
 views by their required loop arity (`anything_due(run)`, `due(kind; phase; run)`,
 `due_set(run)`, `expectations(run)`); `manifest.intents`/`.phases` are paths into the
 declarations schema whose array items declare the required fields (`kind`, `description` /
-`key`, `kind`, `handler`), so the Studio reads them without jq. The contract's shape and
-validation are defined here; the Router card's loop mode reads it to generate the loop.
+`key`, `kind`, `handler`), so the Studio reads them without jq. An optional
+`manifest.talk_slot` is a path to a boolean property in the declarations schema that turns
+on the classifier's free-text `talk` reply; absent means the module has no talk slot. Each
+loop preset (and each phase handler) must return its value under **exactly one**
+`return_result` node — the loop reads a preset output through a single envelope unwrap
+(`.result | [.[]] | first`), so a preset that flags two surfaces has no single value to read. The
+contract's shape and validation are defined here; the Router card's loop mode reads it to
+generate the loop.
 
 ### Shipped module seeds
 
