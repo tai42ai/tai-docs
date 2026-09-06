@@ -11,7 +11,7 @@ One ``Protocol`` per feature (see `tai42_contract.app.facets`), composed into
 a single ``TaiApp`` protocol that exposes them as namespaces (``app.tools``,
 ``app.agents``, ...). The app members are partitioned across the
 sub-protocols — each lives in exactly one, save the shared leaf names
-``store`` (``versioning`` + ``presets``) and ``register``/``get``
+``store`` (``versioning`` + ``presets`` + ``tool_meta``) and ``register``/``get``
 (``webhook_verifiers`` + ``channels``). The runtime forwarding handle is
 ``tai42_app`` (see `tai42_contract.app.handle`).
 
@@ -1240,6 +1240,94 @@ transform.
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 
 
+#### create
+
+`tai42_contract.app.facets.AppPresets.create`
+
+```python
+async create(
+    self,
+    name: str,
+    base_tool: str,
+    description: str,
+    fixed_kwargs: dict[str, Any],
+    *,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    extensions: list[list[ExtensionElement]] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]
+```
+
+Create a versioned preset in-process and return its record view.
+
+The in-process authoring seam beside the HTTP create door: it runs the same
+content path (name pre-checks, combo/schema/bind validation, input-schema
+support, the base tool's write validator, store write THEN register, and the
+rebind fan-out) and returns the same record shape, so the two doors cannot drift.
+A body its base tool cannot accept, a colliding name, or an ``input_schema`` over
+a base tool with no registered support is a loud error that persists nothing. The
+caller-authorization tier fence is OFF — the registration-tier fence authorizes a
+request principal at the HTTP doors; an in-process caller authorizes its own callers
+and passes only the base tools it is entitled to author — while every content check
+stays on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `base_tool` | `str` | — | — |
+| `description` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any]` | — | — |
+| `input_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+
+
+#### save_version
+
+`tai42_contract.app.facets.AppPresets.save_version`
+
+```python
+async save_version(
+    self,
+    name: str,
+    *,
+    fixed_kwargs: dict[str, Any] | None = None,
+    input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    output_schema: dict[str, Any] | None = None,
+    output_schema_provided: bool = False,
+    description: str | None = None,
+    extensions: list[list[ExtensionElement]] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]
+```
+
+Save a new version of an existing preset in-process and return the version row.
+
+The in-process sibling of the HTTP save-version door, running the identical
+content path and returning the same shape. Omitted fields carry the active
+value forward (``input_schema`` via the ``CARRY_FORWARD`` sentinel;
+``output_schema`` only when ``output_schema_provided`` is ``True``). A body that
+cannot bind is a loud error that commits nothing; the tier fence is OFF for the
+reason `create` states.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema_provided` | `bool` | `False` | — |
+| `description` | `str \| None` | `None` | — |
+| `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+
+
 #### register_write_validator
 
 `tai42_contract.app.facets.AppPresets.register_write_validator`
@@ -1516,6 +1604,63 @@ class AppSubApp(Protocol)
 | Attribute | Type |
 |---|---|
 | `mcp_sub_app_router` *(property)* | `SubMcpAppRouter` |
+
+
+## AppToolMeta
+
+`tai42_contract.app.facets.AppToolMeta`
+
+```python
+class AppToolMeta(Protocol)
+```
+
+The tool-metadata namespace (``app.tool_meta``) — the organizational overlay
+over any live tool: a folder tree plus a per-tool row (display name, folder
+placement, tags, badges, a hidden override).
+
+``store`` is the `ToolMetaStore` view the routes
+and the preset lifecycle cascade read and write. ``patch`` is the in-process edit
+seam beside the HTTP PATCH door.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `ToolMetaStore` |
+
+### Members
+
+#### patch
+
+`tai42_contract.app.facets.AppToolMeta.patch`
+
+```python
+async patch(
+    self,
+    tool_name: str,
+    *,
+    tags: list[str] | None = None,
+    folder_id: str | None = None,
+) -> dict[str, Any]
+```
+
+Patch a tool's overlay row in-process and return its record.
+
+The in-process sibling of the HTTP PATCH door, running the same operation so
+validation is identical (an unknown ``folder_id`` is a loud error). Only the
+arguments given are written: ``folder_id`` places the tool, and a ``tags`` list
+REPLACES the whole tag set (array values are set replacements, not merges).
+``tags=None`` leaves the tag set untouched; ``folder_id=None`` leaves the
+placement untouched.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool_name` | `str` | — | — |
+| `tags` | `list[str] \| None` | `None` | — |
+| `folder_id` | `str \| None` | `None` | — |
+
 
 
 ## AppTools
@@ -1854,6 +1999,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `sub_app` *(property)* | `AppSubApp` |
 | `versioning` *(property)* | `AppVersioning` |
 | `presets` *(property)* | `AppPresets` |
+| `tool_meta` *(property)* | `AppToolMeta` |
 
 
 ## tai42_app
@@ -3326,6 +3472,94 @@ transform.
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 
 
+#### create
+
+`tai42_contract.app.facets.AppPresets.create`
+
+```python
+async create(
+    self,
+    name: str,
+    base_tool: str,
+    description: str,
+    fixed_kwargs: dict[str, Any],
+    *,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    extensions: list[list[ExtensionElement]] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]
+```
+
+Create a versioned preset in-process and return its record view.
+
+The in-process authoring seam beside the HTTP create door: it runs the same
+content path (name pre-checks, combo/schema/bind validation, input-schema
+support, the base tool's write validator, store write THEN register, and the
+rebind fan-out) and returns the same record shape, so the two doors cannot drift.
+A body its base tool cannot accept, a colliding name, or an ``input_schema`` over
+a base tool with no registered support is a loud error that persists nothing. The
+caller-authorization tier fence is OFF — the registration-tier fence authorizes a
+request principal at the HTTP doors; an in-process caller authorizes its own callers
+and passes only the base tools it is entitled to author — while every content check
+stays on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `base_tool` | `str` | — | — |
+| `description` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any]` | — | — |
+| `input_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+
+
+#### save_version
+
+`tai42_contract.app.facets.AppPresets.save_version`
+
+```python
+async save_version(
+    self,
+    name: str,
+    *,
+    fixed_kwargs: dict[str, Any] | None = None,
+    input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    output_schema: dict[str, Any] | None = None,
+    output_schema_provided: bool = False,
+    description: str | None = None,
+    extensions: list[list[ExtensionElement]] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]
+```
+
+Save a new version of an existing preset in-process and return the version row.
+
+The in-process sibling of the HTTP save-version door, running the identical
+content path and returning the same shape. Omitted fields carry the active
+value forward (``input_schema`` via the ``CARRY_FORWARD`` sentinel;
+``output_schema`` only when ``output_schema_provided`` is ``True``). A body that
+cannot bind is a loud error that commits nothing; the tier fence is OFF for the
+reason `create` states.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema_provided` | `bool` | `False` | — |
+| `description` | `str \| None` | `None` | — |
+| `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+
+
 #### register_write_validator
 
 `tai42_contract.app.facets.AppPresets.register_write_validator`
@@ -3481,5 +3715,62 @@ Declaring a name both seeded and retired raises loudly, in either order.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
+
+
+
+## AppToolMeta
+
+`tai42_contract.app.facets.AppToolMeta`
+
+```python
+class AppToolMeta(Protocol)
+```
+
+The tool-metadata namespace (``app.tool_meta``) — the organizational overlay
+over any live tool: a folder tree plus a per-tool row (display name, folder
+placement, tags, badges, a hidden override).
+
+``store`` is the `ToolMetaStore` view the routes
+and the preset lifecycle cascade read and write. ``patch`` is the in-process edit
+seam beside the HTTP PATCH door.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `store` *(property)* | `ToolMetaStore` |
+
+### Members
+
+#### patch
+
+`tai42_contract.app.facets.AppToolMeta.patch`
+
+```python
+async patch(
+    self,
+    tool_name: str,
+    *,
+    tags: list[str] | None = None,
+    folder_id: str | None = None,
+) -> dict[str, Any]
+```
+
+Patch a tool's overlay row in-process and return its record.
+
+The in-process sibling of the HTTP PATCH door, running the same operation so
+validation is identical (an unknown ``folder_id`` is a loud error). Only the
+arguments given are written: ``folder_id`` places the tool, and a ``tags`` list
+REPLACES the whole tag set (array values are set replacements, not merges).
+``tags=None`` leaves the tag set untouched; ``folder_id=None`` leaves the
+placement untouched.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool_name` | `str` | — | — |
+| `tags` | `list[str] \| None` | `None` | — |
+| `folder_id` | `str \| None` | `None` | — |
 
 
