@@ -507,8 +507,11 @@ folds back to the single card on load:
   follow-ons that pass makes due.
 - `<name>__router` — the hidden conditional (`dispatch: all`, refreshing state each pass),
   one branch per manifest phase.
-- per phase, `<name>__h_<phase>` → `<name>__o_<phase>` — the handler fan-out and the
-  outcome recorder (below).
+- per phase, `<name>__h_<kind>_<phase>` → `<name>__o_<kind>_<phase>` — the handler fan-out
+  and the outcome recorder (below). The id encodes the phase identity `(kind, key)`, so two
+  kinds sharing a phase key stay distinct nodes; because `_` is legal in both segments the
+  encoding is not injective, and the save gate blocks (and the serializer throws) on a pair
+  that would collide, naming both phases.
 
 **The generated stop and branch conditions.** Authors never write these. The loop's
 `while_cond` and each branch's condition are compiled from the mapped views, with the
@@ -543,9 +546,9 @@ under the engine's default concurrency; a kind in a **sequence group** pins
 `max_concurrency: 1`, firing its items one at a time in the view's rank order. The foreach
 reads its items through the `due_set` view.
 
-**The outcome recorder.** After each phase's fan-out, `<name>__o_<phase>` calls the
+**The outcome recorder.** After each phase's fan-out, `<name>__o_<kind>_<phase>` calls the
 module's `outcome` preset. The foreach hands it a terminal aggregate — a list, in item
-order, of per-item wrappers `{"<name>__h_<phase>__item": {status, value}}` — and the
+order, of per-item wrappers `{"<name>__h_<kind>_<phase>__item": {status, value}}` — and the
 recorder **unwraps** it to the bare list of `ok` outcomes the preset is typed for. Each
 `value` is the handler's **run envelope**, so the lowering reads through it the same way it
 reads every loop preset: the loop contract is that a preset returns its value under exactly
@@ -565,7 +568,9 @@ classifier's run-time inputs ride **accepted agent kwargs** (never bare ones the
 would reject): the spans to classify go through `user_message`, and the open expectations
 ride `system_message_kwargs` so the expectations block's `{{ expectations | tojson }}` slot
 renders them into the system message — both read off the mint through the same envelope
-unwrap. When the manifest sets `talk_slot`, the schema also gains
+unwrap. The classifier reads only each item's `key`, `expected_input`, and optional
+`question`; the `kind`, `fields`, and answering-party `who` the same items carry are for
+compose and the re-entry match, not the prompt. When the manifest sets `talk_slot`, the schema also gains
 an optional `talk` string — free text the model wants said beside the outcomes — which the
 module's `record` preset stores and compose speaks last.
 
@@ -1046,16 +1051,25 @@ ever stored.
 
 A `compiled` entry turns a jq string a client writes **in a mount's declarations** into a
 generated view, compiled once at mount time rather than evaluated from data at run time.
-Each entry is `{view, path, key, expr}`: `path` reaches an item array in the declarations
-schema, and `key`/`expr` name two properties of that array's item object — `key` heads a
-dispatch branch and `expr` (a string property, nullable) holds the item's jq. Mounting
+Each entry is `{view, path, key, expr}` plus an optional `result`: `path` reaches an item
+array in the declarations schema, and `key`/`expr` name two properties of that array's item
+object — `key` heads a dispatch branch and `expr` (a string property, nullable) holds the
+item's jq. Mounting
 emits `def <module>_<view>($k): if $k == "<key1>" then (<expr1>) elif … else null end;`
 into the same prelude, so a node calls it as `mount("s"; "alpha") | alpha_<view>("<key>")`;
 an item whose `expr` is null contributes no branch, and an unknown key answers `null`. The
 branch expressions run over the mount envelope and may call the module's other views and
 `mount(…)`. Each expression is compiled at mount, on a declarations `PATCH`, and on a
 module replace; a non-compiling one refuses the mount, naming the offending
-`<path>[key=<k>].<expr>`.
+`<path>[<keyprop>=<k>].<expr>`. When the entry declares `result: "boolean"`, the mount also
+EVALUATES each branch over a sample envelope whose `.data` is an instance synthesized from
+the module's schema (an object becomes its properties, an array `[]`, a string `""`, a
+number `0`, a boolean `false`, a nullable slot `null`); a branch that does not evaluate to
+`true` or `false` refuses the mount, naming the item and the non-boolean value it produced
+and noting that it read a path the module does not declare. A
+branch's input is the mount envelope, so a `.states` or `.mounts` **root** read — which
+would silently evaluate against the wrong root — is refused with a message naming each root it
+reads and telling it to read `.data`, the mounted subtree, instead.
 
 ### Trace fields
 
