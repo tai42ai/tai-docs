@@ -970,8 +970,9 @@ Validation is loud, at save and at upload: the `name` form; the fragment is a va
 object schema after parameter defaults are substituted; every regime path lies inside
 the fragment (a `"*"` only where the schema has `items`/`additionalProperties`); every
 view compiles inside the emitted prelude; an optional [`loop`](#the-loop-contract) names
-existing views with the right arities; and every node fill is a valid fill whose path
-lies inside the fragment and obeys the regimes. The first violation raises with the
+existing views with the right arities; an optional [`compiled`](#compiled-views) view
+names a declarations item array and its `key`/`expr` properties; and every node fill is a
+valid fill whose path lies inside the fragment and obeys the regimes. The first violation raises with the
 offending rule and path named — never a silent accept.
 
 ### Parameters
@@ -1040,6 +1041,21 @@ declarations}}}` — the data the locator reads — resolved from the run scope 
 Outside a run (a validation-time compile) `.mounts` is `null` and the validation doors
 pass the prelude explicitly. Views and `.mounts` are **read-only**; nothing derived is
 ever stored.
+
+### Compiled views
+
+A `compiled` entry turns a jq string a client writes **in a mount's declarations** into a
+generated view, compiled once at mount time rather than evaluated from data at run time.
+Each entry is `{view, path, key, expr}`: `path` reaches an item array in the declarations
+schema, and `key`/`expr` name two properties of that array's item object — `key` heads a
+dispatch branch and `expr` (a string property, nullable) holds the item's jq. Mounting
+emits `def <module>_<view>($k): if $k == "<key1>" then (<expr1>) elif … else null end;`
+into the same prelude, so a node calls it as `mount("s"; "alpha") | alpha_<view>("<key>")`;
+an item whose `expr` is null contributes no branch, and an unknown key answers `null`. The
+branch expressions run over the mount envelope and may call the module's other views and
+`mount(…)`. Each expression is compiled at mount, on a declarations `PATCH`, and on a
+module replace; a non-compiling one refuses the mount, naming the offending
+`<path>[key=<k>].<expr>`.
 
 ### Trace fields
 
@@ -1148,9 +1164,9 @@ operator-edited module (its hash no longer matches — left untouched, logged), 
 and logged). An operator upload clears the shipped hash, so a later upgrade never clobbers
 a hand edit.
 
-## Upload — one door, three kinds
+## Upload — one door, four kinds
 
-`POST /api/babelfish/upload` is one door for three self-describing document kinds — the
+`POST /api/babelfish/upload` is one door for four self-describing document kinds — the
 JSON's `kind` routes it:
 
 - **`flow`** / **`node`** → a preset over the `flow` base tool, through the same
@@ -1161,6 +1177,12 @@ JSON's `kind` routes it:
   `module:<name>` grouping tag so the palette and the module's page group it under the
   module. The overlay is merged, never replaced, so an operator-added tag survives a
   re-upload.
+- **`state`** → `put_declaration` — a state declaration document (`{kind, name, schema,
+  description?, retention_days?}`), the same create-or-additive-re-declare the
+  `PUT /api/babelfish/states/{name}` door runs. An existing name refuses with
+  `409 {"error": "<message>", "reason": "state_exists"}` unless `?replace=true`; a replace
+  re-declares (a narrowing schema is still refused while records exist — that goes through
+  the migrate door) and recomposes the state's mounts on the new base.
 - **`state-module`** → `put_module` — a plain document, no versions. An existing name
   refuses with `409 {"error": "<message>", "reason": "module_exists"}` unless `?replace=true`; the
   Studio shows a confirm and retries with the flag.
