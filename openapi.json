@@ -507,6 +507,76 @@
         "title": "ConnectorRef",
         "type": "object"
       },
+      "ConversationEvent": {
+        "additionalProperties": false,
+        "description": "A structured event delivered to an existing thread as a turn.\n\n``event_id`` (non-blank after trim, ≤ ``EVENT_ID_MAX_CHARS``) is the idempotency key;\n``kind`` is an identifier-like label matching ``EVENT_KIND_RE``; ``payload`` is opaque,\nuntrusted data bounded as pure transport by :func:`validate_bounded_object`. Frozen.",
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "event_id",
+          "kind"
+        ],
+        "title": "ConversationEvent",
+        "type": "object"
+      },
+      "ConversationEventSubmission": {
+        "additionalProperties": false,
+        "description": "The inbound body of the event door ``POST /api/conversations/{route_name}/events``.\n\nAn :class:`ConversationEvent` addressed to an EXISTING thread by EXACTLY ONE (non-blank)\nof ``address`` (the thread's client address) or ``thread_id`` (the id the monitoring\nlisting exposes). ``wait_seconds`` bounds a sync-wait window exactly as\n:attr:`ConversationMessage.wait_seconds`. There is NO callback field — an event's answer\nis delivered against the target thread's route. Frozen.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Address"
+          },
+          "event": {
+            "$ref": "#/components/schemas/ConversationEvent"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Thread Id"
+          },
+          "wait_seconds": {
+            "default": 0,
+            "description": "Bounded sync-wait window (seconds); 0 = async 202. The door clamps to its runtime cap.",
+            "minimum": 0,
+            "title": "Wait Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "title": "ConversationEventSubmission",
+        "type": "object"
+      },
       "ConversationMessage": {
         "description": "The client-facing inbound body of the authed API door\n``POST /api/conversations/{route_name}/messages``.\n\n``external_user_id`` is the caller's handle for the end user: it becomes the\n``client_address`` the answer is delivered against and the conversation's thread\nkey. Frozen.",
         "properties": {
@@ -733,6 +803,14 @@
                 {
                   "gloss": "a geographic point the guest shared, present only when the inbound carried one",
                   "name": "location"
+                },
+                {
+                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
+                  "name": "turn"
+                },
+                {
+                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
+                  "name": "event"
                 }
               ],
               "label": "payload expression",
@@ -8952,6 +9030,160 @@
           "conversations"
         ],
         "x-destructive": true
+      }
+    },
+    "/api/conversations/{route_name}/events": {
+      "post": {
+        "description": "Run a structured event as a turn on an EXISTING thread of ``route_name``.\n\nThe thread must already exist: an event enters a conversation as a turn and never mints a\nthread. Address it by the ``address`` its listing shows or by its ``thread_id`` (exactly\none). The turn runs the route's TOOL target AS the route's execution key — an\nagent-target route is refused (``409``) since an event carries no rendered text. The\nevent is IDEMPOTENT on ``event_id``: a redelivery returns the original turn's\n``message_id`` (``202``) and runs no second turn.\n\nThe answer is delivered by the TARGET route's door — a channel route texts the thread's\naddress, an api route POSTs the route's signed callback (a ``wait_seconds`` body field,\nclamped to ``sync_wait_max_seconds``, returns a finished turn's answer inline in the\n``200`` and suppresses the callback). Default is ``202 {message_id, thread_id}``.\n\nThis is a TRUSTED-integration door: an authorized writer may address ANY existing thread\nof the route by ``thread_id`` (a channel guest's included), so a deployment grants its\nwrite action to service principals, not to low-trust API keys.",
+        "operationId": "post_api_conversations_route_name_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationEventSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ReloadingError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The server is applying a config reload, or a dependency this route needs is temporarily unavailable; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; carried by the reloading answer.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Deliver a structured event to a conversation thread as a turn",
+        "tags": [
+          "conversations"
+        ]
       }
     },
     "/api/conversations/{route_name}/messages": {
