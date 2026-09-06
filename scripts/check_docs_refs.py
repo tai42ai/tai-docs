@@ -70,6 +70,7 @@ the tai-distribution-gated checks stay strict only when that sibling is present:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -157,26 +158,56 @@ def scan_docs(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
     return out
 
 
-# Client product names, with their spelling variants, that must never appear in
-# the published docs. The docs describe the generic platform; a deployed flow or
-# the client that runs it is never named.
-BANNED_CLIENT_TERMS: tuple[str, ...] = ("concierge", "bookinguru", "bookin-guru", "bookin_guru")
+# The banned list is data, never source: no client/product/business-domain term is
+# baked into this scanner. Entries load at runtime from, in order, the
+# ``TAI_BANNED_TERMS`` environment variable (comma-separated, whitespace-trimmed,
+# empty entries dropped) else the local untracked file
+# ``~/.config/tai42/banned-terms.txt`` (one entry per line, ``#`` comments allowed).
+# Entry grammar: a plain entry is a word-boundary term (matched case-insensitively);
+# a ``marker:`` prefix is a case-sensitive substring marker and ``marker-ci:`` a
+# case-insensitive one, for tokens that do not sit on regex word boundaries. With no
+# list available the guard is never a silent green: under CI it fails, locally it
+# emits a visible skip note.
+NO_LIST_MSG = "no banned-terms list: set TAI_BANNED_TERMS or ~/.config/tai42/banned-terms.txt"
+_LOCAL_LIST = Path.home() / ".config" / "tai42" / "banned-terms.txt"
 
-# The tracked file kinds scanned for banned client terms.
+# The tracked file kinds scanned for banned terms.
 _BANNED_SCAN_SUFFIXES = frozenset({".mdx", ".md", ".py", ".json"})
 
-# This scanner and its test spell every banned term (the list itself, the
-# plant/clean fixtures), so they are exempt from their own scan.
-_BANNED_SCAN_EXEMPT = frozenset({"scripts/check_docs_refs.py", "scripts/test_check_docs_refs.py"})
 
-_BANNED_TERMS_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(term) for term in BANNED_CLIENT_TERMS) + r")\b", re.IGNORECASE
-)
+def _raw_banned_entries() -> list[str]:
+    env = os.environ.get("TAI_BANNED_TERMS")
+    if env is not None and env.strip():
+        return [entry.strip() for entry in env.split(",")]
+    if _LOCAL_LIST.is_file():
+        return [line.split("#", 1)[0].strip() for line in _LOCAL_LIST.read_text(encoding="utf-8").splitlines()]
+    return []
+
+
+def load_banned() -> tuple[list[str], list[tuple[str, bool]]]:
+    """Return ``(terms, markers)`` from the runtime source; markers are
+    ``(needle, case_insensitive)`` substring rules, terms are word-boundary."""
+    terms: list[str] = []
+    markers: list[tuple[str, bool]] = []
+    for entry in _raw_banned_entries():
+        if not entry:
+            continue
+        if entry.startswith("marker-ci:"):
+            markers.append((entry[len("marker-ci:") :], True))
+        elif entry.startswith("marker:"):
+            markers.append((entry[len("marker:") :], False))
+        else:
+            terms.append(entry)
+    return terms, markers
+
+
+def compile_terms(terms: list[str]) -> re.Pattern[str]:
+    return re.compile(r"\b(?:" + "|".join(re.escape(term) for term in terms) + r")\b", re.IGNORECASE)
 
 
 def scan_worktree_files(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
     """Return ``(relative_path, text)`` for every ``.mdx``/``.md``/``.py``/``.json``
-    file git tracks or would track, minus the banned-term scanner and its test.
+    file git tracks or would track.
 
     Enumerates ``git ls-files`` (tracked) unioned with
     ``git ls-files --others --exclude-standard`` (untracked-but-not-ignored), so a
@@ -197,19 +228,31 @@ def scan_worktree_files(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
     )
     out: list[tuple[str, str]] = []
     for rel in (tracked.stdout + untracked.stdout).split("\0"):
-        if not rel or Path(rel).suffix not in _BANNED_SCAN_SUFFIXES or rel in _BANNED_SCAN_EXEMPT:
+        if not rel or Path(rel).suffix not in _BANNED_SCAN_SUFFIXES:
             continue
         out.append((rel, (docs_root / rel).read_text(encoding="utf-8")))
     return out
 
 
-def check_banned_client_terms(files: list[tuple[str, str]]) -> list[str]:
-    """The docs are client-neutral: no file names a client product."""
+def check_banned_client_terms(
+    files: list[tuple[str, str]],
+    terms: list[str],
+    markers: list[tuple[str, bool]] | None = None,
+) -> list[str]:
+    """The docs are client- and domain-neutral: no file names a banned term or marker."""
+    markers = markers or []
+    banned_re = compile_terms(terms) if terms else None
     problems: list[str] = []
     for rel, text in files:
         for lineno, line in enumerate(text.splitlines(), start=1):
-            for m in _BANNED_TERMS_RE.finditer(line):
-                problems.append(f"{rel}:{lineno}:{m.group(0)}")
+            if banned_re is not None:
+                for m in banned_re.finditer(line):
+                    problems.append(f"{rel}:{lineno}:{m.group(0)}")
+            for needle, case_insensitive in markers:
+                haystack = line.lower() if case_insensitive else line
+                target = needle.lower() if case_insensitive else needle
+                if target in haystack:
+                    problems.append(f"{rel}:{lineno}:{needle}")
     return problems
 
 
@@ -498,7 +541,12 @@ def evaluate(
     problems += p
     notes += n
 
-    problems += check_banned_client_terms(scan_worktree_files(docs_root))
+    terms, markers = load_banned()
+    if not terms and not markers:
+        # Never a silent green: fail under CI, emit a visible skip note locally.
+        (problems if os.environ.get("CI") else notes).append(NO_LIST_MSG)
+    else:
+        problems += check_banned_client_terms(scan_worktree_files(docs_root), terms, markers)
 
     return problems, notes
 

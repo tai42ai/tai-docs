@@ -19,8 +19,11 @@ Guarantees asserted:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -30,6 +33,18 @@ import check_docs_refs  # noqa: E402
 
 def _dist_map() -> dict[str, str]:
     return check_docs_refs.load_distribution_map()
+
+
+def _require_terms() -> list[str]:
+    """The loaded word-boundary term list, or a loud CI failure / visible local skip
+    when no banned-terms list is configured — the banned-term self-tests derive their
+    fixtures from real terms, so no term is embedded in this file."""
+    terms, _ = check_docs_refs.load_banned()
+    if not terms:
+        if os.environ.get("CI"):
+            pytest.fail(check_docs_refs.NO_LIST_MSG)
+        pytest.skip(check_docs_refs.NO_LIST_MSG)
+    return terms
 
 
 # --- distribution names ----------------------------------------------------
@@ -269,79 +284,100 @@ def test_absent_requirements_notes_not_fails() -> None:
 # --- banned client terms ---------------------------------------------------
 
 
-def test_banned_client_term_flagged() -> None:
-    """A file naming a client product is flagged with its file:line:term."""
-    docs = [("guides/x.mdx", "line one\nEnable it on the concierge agent.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs)
-    assert len(problems) == 1, problems
-    assert problems[0] == "guides/x.mdx:2:concierge", problems[0]
-    print("  banned client term: flagged at file:line:term")
+def test_banned_term_flagged() -> None:
+    """A file naming a banned term is flagged with its file:line:term. The fixture is
+    the first loaded term, so no term is embedded in this file."""
+    terms = _require_terms()
+    term = terms[0]
+    docs = [("guides/x.mdx", f"line one\nEnable it on the {term} agent.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs, terms)
+    assert problems == [f"guides/x.mdx:2:{term}"], problems
+    print("  banned term: flagged at file:line:term")
 
 
-def test_banned_client_term_case_insensitive() -> None:
+def test_banned_term_case_insensitive() -> None:
     """Matching is case-insensitive and reports the term as written."""
-    docs = [("reference/y.md", "The BookinGuru rollout\nand a Bookin-Guru variant.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs)
-    assert len(problems) == 2, problems
-    assert problems[0] == "reference/y.md:1:BookinGuru", problems[0]
-    assert problems[1] == "reference/y.md:2:Bookin-Guru", problems[1]
-    print("  banned client term: case-insensitive, reported verbatim")
+    terms = _require_terms()
+    term = terms[0]
+    docs = [("reference/y.md", f"The {term.upper()} rollout\nand a {term.capitalize()} variant.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs, terms)
+    assert problems == [f"reference/y.md:1:{term.upper()}", f"reference/y.md:2:{term.capitalize()}"], problems
+    print("  banned term: case-insensitive, reported verbatim")
 
 
 def test_banned_term_word_boundary_no_false_positive() -> None:
     """A banned term embedded in a larger word is not a hit."""
-    docs = [("concepts/z.mdx", "The reconciergement audit and bookinguruesque tone.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs)
+    terms = _require_terms()
+    term = terms[0]
+    docs = [("concepts/z.mdx", f"The re{term}ment audit and {term}esque tone.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs, terms)
     assert problems == [], problems
-    print("  banned client term: word-boundary spares embedded substrings")
+    print("  banned term: word-boundary spares embedded substrings")
 
 
 def test_clean_files_pass_banned_check() -> None:
-    """Files free of client product names produce no problems."""
-    docs = [("guides/x.mdx", "Enable it on the assistant agent.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs)
+    """Files free of banned terms produce no problems."""
+    terms = _require_terms()
+    docs = [("guides/x.mdx", "A generic platform note.\n")]
+    problems = check_docs_refs.check_banned_client_terms(docs, terms)
     assert problems == [], problems
     print("  clean files: no banned-term problems")
 
 
+def test_banned_marker_flagged() -> None:
+    """A substring marker is caught even where it does not sit on a word boundary.
+    Skips when no markers are configured."""
+    terms, markers = check_docs_refs.load_banned()
+    if not markers:
+        pytest.skip("no substring markers configured")
+    needle = markers[0][0]
+    docs = [("guides/x.mdx", f"see {needle} here")]
+    problems = check_docs_refs.check_banned_client_terms(docs, terms, markers)
+    assert any(p.endswith(f":{needle}") for p in problems), problems
+    print("  banned marker: substring caught")
+
+
 def test_worktree_has_no_banned_terms() -> None:
-    """The worktree — tracked plus untracked-but-not-ignored — names no client
-    product (the scanner's own files and its test are exempt — they spell the terms
-    by definition)."""
-    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files())
+    """The worktree — tracked plus untracked-but-not-ignored — names no banned term."""
+    terms, markers = check_docs_refs.load_banned()
+    _require_terms()
+    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(), terms, markers)
     assert problems == [], "\n".join(problems)
-    print("  worktree: no banned client terms")
+    print("  worktree: no banned terms")
 
 
 def test_untracked_file_scanned_for_banned_terms(tmp_path: Path) -> None:
-    """A NEW, not-yet-committed file carrying a client product name is caught: the
-    scan enumerates untracked-but-not-ignored files, not only tracked ones, so the
-    guard is not vacuous exactly when a new file lands."""
+    """A NEW, not-yet-committed file carrying a banned term is caught: the scan
+    enumerates untracked-but-not-ignored files, not only tracked ones, so the guard
+    is not vacuous exactly when a new file lands."""
     import subprocess
 
+    terms = _require_terms()
+    term = terms[0]
     subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
-    (tmp_path / "committed.mdx").write_text("The generic assistant agent.\n", encoding="utf-8")
+    (tmp_path / "committed.mdx").write_text("The generic platform.\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
-    (tmp_path / "brand-new.mdx").write_text("line one\nEnable the concierge agent.\n", encoding="utf-8")
+    (tmp_path / "brand-new.mdx").write_text(f"line one\nEnable the {term} agent.\n", encoding="utf-8")
 
     files = check_docs_refs.scan_worktree_files(tmp_path)
     assert "brand-new.mdx" in {rel for rel, _ in files}, files
-    problems = check_docs_refs.check_banned_client_terms(files)
-    assert problems == ["brand-new.mdx:2:concierge"], problems
+    problems = check_docs_refs.check_banned_client_terms(files, terms)
+    assert problems == [f"brand-new.mdx:2:{term}"], problems
     print("  untracked file: banned term caught before git add")
 
 
 def test_clean_worktree_passes(tmp_path: Path) -> None:
-    """A clean worktree — tracked and untracked files alike free of client product
-    names — produces no problems."""
+    """A clean worktree — tracked and untracked files alike free of banned terms —
+    produces no problems."""
     import subprocess
 
+    terms = _require_terms()
     subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
-    (tmp_path / "committed.mdx").write_text("The generic assistant agent.\n", encoding="utf-8")
+    (tmp_path / "committed.mdx").write_text("The generic platform.\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
     (tmp_path / "brand-new.mdx").write_text("A new page about the platform.\n", encoding="utf-8")
 
-    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(tmp_path))
+    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(tmp_path), terms)
     assert problems == [], problems
     print("  clean worktree: tracked + untracked, no banned terms")
 
@@ -357,29 +393,8 @@ def test_current_tree_passes() -> None:
 
 
 def main() -> int:
-    print("test_check_docs_refs:")
-    test_real_distribution_passes()
-    test_bogus_distribution_fails()
-    test_logo_asset_not_mistaken_for_distribution()
-    test_vendor_annotation_not_mistaken_for_distribution()
-    test_slash_prefixed_bogus_distribution_flagged()
-    test_monorepo_url_passes()
-    test_monorepo_member_path_offline_notes()
-    test_infra_repo_url_passes()
-    test_bogus_repo_url_fails()
-    test_mismatched_always_public_fails()
-    test_matching_always_public_passes()
-    test_double_quoted_always_public_verified()
-    test_compose_regex_extracts_default()
-    test_requirement_names_strips_extras_and_pins()
-    test_banned_client_term_flagged()
-    test_banned_client_term_case_insensitive()
-    test_banned_term_word_boundary_no_false_positive()
-    test_clean_files_pass_banned_check()
-    test_worktree_has_no_banned_terms()
-    test_current_tree_passes()
-    print("test_check_docs_refs: OK")
-    return 0
+    # Delegate to pytest so fixture-scoped tests and list-driven skips run correctly.
+    return int(pytest.main([str(Path(__file__)), "-q"]))
 
 
 if __name__ == "__main__":
