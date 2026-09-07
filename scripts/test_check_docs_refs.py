@@ -15,6 +15,9 @@ Guarantees asserted:
    a NEW, not-yet-committed (untracked-but-not-ignored) file, while a clean
    worktree passes.
 5. The current committed tree passes (no drift, no client product names).
+6. The in-repo vocabulary rule flags the flow-engine editor phrases in a platform
+   (non-babelfish) doc (naming its ``file:line`` and the rule), while leaving the
+   ``babelfish/`` and ``scripts/`` trees and the hyphenated image-asset spelling alone.
 """
 
 from __future__ import annotations
@@ -380,6 +383,37 @@ def test_clean_worktree_passes(tmp_path: Path) -> None:
     problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(tmp_path), terms)
     assert problems == [], problems
     print("  clean worktree: tracked + untracked, no banned terms")
+
+
+# --- in-repo vocabulary rule -----------------------------------------------
+
+
+def test_vocabulary_rule_flags_editor_vocab_outside_babelfish() -> None:
+    """Every editor phrase in a PLATFORM (non-babelfish) doc fails, naming its
+    file:line and the rule; the babelfish/ (native vocabulary) and scripts/ (scanner
+    data) trees are exempt, and a hyphenated image-asset spelling never matches."""
+    files = [
+        ("concepts/tool-organization.mdx", "line one\nIt shows its canvas node bare.\n"),
+        ("studio/screens.mdx", "The router loop card and its node fills.\n"),
+        ("babelfish/index.mdx", "The custom node and the flow-views document.\n"),
+        ("scripts/check_docs_refs.py", '_VOCAB_PHRASES = ("custom node", "flow-views")\n'),
+        ("studio/screens.mdx", 'An image src="/images/studio/custom-node-light.png".\n'),
+    ]
+    problems = check_docs_refs.check_vocabulary(files)
+    assert problems == [
+        f"concepts/tool-organization.mdx:2:canvas node -- {check_docs_refs._VOCAB_RULE_MSG}",
+        f"studio/screens.mdx:1:router loop -- {check_docs_refs._VOCAB_RULE_MSG}",
+        f"studio/screens.mdx:1:node fills -- {check_docs_refs._VOCAB_RULE_MSG}",
+    ], problems
+    print("  vocabulary rule: platform-page editor phrases flagged; babelfish/ + scripts/ + image name exempt")
+
+
+def test_vocabulary_rule_clean_platform_doc_passes() -> None:
+    """A platform doc naming only platform features (and a bare babelfish cross-link)
+    produces no problems."""
+    files = [("concepts/tool-organization.mdx", "Presets and Babelfish flows share the overlay.\n")]
+    assert check_docs_refs.check_vocabulary(files) == []
+    print("  vocabulary rule: clean platform prose (bare babelfish allowed)")
 
 
 # --- whole tree ------------------------------------------------------------

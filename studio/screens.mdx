@@ -7,7 +7,7 @@ icon: "table-columns"
 The Studio's left sidebar leads with the **Dashboard** row, then groups every
 feature into five intent sections:
 
-- **Capabilities** — Tools, Agents, Presets, Extensions, Templates.
+- **Capabilities** — Tools, Agents, Presets, States, Extensions, Templates.
 - **Connections** — Connectors, Served endpoints.
 - **Triggers** — Hooks, Scheduling.
 - **Activity** — Conversations, Interactions, Notifications.
@@ -110,6 +110,80 @@ confirm.
 The Templates screen is populated only when the server has a storage backend
 registered. A server with no backend reports the surface as unavailable rather
 than inventing an empty list.
+</Note>
+
+## States
+
+The States screen drives the platform [state store](/concepts/states) — the
+declared documents every door reads and writes per subject. It lists each declared
+state with its subject kinds, record and consumer counts, and last update, above a
+**Declare state** action and an **Upload** action that routes a `.json` file to the
+state or state-module upload door by its `kind`.
+
+<Frame caption="The States screen: declared states with their subject kinds, record and consumer counts.">
+  <img className="block dark:hidden" src="/images/studio/states-list-light.png" alt="The States screen listing declared states with subject-kind badges and record and consumer counts." />
+  <img className="hidden dark:block" src="/images/studio/states-list-dark.png" alt="The States screen listing declared states with subject-kind badges and record and consumer counts." />
+</Frame>
+
+Opening a state leads to a detail page with four tabs. The **Declaration** tab edits
+the base JSON Schema as a nested field tree — mounted subtrees are read-only and
+badged with their module — beside the subject section (the kinds and the default
+kind; `person` keys are person ids from the conversations identity store) and the
+retention setting. Changing a field on a state that already has records opens a
+guarded migration dialog that previews the impact and resolves each field before
+anything applies; a narrowing change surfaces the confirm-drop step.
+
+<Frame caption="The Declaration tab: the base schema as a field tree beside the subject and retention settings.">
+  <img className="block dark:hidden" src="/images/studio/states-declaration-light.png" alt="The Declaration tab editing a state's base schema as a field tree with the subject kinds and retention settings." />
+  <img className="hidden dark:block" src="/images/studio/states-declaration-dark.png" alt="The Declaration tab editing a state's base schema as a field tree with the subject kinds and retention settings." />
+</Frame>
+
+The **Modules** tab lists the state's mounts — module, path, and the parameter and
+declaration counts — with **Edit declarations** and **Unmount** actions and a
+**Mount module** form that renders the module's parameter and declaration schemas as
+fields. Below the mounts it lists the platform module documents, each with its
+mounted-on count and a **shipped default** badge, and an **Upload module** action;
+deleting a module that is still mounted is refused.
+
+<Frame caption="The Modules tab: the state's mounts above the platform module documents.">
+  <img className="block dark:hidden" src="/images/studio/states-modules-light.png" alt="The Modules tab listing a state's mounts above the platform module documents with their mount counts and shipped-default badges." />
+  <img className="hidden dark:block" src="/images/studio/states-modules-dark.png" alt="The Modules tab listing a state's mounts above the platform module documents with their mount counts and shipped-default badges." />
+</Frame>
+
+The **Records** tab looks up one subject — a kind, a key, and a conversation target —
+lists a state's subjects with a keyed **Load more**, and searches records by document
+content. A found record opens the record page.
+
+<Frame caption="The Records tab: the subject lookup form above the state's subjects.">
+  <img className="block dark:hidden" src="/images/studio/states-records-light.png" alt="The Records tab with a subject lookup form above a list of the state's subjects." />
+  <img className="hidden dark:block" src="/images/studio/states-records-dark.png" alt="The Records tab with a subject lookup form above a list of the state's subjects." />
+</Frame>
+
+The **Consumers** tab is the union of everything that binds the state — flows, hooks,
+schedules, and agents — each with an **Open** link to the surface that owns it. A
+consumer family the deployment cannot serve (no scheduling backend, for instance) is
+shown as a muted line rather than swallowed.
+
+<Frame caption="The Consumers tab: everything that binds the state, each with an open link.">
+  <img className="block dark:hidden" src="/images/studio/states-consumers-light.png" alt="The Consumers tab listing the flows, hooks, schedules, and agents that bind the state." />
+  <img className="hidden dark:block" src="/images/studio/states-consumers-dark.png" alt="The Consumers tab listing the flows, hooks, schedules, and agents that bind the state." />
+</Frame>
+
+The **record page** shows one subject's document with an editor over the effective
+schema (or a validated JSON textarea when the schema cannot be rendered as a form), a
+**Fold into** card that folds this subject into another behind a destructive confirm,
+and the **Writes** audit table — each write's time, door, actor, consumer and node,
+run id, and the paths it touched.
+
+<Frame caption="The record page: the subject's document beside its fold action and its writes audit table.">
+  <img className="block dark:hidden" src="/images/studio/states-record-light.png" alt="The record page showing a subject's document, a fold-into card, and the writes audit table." />
+  <img className="hidden dark:block" src="/images/studio/states-record-dark.png" alt="The record page showing a subject's document, a fold-into card, and the writes audit table." />
+</Frame>
+
+<Note>
+Every States tab reports its own loading, empty, and error state, and the whole
+screen reports the store as unavailable when its database is unbound rather than
+inventing an empty list.
 </Note>
 
 ## Dashboard
@@ -313,260 +387,10 @@ top-level **Babelfish Flows** page and its own sidebar entry (and a companion
 **Babelfish State** page for the flow engine's declared state). A plugin entry that
 names one of the built-in sections joins that group after its core rows; an entry that
 names none renders in the single shared **Plugins** section that follows the core
-sections, each such entry carrying its own host-applied provenance badge. The
-page is a browser for your saved flows that mirrors the Tools screen's
-organization: it navigates
-[folders](/concepts/tool-organization) with a breadcrumb, toggles between a list
-and a card view (the choice persists per browser), and filters the list with a tag
-filter and a search box. Each flow row edits its display name, tags, and folder in
-place; hide management stays centralized on the Tools screen. The whole view — the
-open flow, the current folder, dialogs, and the active filters — is derived from
-the URL, so a flow is bookmarkable and the back button works; opening a link to a
-flow that no longer exists renders a loud not-found card, never a blank editor.
-
-Selecting a node on the canvas opens a **tabbed edit panel** — **Settings**,
-**Input**, **Output**, **State**. Settings is the per-kind configuration form and
-its Update-node action; a fan-in or loop node's Settings also carry the barrier's
-[wait knobs](/babelfish#node-waits) (wait mode and the timeout give-up pair) and,
-where the flow binds states, the opt-in
-[state-refresh](/babelfish#refresh-opt-in-state-re-read) toggle. Input and Output are
-read-only: they render the node's
-declared input and output schemas — with the node's outcomes surfaced on Output —
-so a node's contract is readable in build mode, and each shows an empty state when
-nothing is declared. A scheduled node's Settings also carry an optional [**run
-condition**](/babelfish#run-condition) — a jq predicate that gates whether the node
-runs at all. A false condition *skips* the node: it does not execute, its output is
-null, its status reads **skipped** in Run mode, and the flow continues past it (the
-gate stops the one node, not the path). The field is absent on a node that runs only as
-an on-error handler, since such a node is dispatched directly and never scheduled. When
-an agent node carries a [structured-output
-schema](/babelfish#structured-agent-output), the Output tab renders that schema live
-and its label reads **Output (structured)**. Editing that schema to **remove** a field
-surfaces a non-blocking honesty note on the agent's Settings: static analysis scans the
-flow for downstream jq that still reads the removed path off this agent
-(`.upstream_outputs.<agent>.<path>`, including the flow-level on-error handler) and
-names the references that would silently start resolving to null — it never blocks the
-save (references built dynamically are, honestly, not detected). The State tab is the
-node's fills editor — or, on the Start node, this flow's state bindings — and its tab
-label carries a live fill-count.
-
-When you run a flow in-page, the run panel and each node's run popup render results
-**schema-aware**. Where a node declared its output shape — an agent's structured-output
-schema, or a custom node's (or the whole flow's) output schema — the actual result
-renders as a **labeled, typed display** keyed off that schema: the schema's titles as
-field labels, its descriptions as captions, enum values as chips, nested objects as
-sections, and a declared array as a list of its typed items. The view stays honest about the data: value keys the schema does **not**
-declare are never hidden — they render as an appended raw-JSON remainder — a declared
-field absent from the value shows a muted dash, and a value that does not match the
-schema's shape at the top level falls back to the plain JSON tree with a small note
-rather than a crash. A per-instance **Raw** toggle flips the whole view to the plain
-tree, so the underlying data is never more than one click away, and a flow (or node)
-that declares no output shape keeps the plain results tree throughout.
-
-The [**LLM router**](/babelfish#routing-with-an-llm) card carries its own edit surface:
-the **kinds** it classifies into, optional **turn-level output fields** that describe
-the whole classified turn (each a top-level output beside the kinds), the author's
-system prompt, a **routing** mode — every match (the default, firing every matching
-route) or first match (the first matching route wins) — and a **routes table** listing
-every wired route with its flavor, condition, guard, and target. A route's target is
-the edge drawn from its chip on the card, so the table shows it rather than picking it.
-Under first match the table also orders the rows — the row number is the evaluation
-priority — and a row reorders by [dragging its grip or stepping its move
-buttons](/babelfish#the-routes-table); the table's advisory notes flag a row an earlier
-one already covers, without ever blocking the save.
-
-A **Loop mode** form group turns the card into a [bounded loop over a mounted
-module](/babelfish#loop-mode). A checkbox opens it; when on, a **State** select (the
-states this flow is bound to), a **Module** select (that state's mounts whose document
-declares a loop contract), a **Subject** jq field prefilled from the binding, and a **Max
-passes** number field whose placeholder is the effective cap with its source ("10
-(platform default)" or the module's value). The Kinds and Routes editors are replaced by a
-read-only **Phases from the manifest** table — kind, phase, handler tool, and a
-tool-found / tool-missing status badge — with a **Regenerate from manifest** button; a
-drift or missing-tool lint renders as an inline alert under the group. On the canvas the
-router node shows a **loop** badge in its kind slot and one solid chip per generated phase
-labeled `kind:phase` (the handler tool in its tooltip), and the iterate body group wraps
-the generated handler and outcome nodes under the card's name; when the manifest drifts,
-the node's errors card shows a **regenerate the loop card** message.
-
-<Frame caption="The Router card on the canvas in loop mode: a loop badge and one chip per generated phase, its handler foreach and outcome recorder wrapped in the iterate body group.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-canvas-light.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-canvas-dark.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-</Frame>
-
-<Frame caption="The Router edit form's Loop mode group: state, module, subject, and max-passes fields above the read-only Phases-from-the-manifest table with its Regenerate action.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-form-light.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-form-dark.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-</Frame>
-
-<Frame caption="The Router loop card in a drift state: the manifest changed since the card was generated, so a regenerate-from-manifest alert blocks the save.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-drift-light.png" alt="A Router loop card showing a manifest-drift alert prompting a regenerate from manifest." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-drift-dark.png" alt="A Router loop card showing a manifest-drift alert prompting a regenerate from manifest." />
-</Frame>
-
-The **fills editor** on the State tab edits, per node, the state fields the node
-writes. It groups fills by state and defaults to a top-level-field dropdown off the
-state's schema, with an advanced-path affordance that opens a schema-driven path
-picker (drilling into object properties and array items, with an append position for
-lists) plus an operation picker — `set` / `remove` and the
-[keyed list ops](/babelfish#keyed-state-list-ops) `set_by_key` / `remove_by_key`,
-which capture a key field and address a list rather than a field — and the fill's jq,
-plus an optional re-run jq for the case where the engine detects the node re-ran.
-Each fill also carries an
-optional compare-and-set [guard](/babelfish#cross-flow-state-writers) behind a
-collapsed disclosure. A save that writes a path another flow also writes **succeeds**
-and surfaces a quiet, non-alarming note beside the affected fill, pointing at the
-guard as the lost-update fix; a genuine write failure still renders loudly. With the
-states feature not configured, the State surfaces self-hide rather than erroring.
-
-The palette's **Custom Nodes** section manages a
-[custom node](/babelfish#custom-nodes) as a node: an edit control opens its flow
-editor, a **+ New custom node** action starts a fresh one, and a delete control
-raises a guarded confirm that states the blast radius — the node leaves the palette
-and any flow already embedding it keeps a dangling reference. When a node edit
-removes an outcome value that wired callers route on, the make-a-node dialog shows an
-**informational** warning naming the removed values and how many flows use the node
-(their routes would go dead) — it never blocks the save. This inform-don't-block
-convention is the editor's house style for changes whose impact lands on callers.
-
-The one thing the make-a-node dialog **does** block on is a genuinely *invalid*
-input-schema edit. The custom-node dialog's input-schema editor nulls its buffer while
-an edit is unparseable, and saving then would silently **erase** the schema — the right
-outcome for a deliberate clear, the wrong one for a typo. So Save is disabled precisely
-while the input-schema buffer is invalid (a bad shape, not an empty one), with an inline
-"fix the input schema before saving" note; a cleared buffer reports valid and saves a
-null schema as intended. This is a validity gate, distinct from the non-blocking
-caller-impact warnings above.
-
-A **message** slot on the agent form is edited as a **Plain / Template** tabbed
-control: Plain is a raw message textarea, and Template picks a stored
-[template](/concepts/storage-and-resources) with a deep link to the file and a
-collapsed preview of its first lines, editing its kwargs through a schema-assisted
-form over the authoritative JSON. A jq **expression** slot — on the conditional,
-branch, runnable, on-error, and agent forms — is instead an **Inline / Template**
-control: the Inline tab is the [visual jq editor](/babelfish#the-visual-jq-editor)'s
-field (below), and Template is the same picker. In both, the inline value and the
-template are mutually exclusive — the wire carries one, and switching between them
-clears the mode being left after a confirm when it holds data. A legacy node that
-carries **both** an inline message and a template opens on the Template tab with a
-rescue note and a one-click "clear inline text" action, so the exactly-one-of rule is
-fixable in place. A node with a return
-result may carry a **return expression** (jq) that shapes the value it contributes
-to the flow result, and a conditional's branch may be marked **pass-through** to
-inject the conditional's single upstream output verbatim — which excludes a
-post-route expression and a return. Settings the form does not model — kwargs an
-API-authored or newer agent carries — are surfaced **read-only** so nothing an agent
-persists is fully invisible, and are round-tripped untouched.
-
-The **Inline** tab's field is the [visual jq editor](/babelfish#the-visual-jq-editor):
-a jq text control with a **Visual editor** button that opens the canvas in a dialog,
-where the expression is drawn as a small, editable node graph and written back as jq.
-The dialog wraps a **Test** panel (run the jq against a sample seeded to the field's
-input shape, plus a server **Validate** where the engine exposes one), a **live
-readout** of the jq the graph currently serialises to, an **error summary** that jumps
-to each problem, and a **Legend** of the node kinds and wire notations.
-The [node vocabulary and its semantic hues](/babelfish#the-visual-jq-editor) — Input,
-Value, Operator, Condition, Try/Catch, Call Function, Define Function, Comment — are
-documented with the feature.
-
-The editor draws a graph **only when it can prove that reading it back gives exactly
-your expression**: a WASM oracle round-trips the graph and adopts it only when the two
-behave identically. Otherwise the fallback is non-destructive — an expression the
-editor cannot draw, or one whose graph would read back differently, keeps your text
-verbatim and shows it as text with a neutral **"not shown here"** notice; nothing is
-altered unless you explicitly **Start empty**. This keeps two questions apart — *is
-the jq valid* and *can the editor draw it* — so only jq that genuinely fails to
-compile raises the loud **"invalid expression"** alert, and valid jq the editor cannot
-represent is never mislabelled as broken. On opening the dialog, a faithful expression
-is drawn on the canvas; an unfaithful one shows the fallback, and the editable canvas
-is then reached only through **Start empty**.
-
-The plugin also contributes a **State** page for the flow engine's
-[declared states](/babelfish#flow-states). Its Define view edits a state's JSON
-Schema as a nested field tree — objects expand into child rows, arrays into item
-shapes — with a raw-JSON hatch for shapes the form cannot represent; changing a
-schema over stored records opens a guarded dialog that previews the impact ("N of
-M records fit") and resolves the rest per field before anything applies. The
-Registration view wires flows to a state: a path picker drills into the schema
-(including a list's append position), and each fill carries its jq plus an
-optional re-run jq with an inline hint explaining when it fires. The Records view
-lists a state's subjects, searches them by content filters, opens a record, and
-folds one subject into another behind a destructive confirm — a folded record
-shows the surviving subject and where it was folded from. A state exports to (and
-imports from) a single `.babelfish-state.json` file, mirroring flow export.
-
-The State page also carries a **Modules** tab for
-[state modules](/babelfish#state-modules) — the documents that give a state a declared
-structure. It lists every uploaded module by name and description with its mount count
-and a **shipped default** badge, and an **Upload module** action takes a JSON document
-through the flow-engine upload door. Uploading a name that already exists raises a
-**Replace module** confirm rather than overwriting silently, and deleting a module that
-is still mounted is refused with a message naming the states to unmount first.
-
-<Frame caption="The Modules tab on the State page: uploaded modules with their mount counts and shipped-default badges.">
-  <img className="block dark:hidden" src="/images/studio/states-modules-list-light.png" alt="The Modules tab listing state modules with name, description, mounted-on count, and a shipped-default badge." />
-  <img className="hidden dark:block" src="/images/studio/states-modules-list-dark.png" alt="The Modules tab listing state modules with name, description, mounted-on count, and a shipped-default badge." />
-</Frame>
-
-Opening a module row leads to its **page**: the document as a read-only tree — the
-schema, a regimes table with each path badged single / composing / free, the views with
-their parameters and jq, the declarations schema, the trace switch, and any loop
-contract — beside a **Mounts** list of the states carrying it and a **Nodes** list of
-the presets tagged with the module.
-
-<Frame caption="A module's page: its document sections beside its mounts and its shipped nodes.">
-  <img className="block dark:hidden" src="/images/studio/states-module-page-light.png" alt="A state module page showing the document tree, the regimes table, the views, and the mounts and nodes lists." />
-  <img className="hidden dark:block" src="/images/studio/states-module-page-dark.png" alt="A state module page showing the document tree, the regimes table, the views, and the mounts and nodes lists." />
-</Frame>
-
-A state's own detail carries a **Mounts** tab. It lists the state's mounts — module,
-path, and the parameter and declaration counts — with **Edit declarations** and
-**Unmount** actions, above a **Mount module** button. The mount form renders the module's
-parameter and declaration schemas as fields (defaults prefilled) with the path picker
-restricted to object levels; a path collision, a missing shipped preset, or a failed
-declarations check surfaces inside the dialog rather than as a toast, and an unmount is
-refused while a client binding still references the mount. The Fields view badges each
-mounted subtree with its module and renders the effective schema.
-
-<Frame caption="The Mounts tab on a state: the mounted modules and their edit/unmount actions.">
-  <img className="block dark:hidden" src="/images/studio/states-mounts-light.png" alt="The Mounts tab on a state detail listing mounted modules with edit-declarations and unmount actions." />
-  <img className="hidden dark:block" src="/images/studio/states-mounts-dark.png" alt="The Mounts tab on a state detail listing mounted modules with edit-declarations and unmount actions." />
-</Frame>
-
-<Frame caption="The mount-module form: the module's parameter and declaration schemas rendered as fields.">
-  <img className="block dark:hidden" src="/images/studio/states-mount-dialog-light.png" alt="The mount module dialog with a module select, a mount-path picker, and schema-rendered parameter and declaration fields." />
-  <img className="hidden dark:block" src="/images/studio/states-mount-dialog-dark.png" alt="The mount module dialog with a module select, a mount-path picker, and schema-rendered parameter and declaration fields." />
-</Frame>
-
-In the binding editor the first path segment offers a **Modules** group: choosing an
-`@<module>` entry makes the following segments mount-relative and badges the picker with
-the module, and every segment under a regime shows its rule (single / composing) with the
-rule spelled out in a tooltip. A refused save renders the engine's message verbatim, and
-a mount-materialized binding renders read-only with a **from module {name}** label.
-
-<Frame caption="The binding path picker with a module-relative `@module` path and its regime badges.">
-  <img className="block dark:hidden" src="/images/studio/states-binding-mount-path-light.png" alt="The binding editor path picker showing a module-relative path with single and composing regime badges." />
-  <img className="hidden dark:block" src="/images/studio/states-binding-mount-path-dark.png" alt="The binding editor path picker showing a module-relative path with single and composing regime badges." />
-</Frame>
-
-On the canvas palette, presets tagged `module:<name>` group under a **Module: {name}**
-heading above the folder groups, and a node's card on the canvas shows its module name as
-a badge.
-
-<Frame caption="The palette grouping module nodes under their module heading.">
-  <img className="block dark:hidden" src="/images/studio/palette-module-group-light.png" alt="The canvas palette grouping presets tagged with a module under a Module heading." />
-  <img className="hidden dark:block" src="/images/studio/palette-module-group-dark.png" alt="The canvas palette grouping presets tagged with a module under a Module heading." />
-</Frame>
-
-The flows toolbar carries an **Upload** action for any JSON document with a `kind` — a
-flow, a node, or a state module — through the same door, reporting the uploaded kind and
-name in a status line, prompting when a file carries no `kind`, and raising the same
-Replace-module confirm on a name clash.
-
-<Frame caption="The flows toolbar Upload action with its result line.">
-  <img className="block dark:hidden" src="/images/studio/flows-toolbar-upload-light.png" alt="The flows toolbar Upload action reporting the uploaded document's kind and name." />
-  <img className="hidden dark:block" src="/images/studio/flows-toolbar-upload-dark.png" alt="The flows toolbar Upload action reporting the uploaded document's kind and name." />
-</Frame>
+sections, each such entry carrying its own host-applied provenance badge. The Babelfish
+Flows page is the flow engine's own editor — its flow canvas, the node edit panels, the
+LLM router and loop mode, the visual jq editor, and state bindings — documented on the
+[Flows editor](/babelfish/studio) page.
 
 ## The scoped Studio
 

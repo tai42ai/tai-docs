@@ -1,0 +1,337 @@
+---
+title: "States"
+description: "A declared JSON document, one per subject, that every door reads and writes through one platform store."
+icon: "database"
+---
+
+A **state** is a declared JSON document with one instance per **subject**. The
+platform owns the store: a conversation turn, a hook fire, a scheduled job, a
+builtin tool, and the HTTP API all read and write the same subject's document
+through one seam, and every write lands in one audit trail. Domain behaviour —
+which flow reads which state, how a record is shaped for a use case — lives in the
+consumer that binds the state, never in the store.
+
+The store is a first-class platform component. It ships with the platform but
+serves nothing until its database is bound (see
+[Enabling the store](#enabling-the-store)); until then every read and write refuses
+loudly with a `501` rather than returning an empty document.
+
+## The subject
+
+A subject is four fields:
+
+```json
+{
+  "target_kind": "agent",
+  "target_name": "A-42",
+  "kind": "person",
+  "key": "alice"
+}
+```
+
+- `target_kind` and `target_name` are the **conversation-target scope** — the only
+  tenancy the platform has. A subject never crosses this pair.
+- `kind` names the subject family the state serves. Kind `person` is the one
+  platform-validated family: its `key` is a person id resolved against the
+  conversations identity store, and the resolved person's target must equal the
+  subject's target. Every other kind is declared by the state and its key is
+  opaque to the platform.
+- `key` addresses one subject within its kind. It is trimmed and must be 1 to 512
+  characters.
+
+The store refuses a subject loudly (`422`) when its rule fires: an **undeclared
+kind**, an **empty key**, an **unknown person**, or a **person whose target does
+not match the subject's**. A subject `kind` is a lowercase identifier of at most
+63 characters (`^[a-z][a-z0-9_-]{0,62}$`).
+
+## Declarations and kinds
+
+A state is declared before it is written. A declaration names the state, its base
+JSON Schema, the subject kinds it serves, and the default kind a door's ambient
+subject resolves to:
+
+```json
+{
+  "name": "status",
+  "description": "Per-person status document.",
+  "schema": { "type": "object", "properties": { "note": { "type": "string" } } },
+  "subject_kinds": ["person"],
+  "default_subject_kind": "person",
+  "retention_days": 90
+}
+```
+
+- `subject_kinds` is a non-empty, unique list; each entry matches the subject-kind
+  charset above.
+- `default_subject_kind` must be one of `subject_kinds`. It is the kind a door's
+  **ambient** subject resolves to when no explicit kind is named (see
+  [Doors](#doors)).
+- `retention_days` is optional: a positive integer, or unset to keep records
+  forever.
+- A state `name` matches `^[a-z0-9][a-z0-9_-]*$` — no colon, because the fill
+  op-id namespace splits on `:`.
+
+Two schema fields are **computed by the platform** and served on every read:
+`effective_schema` (the base schema composed with every mounted module's fragment)
+and `regimes` (the absolute write-regime rules composed over the mounts). A client
+that supplies a non-null value for either on a write is refused — neither can be
+forged across the wire.
+
+### Re-declaring and migrating
+
+A plain re-declare that would **remove or change** a field while records exist is
+refused (`409`): the change must go through the guarded migrate door. A migrate
+that narrows the schema must supply exactly one of a transform or a drop
+confirmation; supplying neither returns `412` with the narrowing message. A
+migrate transform that fails, or produces a record invalid under the new schema,
+aborts the whole change (`422`) — no partial state is ever committed.
+
+## Modules and mounts
+
+A **state module** is a reusable schema fragment with fillable parameters,
+per-path writer regimes, mount-time declarations, and a trace switch. It is a
+document the platform owns:
+
+```json
+{
+  "kind": "state-module",
+  "name": "utilities",
+  "description": "A reusable fragment.",
+  "parameters": {},
+  "schema": { "type": "object", "properties": { "items": { "type": "array" } } },
+  "regimes": [{ "path": ["items"], "regime": "composing" }],
+  "trace": { "enabled": true }
+}
+```
+
+A module document is the **platform half** only — its schema, regimes, parameters,
+declarations, and trace switch. A consumer that also needs its own artifacts keeps
+them in a separate document of its own kind, beside the module and validated through
+the platform's mount validator; a module document that carries keys outside its own
+schema is refused, so an operator who pastes a whole consumer document is told exactly
+where those belong. A module `name` matches `^[a-z][a-z0-9-]{0,62}$`.
+
+**Mounting** a module places its fragment at a path in a state's document:
+
+```json
+{ "path": ["extras"], "parameters": {}, "declarations": {} }
+```
+
+The effective schema is the base schema with every mounted fragment composed in.
+Composing two fragments at overlapping paths, or mounting where the base schema
+already carries the property, is a conflict (`409`) naming the colliding path. A
+consumer may register a **mount validator** on the states facet: given the module
+document, the mount's declaration values, and the state's effective schema, it
+raises loudly to refuse a mount or a declarations write — it is consulted before
+every mount and every declarations write.
+
+### Regimes
+
+A regime is a per-path writer rule composed over a state's mounts. Each rule is a
+`{path, regime}` where the path may use the `"*"` wildcard (one list index or key)
+and the regime is one of:
+
+- **`free`** — no restriction. An undeclared path is `free`.
+- **`composing`** — the path is built up by many writers, so a whole-path
+  `set`/`remove` over it is refused (`422`); it admits only a keyed op or an append
+  `set`. The refusal names the path and module, for example: `composing path
+  ['items'] of module 'utilities' admits only keyed ops or an append set`.
+- **`single`** — a single-writer path. This is enforced as an authoring check when
+  a consumer binds a state, not at the store: a hook, schedule, or builtin-tool
+  write on a `single` path is recorded in the audit trail with its door and actor,
+  never refused at write time.
+
+When a module's trace switch is enabled, the effective schema admits a `_trace`
+object on every write under the mount, and the platform stamps it (see
+[The audit trail](#the-audit-trail)).
+
+## Doors
+
+Every door that can write a subject's document deposits one ambient
+`StateContext` — the entering door, the resolvable subject candidates, and the
+accountable actor — so a downstream write resolves its subject and provenance
+without a per-door argument. The context is one generic object, so a run parked at
+an async `ask_user` and resumed later rejoins the same attribution.
+
+| Door | What it supplies | Explicit subject |
+|---|---|---|
+| **Conversation turn** | door `conversation`; the route's target scope; candidates `{"thread": <thread id>}` always, plus `{"person": <person id>}` on a multichannel target; actor = the turn's attribution user id; the turn id and inbound id | a flow reads the `turn.subject` block; a tool takes a `subject` argument |
+| **Park → continuation** | the original turn's `StateContext`, stored whole beside the continuation identity and re-deposited when the run resumes | — |
+| **Hook fire** | door `hook`; the declared target and `{kind: key}`; actor = the hook's execution key | a hook's `tool_kwargs` may carry `subject` |
+| **Schedule fire** | door `schedule`; the job's `subject` under its target; actor `null` (the fire is anonymous) | the job's `subject` |
+| **Builtin tools** | resolved from the ambient context, or from an explicit `subject` argument | `subject` argument |
+| **HTTP API** | door `api`/`operator`; actor = the request principal | the subject is in the path |
+| **Transfer tool** | door `transfer`; actor = the principal | an explicit subject map |
+
+A tool run with no ambient context — a sync run-tool call, a background run, the
+MCP edge — is the `api` door and a state tool it calls must carry an explicit
+subject; called with none it raises `no subject in scope`.
+
+### The turn subject block
+
+Every tool turn's payload carries a generic `turn` block so a flow's
+`subject_expr` can read the subject the platform resolved:
+
+```json
+{
+  "id": "<turn id>",
+  "inbound": { "id": "<inbound id>", "kind": "message", "source": "<source>" },
+  "subject": {
+    "target_kind": "agent",
+    "target_name": "A-42",
+    "person": "alice",
+    "thread": "<thread id>"
+  }
+}
+```
+
+`person` is `null` off a non-multichannel target (a person is resolved only for
+multichannel targets); `thread` is always present.
+
+### Hook and schedule subjects
+
+A hook may declare an optional subject: the target scope, a subject `kind`, and a
+`key_expr` — a jq expression evaluated over the event payload at fire, which must
+yield a non-empty string, else the fire fails loudly like any hook error. A
+schedule carries its `subject` in the job's tool kwargs; a malformed subject is
+refused when the job is created (`invalid schedule subject: …`), so a job that
+could never resolve its subject is never persisted. Both surface a **Subject**
+group on their Studio forms; see [Hooks](/concepts/hooks) and the scheduling
+reference.
+
+## The builtin tools
+
+Four LLM-facing tools read and write the calling subject's document. Each resolves
+its subject from the ambient context, or from an explicit `subject` argument
+(`{target_kind, target_name, kind, key}`, or `{kind, key}` with the target taken
+from the context); with neither resolvable it refuses, naming the state, kind, and
+door.
+
+| Tool | Effect |
+|---|---|
+| `state_read(state, subject=None)` | read the subject's document (a miss returns null) |
+| `state_replace(state, data, subject=None)` | replace the whole document |
+| `state_merge(state, patch, subject=None)` | shallow top-level merge of a patch |
+| `state_apply(state, ops, subject=None, op_id=None)` | apply a batch of path operations |
+
+The tools supply only the consumer half of a write's provenance (their tool name,
+run, and — for `state_apply` — the idempotency `op_id`); the door, actor, and turn
+id are stamped by the platform, never derived by the tool.
+
+## The audit trail
+
+Every write is recorded. A state's `writes` trail is a keyset page
+`{items, next_cursor}` — the same paging idiom as `subjects` and record search — with
+each `items` row carrying the write's `seq` and timestamp `at`, the completed origin
+that produced it, and the absolute `paths` it touched. `next_cursor` feeds the next
+call (`?cursor=`) and is null on the last page. The origin carries what the consumer
+supplied — `consumer`, `meta` (an opaque object the writing consumer supplies — its own identifiers, for instance — stored and shown as is), `run_id`, `op_id` — and,
+stamped by the platform write chokepoint from the ambient context, `door`, `actor`,
+`turn_id`, and `inbound_id`. Because door, actor, and turn are stamped by the platform,
+the trail cannot be forged by a consumer.
+
+Under a **traced mount** the platform stamps a `_trace` object on every write:
+`at` is always present; `run`, `turn`, and `inbound` are the run, turn, and inbound
+ids, or null when the writer has none (a hook, a schedule, the API, or a builtin
+`state_*` tool has none); and `meta` is an opaque object the writing consumer supplies
+— its own identifiers, for instance — stored and shown as is. A flow fill and a
+hook's keyed write get the same stamp.
+
+## The HTTP surface
+
+All routes are authed. Modules are a top-level sibling collection and prune is its
+own route, so no literal segment sits on the `/api/states/{name}` position — a
+state literally named `modules` stays reachable at `GET /api/states/modules` while
+`GET /api/state-modules` lists modules.
+
+### States
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/states` | list declarations |
+| `GET /api/states/{name}` | declaration, effective schema, mounts, regimes |
+| `PUT /api/states/{name}` | declare (`?replace=`) |
+| `DELETE /api/states/{name}` | delete a declaration |
+| `GET /api/states/{name}/stats` | record and subject counts |
+| `POST /api/states/{name}/migrate` | migrate the schema |
+| `POST /api/states/{name}/migrate/preview` | preview a migrate |
+| `GET /api/states/{name}/mounts` | list mounts |
+| `PUT /api/states/{name}/mounts/{module}` | mount a module |
+| `PATCH /api/states/{name}/mounts/{module}` | update mount declarations |
+| `DELETE /api/states/{name}/mounts/{module}` | unmount |
+| `GET /api/states/{name}/subjects` | list subjects (`?kind=&limit=&cursor=`) |
+| `POST /api/states/{name}/records/search` | search records by document content |
+| `GET /api/states/{name}/consumers` | what binds this state |
+
+### Records
+
+The subject is four path segments:
+`/api/states/{name}/records/{target_kind}/{target_name}/{kind}/{key}`.
+
+| Method & path | Purpose |
+|---|---|
+| `GET …` | read the record |
+| `PUT …` | replace the document |
+| `PATCH …` | shallow-merge a patch |
+| `POST …/deltas` | apply a batch of path operations |
+| `DELETE …` | erase the record |
+| `POST …/fold` | fold this subject into another |
+| `GET …/writes` | the audit trail |
+
+### Modules and retention
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/state-modules` | list modules |
+| `GET /api/state-modules/{name}` | read a module |
+| `PUT /api/state-modules/{name}` | upload a module (`?replace=`) |
+| `DELETE /api/state-modules/{name}` | delete a module |
+| `POST /api/state-retention/prune` | prune expired records |
+
+Errors map to status: `501` when the store's database is unbound (a stable code
+`states-not-configured`), `404` not found, `409` exists / in use / conflict, `422`
+validation (schema, subject, regime, path, value), `412` when a narrowing migrate
+needs its drop confirmation.
+
+## The command line
+
+Two command groups mirror the HTTP surface. `tai states` manages declarations,
+mounts, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
+`stats`, `migrate`, `migrate-preview`, `mounts`, `mount`, `update-mount`,
+`unmount`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `erase`,
+`fold`, `writes`, `consumers`, and `prune`. `tai state-modules` manages module
+documents — `list`, `get`, `put`, `delete`. Record commands take
+`--target-kind`, `--target-name`, `--kind`, and `--key`; `apply`, `replace`, and
+`merge` read their JSON from `--data` or a `--file`. See the
+[CLI reference](/reference/cli).
+
+## Enabling the store
+
+The store is the `states` DB registry component. Like the `skeleton` component it
+**defaults to the `default` database** when its binding is unset, so an ordinary
+deployment serves the store out of the box. A deployment that wants records in a
+separate database points the binding elsewhere with `TAI_DB_BINDING_STATES`, then
+applies the component's migration chain with `tai db migrate`. Until the bound
+database is configured, every read and write returns `501 states-not-configured`.
+
+Record retention is opt-in: nothing is deleted until a retention is configured,
+either per state (`retention_days` on the declaration) or as a deployment default
+(`STATES_DEFAULT_RETENTION_DAYS`). `tai states prune` runs the sweep.
+
+## Moving a flows-owned store onto the platform
+
+A deployment whose flows engine kept its own state store moves the records onto the
+platform store with the `flow_states_transfer` tool. It reads the flow-owned
+declarations, modules, mounts, records, aliases, applied ops, and bindings, and
+writes them onto the platform store under a subject map you supply
+(`{<state>: {target_kind, target_name, kind}}`): declarations and modules are
+re-declared, records are imported under the mapped subjects, and each binding's
+flat-string `subject_expr` is rewritten into a typed `{kind, key}` subject. The
+whole transfer is all-or-nothing — a state with records but no map entry, or a
+`person` key that does not resolve, refuses before anything is written.
+
+Run it `dry_run` first to see the counts, then for real; the re-run is idempotent
+(a record already present with equal data is skipped, a differing one refuses).
+Pass `drop_source` once the transfer is verified to drop the flow-owned tables. A
+first-serve guard refuses to serve a bound flow until the transfer has run, so an
+un-transferred deployment fails loudly rather than serving empty documents.
