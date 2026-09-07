@@ -932,26 +932,6 @@ stateless, and the binding routes answer a gated refusal.
 Record retention is a platform concern now — set it per state (`retention_days`) or as
 a deployment default on the store; see the [States concept](/concepts/states#enabling-the-store).
 
-#### Moving a pre-existing store onto the platform
-
-A deployment upgrading from a build where the flow engine owned the record store moves
-its records with the `flow_states_transfer` tool — reached through the run-tool door,
-not an HTTP route. It reads the flow-owned declarations, modules, mounts, records,
-aliases, applied ops, and bindings and writes them onto the platform store under a
-subject map you supply (`{<state>: {target_kind, target_name, kind}}` — the old
-flat-string subject becomes the typed subject's `key`); each stored binding's
-`subject_expr` is rewritten into the typed `{kind, key}` form. It is all-or-nothing:
-a state with records but no map entry, or a `person` key that does not resolve to a
-person of the mapped target, refuses before anything is written. Run it with `dry_run`
-first for the counts it would move, then for real (the re-run is idempotent — a record
-already present with equal data is skipped, a differing one refuses), then pass
-`drop_source` once verified to drop the flow-owned tables.
-
-Until the transfer runs, a **first-serve guard** refuses to serve a bound flow — loudly
-and non-fatally, naming the tool rather than serving an empty document: *"flow_states_records
-holds N rows and flow_states_declarations M: run the flow_states_transfer tool (dry_run
-first), then drop_source, before serving"*.
-
 ## State modules
 
 A **state module** gives a state a *declared structure* — a reusable schema fragment,
@@ -1185,8 +1165,7 @@ a preset). The flow-side binding and `flow-views` documents have direct routes t
 (plus `POST /api/babelfish/bindings/move`), and
 `GET /api/babelfish/views`, `GET/PUT/DELETE /api/babelfish/views/{module}` (PUT honors
 `?replace=`). Every one answers the same gated refusal (`503`, `reason:
-states_unavailable`) when the flow states feature is off, and a `409 untransferred_states`
-naming `flow_states_transfer` while a pre-move record substrate still holds rows.
+states_unavailable`) when the flow states feature is off.
 
 ## Shipped defaults are files
 

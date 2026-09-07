@@ -68,6 +68,33 @@ The module must be importable from the server process, so keep your package on `
 Long-running work does not have to block a request. Submit a detached run with `tai tools runs submit`, then poll it with `tai tools runs get`.
 </Tip>
 
+## Fenced tools
+
+A tool declares a **registration tier** to mark it admin-only. Declaring the
+`fenced` (or `secret`) tier gates both **authoring** a preset over the tool and
+**running** it: only an administrator may run a fenced tool, and a preset authored
+over one inherits the fence at run time. A tool with no declaration, or a `read` /
+`write` one, carries no extra execution gate.
+
+Declare it on the decorator:
+
+```python
+@tai42_app.tools.tool(tier="fenced")
+def run_script(argv: list[str], *, image: str) -> dict:
+    """Run a command in a disposable sandbox."""
+    ...
+```
+
+The fence is enforced once at the shared tool-run chokepoint, so it holds on every
+door a run can enter through — the HTTP run-tool route, the MCP edge, a background
+submit, a hook or schedule fire, an agent dispatch, a channel turn. A non-admin run
+is refused loudly (an HTTP `403`, an MCP tool error, or a recorded failed run on a
+detached door), never silently dropped. The built-in `sandbox_exec` tool declares
+`fenced` for exactly this reason — running arbitrary code is an admin act.
+
+With access control off every caller resolves as an administrator, so the fence
+bites only where the platform fences at all.
+
 ## See also
 
 - [Tools and extensions](/concepts/tools-and-extensions) — what a tool is and how an extension wraps one.

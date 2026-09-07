@@ -222,8 +222,7 @@ the payload's `key` value) resolving to the wait's item — absent, `via` is the
 itself. The item a `via` is matched against is chosen by precedence: the ledger row's item for
 a one-per-item kind (`item_of`), else the phase key's item segment, else the intent id; an
 event whose `via` matches **zero or several** waits binds nothing and mints one
-`unmatched_kind` record. The prior `event_key` is a clean break — a phase still carrying it is
-refused at mount (`` phase <kind>.<key>: event input: `event_key` is removed, use `key` ``).
+`unmatched_kind` record.
 
 Each **label** is `{outcome, resolution? | wait_for {who}, fields, follow_on?}`, declaring
 exactly one of `resolution` (a class) or `wait_for` (a party — `who ∈ user | other_party |
@@ -248,10 +247,8 @@ An `item_field` on a `mint` **binds** the open `(kind, item)` intent's waiting p
 its next reached-unsettled phase, else mints a fresh record carrying that `item`); an
 `item_field` on a `close` settles the open intent of that `(kind, item)`.
 
-`on_resolution` and `outcome_fields` are **gone** — a clean break. The mount check names
-either with its migration message, and the mint raises loudly on the first turn after an
-upgrade if a mounted manifest still carries them (see [Upgrading a mounted
-manifest](#upgrading-a-mounted-manifest)).
+A follow-on rides an outcome label's `outcomes[].follow_on`, and a label's readable fields
+ride `outcomes[].fields`.
 
 ### Parts rendered from fields
 
@@ -338,9 +335,6 @@ the first offender, and the mount **refuses** on any message it returns. In an a
 | an `ordering_waits` entry names (non-wildcard) an undeclared phase | `ordering wait of phase '<key>' names unknown phase '<kind>.<phase>'` |
 | the `ordering_waits` graph over `(kind, phase)` nodes has a cycle (a self-wait is a length-1 cycle) | `ordering waits form a cycle through <kind.phase …>` |
 | the `predecessor` graph within a kind has a cycle | `predecessor chain of kind '<kind>' forms a cycle through <keys>` |
-| a phase still carries `on_resolution` | ``phase <kind>.<key>: `on_resolution` is replaced by `outcomes[].follow_on` `` |
-| a phase still carries `outcome_fields` | ``phase <kind>.<key>: `outcome_fields` is replaced by `outcomes[].fields` `` |
-| an `expected_input` still carries `event_key` | `` phase <kind>.<key>: event input: `event_key` is removed, use `key` `` |
 | an `event` input's `event` is blank | `` phase <kind>.<key>: event input needs a non-blank `event` `` |
 | an `event` input's `key` is blank | `` phase <kind>.<key>: event input needs a non-blank `key` `` |
 | a label declares neither or both of `resolution`/`wait_for` | `phase <kind>.<key>: label '<label>' must declare exactly one of resolution or wait_for` |
@@ -383,36 +377,6 @@ schema, and refuses these shapes (`<where>` is `<path>[<key>=<k>].<expr>` for a 
 | a body is not valid jq inside the prelude | `module 'agenda' compiled view '<view>' at <where> is not a valid jq expression: <error>` |
 | a body's value type contradicts its declared `result` (a `standing` yielding a non-boolean, a `via`/`language` yielding a non-string) | `module 'agenda' compiled view '<view>' at <where> evaluated to <value> over the sample flow root, but the view declares result '<result>' — the body must yield a <result>` |
 | a body raises over the sample flow root — it is broken over the declared schema | `module 'agenda' compiled view '<view>' at <where> raised over the sample flow root: <error>` |
-
-## Upgrading a mounted manifest
-
-Several manifest shapes changed as breaking clean breaks — `outcomes[]` labels replace
-`on_resolution`/`outcome_fields`, the outcome map keys on `outcome`, `ordering_waits`
-entries are `{kind, phase}` objects, a part is rendered from fields, and `talk_slot` is an
-object. A mount declared before an upgrade keeps its old declarations until it is
-re-declared, and a stale shape does not fail uniformly on its own: an unmapped outcome would
-raise only at compose, and a follow-on read against a manifest still carrying `on_resolution`
-would silently yield none. So the first node of every turn — `agenda-mint` — carries a
-manifest-shape **guard**: when any phase still carries `on_resolution` or `outcome_fields`,
-or an outcome map row lacks `outcome`, the mint raises
-
-```text
-agenda: the mounted manifest predates this module version (<first offending key>) — re-declare it
-```
-
-so the first turn after a module upgrade fails **loudly**, never silently. The procedure:
-
-1. **Upgrade the module** — the boot seed applier reconciles a shipped-default module to its
-   new body (a hand-edited or still-mounted mount is left as it stands). Live mounts keep
-   their old declarations.
-2. **Re-declare the mount** — `PATCH /states/{state}/mounts/agenda` with the rewritten
-   manifest. The mount check names every offending key (the table above), so each breaking
-   shape is corrected against a concrete message.
-3. **Regenerate the loop card** — the manifest hash moves, so the Router card in loop mode
-   shows its drift lint; regenerating re-derives the kinds and phase branches.
-
-This is a clean break — no compatibility layer infers the old shape, because a bare phase key
-or a missing label is ambiguous the moment two kinds share it.
 
 ## The parameters
 
@@ -486,8 +450,7 @@ own mount-materialized binding. Their common inputs — `state`, `subject`, `run
 [loop](/babelfish/index#the-loop-contract) reads through one envelope unwrap.
 
 - **`agenda-mint`** — turns each inbound into records or binds it to an open expectation
-  WITHOUT language judgment. It first runs the manifest-shape [guard](#upgrading-a-mounted-manifest),
-  then mints standing intents whose predicate holds, binds an `event` turn by
+  WITHOUT language judgment. It mints standing intents whose predicate holds, binds an `event` turn by
   `expected_input.event` and its `via` to the waiting phase whose item matches, binds a `form`
   submission by its own row schema, binds a tapped `option` by its own row candidates, and
   binds a bare yes/no (via `yes_no_words`, no classifier call) when exactly one

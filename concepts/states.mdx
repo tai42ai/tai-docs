@@ -77,14 +77,13 @@ and `regimes` (the absolute write-regime rules composed over the mounts). A clie
 that supplies a non-null value for either on a write is refused — neither can be
 forged across the wire.
 
-### Re-declaring and migrating
+### Re-declaring
 
-A plain re-declare that would **remove or change** a field while records exist is
-refused (`409`): the change must go through the guarded migrate door. A migrate
-that narrows the schema must supply exactly one of a transform or a drop
-confirmation; supplying neither returns `412` with the narrowing message. A
-migrate transform that fails, or produces a record invalid under the new schema,
-aborts the whole change (`422`) — no partial state is ever committed.
+Once records exist, a re-declare accepts only **additive** schema changes: a
+re-declare that would **remove or change** an existing field while records exist
+is refused (`409`), and removing a subject kind still present in records is
+refused the same way. `retention_days` is metadata, not schema, so changing it
+alone is never gated.
 
 ## Modules and mounts
 
@@ -161,7 +160,6 @@ an async `ask_user` and resumed later rejoins the same attribution.
 | **Schedule fire** | door `schedule`; the job's `subject` under its target; actor `null` (the fire is anonymous) | the job's `subject` |
 | **Builtin tools** | resolved from the ambient context, or from an explicit `subject` argument | `subject` argument |
 | **HTTP API** | door `api`/`operator`; actor = the request principal | the subject is in the path |
-| **Transfer tool** | door `transfer`; actor = the principal | an explicit subject map |
 
 A tool run with no ambient context — a sync run-tool call, a background run, the
 MCP edge — is the `api` door and a state tool it calls must carry an explicit
@@ -253,8 +251,6 @@ state literally named `modules` stays reachable at `GET /api/states/modules` whi
 | `PUT /api/states/{name}` | declare (`?replace=`) |
 | `DELETE /api/states/{name}` | delete a declaration |
 | `GET /api/states/{name}/stats` | record and subject counts |
-| `POST /api/states/{name}/migrate` | migrate the schema |
-| `POST /api/states/{name}/migrate/preview` | preview a migrate |
 | `GET /api/states/{name}/mounts` | list mounts |
 | `PUT /api/states/{name}/mounts/{module}` | mount a module |
 | `PATCH /api/states/{name}/mounts/{module}` | update mount declarations |
@@ -289,15 +285,14 @@ The subject is four path segments:
 | `POST /api/state-retention/prune` | prune expired records |
 
 Errors map to status: `501` when the store's database is unbound (a stable code
-`states-not-configured`), `404` not found, `409` exists / in use / conflict, `422`
-validation (schema, subject, regime, path, value), `412` when a narrowing migrate
-needs its drop confirmation.
+`states-not-configured`), `404` not found, `409` exists / in use / conflict, and
+`422` validation (schema, subject, regime, path, value).
 
 ## The command line
 
 Two command groups mirror the HTTP surface. `tai states` manages declarations,
 mounts, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
-`stats`, `migrate`, `migrate-preview`, `mounts`, `mount`, `update-mount`,
+`stats`, `mounts`, `mount`, `update-mount`,
 `unmount`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `erase`,
 `fold`, `writes`, `consumers`, and `prune`. `tai state-modules` manages module
 documents — `list`, `get`, `put`, `delete`. Record commands take
@@ -317,21 +312,3 @@ database is configured, every read and write returns `501 states-not-configured`
 Record retention is opt-in: nothing is deleted until a retention is configured,
 either per state (`retention_days` on the declaration) or as a deployment default
 (`STATES_DEFAULT_RETENTION_DAYS`). `tai states prune` runs the sweep.
-
-## Moving a flows-owned store onto the platform
-
-A deployment whose flows engine kept its own state store moves the records onto the
-platform store with the `flow_states_transfer` tool. It reads the flow-owned
-declarations, modules, mounts, records, aliases, applied ops, and bindings, and
-writes them onto the platform store under a subject map you supply
-(`{<state>: {target_kind, target_name, kind}}`): declarations and modules are
-re-declared, records are imported under the mapped subjects, and each binding's
-flat-string `subject_expr` is rewritten into a typed `{kind, key}` subject. The
-whole transfer is all-or-nothing — a state with records but no map entry, or a
-`person` key that does not resolve, refuses before anything is written.
-
-Run it `dry_run` first to see the counts, then for real; the re-run is idempotent
-(a record already present with equal data is skipped, a differing one refuses).
-Pass `drop_source` once the transfer is verified to drop the flow-owned tables. A
-first-serve guard refuses to serve a bound flow until the transfer has run, so an
-un-transferred deployment fails loudly rather than serving empty documents.
