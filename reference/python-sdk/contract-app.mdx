@@ -794,6 +794,31 @@ id resolves to no record.
 | `status` | `DeliveryReceipt` | — | — |
 
 
+#### register_target_validator
+
+`tai42_contract.app.facets.AppConversations.register_target_validator`
+
+```python
+register_target_validator(self, target_kind: ConversationTargetKind, validator: TargetBindValidator) -> None
+```
+
+Register a bind validator for routes whose target is of ``target_kind``.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads.
+Route creation consults every registered validator for the route's target kind
+AFTER the target exists but BEFORE the route is written; a validator returning
+any message lines refuses the creation with them (a 422), so a defect the target
+carries — a flow reading a state no binding supplies — is caught at bind, never
+deferred to run time. Registering two validators for one kind raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `target_kind` | `ConversationTargetKind` | — | — |
+| `validator` | `TargetBindValidator` | — | — |
+
+
 
 ## AppExtensions
 
@@ -1449,40 +1474,15 @@ Declare a default preset the platform seeds at import time.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads.
 The declared seeds are applied by the startup/reload seed applier — created
-when absent, upgraded when a shipped default drifts, never touching an
-operator-edited preset. Declaring two seeds under the same ``name`` raises
-loudly — a silent overwrite could drop one plugin's default under another's.
+when absent, a preset already present left untouched. Declaring two seeds
+under the same ``name`` raises loudly — a silent overwrite could drop one
+plugin's default under another's.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `seed` | `PresetSeed` | — | — |
-
-
-#### register_retired_seed
-
-`tai42_contract.app.facets.AppPresets.register_retired_seed`
-
-```python
-register_retired_seed(self, name: str) -> None
-```
-
-Declare a previously shipped preset seed ``name`` this release WITHDRAWS.
-
-A plugin calls this through the ``tai42_app`` handle when its module loads —
-in the release where it STOPS declaring the seed itself — so deployed
-instances clean up the stale record instead of showing it forever. The
-startup/reload seed applier deletes the record only while the seed still
-owns it (its active version wears the shipped-default tag); an
-operator-edited record under the name is left in place with a visible skip.
-Declaring a name both seeded and retired raises loudly, in either order.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `name` | `str` | — | — |
 
 
 
@@ -1557,6 +1557,628 @@ facade accessors that let an in-process plugin read a skeleton-resolved value
 without importing the skeleton; a consumer building a policied spec reads the
 network default and ``scrub_transcript`` here. Implemented in the skeleton,
 which resolves the policy once and returns the SAME value it binds to the kit.
+
+
+
+## AppStates
+
+`tai42_contract.app.facets.AppStates`
+
+```python
+class AppStates(Protocol)
+```
+
+The subject-keyed state store namespace (``app.states``) — the door-agnostic
+contract every door and tool reads and writes a subject's document through.
+
+The store takes a full `StateSubject` and refuses
+anything less; subject resolution happens once per door, never here. Every write
+door supplies a `WriteOrigin` carrying only what a
+consumer knows — the platform completes it (``door``/``actor``/``turn_id``) at this
+chokepoint, so the audit ledger is never optional or forgeable. While the ``states``
+component's database is unbound every method raises
+`StatesNotConfiguredError` (501), never an empty read.
+
+### Members
+
+#### list_declarations
+
+`tai42_contract.app.facets.AppStates.list_declarations`
+
+```python
+async list_declarations(self) -> list[StateDeclaration]
+```
+
+Every declared state.
+
+
+#### get_declaration
+
+`tai42_contract.app.facets.AppStates.get_declaration`
+
+```python
+async get_declaration(self, name: str) -> StateDeclaration | None
+```
+
+The declaration named ``name``, or ``None`` when none is declared.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### put_declaration
+
+`tai42_contract.app.facets.AppStates.put_declaration`
+
+```python
+async put_declaration(self, decl: StateDeclaration) -> StateDeclaration
+```
+
+Declare or re-declare a state and return the stored declaration.
+
+An additive re-declare (new optional fields, new subject kinds) is applied in
+place; a change that would remove or narrow a field while records exist raises
+`NonAdditiveRedeclareError` (erase the records
+first), and removing a subject kind still present in records raises
+`DeclarationInUseError`. Never a silent overwrite.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `decl` | `StateDeclaration` | — | — |
+
+
+#### delete_declaration
+
+`tai42_contract.app.facets.AppStates.delete_declaration`
+
+```python
+async delete_declaration(self, name: str) -> None
+```
+
+Delete a state with its records and mounts; raise
+`DeclarationInUseError` when a consumer still
+binds it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### stats
+
+`tai42_contract.app.facets.AppStates.stats`
+
+```python
+async stats(self, name: str) -> dict[str, Any]
+```
+
+Counts for a state — records, subjects by kind, consumers — for the listing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### list_modules
+
+`tai42_contract.app.facets.AppStates.list_modules`
+
+```python
+async list_modules(self) -> list[StateModuleDocument]
+```
+
+Every stored platform module document.
+
+
+#### get_module
+
+`tai42_contract.app.facets.AppStates.get_module`
+
+```python
+async get_module(self, name: str) -> StateModuleDocument | None
+```
+
+The module document named ``name``, or ``None`` when none is stored — the
+read a consumer's own sibling document validates against.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### put_module
+
+`tai42_contract.app.facets.AppStates.put_module`
+
+```python
+async put_module(self, doc: StateModuleDocument, *, replace: bool) -> StateModuleDocument
+```
+
+Store a module document (``replace`` required to overwrite an existing name)
+and return it.
+
+Runs every registered mount validator over each live mount before the write, so
+a consumer's data-dependent check still fires here; a raise leaves the stored
+document untouched. Overwriting an existing name without ``replace`` raises
+`ModuleExistsError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateModuleDocument` | — | — |
+| `replace` | `bool` | — | — |
+
+
+#### delete_module
+
+`tai42_contract.app.facets.AppStates.delete_module`
+
+```python
+async delete_module(self, name: str) -> None
+```
+
+Delete a module document; raise
+`ModuleInUseError` while it is still mounted.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### list_mounts
+
+`tai42_contract.app.facets.AppStates.list_mounts`
+
+```python
+async list_mounts(self, state: str | None = None, *, module: str | None = None) -> list[dict[str, Any]]
+```
+
+Mount rows filtered by ``state``, by ``module``, or every mount when both are
+``None`` — the listing derived bindings and the Consumers tab read. Each row
+carries ``state``, ``module``, ``path``, ``parameters`` and ``declarations``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str \| None` | `None` | — |
+| `module` | `str \| None` | `None` | — |
+
+
+#### mount
+
+`tai42_contract.app.facets.AppStates.mount`
+
+```python
+async mount(self, state: str, module: str, body: MountBody) -> None
+```
+
+Mount ``module`` on ``state`` at ``body.path``, storing the resolved
+parameters and declarations and recomposing the effective schema in one
+transaction.
+
+Runs every registered mount validator before the write; a raise refuses the
+door with the validator's message. Overlapping fragments raise
+`MountConflictError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+| `body` | `MountBody` | — | — |
+
+
+#### update_mount_declarations
+
+`tai42_contract.app.facets.AppStates.update_mount_declarations`
+
+```python
+async update_mount_declarations(self, state: str, module: str, declarations: dict[str, Any]) -> None
+```
+
+Replace a mount's declaration values, re-running every registered mount
+validator and recomposing the effective schema before the write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+| `declarations` | `dict[str, Any]` | — | — |
+
+
+#### unmount
+
+`tai42_contract.app.facets.AppStates.unmount`
+
+```python
+async unmount(self, state: str, module: str) -> None
+```
+
+Remove a mount and recompose the state's effective schema.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+
+
+#### read
+
+`tai42_contract.app.facets.AppStates.read`
+
+```python
+async read(self, state: str, subject: StateSubject) -> RecordView | None
+```
+
+The record for ``subject`` (resolving a fold to its canonical subject), or
+``None`` when none exists. An unknown person or a target mismatch is a refusal,
+never an empty document.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+
+
+#### replace
+
+`tai42_contract.app.facets.AppStates.replace`
+
+```python
+async replace(
+    self,
+    state: str,
+    subject: StateSubject,
+    data: dict[str, Any],
+    *,
+    origin: WriteOrigin,
+) -> RecordView
+```
+
+Replace ``subject``'s whole document with ``data`` and return the new record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `data` | `dict[str, Any]` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### merge
+
+`tai42_contract.app.facets.AppStates.merge`
+
+```python
+async merge(
+    self,
+    state: str,
+    subject: StateSubject,
+    patch: dict[str, Any],
+    *,
+    origin: WriteOrigin,
+) -> RecordView
+```
+
+Shallow top-level merge ``patch`` into ``subject``'s document and return the
+new record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `patch` | `dict[str, Any]` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### apply
+
+`tai42_contract.app.facets.AppStates.apply`
+
+```python
+async apply(
+    self,
+    state: str,
+    subject: StateSubject,
+    ops: list[dict[str, Any]],
+    *,
+    op_id: str | None,
+    origin: WriteOrigin,
+) -> ApplyResult
+```
+
+Apply an op batch to ``subject``'s document under the effective schema.
+
+Refuses a whole-path write over a ``composing`` path
+(`RegimeViolationError`) before the ledger insert,
+stamps ``_trace`` under a traced mount, and records one ``state_writes`` row with
+the touched paths and the completed origin. A replayed ``op_id`` returns
+``applied=False`` without re-writing; guarded ops land in ``skipped``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `ops` | `list[dict[str, Any]]` | — | — |
+| `op_id` | `str \| None` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### erase
+
+`tai42_contract.app.facets.AppStates.erase`
+
+```python
+async erase(self, state: str, subject: StateSubject, *, origin: WriteOrigin) -> None
+```
+
+Erase ``subject``'s record, recording the write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### fold
+
+`tai42_contract.app.facets.AppStates.fold`
+
+```python
+async fold(
+    self,
+    state: str,
+    subject: StateSubject,
+    into: StateSubject,
+    mode: str,
+    *,
+    origin: WriteOrigin,
+) -> dict[str, Any]
+```
+
+Fold ``subject`` into ``into`` (``mode`` decides how the documents combine)
+and return the resulting canonical document.
+
+A self-fold, a cycle, a conflicting re-fold, or a merge whose result fails the
+schema raises `SubjectFoldError`; a retried fold to
+the same target is a quiet no-op.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `into` | `StateSubject` | — | — |
+| `mode` | `str` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### list_subjects
+
+`tai42_contract.app.facets.AppStates.list_subjects`
+
+```python
+async list_subjects(
+    self,
+    state: str,
+    *,
+    kind: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]
+```
+
+A keyset page of subjects for ``state`` (optionally one ``kind``):
+``{"subjects": [...], "next_cursor": <cursor|None>}``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `kind` | `str \| None` | `None` | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### search
+
+`tai42_contract.app.facets.AppStates.search`
+
+```python
+async search(
+    self,
+    state: str,
+    filters: dict[str, Any],
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]
+```
+
+A keyset page of records whose document contains ``filters``:
+``{"matches": [...], "next_cursor": <cursor|None>}``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `filters` | `dict[str, Any]` | — | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### writes
+
+`tai42_contract.app.facets.AppStates.writes`
+
+```python
+async writes(
+    self,
+    state: str,
+    subject: StateSubject,
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> WritesPage
+```
+
+One keyset page of the audit trail for ``subject``, newest first — the
+``items`` (each a write with its completed origin and touched paths) plus the
+``next_cursor`` that pages the trail like ``list_subjects``/``search`` page
+theirs (the last row's id when the page is full, else ``None``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### prune_expired
+
+`tai42_contract.app.facets.AppStates.prune_expired`
+
+```python
+async prune_expired(self) -> dict[str, int]
+```
+
+Delete records past their state's ``retention_days`` and return the per-state
+deletion counts.
+
+
+#### context
+
+`tai42_contract.app.facets.AppStates.context`
+
+```python
+context(self) -> StateContext | None
+```
+
+The ambient `StateContext` the current door
+deposited, or ``None`` outside a door (an ``api`` write completes from the
+request principal instead).
+
+
+#### register_consumer_lister
+
+`tai42_contract.app.facets.AppStates.register_consumer_lister`
+
+```python
+register_consumer_lister(self, kind: str, lister: ConsumerLister) -> None
+```
+
+Register a lister for consumer ``kind`` (flow / hook / schedule / agent).
+
+A plugin calls this through the ``tai42_app`` handle when its module loads;
+``consumers`` unions every registered lister. Registering two listers for one
+kind raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+| `lister` | `ConsumerLister` | — | — |
+
+
+#### consumers
+
+`tai42_contract.app.facets.AppStates.consumers`
+
+```python
+async consumers(self, state: str) -> list[ConsumerRow]
+```
+
+Everything that binds ``state`` — the union of every registered consumer
+lister — for the Consumers tab.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+
+
+#### register_module_seed
+
+`tai42_contract.app.facets.AppStates.register_module_seed`
+
+```python
+register_module_seed(self, doc: StateModuleDocument) -> None
+```
+
+Declare a platform module document the platform seeds at import time.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+startup/reload seed applier creates it when absent and leaves a module already
+present untouched. Declaring two seeds under one name raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateModuleDocument` | — | — |
+
+
+#### register_mount_validator
+
+`tai42_contract.app.facets.AppStates.register_mount_validator`
+
+```python
+register_mount_validator(self, validator: MountValidator) -> None
+```
+
+Register a data-dependent mount validator.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+validator receives the module document, a mount's declaration values, and the
+state's effective schema, and RAISES to refuse; it runs before every ``mount``,
+``update_mount_declarations`` and ``put_module(replace=True)`` write, so a
+consumer's checks fire at the platform's declarations doors, the States page
+included.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `validator` | `MountValidator` | — | — |
 
 
 
@@ -1846,6 +2468,51 @@ duplicate consult.
 | `provider` | `ToolRenameReferee` | — | — |
 
 
+#### register_tier
+
+`tai42_contract.tools.AppTools.register_tier`
+
+```python
+register_tier(self, base_tool: str, tier: RouteAction) -> None
+```
+
+Declare ``base_tool``'s registration tier — the authorization character
+(a `RouteAction`) enforced everywhere the tier is consulted.
+
+A ``fenced`` or ``secret`` tier gates BOTH authoring a preset over the base tool
+(admin-only) AND running the tool: a ``fenced``/``secret`` tool runs only for an
+administrator, at every execution door, and a preset authored over it inherits
+that fence at run time. ``read``/``write`` carry no execution gate. This is the
+programmatic form of ``@app.tools.tool(tier=...)``; both write the one shared
+registry (also read on the authoring side as ``app.presets.registration_tier``).
+One declaration per base tool; a duplicate raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+| `tier` | `RouteAction` | — | — |
+
+
+#### tier
+
+`tai42_contract.tools.AppTools.tier`
+
+```python
+tier(self, base_tool: str) -> RouteAction | None
+```
+
+The registration tier ``base_tool`` declared, or ``None`` when it declared
+none (no execution fence; authoring keeps the presets' default ``write`` action).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_tool` | `str` | — | — |
+
+
 
 ## AppVersioning
 
@@ -2000,6 +2667,7 @@ The assembled facade — per-feature sub-protocols exposed as namespaces.
 | `versioning` *(property)* | `AppVersioning` |
 | `presets` *(property)* | `AppPresets` |
 | `tool_meta` *(property)* | `AppToolMeta` |
+| `states` *(property)* | `AppStates` |
 
 
 ## tai42_app
@@ -2731,6 +3399,31 @@ id resolves to no record.
 | `channel` | `str` | — | — |
 | `provider_message_id` | `str` | — | — |
 | `status` | `DeliveryReceipt` | — | — |
+
+
+#### register_target_validator
+
+`tai42_contract.app.facets.AppConversations.register_target_validator`
+
+```python
+register_target_validator(self, target_kind: ConversationTargetKind, validator: TargetBindValidator) -> None
+```
+
+Register a bind validator for routes whose target is of ``target_kind``.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads.
+Route creation consults every registered validator for the route's target kind
+AFTER the target exists but BEFORE the route is written; a validator returning
+any message lines refuses the creation with them (a 422), so a defect the target
+carries — a flow reading a state no binding supplies — is caught at bind, never
+deferred to run time. Registering two validators for one kind raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `target_kind` | `ConversationTargetKind` | — | — |
+| `validator` | `TargetBindValidator` | — | — |
 
 
 
@@ -3681,40 +4374,15 @@ Declare a default preset the platform seeds at import time.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads.
 The declared seeds are applied by the startup/reload seed applier — created
-when absent, upgraded when a shipped default drifts, never touching an
-operator-edited preset. Declaring two seeds under the same ``name`` raises
-loudly — a silent overwrite could drop one plugin's default under another's.
+when absent, a preset already present left untouched. Declaring two seeds
+under the same ``name`` raises loudly — a silent overwrite could drop one
+plugin's default under another's.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `seed` | `PresetSeed` | — | — |
-
-
-#### register_retired_seed
-
-`tai42_contract.app.facets.AppPresets.register_retired_seed`
-
-```python
-register_retired_seed(self, name: str) -> None
-```
-
-Declare a previously shipped preset seed ``name`` this release WITHDRAWS.
-
-A plugin calls this through the ``tai42_app`` handle when its module loads —
-in the release where it STOPS declaring the seed itself — so deployed
-instances clean up the stale record instead of showing it forever. The
-startup/reload seed applier deletes the record only while the seed still
-owns it (its active version wears the shipped-default tag); an
-operator-edited record under the name is left in place with a visible skip.
-Declaring a name both seeded and retired raises loudly, in either order.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `name` | `str` | — | — |
 
 
 
@@ -3772,5 +4440,627 @@ placement untouched.
 | `tool_name` | `str` | — | — |
 | `tags` | `list[str] \| None` | `None` | — |
 | `folder_id` | `str \| None` | `None` | — |
+
+
+
+## AppStates
+
+`tai42_contract.app.facets.AppStates`
+
+```python
+class AppStates(Protocol)
+```
+
+The subject-keyed state store namespace (``app.states``) — the door-agnostic
+contract every door and tool reads and writes a subject's document through.
+
+The store takes a full `StateSubject` and refuses
+anything less; subject resolution happens once per door, never here. Every write
+door supplies a `WriteOrigin` carrying only what a
+consumer knows — the platform completes it (``door``/``actor``/``turn_id``) at this
+chokepoint, so the audit ledger is never optional or forgeable. While the ``states``
+component's database is unbound every method raises
+`StatesNotConfiguredError` (501), never an empty read.
+
+### Members
+
+#### list_declarations
+
+`tai42_contract.app.facets.AppStates.list_declarations`
+
+```python
+async list_declarations(self) -> list[StateDeclaration]
+```
+
+Every declared state.
+
+
+#### get_declaration
+
+`tai42_contract.app.facets.AppStates.get_declaration`
+
+```python
+async get_declaration(self, name: str) -> StateDeclaration | None
+```
+
+The declaration named ``name``, or ``None`` when none is declared.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### put_declaration
+
+`tai42_contract.app.facets.AppStates.put_declaration`
+
+```python
+async put_declaration(self, decl: StateDeclaration) -> StateDeclaration
+```
+
+Declare or re-declare a state and return the stored declaration.
+
+An additive re-declare (new optional fields, new subject kinds) is applied in
+place; a change that would remove or narrow a field while records exist raises
+`NonAdditiveRedeclareError` (erase the records
+first), and removing a subject kind still present in records raises
+`DeclarationInUseError`. Never a silent overwrite.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `decl` | `StateDeclaration` | — | — |
+
+
+#### delete_declaration
+
+`tai42_contract.app.facets.AppStates.delete_declaration`
+
+```python
+async delete_declaration(self, name: str) -> None
+```
+
+Delete a state with its records and mounts; raise
+`DeclarationInUseError` when a consumer still
+binds it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### stats
+
+`tai42_contract.app.facets.AppStates.stats`
+
+```python
+async stats(self, name: str) -> dict[str, Any]
+```
+
+Counts for a state — records, subjects by kind, consumers — for the listing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### list_modules
+
+`tai42_contract.app.facets.AppStates.list_modules`
+
+```python
+async list_modules(self) -> list[StateModuleDocument]
+```
+
+Every stored platform module document.
+
+
+#### get_module
+
+`tai42_contract.app.facets.AppStates.get_module`
+
+```python
+async get_module(self, name: str) -> StateModuleDocument | None
+```
+
+The module document named ``name``, or ``None`` when none is stored — the
+read a consumer's own sibling document validates against.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### put_module
+
+`tai42_contract.app.facets.AppStates.put_module`
+
+```python
+async put_module(self, doc: StateModuleDocument, *, replace: bool) -> StateModuleDocument
+```
+
+Store a module document (``replace`` required to overwrite an existing name)
+and return it.
+
+Runs every registered mount validator over each live mount before the write, so
+a consumer's data-dependent check still fires here; a raise leaves the stored
+document untouched. Overwriting an existing name without ``replace`` raises
+`ModuleExistsError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateModuleDocument` | — | — |
+| `replace` | `bool` | — | — |
+
+
+#### delete_module
+
+`tai42_contract.app.facets.AppStates.delete_module`
+
+```python
+async delete_module(self, name: str) -> None
+```
+
+Delete a module document; raise
+`ModuleInUseError` while it is still mounted.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### list_mounts
+
+`tai42_contract.app.facets.AppStates.list_mounts`
+
+```python
+async list_mounts(self, state: str | None = None, *, module: str | None = None) -> list[dict[str, Any]]
+```
+
+Mount rows filtered by ``state``, by ``module``, or every mount when both are
+``None`` — the listing derived bindings and the Consumers tab read. Each row
+carries ``state``, ``module``, ``path``, ``parameters`` and ``declarations``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str \| None` | `None` | — |
+| `module` | `str \| None` | `None` | — |
+
+
+#### mount
+
+`tai42_contract.app.facets.AppStates.mount`
+
+```python
+async mount(self, state: str, module: str, body: MountBody) -> None
+```
+
+Mount ``module`` on ``state`` at ``body.path``, storing the resolved
+parameters and declarations and recomposing the effective schema in one
+transaction.
+
+Runs every registered mount validator before the write; a raise refuses the
+door with the validator's message. Overlapping fragments raise
+`MountConflictError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+| `body` | `MountBody` | — | — |
+
+
+#### update_mount_declarations
+
+`tai42_contract.app.facets.AppStates.update_mount_declarations`
+
+```python
+async update_mount_declarations(self, state: str, module: str, declarations: dict[str, Any]) -> None
+```
+
+Replace a mount's declaration values, re-running every registered mount
+validator and recomposing the effective schema before the write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+| `declarations` | `dict[str, Any]` | — | — |
+
+
+#### unmount
+
+`tai42_contract.app.facets.AppStates.unmount`
+
+```python
+async unmount(self, state: str, module: str) -> None
+```
+
+Remove a mount and recompose the state's effective schema.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `module` | `str` | — | — |
+
+
+#### read
+
+`tai42_contract.app.facets.AppStates.read`
+
+```python
+async read(self, state: str, subject: StateSubject) -> RecordView | None
+```
+
+The record for ``subject`` (resolving a fold to its canonical subject), or
+``None`` when none exists. An unknown person or a target mismatch is a refusal,
+never an empty document.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+
+
+#### replace
+
+`tai42_contract.app.facets.AppStates.replace`
+
+```python
+async replace(
+    self,
+    state: str,
+    subject: StateSubject,
+    data: dict[str, Any],
+    *,
+    origin: WriteOrigin,
+) -> RecordView
+```
+
+Replace ``subject``'s whole document with ``data`` and return the new record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `data` | `dict[str, Any]` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### merge
+
+`tai42_contract.app.facets.AppStates.merge`
+
+```python
+async merge(
+    self,
+    state: str,
+    subject: StateSubject,
+    patch: dict[str, Any],
+    *,
+    origin: WriteOrigin,
+) -> RecordView
+```
+
+Shallow top-level merge ``patch`` into ``subject``'s document and return the
+new record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `patch` | `dict[str, Any]` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### apply
+
+`tai42_contract.app.facets.AppStates.apply`
+
+```python
+async apply(
+    self,
+    state: str,
+    subject: StateSubject,
+    ops: list[dict[str, Any]],
+    *,
+    op_id: str | None,
+    origin: WriteOrigin,
+) -> ApplyResult
+```
+
+Apply an op batch to ``subject``'s document under the effective schema.
+
+Refuses a whole-path write over a ``composing`` path
+(`RegimeViolationError`) before the ledger insert,
+stamps ``_trace`` under a traced mount, and records one ``state_writes`` row with
+the touched paths and the completed origin. A replayed ``op_id`` returns
+``applied=False`` without re-writing; guarded ops land in ``skipped``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `ops` | `list[dict[str, Any]]` | — | — |
+| `op_id` | `str \| None` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### erase
+
+`tai42_contract.app.facets.AppStates.erase`
+
+```python
+async erase(self, state: str, subject: StateSubject, *, origin: WriteOrigin) -> None
+```
+
+Erase ``subject``'s record, recording the write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### fold
+
+`tai42_contract.app.facets.AppStates.fold`
+
+```python
+async fold(
+    self,
+    state: str,
+    subject: StateSubject,
+    into: StateSubject,
+    mode: str,
+    *,
+    origin: WriteOrigin,
+) -> dict[str, Any]
+```
+
+Fold ``subject`` into ``into`` (``mode`` decides how the documents combine)
+and return the resulting canonical document.
+
+A self-fold, a cycle, a conflicting re-fold, or a merge whose result fails the
+schema raises `SubjectFoldError`; a retried fold to
+the same target is a quiet no-op.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `into` | `StateSubject` | — | — |
+| `mode` | `str` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### list_subjects
+
+`tai42_contract.app.facets.AppStates.list_subjects`
+
+```python
+async list_subjects(
+    self,
+    state: str,
+    *,
+    kind: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]
+```
+
+A keyset page of subjects for ``state`` (optionally one ``kind``):
+``{"subjects": [...], "next_cursor": <cursor|None>}``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `kind` | `str \| None` | `None` | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### search
+
+`tai42_contract.app.facets.AppStates.search`
+
+```python
+async search(
+    self,
+    state: str,
+    filters: dict[str, Any],
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]
+```
+
+A keyset page of records whose document contains ``filters``:
+``{"matches": [...], "next_cursor": <cursor|None>}``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `filters` | `dict[str, Any]` | — | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### writes
+
+`tai42_contract.app.facets.AppStates.writes`
+
+```python
+async writes(
+    self,
+    state: str,
+    subject: StateSubject,
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> WritesPage
+```
+
+One keyset page of the audit trail for ``subject``, newest first — the
+``items`` (each a write with its completed origin and touched paths) plus the
+``next_cursor`` that pages the trail like ``list_subjects``/``search`` page
+theirs (the last row's id when the page is full, else ``None``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `limit` | `int \| None` | `None` | — |
+| `cursor` | `str \| None` | `None` | — |
+
+
+#### prune_expired
+
+`tai42_contract.app.facets.AppStates.prune_expired`
+
+```python
+async prune_expired(self) -> dict[str, int]
+```
+
+Delete records past their state's ``retention_days`` and return the per-state
+deletion counts.
+
+
+#### context
+
+`tai42_contract.app.facets.AppStates.context`
+
+```python
+context(self) -> StateContext | None
+```
+
+The ambient `StateContext` the current door
+deposited, or ``None`` outside a door (an ``api`` write completes from the
+request principal instead).
+
+
+#### register_consumer_lister
+
+`tai42_contract.app.facets.AppStates.register_consumer_lister`
+
+```python
+register_consumer_lister(self, kind: str, lister: ConsumerLister) -> None
+```
+
+Register a lister for consumer ``kind`` (flow / hook / schedule / agent).
+
+A plugin calls this through the ``tai42_app`` handle when its module loads;
+``consumers`` unions every registered lister. Registering two listers for one
+kind raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kind` | `str` | — | — |
+| `lister` | `ConsumerLister` | — | — |
+
+
+#### consumers
+
+`tai42_contract.app.facets.AppStates.consumers`
+
+```python
+async consumers(self, state: str) -> list[ConsumerRow]
+```
+
+Everything that binds ``state`` — the union of every registered consumer
+lister — for the Consumers tab.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+
+
+#### register_module_seed
+
+`tai42_contract.app.facets.AppStates.register_module_seed`
+
+```python
+register_module_seed(self, doc: StateModuleDocument) -> None
+```
+
+Declare a platform module document the platform seeds at import time.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+startup/reload seed applier creates it when absent and leaves a module already
+present untouched. Declaring two seeds under one name raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateModuleDocument` | — | — |
+
+
+#### register_mount_validator
+
+`tai42_contract.app.facets.AppStates.register_mount_validator`
+
+```python
+register_mount_validator(self, validator: MountValidator) -> None
+```
+
+Register a data-dependent mount validator.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+validator receives the module document, a mount's declaration values, and the
+state's effective schema, and RAISES to refuse; it runs before every ``mount``,
+``update_mount_declarations`` and ``put_module(replace=True)`` write, so a
+consumer's checks fire at the platform's declarations doors, the States page
+included.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `validator` | `MountValidator` | — | — |
 
 
