@@ -8,7 +8,7 @@ renames a distribution, a repository, or changes a compose default. This check
 fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a merged
 source change that the docs did not follow is caught on the docs PR.
 
-Five checks, all OFFLINE (no network); the three that depend on the
+Six checks, all OFFLINE (no network); the three that depend on the
 ``tai-distribution`` sibling are gated on that checkout being present:
 
 1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
@@ -60,6 +60,16 @@ Five checks, all OFFLINE (no network); the three that depend on the
    client product names (the docs describe the generic platform, never a specific
    deployed flow or the client that runs it). A word-boundary, case-insensitive
    hit is a HARD failure naming its ``file:line:term``.
+
+6. In-repo vocabulary -- an in-repo rule (NOT the secret-sourced client list of
+   check 5) refusing a small phrase list (``custom node``, ``router loop``,
+   ``canvas node``, ``node fills``, ``flow-views``) OUTSIDE the ``babelfish/`` tree,
+   so a platform page never names the flow engine's editor vocabulary (the palette
+   feature is "Presets"). Case-insensitive on the spaced phrase (the hyphenated
+   image-asset spelling is a file name, left alone); the ``babelfish/`` (native
+   vocabulary) and ``scripts/`` (scanner + tests name the phrases as data) trees are
+   exempt, and bare ``babelfish`` is never banned (cross-links are legitimate). A hit
+   is a HARD failure naming its ``file:line``.
 
 Runs offline (the distribution set is read from the committed registry snapshot);
 the tai-distribution-gated checks stay strict only when that sibling is present::
@@ -253,6 +263,38 @@ def check_banned_client_terms(
                 target = needle.lower() if case_insensitive else needle
                 if target in haystack:
                     problems.append(f"{rel}:{lineno}:{needle}")
+    return problems
+
+
+# In-repo vocabulary rule, DISTINCT from the secret-sourced client-term list above:
+# a small phrase list refused OUTSIDE the ``babelfish/`` tree, so a PLATFORM page never
+# names the flow engine's editor vocabulary. The palette feature is "Presets" ("custom
+# node" is the retired label); "router loop", "canvas node", "node fills", and
+# "flow-views" are Babelfish-editor internals that leak the plugin into a platform page.
+# Case-insensitive on the spaced phrase, so the hyphenated image-asset spelling
+# (`custom-node` in a file name) never matches. Two trees are EXEMPT: ``babelfish/`` (the
+# plugin's own pages, where this vocabulary is native) and ``scripts/`` (the scanner and
+# its tests name the phrases as data). Bare "babelfish" is NOT banned — a cross-link to
+# the plugin is legitimate on any page.
+_VOCAB_PHRASES = ("custom node", "router loop", "canvas node", "node fills", "flow-views")
+_VOCAB_TERM_RE = re.compile("|".join(re.escape(p) for p in _VOCAB_PHRASES), re.IGNORECASE)
+_VOCAB_RULE_MSG = (
+    "a platform page names platform features, not the flow engine's editor "
+    "vocabulary (the palette feature is presets)"
+)
+_VOCAB_EXEMPT = ("scripts/", "babelfish/")
+
+
+def check_vocabulary(files: list[tuple[str, str]]) -> list[str]:
+    """Refuse the flow-engine editor vocabulary in a platform (non-``babelfish/``) doc,
+    naming its ``file:line`` and the rule. In-repo (no external list): always runs."""
+    problems: list[str] = []
+    for rel, text in files:
+        if rel.startswith(_VOCAB_EXEMPT):
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for m in _VOCAB_TERM_RE.finditer(line):
+                problems.append(f"{rel}:{lineno}:{m.group(0)} -- {_VOCAB_RULE_MSG}")
     return problems
 
 
@@ -541,12 +583,16 @@ def evaluate(
     problems += p
     notes += n
 
+    worktree = scan_worktree_files(docs_root)
+
     terms, markers = load_banned()
     if not terms and not markers:
         # Never a silent green: fail under CI, emit a visible skip note locally.
         (problems if os.environ.get("CI") else notes).append(NO_LIST_MSG)
     else:
-        problems += check_banned_client_terms(scan_worktree_files(docs_root), terms, markers)
+        problems += check_banned_client_terms(worktree, terms, markers)
+
+    problems += check_vocabulary(worktree)
 
     return problems, notes
 
@@ -570,7 +616,8 @@ def main() -> int:
 
     print(
         "check_docs_refs: OK -- distribution names, repo URLs, the ALWAYS_PUBLIC example, "
-        "the core-roster block all match source, and no file names a client product."
+        "the core-roster block all match source, no file names a client product, and no "
+        "platform page names the flow engine's editor vocabulary."
     )
     return 0
 

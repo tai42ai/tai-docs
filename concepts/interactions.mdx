@@ -123,14 +123,66 @@ through the answer door:
 - **`select`** — a choice from options.
 - **`form`** — a typed payload validated against a declared schema. Answered
   in-client through the answer door, or — over a [channel](#delivering-to-a-channel)
-  that supports forms — as an in-chat form: a web widget, a Slack modal, a WhatsApp
-  Flow, or a webview of the schema-rendered callback form page (the generic surface
-  behind them).
+  that supports forms — rendered as that channel's own form surface (see the
+  [channel capability matrix](/concepts/notifications#channel-capability-matrix) for
+  what each renders).
 
 The fifth format is **`external`**: the human acts on an outside surface — signs a
 document, approves a request, pays — and the external system delivers the answer
 back through a public callback door. The asking tool blocks exactly as it does for
 any other format; only the delivery channel differs.
+
+### Prefilling, per-send options and pages
+
+A `form` ask can refine its schema per send with two optional keys, both generic to
+every consumer and channel:
+
+- **`data`** — a per-send overlay on the schema. `data.values` prefills top-level
+  properties with known answers (keyed by property name), so the person confirms or
+  edits rather than typing from scratch. `data.options` supplies per-send choice
+  lists (keyed by property name) that replace a string property's `enum` for this one
+  send — each option a `value` (what the answer carries) and an optional `label` (the
+  text shown in its place) — so a variant needs no republished form.
+- **`pages`** — an ordered list of pages, each a `title` and the property names it
+  groups, splitting a longer form into steps. Every top-level property appears
+  exactly once across the pages; an absent `pages` is a single page.
+
+Both are validated against the schema before the ask is sent: an unknown property, a
+value that fails its property's schema, options on a non-string property, or a page
+that misses, repeats, or names an unknown field raises loudly, naming the field. A
+channel that cannot honor per-send data refuses at delivery — naming the field —
+rather than dropping it silently.
+
+```json
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "date": {"type": "string"},
+      "count": {"type": "integer"},
+      "notes": {"type": "string"}
+    },
+    "required": ["date", "count"]
+  },
+  "data": {
+    "values": {"count": 2},
+    "options": {
+      "date": [
+        {"value": "a", "label": "Option A"},
+        {"value": "b", "label": "Option B"}
+      ]
+    }
+  },
+  "pages": [
+    {"title": "Basics", "fields": ["date", "count"]},
+    {"title": "Extras", "fields": ["notes"]}
+  ]
+}
+```
+
+The prefilled `count` arrives filled in, `date` offers the two labelled choices this
+send provides, and the form reads as two steps. The same `data` and `pages` carry to
+every surface that renders the form.
 
 ## Media on a question
 
@@ -269,11 +321,10 @@ prompt.
 
 A `form` question rides a channel only when that channel advertises
 `supports_form_delivery`; a form sent to a channel without the flag raises loudly,
-naming it, before anything is sent. The person fills it natively — a web form
-widget, a Slack modal, a WhatsApp Flow, or a Telegram webview of the
-schema-rendered callback form page — and the typed answer returns through the
-callback door, validated against the schema exactly as the in-client door validates
-it.
+naming it, before anything is sent. The person fills it on that channel's own form
+surface — the [channel capability matrix](/concepts/notifications#channel-capability-matrix)
+records what each renders — and the typed answer returns through the callback door,
+validated against the schema exactly as the in-client door validates it.
 
 Because a channel form is answered on the server-rendered callback page, its
 `schema` must fall in a renderable **subset**, checked when the question is asked —
@@ -306,8 +357,8 @@ tool author:
   **`mismatch_notice`** replaces the platform's built-in retry line with your own text;
   a literal `{reason}` token in it is filled with the door's rejection reason by a plain
   substitution (a notice without the token is sent verbatim). A channel that owns its
-  own correction surface — a re-opened WhatsApp Flow, a Slack modal's inline error —
-  renders the door's specific reason itself and ignores `mismatch_notice`.
+  own correction surface renders the door's specific reason itself and ignores
+  `mismatch_notice`.
 - **`bridge`** — an unmatched reply is treated as a **digression**: the ask stays
   parked with **no** notice, and the reply is handed to the
   [conversation](/concepts/client-conversations) as a fresh routed turn so the flow

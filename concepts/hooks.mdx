@@ -66,6 +66,34 @@ limiter](/concepts/access-control#flood-control-on-public-doors) throttles the d
 regardless.
 </Warning>
 
+## Targeting a state subject
+
+A hook may carry an optional **subject** so a [state](/concepts/states) write during
+the fire is keyed and attributed to the hook. The subject names a
+conversation-target scope, a subject `kind`, and a `key_expr` — a jq expression
+evaluated over the event payload at fire, which must yield a non-empty string:
+
+```json
+{
+  "topic": "event_created",
+  "tool": "record_status",
+  "subject": {
+    "target_kind": "agent",
+    "target_name": "A-42",
+    "kind": "person",
+    "key_expr": ".actor"
+  }
+}
+```
+
+The fire runs with this subject as its ambient state context: a state tool the
+hook calls resolves the subject from it, and the write is recorded under door
+`hook` with the hook's execution key as the actor. A `key_expr` that yields nothing
+fails the fire loudly, like any hook error. Leaving `subject` unset leaves the fire
+with no ambient state context, so a state tool it calls must carry an explicit
+subject. The Studio's [Hooks screen](/studio/hooks) surfaces the subject as an
+optional group on the register form.
+
 ## Managing hooks live
 
 Hooks are managed at run time, with no restart. The manager comes in an in-memory
