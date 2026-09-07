@@ -279,8 +279,7 @@ def check_banned_client_terms(
 _VOCAB_PHRASES = ("custom node", "router loop", "canvas node", "node fills", "flow-views")
 _VOCAB_TERM_RE = re.compile("|".join(re.escape(p) for p in _VOCAB_PHRASES), re.IGNORECASE)
 _VOCAB_RULE_MSG = (
-    "a platform page names platform features, not the flow engine's editor "
-    "vocabulary (the palette feature is presets)"
+    "a platform page names platform features, not the flow engine's editor vocabulary (the palette feature is presets)"
 )
 _VOCAB_EXEMPT = ("scripts/", "babelfish/")
 
