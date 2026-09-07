@@ -21,8 +21,8 @@ A message reaches the bridge through one of two doors, chosen per route:
   sent **from** the identity the client texted.
 - **`api`** — an authed caller `POST`s to
   `/api/conversations/{route_name}/messages`. The answer is delivered by a signed
-  HTTPS callback to the route's `callback_url`, or returned inline on a bounded
-  sync wait.
+  HTTPS callback to the route's `callback_url` when it declares one, returned inline
+  on a bounded sync wait, or read back from the poll door when it declares none.
 
 A blank or whitespace-only message is refused before any turn runs: the `api` door
 answers `400`, and a channel drops it (logged, nothing sent back).
@@ -49,7 +49,7 @@ to what a turn runs — an agent or a tool — and the execution key that turn r
 | `initial_mode` | The default [control mode](#control-mode-and-operator-messages): `agent` (run the turn) or `manual` (suppress it for an operator). |
 | `payload_expr` / `reply_expr` | `tool` targets: jq mapping the message to the tool kwargs and the result to the reply. |
 | `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
-| `callback_url` | `api` rows: the HTTPS answer sink. |
+| `callback_url` | `api` rows, optional: the HTTPS answer sink; without one, answers are read from the poll door. |
 
 A `channel` route's `(channel, our_identity)` pair is unique — a second route
 claiming the same identity is refused at write, so every inbound message resolves
@@ -95,7 +95,7 @@ dropped.
 A tool reply that is `null` or blank is a **deliberate silence** — the turn ran but
 has nothing to say. On a `channel` route nothing is sent back (a terminal `silent`
 record); on an `api` route the silence is communicated, delivered as a callback (or
-sync-wait reply) whose `status` is `silent` and which carries no answer text. That
+sync-wait reply, or a poll-door record) whose `status` is `silent` and which carries no answer text. That
 makes a tool target a way to answer some messages and stay quiet on others: a
 published [flow preset](/concepts/presets), say, that replies only when it has
 something to return. See the [bridge
@@ -239,8 +239,9 @@ The inbound door returns as soon as the message is accepted and its answer recor
 persisted; the turn runs in the background and the answer is delivered when it
 completes. A `channel` door returns the accepted id immediately; the `api` door
 returns `202 {message_id, thread_id}`, or — with a bounded `wait_seconds` — `200`
-carrying the answer inline when the turn finishes in time (its callback is then
-suppressed so it never double-fires).
+carrying the answer inline when the turn finishes in time (a route with a callback then
+suppresses it so it never double-fires). A route with no `callback_url` records the answer
+for the poll door, `GET /api/conversations/{route_name}/messages/{message_id}`.
 
 ## Answer outcomes
 

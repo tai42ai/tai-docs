@@ -24,8 +24,8 @@ Every routing operation requires the Redis conversations backend
 route's `execution_key` (a pass-role decision) before any write, so a refused bind
 leaves an existing row untouched. The `target_name` — the agent or tool the turn
 runs — must merely exist. A `channel` row's `(channel, our_identity)` pair must be
-unclaimed. An `api` row mints a `callback_secret` returned **once** in the create
-result and never re-readable.
+unclaimed. An `api` row that declares a `callback_url` mints a `callback_secret`
+returned **once** in the create result and never re-readable.
 
 ```bash
 tai conversations create chat-line \
@@ -37,7 +37,7 @@ tai conversations create chat-line \
 `agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
 targets), `--initial-mode` (`agent`|`manual`, default `agent` — the route's default
 [control mode](#operator-messages-and-control-mode)), `--channel` / `--identity`
-(channel rows), `--callback-url` (api rows, HTTPS). `--initial-mode manual` is valid on
+(channel rows), `--callback-url` (api rows, optional, HTTPS). `--initial-mode manual` is valid on
 any target (see [control mode](#control-mode)).
 
 ## Route targets: agent or tool
@@ -191,10 +191,11 @@ consumes) and reaches a **tool** target's payload under its own `attachments` /
 both are untrusted transport, never schema-validated. See
 [structured guest messages](/concepts/client-conversations#structured-guest-messages).
 
-- `202 {message_id, thread_id}` — accepted, answer delivered later by signed
-  callback (default).
-- `200` with the answer inline — a `wait_seconds` turn that finished in time; its
-  callback is suppressed so it never double-fires. A turn that finished **silent**
+- `202 {message_id, thread_id}` — accepted; the answer is delivered later by the
+  route's signed callback, or — when the route declares no `callback_url` — read back
+  from `GET /api/conversations/{route_name}/messages/{message_id}`.
+- `200` with the answer inline — a `wait_seconds` turn that finished in time; a route
+  with a callback suppresses it so it never double-fires. A turn that finished **silent**
   returns `200` with the silent marker inline (`status: "silent"`, no answer text).
   `wait_seconds` is clamped to `sync_wait_max_seconds`.
 - Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
@@ -236,9 +237,10 @@ Body (`ConversationEventSubmission`):
 Responses:
 
 - `200` with the answer inline — a `wait_seconds` turn on an **api**-door thread that
-  finished in time; its callback is suppressed so it never double-fires.
+  finished in time; a route with a callback suppresses it so it never double-fires.
 - `202 {message_id, thread_id}` — accepted; the answer is delivered later by the target
-  route's door (a channel send, or an api route's signed callback).
+  route's door (a channel send, an api route's signed callback, or — when the api route
+  declares no callback — the poll door, `GET /api/conversations/{route_name}/messages/{message_id}`).
 - `404` — the thread does not exist on the route (an event enters an existing thread, so
   an unknown `(route, address)` or `thread_id` is refused, never opened).
 - `409` — the route's target is an **agent**: an event has no rendered text to hand an
@@ -719,9 +721,11 @@ a deep-agent sub-agent calls. The rules:
 A denied run does not crash the turn: it becomes a client-safe `error` outcome, its
 detail retained for the admin read door.
 
-**Signed-callback posture.** An `api` route's `callback_url` must be absolute
-**HTTPS** — an `http://` or relative URL is rejected at create, with **no** insecure
-opt-out. Every callback is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
+**Signed-callback posture.** An `api` route's `callback_url` is optional; when set it
+must be absolute **HTTPS** — an `http://` or relative URL is rejected at create, with
+**no** insecure opt-out. A route with no `callback_url` records every answer for the poll
+door (`GET /api/conversations/{route_name}/messages/{message_id}`) instead. Every callback
+is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
 raw_body)>`, over a body of `{message_id, thread_id, status, answer}` — with `answer`
 absent on a `silent` outcome. See [connect your own
 system](/guides/connect-your-own-system#verify-the-x-tai-signature).

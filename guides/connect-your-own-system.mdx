@@ -44,9 +44,10 @@ agent never runs as the sender.
 
 ## Create the API route
 
-An `api` route carries an HTTPS `callback_url` — the sink the answer is POSTed to.
-The URL **must** be absolute HTTPS; an `http://` or relative URL is rejected at
-create.
+An `api` route may carry an HTTPS `callback_url` — the sink the answer is POSTed to;
+this walkthrough uses one. When set, the URL **must** be absolute HTTPS; an `http://`
+or relative URL is rejected at create. A route with no `callback_url` reads its answers
+back from the poll door instead (below).
 
 ```bash
 tai conversations create account \
@@ -85,6 +86,10 @@ The default answer is `202` with the id to correlate the callback against:
 ```json
 { "data": { "message_id": "4f1c…", "thread_id": "bridge:account:user-42" } }
 ```
+
+Without a `callback_url` on the route, read the answer back once the turn finishes from
+`GET /api/conversations/{route_name}/messages/{message_id}`, keyed by the `message_id`
+this `202` returned.
 
 The door refuses loudly rather than silently: `404` unknown route, `429` the
 address rate cap, `503` the thread queue is full, `501` no conversations backend
