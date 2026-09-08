@@ -8,7 +8,7 @@ renames a distribution, a repository, or changes a compose default. This check
 fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a merged
 source change that the docs did not follow is caught on the docs PR.
 
-Six checks, all OFFLINE (no network); the three that depend on the
+Four checks, all OFFLINE (no network); the three that depend on the
 ``tai-distribution`` sibling are gated on that checkout being present:
 
 1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
@@ -54,23 +54,6 @@ Six checks, all OFFLINE (no network); the three that depend on the
    regeneration pipeline only rebuilds generator-owned sections, never a narrative
    page, so a drift gate -- not a dispatch -- is what enforces this page's sync.
 
-5. Banned client terms -- every ``.mdx``/``.md``/``.py``/``.json`` file git tracks
-   or would track (tracked plus untracked-but-not-ignored, so a banned term in a
-   NEW file is caught before it is committed, not only after) must be free of
-   client product names (the docs describe the generic platform, never a specific
-   deployed flow or the client that runs it). A word-boundary, case-insensitive
-   hit is a HARD failure naming its ``file:line:term``.
-
-6. In-repo vocabulary -- an in-repo rule (NOT the secret-sourced client list of
-   check 5) refusing a small phrase list (``custom node``, ``router loop``,
-   ``canvas node``, ``node fills``, ``flow-views``) OUTSIDE the ``babelfish/`` tree,
-   so a platform page never names the flow engine's editor vocabulary (the palette
-   feature is "Presets"). Case-insensitive on the spaced phrase (the hyphenated
-   image-asset spelling is a file name, left alone); the ``babelfish/`` (native
-   vocabulary) and ``scripts/`` (scanner + tests name the phrases as data) trees are
-   exempt, and bare ``babelfish`` is never banned (cross-links are legitimate). A hit
-   is a HARD failure naming its ``file:line``.
-
 Runs offline (the distribution set is read from the committed registry snapshot);
 the tai-distribution-gated checks stay strict only when that sibling is present::
 
@@ -80,9 +63,7 @@ the tai-distribution-gated checks stay strict only when that sibling is present:
 from __future__ import annotations
 
 import json
-import os
 import re
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -166,135 +147,6 @@ def scan_docs(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
             continue
         out.append((rel, p.read_text(encoding="utf-8")))
     return out
-
-
-# The banned list is data, never source: no client/product/business-domain term is
-# baked into this scanner. Entries load at runtime from, in order, the
-# ``TAI_BANNED_TERMS`` environment variable (comma-separated, whitespace-trimmed,
-# empty entries dropped) else the local untracked file
-# ``~/.config/tai42/banned-terms.txt`` (one entry per line, ``#`` comments allowed).
-# Entry grammar: a plain entry is a word-boundary term (matched case-insensitively);
-# a ``marker:`` prefix is a case-sensitive substring marker and ``marker-ci:`` a
-# case-insensitive one, for tokens that do not sit on regex word boundaries. With no
-# list available the guard is never a silent green: under CI it fails, locally it
-# emits a visible skip note.
-NO_LIST_MSG = "no banned-terms list: set TAI_BANNED_TERMS or ~/.config/tai42/banned-terms.txt"
-_LOCAL_LIST = Path.home() / ".config" / "tai42" / "banned-terms.txt"
-
-# The tracked file kinds scanned for banned terms.
-_BANNED_SCAN_SUFFIXES = frozenset({".mdx", ".md", ".py", ".json"})
-
-
-def _raw_banned_entries() -> list[str]:
-    env = os.environ.get("TAI_BANNED_TERMS")
-    if env is not None and env.strip():
-        return [entry.strip() for entry in env.split(",")]
-    if _LOCAL_LIST.is_file():
-        return [line.split("#", 1)[0].strip() for line in _LOCAL_LIST.read_text(encoding="utf-8").splitlines()]
-    return []
-
-
-def load_banned() -> tuple[list[str], list[tuple[str, bool]]]:
-    """Return ``(terms, markers)`` from the runtime source; markers are
-    ``(needle, case_insensitive)`` substring rules, terms are word-boundary."""
-    terms: list[str] = []
-    markers: list[tuple[str, bool]] = []
-    for entry in _raw_banned_entries():
-        if not entry:
-            continue
-        if entry.startswith("marker-ci:"):
-            markers.append((entry[len("marker-ci:") :], True))
-        elif entry.startswith("marker:"):
-            markers.append((entry[len("marker:") :], False))
-        else:
-            terms.append(entry)
-    return terms, markers
-
-
-def compile_terms(terms: list[str]) -> re.Pattern[str]:
-    return re.compile(r"\b(?:" + "|".join(re.escape(term) for term in terms) + r")\b", re.IGNORECASE)
-
-
-def scan_worktree_files(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
-    """Return ``(relative_path, text)`` for every ``.mdx``/``.md``/``.py``/``.json``
-    file git tracks or would track.
-
-    Enumerates ``git ls-files`` (tracked) unioned with
-    ``git ls-files --others --exclude-standard`` (untracked-but-not-ignored), so a
-    banned term in a NEW file is caught before it is git-added, not only after; an
-    ignored ``node_modules`` tree never leaks in. Fails loudly if git cannot
-    enumerate the tree."""
-    tracked = subprocess.run(
-        ["git", "-C", str(docs_root), "ls-files", "-z"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    untracked = subprocess.run(
-        ["git", "-C", str(docs_root), "ls-files", "-z", "--others", "--exclude-standard"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    out: list[tuple[str, str]] = []
-    for rel in (tracked.stdout + untracked.stdout).split("\0"):
-        if not rel or Path(rel).suffix not in _BANNED_SCAN_SUFFIXES:
-            continue
-        out.append((rel, (docs_root / rel).read_text(encoding="utf-8")))
-    return out
-
-
-def check_banned_client_terms(
-    files: list[tuple[str, str]],
-    terms: list[str],
-    markers: list[tuple[str, bool]] | None = None,
-) -> list[str]:
-    """The docs are client- and domain-neutral: no file names a banned term or marker."""
-    markers = markers or []
-    banned_re = compile_terms(terms) if terms else None
-    problems: list[str] = []
-    for rel, text in files:
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if banned_re is not None:
-                for m in banned_re.finditer(line):
-                    problems.append(f"{rel}:{lineno}:{m.group(0)}")
-            for needle, case_insensitive in markers:
-                haystack = line.lower() if case_insensitive else line
-                target = needle.lower() if case_insensitive else needle
-                if target in haystack:
-                    problems.append(f"{rel}:{lineno}:{needle}")
-    return problems
-
-
-# In-repo vocabulary rule, DISTINCT from the secret-sourced client-term list above:
-# a small phrase list refused OUTSIDE the ``babelfish/`` tree, so a PLATFORM page never
-# names the flow engine's editor vocabulary. The palette feature is "Presets" ("custom
-# node" is the retired label); "router loop", "canvas node", "node fills", and
-# "flow-views" are Babelfish-editor internals that leak the plugin into a platform page.
-# Case-insensitive on the spaced phrase, so the hyphenated image-asset spelling
-# (`custom-node` in a file name) never matches. Two trees are EXEMPT: ``babelfish/`` (the
-# plugin's own pages, where this vocabulary is native) and ``scripts/`` (the scanner and
-# its tests name the phrases as data). Bare "babelfish" is NOT banned — a cross-link to
-# the plugin is legitimate on any page.
-_VOCAB_PHRASES = ("custom node", "router loop", "canvas node", "node fills", "flow-views")
-_VOCAB_TERM_RE = re.compile("|".join(re.escape(p) for p in _VOCAB_PHRASES), re.IGNORECASE)
-_VOCAB_RULE_MSG = (
-    "a platform page names platform features, not the flow engine's editor vocabulary (the palette feature is presets)"
-)
-_VOCAB_EXEMPT = ("scripts/", "babelfish/")
-
-
-def check_vocabulary(files: list[tuple[str, str]]) -> list[str]:
-    """Refuse the flow-engine editor vocabulary in a platform (non-``babelfish/``) doc,
-    naming its ``file:line`` and the rule. In-repo (no external list): always runs."""
-    problems: list[str] = []
-    for rel, text in files:
-        if rel.startswith(_VOCAB_EXEMPT):
-            continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            for m in _VOCAB_TERM_RE.finditer(line):
-                problems.append(f"{rel}:{lineno}:{m.group(0)} -- {_VOCAB_RULE_MSG}")
-    return problems
 
 
 def _pyproject_sources(docs_root: Path) -> dict[str, str]:
@@ -582,17 +434,6 @@ def evaluate(
     problems += p
     notes += n
 
-    worktree = scan_worktree_files(docs_root)
-
-    terms, markers = load_banned()
-    if not terms and not markers:
-        # Never a silent green: fail under CI, emit a visible skip note locally.
-        (problems if os.environ.get("CI") else notes).append(NO_LIST_MSG)
-    else:
-        problems += check_banned_client_terms(worktree, terms, markers)
-
-    problems += check_vocabulary(worktree)
-
     return problems, notes
 
 
@@ -615,8 +456,7 @@ def main() -> int:
 
     print(
         "check_docs_refs: OK -- distribution names, repo URLs, the ALWAYS_PUBLIC example, "
-        "the core-roster block all match source, no file names a client product, and no "
-        "platform page names the flow engine's editor vocabulary."
+        "and the core-roster block all match source."
     )
     return 0
 

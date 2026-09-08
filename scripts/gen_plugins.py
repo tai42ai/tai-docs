@@ -64,7 +64,7 @@ from kit_docs import DocsValidationError, validate_docs_payload  # noqa: E402
 DEFAULT_MARKETPLACE_URL = "https://marketplace.tai42.ai"
 
 # First provides-item kind -> nav group label. FIXED: an unmapped kind is a loud
-# failure naming it (a new listing's kind gets its row added when it is ruled in).
+# failure naming it (a new kind gets its row added when the kind is introduced).
 # connector and mcp-server SHARE one shelf.
 _SHELF_GROUP = "Connect outside systems"
 KIND_GROUP_LABELS: dict[str, str] = {
@@ -290,7 +290,7 @@ def group_label_for(spec: dict) -> str:
     if label is None:
         raise GenError(
             f"{spec['namespace']}/{spec['name']}: first item kind {kind!r} is not in the "
-            f"fixed nav label table — add its group mapping when this listing is ruled in"
+            f"fixed nav label table — add its group mapping when the kind is introduced"
         )
     return label
 

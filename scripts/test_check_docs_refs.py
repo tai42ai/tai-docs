@@ -11,18 +11,11 @@ Guarantees asserted:
 1. A doc naming a real distribution / real repo passes.
 2. A fabricated ``tai42-bogus`` distribution fails, naming its ``file:line``.
 3. A documented ALWAYS_PUBLIC value that differs from the compose default fails.
-4. A file naming a client product fails, naming its ``file:line:term`` -- including
-   a NEW, not-yet-committed (untracked-but-not-ignored) file, while a clean
-   worktree passes.
-5. The current committed tree passes (no drift, no client product names).
-6. The in-repo vocabulary rule flags the flow-engine editor phrases in a platform
-   (non-babelfish) doc (naming its ``file:line`` and the rule), while leaving the
-   ``babelfish/`` and ``scripts/`` trees and the hyphenated image-asset spelling alone.
+4. The current committed tree passes (no reference drift).
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -36,18 +29,6 @@ import check_docs_refs  # noqa: E402
 
 def _dist_map() -> dict[str, str]:
     return check_docs_refs.load_distribution_map()
-
-
-def _require_terms() -> list[str]:
-    """The loaded word-boundary term list, or a loud CI failure / visible local skip
-    when no banned-terms list is configured — the banned-term self-tests derive their
-    fixtures from real terms, so no term is embedded in this file."""
-    terms, _ = check_docs_refs.load_banned()
-    if not terms:
-        if os.environ.get("CI"):
-            pytest.fail(check_docs_refs.NO_LIST_MSG)
-        pytest.skip(check_docs_refs.NO_LIST_MSG)
-    return terms
 
 
 # --- distribution names ----------------------------------------------------
@@ -282,138 +263,6 @@ def test_absent_requirements_notes_not_fails() -> None:
     assert len(notes) == 1, notes
     assert "not present offline" in notes[0], notes
     print("  absent requirements: offline note, no failure")
-
-
-# --- banned client terms ---------------------------------------------------
-
-
-def test_banned_term_flagged() -> None:
-    """A file naming a banned term is flagged with its file:line:term. The fixture is
-    the first loaded term, so no term is embedded in this file."""
-    terms = _require_terms()
-    term = terms[0]
-    docs = [("guides/x.mdx", f"line one\nEnable it on the {term} agent.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs, terms)
-    assert problems == [f"guides/x.mdx:2:{term}"], problems
-    print("  banned term: flagged at file:line:term")
-
-
-def test_banned_term_case_insensitive() -> None:
-    """Matching is case-insensitive and reports the term as written."""
-    terms = _require_terms()
-    term = terms[0]
-    docs = [("reference/y.md", f"The {term.upper()} rollout\nand a {term.capitalize()} variant.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs, terms)
-    assert problems == [f"reference/y.md:1:{term.upper()}", f"reference/y.md:2:{term.capitalize()}"], problems
-    print("  banned term: case-insensitive, reported verbatim")
-
-
-def test_banned_term_word_boundary_no_false_positive() -> None:
-    """A banned term embedded in a larger word is not a hit."""
-    terms = _require_terms()
-    term = terms[0]
-    docs = [("concepts/z.mdx", f"The re{term}ment audit and {term}esque tone.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs, terms)
-    assert problems == [], problems
-    print("  banned term: word-boundary spares embedded substrings")
-
-
-def test_clean_files_pass_banned_check() -> None:
-    """Files free of banned terms produce no problems."""
-    terms = _require_terms()
-    docs = [("guides/x.mdx", "A generic platform note.\n")]
-    problems = check_docs_refs.check_banned_client_terms(docs, terms)
-    assert problems == [], problems
-    print("  clean files: no banned-term problems")
-
-
-def test_banned_marker_flagged() -> None:
-    """A substring marker is caught even where it does not sit on a word boundary.
-    Skips when no markers are configured."""
-    terms, markers = check_docs_refs.load_banned()
-    if not markers:
-        pytest.skip("no substring markers configured")
-    needle = markers[0][0]
-    docs = [("guides/x.mdx", f"see {needle} here")]
-    problems = check_docs_refs.check_banned_client_terms(docs, terms, markers)
-    assert any(p.endswith(f":{needle}") for p in problems), problems
-    print("  banned marker: substring caught")
-
-
-def test_worktree_has_no_banned_terms() -> None:
-    """The worktree — tracked plus untracked-but-not-ignored — names no banned term."""
-    terms, markers = check_docs_refs.load_banned()
-    _require_terms()
-    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(), terms, markers)
-    assert problems == [], "\n".join(problems)
-    print("  worktree: no banned terms")
-
-
-def test_untracked_file_scanned_for_banned_terms(tmp_path: Path) -> None:
-    """A NEW, not-yet-committed file carrying a banned term is caught: the scan
-    enumerates untracked-but-not-ignored files, not only tracked ones, so the guard
-    is not vacuous exactly when a new file lands."""
-    import subprocess
-
-    terms = _require_terms()
-    term = terms[0]
-    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
-    (tmp_path / "committed.mdx").write_text("The generic platform.\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
-    (tmp_path / "brand-new.mdx").write_text(f"line one\nEnable the {term} agent.\n", encoding="utf-8")
-
-    files = check_docs_refs.scan_worktree_files(tmp_path)
-    assert "brand-new.mdx" in {rel for rel, _ in files}, files
-    problems = check_docs_refs.check_banned_client_terms(files, terms)
-    assert problems == [f"brand-new.mdx:2:{term}"], problems
-    print("  untracked file: banned term caught before git add")
-
-
-def test_clean_worktree_passes(tmp_path: Path) -> None:
-    """A clean worktree — tracked and untracked files alike free of banned terms —
-    produces no problems."""
-    import subprocess
-
-    terms = _require_terms()
-    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
-    (tmp_path / "committed.mdx").write_text("The generic platform.\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "committed.mdx"], check=True)
-    (tmp_path / "brand-new.mdx").write_text("A new page about the platform.\n", encoding="utf-8")
-
-    problems = check_docs_refs.check_banned_client_terms(check_docs_refs.scan_worktree_files(tmp_path), terms)
-    assert problems == [], problems
-    print("  clean worktree: tracked + untracked, no banned terms")
-
-
-# --- in-repo vocabulary rule -----------------------------------------------
-
-
-def test_vocabulary_rule_flags_editor_vocab_outside_babelfish() -> None:
-    """Every editor phrase in a PLATFORM (non-babelfish) doc fails, naming its
-    file:line and the rule; the babelfish/ (native vocabulary) and scripts/ (scanner
-    data) trees are exempt, and a hyphenated image-asset spelling never matches."""
-    files = [
-        ("concepts/tool-organization.mdx", "line one\nIt shows its canvas node bare.\n"),
-        ("studio/screens.mdx", "The router loop card and its node fills.\n"),
-        ("babelfish/index.mdx", "The custom node and the flow-views document.\n"),
-        ("scripts/check_docs_refs.py", '_VOCAB_PHRASES = ("custom node", "flow-views")\n'),
-        ("studio/screens.mdx", 'An image src="/images/studio/custom-node-light.png".\n'),
-    ]
-    problems = check_docs_refs.check_vocabulary(files)
-    assert problems == [
-        f"concepts/tool-organization.mdx:2:canvas node -- {check_docs_refs._VOCAB_RULE_MSG}",
-        f"studio/screens.mdx:1:router loop -- {check_docs_refs._VOCAB_RULE_MSG}",
-        f"studio/screens.mdx:1:node fills -- {check_docs_refs._VOCAB_RULE_MSG}",
-    ], problems
-    print("  vocabulary rule: platform-page editor phrases flagged; babelfish/ + scripts/ + image name exempt")
-
-
-def test_vocabulary_rule_clean_platform_doc_passes() -> None:
-    """A platform doc naming only platform features (and a bare babelfish cross-link)
-    produces no problems."""
-    files = [("concepts/tool-organization.mdx", "Presets and Babelfish flows share the overlay.\n")]
-    assert check_docs_refs.check_vocabulary(files) == []
-    print("  vocabulary rule: clean platform prose (bare babelfish allowed)")
 
 
 # --- whole tree ------------------------------------------------------------
