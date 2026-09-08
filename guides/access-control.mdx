@@ -40,6 +40,25 @@ The gate is on by default. Before it can admit requests in a real deployment, th
   </Step>
 </Steps>
 
+## Mint the first admin key
+
+With the gate on and no key yet, there is no authenticated door to create one — `tai keys create` itself needs a key. The one-shot [`tai keys bootstrap`](/reference/cli/keys) door (`POST /api/keys/bootstrap`) closes that gap: it mints the first condition-free `["*"]` admin key, gated by a boot-time token.
+
+```bash
+tai keys bootstrap --user alice --description 'root key' --token -
+```
+
+The gate resolves its token in one of two ways:
+
+- **`ACCESS_CONTROL_BOOTSTRAP_TOKEN`** — an operator-set token. When set, it is the token the door expects.
+- **the auto-generated token** — absent an operator token, each deployment fixes one random token once at startup and logs it a single time (`first-key bootstrap token: …`). Only someone who can read the server log can mint the first key.
+
+Pass the token out of band, never on the command line — `--token -` reads it as one line from stdin (a value on `argv` leaks via `ps` and shell history).
+
+The door is **one-shot and secure by default**: it refuses with `409 Already initialized` the moment any key exists, a wrong or absent token is a generic `403` (with a per-IP backoff that escalates against a token flood), and with the gate off (`ACCESS_CONTROL_ENABLE=false`) it is disabled with a `501` — there is no key to protect. For local, auth-free development, `ACCESS_CONTROL_BOOTSTRAP_OPEN=true` opens the door without a token.
+
+Once the first admin key is in hand, every further key is created through the authenticated surface below.
+
 ## Provision an API key
 
 Create a key for a user. The raw `sk-…` value is printed once — capture it then. Grant scopes with the repeatable `--scope`, and attach an inline jq authorization condition with `--condition`.

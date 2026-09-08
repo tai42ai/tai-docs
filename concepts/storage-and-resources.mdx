@@ -44,6 +44,23 @@ A template write, a template delete, a directory delete, or a manual
 over the [worker bus](/concepts/worker-bus), not only on the process that made the
 change — so no worker keeps serving a template compiled from stale content.
 
+### Locale variants
+
+A template renders against the [subject's `locale`](/concepts/client-conversations#the-persons-locale)
+when the render carries one — the template author never selects a language. A locale-scoped
+variant lives at `"{id}@{subtags}"` (for example `greeting@he-IL`, `greeting@he`), and a render
+for a locale walks a **fallback chain** from the most specific subtag form to the least, then to
+the bare default id: `he-IL` resolves `greeting@he-IL` → `greeting@he` → `greeting`, returning
+the first stored variant. When **none** of the chain is stored — no variant and no bare default —
+the render refuses **loudly**, naming the template and locale, rather than silently rendering the
+wrong language. A `None` locale (the locale-agnostic callers — hooks, authz, access control)
+renders the bare id unchanged.
+
+The locale also drives the **`list_format`** filter: a template writes `{{ names | list_format }}`
+(with an optional CLDR list style, `standard` by default) and the separator and final connective
+come from the resolved locale's CLDR list patterns. It reads the locale the render resolved, never a
+template argument; a render that resolved no locale, or a locale with no CLDR data, raises loudly.
+
 ## Managing stored content
 
 Two CLI groups reach stored content. `tai templates` is the higher-level,

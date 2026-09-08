@@ -153,6 +153,27 @@ credentials). An inbound **location** on that channel does land as a typed
 [plugin page](/plugins).
 </Note>
 
+### The person's locale
+
+A conversation carries a **locale** — a BCP 47 language tag (e.g. `he-IL`) the platform's
+[rendering layer](/concepts/storage-and-resources#locale-variants) resolves every template and
+list format against. The caller states the language; the flow never selects one, and a `null`
+locale means none is known (never a silent default).
+
+- **`ConversationMessage.locale`** — the guest's per-message language hint the channel resolved
+  from its native inbound, carried beside the text (and accepted on the API message door). It
+  seeds a first-contact person's stored locale and, absent a stored override, is the turn's
+  resolved locale.
+- **the person's stored `locale`** — the operator override held on the [`Person`](/concepts/client-conversations)
+  row, seeded from the channel at first contact and canonical in storage. Set or clear it through
+  `PUT /api/conversations/persons/{person_id}/locale` (the same write grant that forgets a thread)
+  or the CLI's [`tai conversations set-person-locale`](/reference/cli/conversations) / read it with
+  `tai conversations get-person`. A later turn never clobbers a stored override.
+- **the subject `locale`** — the locale captured onto each turn's subject, resolved by
+  precedence: the person's stored locale (operator override or first-contact seed) wins, else the
+  message's per-message hint, else `None`. It is what the renderer reads for every template and
+  the `list_format` filter.
+
 ### Rich, multi-message answers
 
 A `tool` target need not answer with a single string. Its `reply_expr` (or, with no
@@ -162,7 +183,13 @@ same rich forms a [notification](/concepts/notifications#what-a-notification-car
 carries: `media` (image/document/video/audio files with an optional document
 `filename`, plus links), a shared `location`, tappable `options`, a sectioned
 `sections` list, a media `header` and text `footer`, a pre-approved `template`, or an
-[ask-less form](/concepts/notifications#ask-less-forms)'s `schema`. The delivery
+[ask-less form](/concepts/notifications#ask-less-forms)'s `schema`. A form part may also
+carry the same per-send [`data` and `pages`](/concepts/interactions#prefilling-per-send-options-and-pages)
+an ask does — `data.values` prefills top-level properties, `data.options` supplies a per-send
+choice list, and `pages` lays the form out in titled steps — so a reply part can open its form
+already filled in and stepped. `data`/`pages` ride ONLY a form part (a part carrying `schema`);
+on any other part they are refused, and on a form part each is cross-checked against that part's
+`schema` before delivery. The delivery
 machine sends each part as its own message in order, so one turn can reply with
 several bubbles, attach a document, share a pin, or offer tappable options. A part may
 be **content-only** — an object with `media` or `location` and no text — for a

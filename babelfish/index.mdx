@@ -71,7 +71,14 @@ optional `options` as tap-to-send suggested replies), `confirm` (a yes/no —
 declining is an answer), `select` (one pick from `options`), `form` (an answer
 validated against `schema`), or `external` (an action completed on a surface
 reached through `link`, with the callback payload as the answer) — and the same
-format drives the face's variant picker. Both nodes take optional display media
+format drives the face's variant picker. A `form` ask also takes two per-send extras
+layered over the schema for ONE send — the same
+[`data` and `pages`](/concepts/interactions#prefilling-per-send-options-and-pages)
+the platform's ask surface carries: `data.values` prefills top-level properties (each
+shown filled in and validated), `data.options` supplies a per-send choice list that
+replaces a string property's `enum` for this send, and `pages` splits the form into
+ordered titled steps (every property appearing exactly once; absent `pages` is one
+page). Both forward to the ask door only when set, validated against the form's schema. Both nodes take optional display media
 beside their prompt, every optional field is inert when omitted, and field
 combinations richer than any single face stay expressible through each node's
 full-surface **Anything** face.
@@ -579,8 +586,9 @@ module's `loop.max_iterations`, else the platform default of **20**. Because a s
 group spends one pass per intent, the cap must cover the longest sequence. Reaching the
 cap is a **bug, not a conversation state**: the loop raises, and the failure travels the
 flow's ordinary [`on_error`](#handling-a-nodes-error) path — never a settle branch. The
-form computes the manifest's **longest chain** — the longest run of dependent phases the
-manifest can produce — and stores it on the card, so a save whose resolved cap is below it
+form computes the manifest's **longest chain** — the longest run of dependent phases one
+record can produce, a minted follow-on starting a fresh count rather than extending the run —
+and stores it on the card, so a save whose resolved cap is below it
 is refused before it lands with *"Max passes N is below the manifest's longest chain (M
 passes)."*; the canvas node's errors card shows *"Max passes below the manifest's longest
 chain."*.
@@ -1124,8 +1132,8 @@ existing views by their required loop arity (`anything_due(run)`, `due(kind; pha
 `due_set(run)`, `expectations(run)`); `manifest.intents`/`.phases` are paths into the
 declarations schema whose array items declare the required fields (`kind`, `description` /
 `key`, `kind`, `handler`), so the Studio reads them without jq. An optional
-`manifest.talk_slot` is a path to an **object** property (carrying a `prompt_ref` language →
-content-store-path map and a `transcript_window_lines` bound) in the declarations schema that
+`manifest.talk_slot` is a path to an **object** property (carrying a `prompt_ref`
+content-store template id and a `transcript_window_lines` bound) in the declarations schema that
 turns on the module's composed-talk slot, which the optional `talk` preset speaks after the
 fixed parts; a null slot means the module has no talk slot. Each
 loop preset (and each phase handler) must return its value under **exactly one**

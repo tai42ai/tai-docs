@@ -124,6 +124,25 @@ document, the mount's declaration values, and the state's effective schema, it
 raises loudly to refuse a mount or a declarations write — it is consulted before
 every mount and every declarations write.
 
+### Mount reconciliation
+
+Replacing a live mount's `declarations` can retire part of a module while the state still
+holds OPEN records shaped by the old declarations. A module author registers a **mount
+reconciler** on the states facet with `register_mount_reconciler(reconciler)` — a pre-write
+hook run inside every `mount` and `update_mount_declarations` write, after the validators and
+before the write. It receives a `MountReconcileContext`: the `state` name, the module document,
+the `operation` (`mount` | `update_declarations`), the `previous_declarations` (`None` on a
+first mount) and `new_declarations`, the mount `options`, and a record door bound to the state.
+The reconciler either **raises** a `ModuleValidationError` to refuse the mount (naming the
+records the new declarations would orphan) or **writes resolutions** through the context's record
+door and returns, letting the mount commit with those writes.
+
+The `options` bag on the `PUT`/`PATCH` mount body (`MountBody.options`, `--options` on the CLI)
+is a free-form, **per-operation** directive bag the reconciler reads to decide how to settle
+open records against the new declarations — for example, whether to close records the new
+declarations no longer cover. It is passed to the reconcilers for THIS mount only, **never
+stored or served back**; any key outside `path`/`parameters`/`declarations`/`options` is refused.
+
 ### Regimes
 
 A regime is a per-path writer rule composed over a state's mounts. Each rule is a
@@ -293,7 +312,8 @@ Errors map to status: `501` when the store's database is unbound (a stable code
 
 Two command groups mirror the HTTP surface. `tai states` manages declarations,
 mounts, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
-`stats`, `mounts`, `mount`, `update-mount`,
+`stats`, `mounts`, `mount`, `get-mount`, `update-mount` (its `--options` carrying the
+per-operation reconcile directives),
 `unmount`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `erase`,
 `fold`, `writes`, `consumers`, and `prune`. `tai state-modules` manages module
 documents — `list`, `get`, `put`, `delete`. Record commands take
