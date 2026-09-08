@@ -29036,6 +29036,16 @@
             },
             "description": "Missing or invalid api key."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "501": {
             "content": {
               "application/json": {
@@ -31283,7 +31293,7 @@
     },
     "/api/upload-template": {
       "post": {
-        "description": "Write ``content`` to the template store under ``path`` (create or overwrite).\n\nThe write target is guarded against a root escape before it reaches the store.\n\nThe store write is a single durable act, but the compiled template is held in a\nper-worker cache, so the write is followed by a fleet ``evict_template`` broadcast:\nthis worker's local apply persists and evicts, and every sibling drops the stale\ncompilation on dispatch. The response embeds the per-worker fleet report so a\ncaller has deterministic proof the eviction propagated; an unconfirmed worker is\nlogged loudly, matching the reload broadcast.",
+        "description": "Write ``content`` to the template store under ``path`` (create or overwrite).\n\nThe write target is guarded against a root escape before it reaches the store.\n\nA template id cannot also name a directory that still holds templates: an\nupload whose ``path`` collides with such a directory is refused with a ``409``\nnaming the templates in the way, so the caller deletes them first.\n\nThe store write is a single durable act, but the compiled template is held in a\nper-worker cache, so the write is followed by a fleet ``evict_template`` broadcast:\nthis worker's local apply persists and evicts, and every sibling drops the stale\ncompilation on dispatch. The response embeds the per-worker fleet report so a\ncaller has deterministic proof the eviction propagated; an unconfirmed worker is\nlogged loudly, matching the reload broadcast.",
         "operationId": "post_api_upload_template",
         "requestBody": {
           "content": {
@@ -31333,6 +31343,16 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
           }
         },
         "security": [
