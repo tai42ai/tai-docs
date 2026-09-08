@@ -249,7 +249,9 @@ bound the submitted request, not a replay: an accepted `data:image/*` image is
 stored by reference — the record keeps a same-origin `/api/interactions/media/<id>`
 url and the bytes are served from that route for the question's lifetime. The
 pending inbox is read as a paged list through `GET /api/interactions`, and the SSE
-stream is tail-only, so nothing is replayed whole on (re)connect.
+stream is tail-only, so no historical backlog is replayed whole on (re)connect — a
+reconnecting client resumes recent events by [`Last-Event-ID`](#reading-the-stream)
+instead.
 
 ### Limits
 
@@ -398,6 +400,31 @@ are public:
 
 Publicness is an [access-control](/concepts/access-control) configuration decision,
 not a property of the route code.
+
+### Reading the stream
+
+`GET /api/interactions/stream` is a **tail-only** SSE feed: on connect the server
+starts from the events-stream tail and sends only live `add`/`answered`/`removed`
+frames from that point on. It carries no historical backlog — a freshly opened
+client seeds its pending list from the paged `GET /api/interactions` door, then
+overlays the live tail.
+
+Every event frame carries an SSE **`id:`** — the events-stream message-id, a
+monotonic cursor. A client that reconnects sends the last id it saw back as the
+standard **`Last-Event-ID`** request header (a `?last_event_id=` query parameter is
+accepted as a fallback for a proxy that strips the header), and the server resumes
+the tail **after** that id. So an event that landed during a brief disconnect — a
+card's `answered` frame included — is delivered on reconnect instead of being lost
+in the gap: a card the client was tracking converges to answered rather than
+vanishing.
+
+The resume window is the events stream's own bounded recent-events retention. When
+the id is present but cannot cover the gap — malformed, or already aged out of that
+window — the server falls back to the tail end and **logs** the fallback, so a
+genuinely lost resume is never a silent skip; the client's connect-time refetch of
+the paged pending base reconciles the rest. An **absent** id is a normal fresh
+connect, not a lost resume: the server tails from the end and the same paged base
+seeds the pending state, so this case is intentionally not logged.
 
 ## Security in brief
 

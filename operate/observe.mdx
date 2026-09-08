@@ -89,6 +89,14 @@ spans nest inside it rather than minting a fresh, orphaned trace — so one gues
 interaction reads end to end as one trace. A run that parks on an async question
 and resumes later — days later, on another worker — rejoins its original trace.
 
+A run dispatched directly — through the sync run-tool API, a background or
+scheduled tool run, or the MCP `tools/call` edge — opens its own trace root when
+no trace is already open, and nests under the existing root otherwise. That
+decision is made once at the shared run chokepoint where the run record is
+registered, agnostic to what the preset wraps. Every runs-index row therefore
+carries a `traceId` deep link whenever a monitoring backend is active; with the
+no-op default there is no trace to link.
+
 ## Send outcomes and delivery receipts
 
 Every outbound channel send made inside a run's trace — a flow's `notify_user`
