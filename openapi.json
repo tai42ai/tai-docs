@@ -322,6 +322,51 @@
         "title": "BackupImport",
         "type": "object"
       },
+      "BootstrapKeyBody": {
+        "description": "First-admin-key creation for ``POST /api/keys/bootstrap``.",
+        "properties": {
+          "bootstrap_token": {
+            "default": "",
+            "title": "Bootstrap Token",
+            "type": "string"
+          },
+          "description": {
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "user_id": {
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "description"
+        ],
+        "title": "BootstrapKeyBody",
+        "type": "object"
+      },
+      "BootstrapKeyResult": {
+        "description": "The one-time bootstrap result: the raw ``sk-…`` admin key and its user id.",
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "user_id"
+        ],
+        "title": "BootstrapKeyResult",
+        "type": "object"
+      },
       "ChannelTemplate": {
         "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window (e.g. WhatsApp's\n24-hour customer-service window); outside it, the sole accepted send is an operator-authored\ntemplate referenced by ``name`` in an approved ``language`` — both required and non-blank.\n\nThe template's runtime arguments are its NAMED components (never one flat positional list):\n\n* ``header_media`` — the media argument for a media HEADER component (a display item:\n  image/document/video/audio, never a ``link``); ``None`` when the template has no media\n  header (or a static/text header needing no argument).\n* ``body_parameters`` — the POSITIONAL body-text values substituted into the body's\n  placeholders in order; empty when the body has no placeholders. Typed values (currency,\n  date-time) ride as their pre-formatted STRING here — the contract does not model the type.\n* ``buttons`` — the POSITIONAL per-button arguments of the buttons component\n  (:data:`TemplateButtonParam`: a :class:`QuickReplyButtonParam` payload or a\n  :class:`UrlButtonParam` url suffix); the i-th entry parameterises the i-th button, at most\n  ``TEMPLATE_BUTTONS_MAX``. Empty when no button needs a runtime argument.",
         "properties": {
@@ -615,6 +660,19 @@
             "description": "A structured guest submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and the ``attachments``/``location`` siblings ride the same pattern. The platform attaches no meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant — a target that reads it validates it itself.",
             "title": "Form"
           },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The end user's BCP 47 language tag (e.g. ``he-IL``). Captured onto the turn's subject so the platform's rendering layer resolves every template and list format against it — the caller states the language, the flow never selects one. ``null`` means none supplied (no silent default).",
+            "title": "Locale"
+          },
           "location": {
             "anyOf": [
               {
@@ -671,7 +729,7 @@
         "type": "object"
       },
       "ConversationRouteCreate": {
-        "description": "The client-facing create/edit body for a conversation route: the fields a caller\nsupplies.\n\nBinds a ``(target_kind, target_name)`` — an ``agent`` run or a ``tool`` dispatch — to\nan ``execution_key`` the turn runs AS (bound with pass-role at create). A ``tool``\ntarget may carry a ``payload_expr`` (jq mapping the inbound message to the tool's\nkwargs) and a ``reply_expr`` (jq mapping the tool's result to the reply); both are\ntool-only. ``api`` rows carry an https ``callback_url``; ``channel`` rows carry the\nregistry ``channel`` plus the ``our_identity`` the medium is texted at (N rows may\nshare a channel, each its own identity). The server-derived ``callback_secret`` and\n``execution_key_fingerprint`` are deliberately absent; :class:`ConversationRoute` is\nthis shape plus those. Frozen.",
+        "description": "The client-facing create/edit body for a conversation route: the fields a caller\nsupplies.\n\nBinds a ``(target_kind, target_name)`` — an ``agent`` run or a ``tool`` dispatch — to\nan ``execution_key`` the turn runs AS (bound with pass-role at create). A ``tool``\ntarget may carry a ``payload_expr`` (jq mapping the inbound message to the tool's\nkwargs) and a ``reply_expr`` (jq mapping the tool's result to the reply); both are\ntool-only. ``api`` rows MAY carry an https ``callback_url`` (the answer sink; when absent\nthe caller reads its answer back from the poll door); ``channel`` rows carry the\nregistry ``channel`` plus the ``our_identity`` the medium is texted at (N rows may\nshare a channel, each its own identity). The server-derived ``callback_secret`` and\n``execution_key_fingerprint`` are deliberately absent; :class:`ConversationRoute` is\nthis shape plus those. Frozen.",
         "properties": {
           "callback_url": {
             "anyOf": [
@@ -8810,6 +8868,170 @@
           "conversations"
         ],
         "x-destructive": true
+      },
+      "get": {
+        "description": "The person row named by ``person_id`` — its identity, folded addresses and stored\n``locale`` (the BCP 47 tag the rendering layer resolves text against, or ``null`` when\nnone is known). The subject read that serves a person's locale. A blank ``person_id`` is a\n400; an unknown one a 404; no backend a loud 501.",
+        "operationId": "get_api_conversations_persons_person_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Read a conversation person",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/persons/{person_id}/locale": {
+      "put": {
+        "description": "Set (or clear) a person's stored ``locale`` — the operator override the rendering layer\nresolves text against, winning over the channel-seeded value on every later turn. ``locale``\nis a BCP 47 tag (canonicalized here — ``he-il`` stores as ``he-IL``); ``null`` clears it back\nto no-locale-known. A blank ``person_id`` or a malformed ``locale`` is a 400; an unknown\nperson a 404; no backend a loud 501. Returns the updated person.",
+        "operationId": "put_api_conversations_persons_person_id_locale",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Set a conversation person's locale",
+        "tags": [
+          "conversations"
+        ]
       }
     },
     "/api/conversations/{route_name}": {
@@ -8977,7 +9199,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row's ``callback_secret`` is minted here and returned ONCE. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the guest-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the guest-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
@@ -9245,7 +9467,7 @@
     },
     "/api/conversations/{route_name}/messages": {
       "post": {
-        "description": "Accept one authed message for ``route_name`` and run its turn AS the route's\nexecution key.\n\nThe auth gate authorizes who may SEND; the turn's own authority is the route's\nexecution key, not the caller. Default answer is ``202 {message_id, thread_id}`` with\nthe answer delivered later by signed callback. With a ``wait_seconds`` body field\n(clamped here to ``sync_wait_max_seconds``) a turn finishing in time answers ``200``\ninline — an answered/error turn with the answer, a silent turn with the silent marker\n(status ``silent``, no answer text) — and its callback (which otherwise carries\nanswered/error/silent) is suppressed the same way, so it never double-fires; a turn\nstill running when the wait elapses falls back to ``202``.",
+        "description": "Accept one authed message for ``route_name`` and run its turn AS the route's\nexecution key.\n\nThe auth gate authorizes who may SEND; the turn's own authority is the route's\nexecution key, not the caller. Default answer is ``202 {message_id, thread_id}``; the\nanswer is then delivered later by signed callback when the route declares a\n``callback_url``, and otherwise read back from the poll door\n(``GET .../messages/{message_id}``). With a ``wait_seconds`` body field (clamped here to\n``sync_wait_max_seconds``) a turn finishing in time answers ``200`` inline — an\nanswered/error turn with the answer, a silent turn with the silent marker (status\n``silent``, no answer text) — and any callback (which otherwise carries\nanswered/error/silent) is suppressed the same way, so it never double-fires; a turn\nstill running when the wait elapses falls back to ``202``.",
         "operationId": "post_api_conversations_route_name_messages",
         "parameters": [
           {
@@ -11785,6 +12007,76 @@
           "interactions"
         ],
         "x-destructive": true
+      }
+    },
+    "/api/keys/bootstrap": {
+      "post": {
+        "description": "Mint the first admin api key behind the secure-by-default token gate.\n\nOnly meaningful on an access-controlled install: with the gate OFF there is nothing to\nprotect, so the door refuses loudly with a 501 rather than minting. The per-IP backoff\nis consulted BEFORE the token, so a wrong-token flood escalates a lockout that turns\nfurther attempts away without ever comparing; a wrong/absent token is a generic 403 (no\noracle for the initialized state). The existence-check-and-mint runs under one mutex, so\ntwo concurrent bootstraps can never both mint — the loser gets a 409. On a passing gate\na condition-free ``[\"*\"]`` admin key — the ``is_admin_policy`` discriminator — is minted\nthrough the shared mint and returned ONCE.\n\nResponse mirrors the login result wire shape: ``{\"data\": {\"token\": <raw key>,\n\"user_id\": ...}}``.",
+        "operationId": "post_api_keys_bootstrap",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapKeyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BootstrapKeyResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "summary": "Mint the first admin api key",
+        "tags": [
+          "access-control"
+        ]
       }
     },
     "/api/login/claim": {
@@ -17685,8 +17977,87 @@
         ],
         "x-destructive": true
       },
+      "get": {
+        "description": "One module's mount on the state — its path, resolved parameters and declarations; the\nsame row the list serves. A module not mounted on the state is a 404.",
+        "operationId": "get_api_states_name_mounts_module",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a state's mount",
+        "tags": [
+          "states"
+        ]
+      },
       "patch": {
-        "description": "Replace a mount's static declaration values, re-running the mount validators and\nrecomposing the effective schema.",
+        "description": "Replace a mount's static declaration values and reconcile ``options``, re-running the\nmount validators and reconcilers and recomposing the effective schema.",
         "operationId": "patch_api_states_name_mounts_module",
         "parameters": [
           {
@@ -18075,7 +18446,7 @@
         "x-destructive": true
       },
       "get": {
-        "description": "One subject's record, or ``null`` when none exists. An unknown ``person`` subject is a\nrefusal, never an empty document.",
+        "description": "One subject's record, or ``null`` when none exists. An unknown ``person`` subject is a\nrefusal, never an empty document. A subject ``key`` that contains ``/`` (a thread key is\na thread id) is percent-encoded as one path segment; this holds for every single-record\ndoor.",
         "operationId": "get_api_states_name_records_target_kind_target_name_kind_key",
         "parameters": [
           {
