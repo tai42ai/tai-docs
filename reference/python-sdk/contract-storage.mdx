@@ -88,6 +88,14 @@ async list(self) -> builtins.list[str]
 async upload(self, path: str, content: str) -> None
 ```
 
+Store ``content`` at ``path`` (create or overwrite).
+
+Files and directories share one id space, so an upload whose ``path``
+collides with the store's existing shape — an id that still names a
+non-empty directory, or an id nested beneath an id already held as a file
+— raises `StoragePathConflictError`. An id naming an empty leftover
+directory is free to hold a file.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -103,6 +111,10 @@ async upload(self, path: str, content: str) -> None
 ```python
 async delete(self, path: str) -> None
 ```
+
+Delete the object at ``path``, raising ``FileNotFoundError`` when it
+does not exist (a caller wanting idempotent semantics maps that to a
+no-op).
 
 **Parameters**
 
@@ -201,6 +213,46 @@ return the stored content-type and maps a missing object to
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `path` | `str` | — | — |
+
+
+
+## StoragePathConflictError
+
+`tai42_contract.storage.StoragePathConflictError`
+
+```python
+class StoragePathConflictError(Exception)
+```
+
+An upload id collides with the store's existing shape.
+
+A single id space is shared by files and directories, so one id can name only
+one of them: an id that still names a directory holding objects cannot also
+become a file, and an object cannot be stored beneath an id already held as a
+file. A backend raises this instead of leaking a backend-specific error, so a
+surface maps it to a 409 conflict. ``path`` is the rejected id; ``conflicts``
+names the stored ids it collides with.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `path` | — |
+| `conflicts` | — |
+
+### Members
+
+#### conflicts_summary
+
+`tai42_contract.storage.StoragePathConflictError.conflicts_summary`
+
+```python
+conflicts_summary(self) -> str
+```
+
+The conflicting ids as a human string, capped at
+`_MESSAGE_CONFLICT_CAP` with a ``… and N more`` tail; the full list
+stays on `conflicts`.
 
 
 
