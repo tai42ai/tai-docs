@@ -123,7 +123,7 @@ $ tai conversations create [OPTIONS] {route_name}
 | `--initial-mode` `&lt;str&gt;` | Default control mode when a thread has no override: 'agent' or 'manual'. _(default: `agent`)_ |
 | `--channel` `&lt;str&gt;` | door=channel: the channel registry name (e.g. twilio). |
 | `--identity` `&lt;str&gt;` | door=channel: the medium address we are texted at. |
-| `--callback-url` `&lt;str&gt;` | door=api: the https answer-delivery URL. |
+| `--callback-url` `&lt;str&gt;` | door=api: optional https answer-delivery URL; without one the caller polls the message. |
 | `--turns-per-hour-override` `&lt;int&gt;` | Per-route override (positive) of the global per-address turns/hour cap; unset uses the global rate. |
 | `--error-reply-text` `&lt;str&gt;` | Guest-facing reply sent when a turn on this route fails; unset uses the built-in default. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
@@ -254,6 +254,25 @@ $ tai conversations get-message [OPTIONS] {route_name} {message_id}
 | --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai conversations get-person`
+
+Read a person — its identity, folded addresses and stored `locale` (the BCP 47 tag
+the rendering layer resolves text against, or `null` when none is known).
+
+Example: `tai conversations get-person 4f1c0e2a-...`
+
+```console
+$ tai conversations get-person [OPTIONS] {person_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `person_id` | Person id (uuid4). _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai conversations list`
 
 List conversation routes (each row's callback_secret is withheld).
@@ -366,6 +385,28 @@ $ tai conversations send [OPTIONS] {route_name} {thread_id}
 | --- | --- |
 | `--text` `&lt;str&gt;` | The message to send into the thread. _(required)_ |
 | `--address` `&lt;str&gt;` | Send target on a linked person's thread (one of the person's addresses). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai conversations set-person-locale`
+
+Set (or clear) a person's stored `locale` — the operator override the rendering layer
+resolves text against, winning over the channel-seeded value on every later turn. Omit
+`locale` to clear it back to no-locale-known. The same write grant that forgets a thread
+sets a person's locale.
+
+Example: `tai conversations set-person-locale 4f1c0e2a-... he-IL`
+
+```console
+$ tai conversations set-person-locale [OPTIONS] {person_id} [locale]
+```
+
+| Argument | Description |
+| --- | --- |
+| `person_id` | Person id (uuid4). _(required)_ |
+| `locale` | BCP 47 tag (e.g. he-IL); omit to CLEAR the stored locale. _(optional)_ |
+
+| Option | Description |
+| --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai conversations threads`

@@ -708,6 +708,7 @@ async accept(
     form: dict[str, Any] | None = None,
     attachments: list[MediaItem] | None = None,
     location: LocationElement | None = None,
+    locale: str | None = None,
 ) -> str
 ```
 
@@ -754,6 +755,13 @@ fields (not ``params``): they land in a tool target's payload under the stable
 a form-/media-unaware target still sees the whole turn as ``text``. ``None`` leaves
 the payload unchanged.
 
+``locale`` is the guest's BCP 47 language tag the channel resolved from its native
+inbound (a per-message language hint), captured onto the turn's subject so the
+rendering layer resolves every text template and list format against it — flows and
+state modules never select a language. It seeds a first-contact person's stored
+locale and, absent a stored operator override, is the turn's resolved locale;
+``None`` means the channel supplied none (no silent default to any language).
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -768,6 +776,7 @@ the payload unchanged.
 | `form` | `dict[str, Any] \| None` | `None` | — |
 | `attachments` | `list[MediaItem] \| None` | `None` | — |
 | `location` | `LocationElement \| None` | `None` | — |
+| `locale` | `str \| None` | `None` | — |
 
 
 #### record_delivery_status
@@ -986,6 +995,29 @@ the reload-gate ``503`` response is derived from the handler body.
 | `destructive` | `bool` | `False` | — |
 | `action` | `RouteAction \| None` | `None` | — |
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
+
+
+#### use_raw_path_key
+
+`tai42_contract.app.facets.AppHttp.use_raw_path_key`
+
+```python
+use_raw_path_key(self, path_prefix: str) -> None
+```
+
+Match every already-registered route whose template starts with ``path_prefix``
+against the raw (undecoded) request path, so a path parameter whose values carry
+``/`` (a state record's ``{key}``, addressed as one percent-encoded segment) stays
+ONE segment instead of splitting once the ASGI server has decoded ``%2F``; the
+matched parameters are decoded once after the match. Called AFTER the routes are
+registered, over their shared prefix, so it covers a family of doors at one seam. A
+no-op where no route table is served (the offline spec harness).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path_prefix` | `str` | — | — |
 
 
 #### mount_base
@@ -1789,11 +1821,20 @@ door with the validator's message. Overlapping fragments raise
 `tai42_contract.app.facets.AppStates.update_mount_declarations`
 
 ```python
-async update_mount_declarations(self, state: str, module: str, declarations: dict[str, Any]) -> None
+async update_mount_declarations(
+    self,
+    state: str,
+    module: str,
+    declarations: dict[str, Any],
+    *,
+    options: dict[str, Any] | None = None,
+) -> None
 ```
 
 Replace a mount's declaration values, re-running every registered mount
-validator and recomposing the effective schema before the write.
+validator and reconciler and recomposing the effective schema before the write.
+``options`` is a per-operation directive bag passed to the reconcilers for THIS
+operation only, never stored or served back (``None`` is an empty bag).
 
 **Parameters**
 
@@ -1802,6 +1843,7 @@ validator and recomposing the effective schema before the write.
 | `state` | `str` | — | — |
 | `module` | `str` | — | — |
 | `declarations` | `dict[str, Any]` | — | — |
+| `options` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### unmount
@@ -2179,6 +2221,32 @@ included.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `validator` | `MountValidator` | — | — |
+
+
+#### register_mount_reconciler
+
+`tai42_contract.app.facets.AppStates.register_mount_reconciler`
+
+```python
+register_mount_reconciler(self, reconciler: MountReconciler) -> None
+```
+
+Register a pre-write mount reconciler.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+reconciler receives a `MountReconcileContext` — the
+module, the operation, the previous and new declarations, the mount options, and a
+record door bound to the state — inside every ``mount`` and
+``update_mount_declarations`` write, after the validators and before the write. It
+RAISES to refuse the mount (naming the records the new declarations orphan) or
+writes resolutions through the context's record door and returns, letting the mount
+commit with those writes.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `reconciler` | `MountReconciler` | — | — |
 
 
 
@@ -3315,6 +3383,7 @@ async accept(
     form: dict[str, Any] | None = None,
     attachments: list[MediaItem] | None = None,
     location: LocationElement | None = None,
+    locale: str | None = None,
 ) -> str
 ```
 
@@ -3361,6 +3430,13 @@ fields (not ``params``): they land in a tool target's payload under the stable
 a form-/media-unaware target still sees the whole turn as ``text``. ``None`` leaves
 the payload unchanged.
 
+``locale`` is the guest's BCP 47 language tag the channel resolved from its native
+inbound (a per-message language hint), captured onto the turn's subject so the
+rendering layer resolves every text template and list format against it — flows and
+state modules never select a language. It seeds a first-contact person's stored
+locale and, absent a stored operator override, is the turn's resolved locale;
+``None`` means the channel supplied none (no silent default to any language).
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -3375,6 +3451,7 @@ the payload unchanged.
 | `form` | `dict[str, Any] \| None` | `None` | — |
 | `attachments` | `list[MediaItem] \| None` | `None` | — |
 | `location` | `LocationElement \| None` | `None` | — |
+| `locale` | `str \| None` | `None` | — |
 
 
 #### record_delivery_status
@@ -3648,6 +3725,29 @@ the reload-gate ``503`` response is derived from the handler body.
 | `destructive` | `bool` | `False` | — |
 | `action` | `RouteAction \| None` | `None` | — |
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
+
+
+#### use_raw_path_key
+
+`tai42_contract.app.facets.AppHttp.use_raw_path_key`
+
+```python
+use_raw_path_key(self, path_prefix: str) -> None
+```
+
+Match every already-registered route whose template starts with ``path_prefix``
+against the raw (undecoded) request path, so a path parameter whose values carry
+``/`` (a state record's ``{key}``, addressed as one percent-encoded segment) stays
+ONE segment instead of splitting once the ASGI server has decoded ``%2F``; the
+matched parameters are decoded once after the match. Called AFTER the routes are
+registered, over their shared prefix, so it covers a family of doors at one seam. A
+no-op where no route table is served (the offline spec harness).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path_prefix` | `str` | — | — |
 
 
 #### mount_base
@@ -4672,11 +4772,20 @@ door with the validator's message. Overlapping fragments raise
 `tai42_contract.app.facets.AppStates.update_mount_declarations`
 
 ```python
-async update_mount_declarations(self, state: str, module: str, declarations: dict[str, Any]) -> None
+async update_mount_declarations(
+    self,
+    state: str,
+    module: str,
+    declarations: dict[str, Any],
+    *,
+    options: dict[str, Any] | None = None,
+) -> None
 ```
 
 Replace a mount's declaration values, re-running every registered mount
-validator and recomposing the effective schema before the write.
+validator and reconciler and recomposing the effective schema before the write.
+``options`` is a per-operation directive bag passed to the reconcilers for THIS
+operation only, never stored or served back (``None`` is an empty bag).
 
 **Parameters**
 
@@ -4685,6 +4794,7 @@ validator and recomposing the effective schema before the write.
 | `state` | `str` | — | — |
 | `module` | `str` | — | — |
 | `declarations` | `dict[str, Any]` | — | — |
+| `options` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### unmount
@@ -5062,5 +5172,31 @@ included.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `validator` | `MountValidator` | — | — |
+
+
+#### register_mount_reconciler
+
+`tai42_contract.app.facets.AppStates.register_mount_reconciler`
+
+```python
+register_mount_reconciler(self, reconciler: MountReconciler) -> None
+```
+
+Register a pre-write mount reconciler.
+
+A plugin calls this through the ``tai42_app`` handle when its module loads. The
+reconciler receives a `MountReconcileContext` — the
+module, the operation, the previous and new declarations, the mount options, and a
+record door bound to the state — inside every ``mount`` and
+``update_mount_declarations`` write, after the validators and before the write. It
+RAISES to refuse the mount (naming the records the new declarations orphan) or
+writes resolutions through the context's record door and returns, letting the mount
+commit with those writes.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `reconciler` | `MountReconciler` | — | — |
 
 
