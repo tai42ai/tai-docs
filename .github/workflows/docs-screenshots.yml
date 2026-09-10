@@ -31,6 +31,16 @@ on:
 permissions:
   contents: read
 
+# The heavy screenshot capture (stack boot + Playwright) is fed by two dispatch
+# receivers (tai-studio and babelfish notify hooks). One upstream release can
+# fire several of them within minutes; a single shared group collapses that
+# burst to ONE run. Cancelling in progress is safe: every run recaptures from
+# source `main` HEAD onto the fixed regeneration branch, so the newest run
+# subsumes any it supersedes, and the PR is opened only in the final step.
+concurrency:
+  group: docs-screenshots
+  cancel-in-progress: true
+
 env:
   SOURCE_REF: main
 
