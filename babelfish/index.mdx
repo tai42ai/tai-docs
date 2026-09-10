@@ -88,7 +88,7 @@ opens already addressed to the same channel and counterpart the flow's conversat
 runs on — so one flow works across every channel and always reaches the person of the
 current conversation. The wiring is a **visible, editable jq expression** seeded into
 the node's addressing slot (through the [visual jq editor](#the-visual-jq-editor)),
-never a hidden default: it reads the guest's own `{channel, sender}` off the
+never a hidden default: it reads the participant's own `{channel, sender}` off the
 conversation-routed flow's inputs, and the node's own literal addressing merges under
 it. Off a conversation route those inputs are absent, and the expression is written to
 drop its empty values, so it **contributes nothing** — the node falls back to whatever
@@ -174,8 +174,8 @@ validation-time compile — `.run` is `null`.
 
 <Warning>
 A subflow's state writes are invisible to a later parent node unless that node opts
-in. A run's `.states` view is its snapshot from run start plus its own fills: a
-subflow's fills land on the shared record immediately, but a later parent node folds
+in. A run's `.states` view is its snapshot from run start plus its own writes: a
+subflow's writes land on the shared record immediately, but a later parent node folds
 them in only if it sets [refresh state](#refresh-opt-in-state-re-read). Without it the
 parent keeps reading its mint-time snapshot — a silent stale read.
 
@@ -190,9 +190,9 @@ the subflow's path into the Studio problems panel like the parent's.
 
 A flow exports to a single `.babelfish-flow.json` file — the stored graph verbatim —
 and imports back the same way. When the flow carries state bindings, the export gains
-an optional **`state_bindings` sidecar**: each binding travels alongside the graph
-with its state name, its subject expression and fills (guards included), and a stable
-**schema fingerprint** of the state's declaration at export time. The graph itself is
+an optional **`state_bindings` sidecar**: each node's binding travels alongside the
+graph with its state names, subject expressions, input injections and updates, and a
+stable **schema fingerprint** of the state's declaration at export time. The graph itself is
 untouched and the sidecar is never persisted onto the saved preset, so a flow with no
 bindings exports byte-identically to the pre-sidecar format and an older file (no
 sidecar) imports exactly as before.
@@ -397,17 +397,16 @@ A conditional you author by hand carries no such marker and stays a visible deci
 
 ### Every match or first match
 
-A router's routes fire under one of two **dispatch** disciplines, set on the card:
+A router's routes fire under one of two **routing** disciplines, set on the card:
 
 - **Every match (the default).** Every route whose condition holds fires, in parallel
-  — the multi-fire fan-out. This is the discipline every router has always run under,
-  and it carries no wire marker: a router that never touched the mode is byte-identical
-  to before the setting existed.
+  — the multi-fire fan-out. This is the default discipline and carries no wire marker:
+  Every match emits no routing-discipline key on the wire.
 - **First match.** The routes are evaluated in **row order** and only the **first** one
   that matches fires; the rest are never evaluated. This is the classic single-path
   routing table — at most one route ever fires.
 
-Because a router lowers to a hidden conditional, its dispatch *is* that conditional's
+Because a router lowers to a hidden conditional, its routing *is* that conditional's own
 routing discipline and its routes *are* the conditional's branches: a kind route or a
 when route is a predicate branch, and the single **otherwise** route is the default
 branch, taken only when nothing else matched.
@@ -469,143 +468,71 @@ the kinds — so a field like `staff` or `sentiment` becomes an ordinary top-lev
 read as `.upstream_outputs.<router>.staff`, typed and statically checked like any other
 output rather than modelled as a kind or dug out of an item. The declaration rides the
 card's marker exactly as the kinds do (the response format is regenerated on every save)
-and follows the same absent-key discipline as dispatch: declare none and the router is
+and follows the same absent-key discipline as the routing mode: declare none and the router is
 byte-identical on the wire. Because a turn field and a kind are siblings in one output
 namespace, a turn field named after a kind — which would shadow that kind's array — is
 refused.
 
-### Loop mode
+### Dispatch: once or loop
 
-A router can instead run as a **bounded loop** over the open intents a [mounted state
-module](#state-modules) tracks. One card becomes the whole loop: the classifier runs
-once over the inbound, then the engine iterates — each pass firing the handler of every
-intent phase currently **due** — until nothing is due or a pass cap is hit. With loop
-mode on the card stops being author-drawn: its kinds and its routes are **generated**
-from the module's manifest, one branch per phase, and the routes table is read-only.
+A router runs its chips under one of two **dispatch** modes, set **once on the card** —
+never per route. The chips look and connect the same way in both modes; the mode alone
+decides what a chip's line means, while the routing discipline above still orders the
+routes:
 
-**The contract it needs.** Loop mode binds to a **state** this flow is bound to and a
-**module** mounted on it whose document declares a [`loop` contract](#the-loop-contract).
-The card reads that block for everything it lowers: the shipped preset names (`mint?`,
-`seed`, `record`, `outcome`), the view role map (`anything_due(run)`,
-`due(kind; phase; run)`, `due_set(run)`, `expectations(run)` — it always emits the
-module's mapped view *name*, never the role name), and the manifest paths (`intents`,
-`phases`, and the optional `talk_slot`) into the mount's **declarations**. Nothing here
-is read from a running flow: the kinds come from the manifest's intents, one phase branch
-comes from each manifest phase, and each phase's handler tool name is its `handler`
-column. The card reads that snapshot from the mounted module's document and the mount's
-declaration values, never from live state.
+- **Once (the default).** Every chip is a plain routing line: the flow continues from
+  each matched chip, and the target reads the whole verdict as
+  `.upstream_outputs.<router>`. This is the router exactly as above — no result chip, and
+  a card on Once emits no dispatch key on the wire.
+- **Loop.** Every chip's line starts a **body** — any nodes and conditions you draw off
+  the chip, in the same flow — and that body runs **once per classified item** of the
+  chip's kind. The runs go **sequentially** or **in parallel** (a parallel run takes an
+  optional **max concurrency** cap), or the body repeats **while** an authored jq
+  condition holds. A looping card grows one **result chip**, the loop-done exit the
+  collected output leaves through.
 
-**What it lowers to.** On save the card expands to one cluster, every node marked so it
-folds back to the single card on load:
+A looping body sees its one item as `.iterate.item`, the run index as
+`.iterate.iteration`, the prior runs as `.iterate.prior_outputs`, and the whole verdict as
+`.outputs.<router>`. A **while** body runs its first round unconditionally, then evaluates
+the condition before every further round — `.iterate.prior_outputs[-1]` is the previous
+round's result and `.upstream_outputs.<router>` the verdict — bounded by a **max runs** cap
+(the flow's own cap by default) that is a safety backstop, not a stop condition: exceeding
+it stops the flow with an error on the ordinary [`on_error`](#handling-a-nodes-error) path.
+A while body is always sequential — the engine refuses a parallel run under a while
+condition.
 
-- `<name>__mint` *(optional)* — the module's `mint` preset, opening the run: it mounts
-  the subject and hands the classifier the open expectations and the spans left to
-  classify. Omitted when the contract names no mint, and the classifier then runs
-  unconditionally over the inbound.
-- `<name>` — the classifier itself, run once per inbound, gated (when a mint exists) on
-  the mint leaving spans to classify.
-- `<name>__record` — the module's `record` preset, behind an all-inputs barrier over the
-  mint and the classifier, so it releases whether the classifier ran or was skipped.
-- `<name>__loop` — the engine [`iterate`](#looping-over-a-list) (`do_while: true`) whose
-  body entry is the seed and whose stop condition is the contract's `anything_due` view.
-  It refreshes the bound state **once at loop entry**, so the rows the mint and record
-  wrote — each its own store-committing sub-run — are visible to the first pass.
-- `<name>__seed` — the body entry, the module's `seed` preset: each pass writes the
-  follow-ons that pass makes due.
-- `<name>__router` — the hidden conditional (`dispatch: all`, refreshing state each pass),
-  one branch per manifest phase.
-- per phase, `<name>__h_<kind>_<phase>` → `<name>__o_<kind>_<phase>` — the handler fan-out
-  and the outcome recorder (below). The id encodes the phase identity `(kind, key)`, so two
-  kinds sharing a phase key stay distinct nodes; because `_` is legal in both segments the
-  encoding is not injective, and the save gate blocks (and the serializer throws) on a pair
-  that would collide, naming both phases.
+There is never a branch node between a chip and its body — the line goes straight to the
+body's first node. Because a body has a single entry, a chip under Loop carries exactly one
+line, and the card refuses to switch from Once to Loop while any chip still fans out to
+several lines — remove the extra lines first. One looping chip beside plain ones needs no
+Loop card: keep the card on **Once** and draw an ordinary [Iterate](#looping-over-a-list)
+after that chip. Fanning one chip out to several targets at once is several Once lines from
+that chip under every-match routing.
 
-**The generated stop and branch conditions.** Authors never write these. The loop's
-`while_cond` and each branch's condition are compiled from the mapped views, with the
-state, module, kind, and phase emitted as JSON string literals rather than raw
-interpolation:
+**The result chip.** Under Loop the card grows one **result chip**, and the collected
+output of every chip leaves through it, keyed by **kind name**. A consumer of the result
+line reads a kind's aggregate as `.upstream_outputs["<router>__result"].<kind>` (the
+bracket form, because the collector's name carries `__`). The aggregate is a list in run
+order — item order for a per-item body, round order for a while body; a kind the classifier
+did not produce reads `null`, and a matched kind with no item reads `[]`. Because the key is
+the kind name the author sees on the card, renaming a kind changes that visible key, and the
+editor's upstream hints route the result line through the collector's shape.
 
-```text
-# while_cond on <name>__loop
-(.flow_graph_kwargs.turn.id) as $run | mount("journey"; "planner") | planner_has_open($run)
+**Loop and the routing discipline.** A looping chip is not a row of the hidden conditional,
+so the [first-match](#every-match-or-first-match) discipline orders the card's **when** and
+**otherwise** routes only: a chip's body runs whenever its kind matched, regardless of first
+match. The single **otherwise** route still fires only when nothing else on the card did —
+under Loop it carries an explicit condition over every kind and when route, so it never
+double-fires beside a matched kind.
 
-# one branch on <name>__router — kind "alpha", phase "gather"
-(.flow_graph_kwargs.turn.id) as $run | mount("journey"; "planner") | planner_is_due("alpha"; "gather"; $run)
-```
-
-The `$run` a view reads is the [turn id](/operate/observe#one-run-one-trace); the "not
-already settled this run" exclusion the routing needs lives **inside** the module's `due`
-view, so the card owes nothing beyond passing `$run`.
-
-**Handlers are fixed tool names.** Each phase branch calls the manifest's `handler` as a
-plain runnable `tool` — a fixed name written into the flow JSON and validated at bind like
-every node's tool, never read from state at run time. Change a handler (or any consumed
-manifest field) and the card is stale: the lowering stamps a **manifest hash** on the loop
-node, the save gate recomputes it from the current mount declarations, and on a mismatch
-the card blocks with a *regenerate from manifest* lint. Regenerating re-derives the kinds
-and phase branches from the manifest and clears it. A handler naming a tool that no longer
-exists is linted in the Studio and refused at bind.
-
-**Per-item fan-out.** A phase branch is itself a parallel foreach over the due items of
-that kind and phase, calling the handler **once per item** — so a kind with three open
-intents fires three handler calls in one pass. A kind outside any sequence group fans out
-under the engine's default concurrency; a kind in a **sequence group** pins
-`max_concurrency: 1`, firing its items one at a time in the view's rank order. The foreach
-reads its items through the `due_set` view.
-
-**The outcome recorder.** After each phase's fan-out, `<name>__o_<kind>_<phase>` calls the
-module's `outcome` preset. The foreach hands it a terminal aggregate — a list, in item
-order, of per-item wrappers `{"<name>__h_<kind>_<phase>__item": {status, value}}` — and the
-recorder **unwraps** it to the bare list of `ok` outcomes the preset is typed for. Each
-`value` is the handler's **run envelope**, so the lowering reads through it the same way it
-reads every loop preset: the loop contract is that a preset returns its value under exactly
-one `return_result` node, so the bare value is the sole member of `result`, read as
-`.result | [.[]] | first`. The outcome node also **refreshes** the bound state after the preset
-commits the pass's rows, so `anything_due` sees them at the next `while_cond` instead of
-the loop over-running an empty pass. The handler tool never touches state itself; the
-outcome preset's mount-materialized fill writes the ledger rows, so every state write stays
-on a shipped preset.
-
-**The classifier in loop mode.** The forced response schema gains a required `bindings`
-array beside the per-kind arrays: one verdict per input span the model reads as
-**answering** (or as **ambiguous** against) an open expectation, each
-`{relation, target, text}` with the expectation's key as `target` (an ambiguous span lists
-its candidate keys). A span that opens a *new* intent stays in that kind's array. The
-classifier's run-time inputs ride **accepted agent kwargs** (never bare ones the agent
-would reject): the spans to classify go through `user_message`, and the open expectations
-ride `system_message_kwargs` so the expectations block's `{{ expectations | tojson }}` slot
-renders them into the system message — both read off the mint through the same envelope
-unwrap. The classifier reads only each item's `key`, `expected_input`, and optional
-`question`; the `kind`, `fields`, and answering-party `who` the same items carry are for
-compose and the re-entry match, not the prompt. When the manifest sets `talk_slot`, the schema also gains
-an optional `talk` string — free text the model wants said beside the outcomes — which the
-module's `record` preset stores and compose speaks last.
-
-**The pass cap.** `max_iterations` resolves in order: the card's own override, else the
-module's `loop.max_iterations`, else the platform default of **20**. Because a sequence
-group spends one pass per intent, the cap must cover the longest sequence. Reaching the
-cap is a **bug, not a conversation state**: the loop raises, and the failure travels the
-flow's ordinary [`on_error`](#handling-a-nodes-error) path — never a settle branch. The
-form computes the manifest's **longest chain** — the longest run of dependent phases one
-record can produce, a minted follow-on starting a fresh count rather than extending the run —
-and stores it on the card, so a save whose resolved cap is below it
-is refused before it lands with *"Max passes N is below the manifest's longest chain (M
-passes)."*; the canvas node's errors card shows *"Max passes below the manifest's longest
-chain."*.
-
-**No parking ask in the loop.** A handler must not be an `ask` (or any interactive)
-preset: a parking ask inside a fan-out re-runs its siblings on resume, so the card lints
-one out of the loop body. Loop mode also forces `dispatch: all` — a first-match discipline
-would starve the other phases — and refuses an `otherwise` route, which would fire every
-pass and never let the loop settle.
-
-The contract's own shape is defined with the [module document](#the-loop-contract); loop
-mode is one consumer of it, and any module that declares a `loop` block can drive it.
+{/* screenshot: router once canvas — both themes */}
+{/* screenshot: router loop canvas — both themes */}
+{/* screenshot: router dispatch form — both themes */}
 
 ## The visual jq editor
 
 Every jq expression a flow carries — a node's expression, a branch or loop
-condition, a state fill or its guard — is authored in one field two ways: by typing
+condition, a binding's injection or update jq — is authored in one field two ways: by typing
 jq into the field's resting text control, or in a **visual editor**, opened from that
 control, that draws the expression as a small, editable node graph and writes it back
 as jq. The wire always carries the jq text.
@@ -670,7 +597,7 @@ the Studio.
 
 Every jq field carries the same editor, and each names what `.` is at its site so the
 Test panel seeds the right sample and the server validator checks the right shape. The
-per-site input shapes — the node, error, fill, and return envelopes, the loop
+per-site input shapes — the node, error, binding, and return envelopes, the loop
 envelopes a `while`/`foreach`/`map` field sees, and the bare flow-inputs and
 state-record documents — are listed in
 [Visual jq in flows](/babelfish/jq-editor#what-each-field-seeds).
@@ -680,44 +607,37 @@ state-record documents — are listed in
 A flow's durable cross-run memory lives in the platform
 [state store](/concepts/states): named, schema'd JSON documents, one per subject,
 that every door reads and writes through one seam. The engine does not own that
-store — it **binds** to it. Declaring a state, mounting a module, browsing records,
+store — it **binds** to it. Declaring a state, attaching a template, browsing records,
 and folding subjects are platform concerns (see the [States concept](/concepts/states));
-what the flow engine owns is the binding: which states a flow reads and writes, under
-which subject, and which node writes which field.
+what the flow engine owns is the binding: which states a node reads and writes, under
+which subject.
 
-- **Bind a flow to a state.** A binding connects one flow to one declared state. It
-  carries a jq `subject_expr` that picks the subject, per-node **fills** — the node,
-  the path it writes, the operation, and two jq expressions (one for a normal run and
-  an optional one that fires only when the engine detects the node re-ran; unset means
-  "same as the normal jq"; a null jq result skips the write) — and an optional
-  `scope_expr`. In a run, every bound state's record is available to jq as
-  `.states.<name>`, seeded once at run start.
-- **Typed subjects.** A `subject_expr` resolves to a **typed** subject — `{kind, key}`
-  (the conversation target comes from the door) or a full
-  `{target_kind, target_name, kind, key}`. A bare-string subject is not accepted:
-  a `subject_expr` resolving to a string, to `null`, or to the wrong keys is a loud
-  mint-door error naming the state and the expression, for example *"subject_expr for
-  state 's' must resolve to a typed subject object ({kind, key} or {target_kind,
-  target_name, kind, key}); expression '.thread' resolved to '…' — a bare string
-  subject is not accepted"*.
-- **Ambient subjects.** Leaving `subject_expr` unset binds the **ambient** subject: the
-  run takes the door's candidate for the state's `default_subject_kind` (a conversation
-  turn resolves `thread` always and `person` on a multichannel target; a hook or
-  schedule resolves the kind it declared). A binding with no `subject_expr` reached
-  through a door that resolves no candidate of that kind is a loud mint-door error:
-  *"state 's' binds the ambient subject of kind 'person' but the 'conversation' door
-  resolved no 'person' candidate"*.
-- **Write by path.** [Keyed list ops](#keyed-state-list-ops) and compare-and-set
-  [guards](#cross-flow-state-writers) are the coordination primitives for many writers
-  on one record; the platform applies every op atomically under the record's row lock.
+- **Bind a node to a state.** Each node carries a binding document — one or more
+  states, each with the templates it uses, a jq `subject_expr` that picks the subject,
+  an optional `scope_expr`, **input injections** evaluated after the node's input is
+  assembled and before it runs, and **updates** applied after the node completes. Its shape and the
+  injection and update forms are in
+  [Binding a node to a state](#binding-a-node-to-a-state). In a run, every bound state's
+  record is available to jq as `.states.<name>`, seeded once at run start.
+- **Subjects.** A `subject_expr` is **required** on every binding and resolves to either a
+  full subject object `{target_kind, target_name, kind, key}` or a bare **key** string —
+  for a bare key the `kind` is the state's declared subject kind and the target is the run's
+  ambient target. It means the same on every door and every node; see
+  [A binding's subject and scope](/concepts/states#a-bindings-subject-and-scope). A
+  `subject_expr` resolving to `null` or the wrong keys is a loud mint-door error naming
+  the state and the resolved value.
+- **Write through updates.** An update's op batch may carry
+  [keyed list ops](#keyed-state-list-ops) and per-op compare-and-set
+  [guards](#cross-flow-state-writers) — the coordination primitives for many writers on
+  one record; the platform applies every op atomically under the record's row lock.
 - **Refresh.** A node can opt into a fresher view of its bound records — see
   [refresh](#refresh-opt-in-state-re-read).
 
-Flow bindings and the flow-side `flow-views` documents register a `flows-states`
-section in [backup and restore](/operate/backup-and-restore); the record data is
-platform state, backed up with the store like checkpoints. Engine fills land in the
-platform record's [audit trail](/concepts/states#the-audit-trail) with the writing
-consumer, node, and run, and emit a state-change event into the run's
+Flow bindings register a `flows-states` section in
+[backup and restore](/operate/backup-and-restore); the record data is platform state,
+backed up with the store like checkpoints. A node's binding writes land in the platform
+record's [audit trail](/concepts/states#the-audit-trail) with the writing consumer, node,
+and run, and emit a state-change event into the run's
 [Langfuse trace](/plugins/tai42/monitoring-langfuse).
 
 ### Reading a state a flow does not bind
@@ -737,27 +657,26 @@ it runs:
   return_expr reads .states.x, but 'x' is a declared state that is NOT bound to this
   flow, so the read resolves to null at runtime. Bind 'x' to this flow, or read a state
   it binds. States bound to this flow are […]."*
-- **A loud error when it runs.** A `refresh_states` naming a state the flow does not
+- **A loud error when it runs.** A `refresh_states` naming a state the node does not
   bind is a loud drift error at node execution: *"node 'n' refresh_states names state(s)
-  ['x'] that are not bound to this flow; bound states are […]."* A binding whose
-  `subject_expr` or ambient subject cannot resolve is likewise a loud mint-door error
-  naming the state and the expression.
+  ['x'] that are not bound on this node; bound states are […]."* A binding whose
+  `subject_expr` cannot resolve is likewise a loud mint-door error naming the state and the
+  resolved value.
 
 Binding is refused at the bind door for a state that is **not declared** (*"state 'x'
-is not declared"*), for a `subject_expr` that is present but blank (*"subject_expr must
-be a jq expression or omitted (ambient subject)"*), and for a `subject_expr` or
-`scope_expr` that does not compile in the state's mount prelude.
+is not declared"*), for a missing or blank `subject_expr` (it is required and must be a
+non-empty jq expression), and for a `subject_expr` or `scope_expr` that is not valid jq.
 
 ### Cross-flow state writers
 
 Because overlapping writers are allowed rather than refused, where two flows race
-on the same field an optional **compare-and-set guard** opts a fill into lost-update
-protection. A guard is a `{path, expected_expr}` pair: `expected_expr` is a jq over
-the fill's own input, evaluated engine-side into a concrete expected value, and at
+on the same field an optional **compare-and-set guard** opts one op into lost-update
+protection. A guard rides any op in an update's batch as a `{path, expected}` pair:
+`expected` is the concrete value a custom update's jq computes into the op, and at
 write time — **under the record's row lock** — the platform compares the record's
-current value at the guarded path (a missing path reads as null) to it by strict
-JSON equality. Equal, and the write applies; unequal, and that one write is
-guarded-skipped while the rest of the batch still applies, observable both in the
+current value at the guard path (a missing path reads as null) to it by strict
+JSON equality. Equal, and the op applies; unequal, and that one op is
+guard-skipped while the rest of the batch still applies, observable both in the
 record and in the run's state-change trace.
 
 The idiomatic use is a **writer token**: pair a field with a companion writer field,
@@ -765,8 +684,8 @@ and have each flow guard its write of the field on the writer equalling its own
 token, so under a real write race exactly the token-holder writes. The guard is
 deliberately narrow — it protects against lost updates only, not multi-step
 invariants, and it compares equality on exactly one path (a null expected value
-means "expect the field absent or null", the first-claim case). It is a flow-engine
-primitive, checked only for writes the engine performs.
+means "expect the field absent or null", the first-claim case). It is a state-store
+primitive, checked on every op the store applies.
 
 ### Keyed state list ops
 
@@ -776,34 +695,34 @@ back. Five path operations do this **atomically at write time on the live record
 under its row lock:
 
 - **`set_by_key`** — update or append the list item whose key field equals a given
-  value. The fill's jq produces the **item** itself: a JSON object that must carry
+  value. The op's `value` is the **item** itself: a JSON object that must carry
   its own key field, so the match key can never drift from the payload. The first
   item whose key field equals that key is replaced in list order; if none matches,
-  the item is appended (upsert). An absent list is created. The jq may also produce
+  the item is appended (upsert). An absent list is created. The `value` may also be
   a **list** of complete items, applied in payload order — one op, many upserts.
-- **`merge_by_key`** — patch fields on items that already exist. The fill's jq
-  produces a list of **partial** items, each carrying the key field; each partial is
+- **`merge_by_key`** — patch fields on items that already exist. The op's `value` is
+  a list of **partial** items, each carrying the key field; each partial is
   shallow-merged into the first stored item with that key (`{**existing, **partial}`,
   top level only — a nested object replaces wholesale rather than deep-merging).
   Null-valued fields are dropped before merging, so `null` never deletes a field. A
   partial matching nothing is skipped: unlike `set_by_key` this **never inserts**.
 - **`unset_by_key`** — the deleting dual of `merge_by_key`: remove named fields from
-  items that already exist. The jq produces a list of entries, each exactly
+  items that already exist. The op's `value` is a list of entries, each exactly
   `{<key_field>: <key>, "fields": [<name>, …]}` — the item's identity plus the
   top-level field names to delete. An already-absent field is an idempotent no-op and
   an entry matching nothing is skipped; the key field itself may never be listed,
   since an item keeps its identity. Stray keys on an entry, a duplicate field name,
   and a duplicate entry key are all refused loudly.
 - **`set_by_key_each`** — the keyed **fan-out** of the upsert, for a classifier
-  envelope. The jq produces an object mapping fan-out keys to lists of complete
+  envelope. The op's `value` is an object mapping fan-out keys to lists of complete
   items; each `(key, items)` pair applies the `set_by_key` list semantics into the
   list one level deeper, at the path plus that key. One op and one atomic apply
-  replace one fill per fan-out key. A fan-out key must be a non-empty string and
+  replace one op per fan-out key. A fan-out key must be a non-empty string and
   never `"-"`; a key mapping to an empty list contributes nothing.
 - **`remove_by_key`** — remove the list item(s) whose key field equals a given value.
-  The fill's jq produces the **key** to remove by — a single scalar, or a **list of
+  The op's `value` is the **key** to remove by — a single scalar, or a **list of
   scalars** (the MongoDB `$pull` + `$in` idiom) that drops every item matching *any*
-  listed key across all of them, in one fill. Every matching item is dropped; zero
+  listed key across all of them, in one op. Every matching item is dropped; zero
   matches, or an absent list, is a quiet no-op. A remove list is capped at **200
   keys**; a nested container or a duplicate key is refused loudly, while an **empty**
   list is accepted as a no-op — a jq selection that legitimately matched nothing lands
@@ -816,8 +735,8 @@ decides insert-versus-replace by key, not by position. A key is a **string or
 integer** only; floats, booleans, null, and containers are refused as fragile
 identities, and a payload list refuses duplicate keys loudly. A list item that is not
 an object, or one missing the key field, never matches (and is never an error); a
-non-list already sitting at the path is a loud refusal. As with any fill, a null jq
-result skips the write.
+non-list already sitting at the path is a loud refusal. As with any op, a null
+`value` contributes no write.
 
 `set_by_key`, `merge_by_key`, and `unset_by_key` touch exactly **one** stored item
 per supplied key — the first match. `remove_by_key` keeps its remove-**all**
@@ -834,20 +753,21 @@ makes three multi-writer patterns safe with no extra coordination:
   another updates an existing one by key keeps both, whatever the commit order.
 - **The same key from two flows needs a guard.** Two flows racing to write the *same*
   key each replace the whole item, last-writer-wins; where that is a genuine race,
-  pair the fill with a [compare-and-set guard](#cross-flow-state-writers) (the
+  pair the op with a [compare-and-set guard](#cross-flow-state-writers) (the
   writer-token pattern).
 
 A **key change** is expressed as `remove_by_key(old)` followed by `set_by_key(new)`
-in the **same binding** — one node's fills, one batch, one transaction. In the
-Studio, the fills editor offers every keyed op beside `set` / `remove`, captures the
-key field, and captions each fill per op; a run's state-change story renders a keyed
-write as `set /items where id = a` or `removed /items where id = a`.
+in the **same update** — one batch, one transaction. An update authors its op batch as
+a template `update` program (with its adapter form) or a custom jq that returns the
+batch, so the keyed ops ride what that jq yields rather than a per-op picker; a run's
+state-change trace renders a keyed write by its op and path — `set /items where id = a`
+or `removed /items where id = a`.
 
 <Note>
-**Downgrade note.** Drain any keyed-fill runs before rolling a server *back* to a
-build that predates keyed ops: an older server would replay a stored keyed fill as a
+**Downgrade note.** Drain any keyed-op runs before rolling a server *back* to a
+build that predates keyed ops: an older server would replay a stored keyed op as a
 whole-list `set` and silently clobber the list. The forward direction is safe — a
-pre-keyed binding never carries a keyed op, and an unknown op fails loud by design.
+pre-keyed batch never carries a keyed op, and an unknown op fails loud by design.
 </Note>
 
 ### Refresh: opt-in state re-read
@@ -856,8 +776,9 @@ Every run seeds its bound records into `.states.<name>` **once, at mint** — so
 reads whatever was persisted when the run started. A node can opt into a fresher view:
 set **refresh state** on it to re-read the persisted record(s) right after its input
 barrier releases and **before** its jq input is built, folding the freshly committed
-docs into `.states.<name>` for that node's own expressions *and* its fills. Refresh
-re-reads **every** state the flow binds, or you narrow it to a named subset.
+docs into `.states.<name>` for that node's own expressions *and* its binding's input
+injections and updates. Refresh re-reads **every** state this node binds, or you narrow
+it to a named subset.
 
 The node's own control has three states:
 
@@ -882,9 +803,9 @@ states as its subset options — never the parent's.
 
 - **What it heals — and what it does not.** Refresh heals **causality**: a document an
   already-**finished** upstream node (or another completed flow) committed after this
-  run's mint-time seed, or a fill whose channel update was rolled back at an interrupt
+  run's mint-time seed, or a write whose channel update was rolled back at an interrupt
   boundary. A [subflow](#inputs-and-results) a parent node invokes is this case — its
-  fills commit immediately but stay invisible to a later parent node until that node
+  updates commit immediately but stay invisible to a later parent node until that node
   refreshes. It is **not** a race primitive — the re-read is a single point-in-time
   snapshot with no lock span, so a writer racing *concurrently* is still a
   [keyed-op](#keyed-state-list-ops) or [compare-and-set guard](#cross-flow-state-writers)
@@ -895,13 +816,13 @@ states as its subset options — never the parent's.
   every iteration's body, and any `while` predicate, inherits the same entry-time
   refreshed view.
 - **Interrupt-resume caveat.** A tool node that pauses and resumes re-runs on resume, so
-  its refresh re-reads at **resume** time and its fills — and the input recorded for the
-  node — are recomputed over the resume-time view, which can diverge from the arguments
-  the tool actually received on the first drive.
+  its refresh re-reads at **resume** time and its injections and updates — and the input
+  recorded for the node — are recomputed over the resume-time view, which can diverge from
+  the arguments the tool actually received on the first drive.
 - **Stateless bypass.** On an unbound run — a raw-graph surface, or a flow imported to an
-  environment where it is unbound — the re-read is a silent no-op, the same shape as
-  fills. But naming, in the subset, a state the flow does **not** bind is a loud binding
-  error whenever bindings do load.
+  environment where it is unbound — the re-read is a silent no-op, the same shape as the
+  binding's writes. But naming, in the subset, a state this node does **not** bind is a loud
+  binding error naming the node's bound states, whenever bindings do load.
 
 In the Studio the control sits on the node's State/Settings surface beside the wait
 knobs, and a refresh lands in the run's [state-change trace](#flow-states) as a
@@ -913,7 +834,7 @@ Flow bindings read and write the platform [state store](/concepts/states), so th
 store must be enabled — it defaults to the `default` database and points elsewhere
 with `TAI_DB_BINDING_STATES` (see
 [enabling the store](/concepts/states#enabling-the-store)). The flow engine keeps its
-own small store for the bindings and the `flow-views` documents, on its own Postgres
+own small store for the per-node bindings, on its own Postgres
 component `flows-states`:
 
 ```bash
@@ -934,257 +855,156 @@ stateless, and the binding routes answer a gated refusal.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `TAI_DB_BINDING_STATES` | `default` | Database the platform [state store](/concepts/states) binds to (records, declarations, modules). |
+| `TAI_DB_BINDING_STATES` | `default` | Database the platform [state store](/concepts/states) binds to (records, declarations, templates). |
 | `TAI_DB_BINDING_FLOWS_STATES` | unset | Database the flow-engine binding store binds to; unset = flow states off. |
 
 Record retention is a platform concern now — set it per state (`retention_days`) or as
 a deployment default on the store; see the [States concept](/concepts/states#enabling-the-store).
 
-## State modules
+## State templates
 
-A **state module** gives a state a *declared structure* — a reusable schema fragment,
-per-path writer rules, a shared jq view library, a trace switch, a declarations section,
-an optional loop contract, and shipped node presets — written in **module-relative**
-names that mounting translates to concrete paths once, at bind time. It is split across
-**two documents** that share a module name:
+A **state template** gives a state a *declared structure* — a reusable schema fragment,
+per-path writer regimes, a declarations section, a set of **template jq** programs, and a
+trace switch — written in **template-relative** names that attaching translates to concrete
+paths once. The template is a platform document (`kind: "state-template"`) the platform
+[state store](/concepts/states#templates-and-attachments) owns; declaring it, attaching it on
+a state, its [template jq](/concepts/states#template-jq), and the effective schema an
+attachment composes into are all platform operations. A template is data and the runtime is
+generic: nothing in a template is a use-case feature — it is a mechanism any state can reuse.
 
-- the **platform module document** (`kind: "state-module"`) — the schema fragment, the
-  fillable parameters, the per-path writer regimes, the declarations section, and the
-  trace switch — owned by the platform [state store](/concepts/states#modules-and-mounts).
-  Declaring it, mounting it on a state, and the effective schema the mount composes into
-  are platform operations.
-- the **`flow-views` document** (`kind: "flow-views"`) — the jq **views**, the
-  [compiled views](#compiled-views), the optional [loop contract](#the-loop-contract),
-  and the shipped **node presets** — owned by the flow engine and keyed by the same
-  module name. This is the half a flow consumes.
+Babelfish consumes an attached template two ways: a node's
+[binding](#binding-a-node-to-a-state) injects an `input`-purpose template jq's value into the
+node input and applies an `update`-purpose program's op batch after the node runs; and every
+jq expression on a bound state may call the input programs through the
+[template-jq prelude](#the-template-jq-prelude).
 
-A module is data and the runtime is generic: nothing in a module is a use-case feature —
-it is a mechanism any state can reuse.
+### Binding a node to a state
 
-### The platform module document
+A node's binding attaches one or more states, each with the templates it uses, a
+`subject_expr` that resolves the record key, and an optional `scope_expr`. It carries two
+lists:
 
-The platform half is a JSON object with `kind: "state-module"`, a `name`
-(`[a-z][a-z0-9-]{0,62}`; the jq identifier form maps `-` to `_`), the object-rooted
-JSON-Schema `schema` fragment (a `{"$parameter": "<name>"}` marker anywhere is
-substituted at mount), the `parameters` (each `{schema, default?}`), the module-relative
-`regimes`, the `declarations` section (static values with their own schema and an
-optional `check` predicate), and the `trace` switch. Its shape, its
-[parameters and markers](/concepts/states#modules-and-mounts), the
-[regimes](/concepts/states#regimes) it declares, mounting it on a state, and the
-effective schema it composes into are documented with the
-[platform state store](/concepts/states#modules-and-mounts); under a traced mount the
-platform stamps a `_trace` object on every write.
+- **input injections** — each evaluates a `purpose: "input"` template jq (or a custom jq over
+  `{record, input}`) and merges the value into the node input under a named field before the
+  node runs;
+- **updates** — each applies a write after the node completes: a `purpose: "update"` template
+  jq (its returned op batch rebased under the attachment path), shaped by an **adapter** that
+  maps the node's `{output, input}` to the program's declared input, or a custom jq over
+  `{record, output, input}` returning the op batch itself. An optional `op_id` makes the write
+  idempotent.
 
-The flow engine adds one authoring check over the served regimes at **bind time**. A
-`single`-regime path admits at most one `(flow, node)` writer across every binding on the
-state; a second is refused naming both — *"single-writer path […] of module 'alpha' on
-state 's' admits one writer, but 'f1'/'n1' and 'f2'/'n2' both write it"*. A `composing`
-path admits only [keyed ops](#keyed-state-list-ops) or an append `set` (a path ending
-`'-'`); a whole-path write is refused — *"composing path […] of module 'alpha' on state
-'s' admits only keyed ops or an append set (path ending '-'); fill for node 'n' uses
-'set'"*. The platform store additionally refuses a `composing`-shape violation at write
+A binding always attaches **at least one state**: `PUT /api/babelfish/bindings/{flow}/{node}`
+with zero states (`{"states": []}`) is refused (`422`). "No binding" is spelled by the
+**absence of the document**, never an empty one — `DELETE` on the same route removes a node's
+binding, and export carries no empty binding document (a node with no binding contributes
+nothing to the [`state_bindings` sidecar](#portable-flow-files)).
+
+The engine validates the binding at save: every named template jq must exist on an attached
+template with the purpose it is used as (`input` for an injection, `update` for an update; an
+unknown name, an ambiguous unqualified name, or the wrong purpose is refused); an adapter — required
+on a named update — and a custom update's jq must **compile**. It does NOT re-check the ops a
+custom update produces: those are constrained at RUN time by the platform's write-regime
+chokepoint (there are no binding-declared paths for a custom update). An adapter's output is
+validated against the update jq's declared input at APPLY time — a missing or undeclared key is
+refused.
+
+The **single-writer** check runs at save over the REAL write paths. A `single`-regime path
+admits at most one writer, and a second is refused naming both. A template update is one writer
+identified by `(template, attachment, program)` on its declared `writes` rebased under the
+attachment path — so the same template update applied from any node or door on one state is ONE
+writer — while a custom update is the node's own writer, `(flow, node)`, counted as a writer of
+the **whole attached subtree** (its attachment's mount path). A `composing` path admits only
+[keyed ops](#keyed-state-list-ops) or an append `set` (a path ending `'-'`); a whole-path write
+is refused, and the platform store additionally refuses a `composing`-shape violation at write
 time, so the rule holds even for a write that never passed the bind door.
 
-### The flow-views document
+### The template-jq prelude
 
-The flow-side half is a sibling document keyed by the module name, carrying only what a
-flow consumes:
-
-```jsonc
-{
-  "kind": "flow-views",
-  "module": "alpha",
-  "views": {                                // a jq library; each view's input is the mount ENVELOPE, siblings callable by relative name
-    "pending":    {"expr": ".data.entries // [] | map(select(.done | not))"},
-    "pending_of": {"params": ["kind"], "expr": "pending | map(select(.kind == $kind))"}
-  },
-  "compiled": [ /* compiled views (below) */ ],
-  "loop": { /* the loop contract (below) */ },
-  "nodes": [                                // node presets shipped with the module, bound at mount with module-relative fills
-    {"preset": "alpha-record", "subject_expr": ".subject",
-     "fills": [{"node_id": "record", "path": ["entries"], "op": "set_by_key", "key_field": "id", "expr": ".result"}]}
-  ]
-}
-```
-
-Validation is loud, at save and at upload: every view compiles inside the emitted
-prelude against the served schema; an optional [`loop`](#the-loop-contract) names
-existing views with the right arities; an optional [`compiled`](#compiled-views) view
-names a declarations item array and its `key`/`expr` properties; and every node fill is a
-valid fill whose path lies inside the served fragment and obeys the regimes. The first
-violation raises with the offending rule and path named — never a silent accept.
-
-### Views and the mount envelope
-
-A module's `views` are a jq library shared by every node and prompt input on a state that
-mounts it. Each view compiles into a `def <module>_<view>(…)` in a prelude prepended at
-the one jq compile seam, so a node expression calls it by that name — the identifier form
-maps `-` to `_`:
+Every jq expression a flow carries on a bound state — a node expression, a router verdict, a
+binding field — reaches the state's attached templates' `input` programs through a generated
+prelude. For each `purpose: "input"` template jq the engine emits one def:
 
 ```
-mount("s"; "alpha") | alpha_pending_of("status")
+def tjq_<name>($params): <the program body, with $params, $declarations and $parameters bound>;
 ```
 
-Every view takes the mount **envelope** as its input. The generic locator
-`mount($state; $module)` in the prelude returns:
+so an expression calls it as `tjq_<name>({…})` — always exactly one object argument (`{}` when
+the program declares no params), for example `tjq_due_set({run: .turn.run})` or `tjq_x({})`.
+Inside the body `.` is the attached record subtree, and `$declarations`/`$parameters` are the
+attachment's declarations and parameters. Sibling input programs are emitted dependency-first,
+so one may call another by its `tjq_<name>({…})` handle.
 
-```json
-{"state": "…", "module": "…", "path": ["…"], "parameters": {"…": "…"}, "declarations": {"…": "…"}, "data": "…"}
-```
+The prelude also emits a generic `attachment($state; $template)` locator: it yields the
+attachment envelope, and `attachment($state; $template).data` the record subtree an `input`
+program reads — so `attachment($state; $template).data | tjq_<name>({…})` is the explicit form
+of a call whose `.` is that subtree.
 
-`.data` is the mounted subtree (a `getpath` over an unseeded state answers `null`, never
-raises), `.declarations` are the values the mount stored, and `.parameters` are the
-resolved parameter values — so a view reads a client's declarations by name with no
-second seam. **Sibling views are called by relative name** — `pending_of` above calls
-`pending` — because each `<module>_<view>` def nests every sibling def (dependency-first,
-unprefixed) around its own body. Emission is deterministic (modules and views in a fixed
-order) so the compile cache hits, and a module mounted twice emits its defs once.
-
-Every jq input also carries **`.mounts`** = `{<state>: {<module>: {path, parameters,
-declarations}}}` — the data the locator reads — resolved from the run scope like `.run`.
-Outside a run (a validation-time compile) `.mounts` is `null` and the validation doors
-pass the prelude explicitly. Views and `.mounts` are **read-only**; nothing derived is
-ever stored.
-
-### Compiled views
-
-A `compiled` entry turns a jq string a client writes **in a mount's declarations** into a
-generated view, compiled once at mount time rather than evaluated from data at run time. Each
-entry is `{view, path, key?, expr?, params?, result?}`. Every body's INPUT is the flow
-**root** and the mount envelope is bound as `$mount`, so a body reads its own subtree as
-`$mount.data` and a sibling state member as `.states[$s]…`; a bare `.data` read is refused (its
-input is the root, so `.data` would silently answer `null`).
-
-Two forms. The **dispatch** form (`key` set): `path` reaches an item array in the declarations
-schema, each item's `key` property heads a branch, and the branch body is the jq at the item's
-`expr` **DOTTED** property path (e.g. `expected_input.via`; a null or absent value contributes
-no branch). `key` is a single item property OR a **LIST** of properties — a list matches the
-joined `"<v1>.<v2>…"` and the caller passes the same join, so a phase key unique only per
-`(kind, key)` dispatches on the composite `["kind", "key"]` (`"<kind>.<key>"`) without two
-kinds sharing one branch. Mounting emits `def <module>_<view>($k; $mount[; <params>]): if $k
-== "<key1>" then (<expr1>) elif … else null end;`, so a node calls it as `mount("s"; "alpha") |
-alpha_<view>("<k>"; .)` — `.`, the flow root, passed as `$mount`. An unknown key answers
-`null`.
-
-The **scalar** form (`key` absent): `path` reaches a single jq string property whose value IS
-the body, emitting `def <module>_<view>($mount): (<expr>);` (`null` when the string is absent),
-called as `mount("s"; "alpha") | alpha_<view>(.)`. `params` are extra positional parameters
-emitted after `$k`/`$mount` and bound by the caller.
-
-A body may call the module's other views and `mount(…)`. `result` declares the value shape the
-body must yield — `"boolean"` (a predicate) or `"string"`. Each body is compiled at mount, on a
-declarations `PATCH`, and on a module replace; a non-compiling one refuses the mount, naming
-`<path>[<key>=<k>].<expr>` (dispatch) or `<path>` (scalar). When `result` is declared the mount
-also EVALUATES each body over a sample flow root whose mounted `.data` is an instance
-synthesized from the module's schema (an object becomes its properties, an array `[]`, a string
-`""`, a number `0`, a boolean `false`, a nullable slot `null`); a value whose type contradicts
-the declared `result` refuses the mount, naming the item and the value it produced, and a body
-that raises over the sample root refuses likewise.
+When a program name is unique across the state's attachments the engine emits both the short
+`tjq_<name>` and the qualified `tjq_<template>__<name>` — the template name slug-encoded
+`-`→`_`, so `my-tally` gives `tjq_my_tally__<name>`; when it is shared it emits only the
+qualified form (never a silent pick). An unknown name raises loudly. There is no update/write
+callable in an expression — updates happen only through a binding's `updates`
+([above](#binding-a-node-to-a-state)).
 
 ### Trace, declarations, and the effective schema
 
-Three parts of a module are platform-owned and documented with the
-[platform state store](/concepts/states#modules-and-mounts): under a **traced** mount
-the platform stamps a `_trace` object (`meta`, `run`, `turn`, `inbound`, `at`) on every
-object a fill writes — the engine supplies `meta: {node: <node id>}`; a module's
-**declarations** carry static values a view reads as
-`.declarations`, validated by their own schema and an optional `check` predicate; and the
-platform composes each mount's fragment into the state's **effective schema**, which
+Three parts of a template are platform-owned and documented with the
+[platform state store](/concepts/states#templates-and-attachments): under a **traced**
+attachment the platform stamps a `_trace` object (`meta`, `run`, `turn`, `inbound`, `at`) on
+every object a write touches — the engine supplies `meta: {node: <node id>}`; a template's
+**declarations** carry static values a program reads as
+`$declarations`, validated by their own schema and an optional `check` predicate; and the
+platform composes each attachment's fragment into the state's **effective schema**, which
 every write validates against.
 
-### Mounting node presets
+### Binding scope
 
-Mounting a module is a platform operation (see
-[modules and mounts](/concepts/states#modules-and-mounts)). When the module's `flow-views`
-document ships **node presets**, the mount also materializes one flow binding per
-`nodes[]` entry — its fills translated to absolute paths (the mount path plus the
-module-relative one) and tagged with the mount for display, scoped with a generic
-`scope_expr` of `.state == "<state>"`. Unmounting removes the materialized bindings. A
-materialized binding is derived, not editable directly: attempting to bind a shipped
-module node by hand is refused — *"flow 'f' is a shipped node of a module mounted on
-state 's' — its binding is derived from the module's views; edit the mount on the States
-page instead"*.
+A binding's optional **`scope_expr`** is a boolean jq predicate evaluated **first**,
+before the subject is resolved: `false` skips that state for the run — no injections and no
+updates — and records a `binding_skipped` state-change event; a non-boolean raises; unset
+means engaged. It means the same on every door and every node, and a door's `scope_expr`
+wins over the preset's — see
+[A binding's subject and scope](/concepts/states#a-bindings-subject-and-scope). This is how
+one node, bound to several states, engages only the state its caller names.
 
-**Binding scope.** `scope_expr` is a generic jq predicate over the run's raw kwargs,
-evaluated **first** in the per-binding loop at mint — before the subject is resolved. A
-`false` result skips the whole binding (its fills and its refresh) and records a
-`binding_skipped` state-change event; a non-boolean raises; unset means always engaged.
-This is how one shipped module preset, bound by mounts on several states, writes only the
-state its caller names.
+### Shipped defaults
 
-### The loop contract
-
-A module may declare an optional `loop` block — the contract the Router card's loop mode
-consumes:
-
-```jsonc
-"loop": {
-  "seed": "alpha-seed", "record": "alpha-record", "outcome": "alpha-outcome", "mint": "alpha-mint",
-  "talk": "alpha-talk",                                         // optional composed-talk preset
-  "views": {"anything_due": "anything_due", "due": "due", "due_set": "due_set", "expectations": "expectations"},
-  "manifest": {"intents": ["intents"], "phases": ["phases"], "talk_slot": ["talk_slot"]},   // paths INTO the declarations schema
-  "max_iterations": 20
-}
-```
-
-`seed`/`record`/`outcome` (and optional `mint` and `talk`) are preset names; `views` names
-existing views by their required loop arity (`anything_due(run)`, `due(kind; phase; run)`,
-`due_set(run)`, `expectations(run)`); `manifest.intents`/`.phases` are paths into the
-declarations schema whose array items declare the required fields (`kind`, `description` /
-`key`, `kind`, `handler`), so the Studio reads them without jq. An optional
-`manifest.talk_slot` is a path to an **object** property (carrying a `prompt_ref`
-content-store template id and a `transcript_window_lines` bound) in the declarations schema that
-turns on the module's composed-talk slot, which the optional `talk` preset speaks after the
-fixed parts; a null slot means the module has no talk slot. Each
-loop preset (and each phase handler) must return its value under **exactly one**
-`return_result` node — the loop reads a preset output through a single envelope unwrap
-(`.result | [.[]] | first`), so a preset that flags two surfaces has no single value to read. The
-contract's shape and validation are defined here; the Router card's loop mode reads it to
-generate the loop.
-
-### Shipped module seeds
-
-A module can ship as a default. On boot the seed applier reconciles the store against the
-registered seeds by a content hash: it **creates** a module when absent, **upgrades** one
-still equal to its shipped hash whose shipped body has drifted, **skips** an
-operator-edited module (its hash no longer matches — left untouched, logged), and
-**deletes** a retired name that is still unedited (an edited or still-mounted one is kept
-and logged). An operator upload clears the shipped hash, so a later upgrade never clobbers
-a hand edit.
+Babelfish ships no state templates of its own; a state template is a platform document, and a
+resource that ships one (its schema, regimes, declarations, and template jq) registers it as a
+[platform state-template seed](/concepts/states#templates-and-attachments) on the state store,
+reconciled by content hash like any other seed.
 
 ## Upload — one door, two kinds
 
-`POST /api/babelfish/upload` is one door for the flow engine's two self-describing
-document kinds — the JSON's `kind` routes it. State and state-module documents are
-uploaded from the platform [States screen](/studio/screens#states) instead, through the
+`POST /api/babelfish/upload` is one door for the flow engine's two self-describing document
+kinds — the JSON's `kind` routes it. Both become presets. State and state-template documents
+are uploaded from the platform [States screen](/studio/screens#states) instead, through the
 platform's own [`/api/states`](/concepts/states#the-http-surface) doors:
 
-- **`flow`** / **`node`** → a preset over the `flow` base tool, through the same
-  in-process authoring path the preset HTTP doors use (create for a new name, a new active
-  version for an existing one — earlier versions kept). A **`node`** additionally writes
-  its palette tool-meta overlay: the `palette-node` tag lists it in the custom-node
-  palette, an optional `folder` places its card, and a `module: <name>` field writes the
-  `module:<name>` grouping tag so the palette and the module's page group it under the
-  module. The overlay is merged, never replaced, so an operator-added tag survives a
-  re-upload.
-An unknown or missing `kind` is `422`; the response is `{kind, name}` (plus `version` for
-a preset). The flow-side binding and `flow-views` documents have direct routes too:
-`GET /api/babelfish/bindings` and `PUT/DELETE /api/babelfish/bindings/{state}/{flow_name}`
-(plus `POST /api/babelfish/bindings/move`), and
-`GET /api/babelfish/views`, `GET/PUT/DELETE /api/babelfish/views/{module}` (PUT honors
-`?replace=`). Every one answers the same gated refusal (`503`, `reason:
-states_unavailable`) when the flow states feature is off.
+- **`flow`** → a preset over the `flow` base tool, through the same in-process authoring path
+  the preset HTTP doors use (create for a new name, a new active version for an existing one —
+  earlier versions kept).
+- **`node`** → the same, plus a palette **entry**: the preset carries a `palette-node`
+  tag so it lists in the canvas palette, with an optional `folder` placing its card.
+
+An unknown or missing `kind` is `422`; the response is `{kind, name}` (plus `version` for a
+preset). The per-node bindings have direct routes too, keyed `(flow_name, node_id)`:
+`GET /api/babelfish/bindings` (by `?flow=` or `?state=`),
+`PUT/DELETE /api/babelfish/bindings/{flow_name}/{node_id}`,
+`DELETE /api/babelfish/bindings/{flow_name}` (removes every per-node binding of a flow — the
+Studio calls it when a flow is deleted — returning `{removed}`), and
+`POST /api/babelfish/bindings/move`. Every one answers the same gated refusal (`503`,
+`reason: states_unavailable`) when the flow states feature is off.
 
 ## Shipped defaults are files
 
-The shipped defaults live as files beside the code: one JSON document per default (each
-with its `kind`), a `retired.json` withdrawal manifest (`{presets, modules}`), and a `<name>.md` prose note beside each
-document. A loader reads the folder at import and turns `node`/`flow` files into preset
-seeds and `flow-views` files into flow-views seeds; both are applied **in-process** through
-the same seed appliers the upload door's writes reach — never by the server calling its
-own HTTP. The document is the source of truth, and a default is told from an operator edit
-by a content hash. The platform module documents a state module pairs with ship as
-platform state-module seeds on the [state store](/concepts/states#modules-and-mounts).
+The shipped defaults live as files beside the code: one JSON document per default (each with
+its `kind`), a `retired.json` withdrawal manifest, and a `<name>.md` prose note beside each
+document. A loader reads the folder at import and turns `node`/`flow` files into preset seeds, applied
+**in-process** through the same seed appliers the upload door's writes reach — never by the
+server calling its own HTTP. The document is the source of truth, and a default is told from an
+operator edit by a content hash. A state-template document a resource ships is registered as a
+platform state-template seed on the [state store](/concepts/states#templates-and-attachments).
 
 ## Checkpoint retention
 

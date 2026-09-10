@@ -33,6 +33,41 @@ $ tai states apply [OPTIONS] {name}
 | `--op-id` `&lt;str&gt;` | An idempotency key for the batch. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai states attach`
+
+Attach a template on a state at a path with its parameters and declarations.
+
+```console
+$ tai states attach [OPTIONS] {name} {template}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | The state name. _(required)_ |
+| `template` | The template name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--data` `&lt;str&gt;` | The attach body JSON (path/parameters/declarations). |
+| `--file` `&lt;path&gt;` | A file holding the attach body JSON. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai states attachments`
+
+List the templates attached on a state.
+
+```console
+$ tai states attachments [OPTIONS] {name}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | The state name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai states consumers`
 
 List everything that binds a state — flows, hooks, schedules, agents.
@@ -51,7 +86,7 @@ $ tai states consumers [OPTIONS] {name}
 
 ## `tai states delete`
 
-Delete a state with its records, mounts and aliases.
+Delete a state with its records, attachments and aliases.
 
 ```console
 $ tai states delete [OPTIONS] {name}
@@ -60,6 +95,23 @@ $ tai states delete [OPTIONS] {name}
 | Argument | Description |
 | --- | --- |
 | `name` | The state name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai states detach`
+
+Detach a template from a state.
+
+```console
+$ tai states detach [OPTIONS] {name} {template}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | The state name. _(required)_ |
+| `template` | The template name. _(required)_ |
 
 | Option | Description |
 | --- | --- |
@@ -109,7 +161,7 @@ $ tai states fold [OPTIONS] {name}
 
 ## `tai states get`
 
-Show a state's declaration, effective schema, mounts and regimes.
+Show a state's declaration, effective schema, attachments and regimes.
 
 ```console
 $ tai states get [OPTIONS] {name}
@@ -123,18 +175,18 @@ $ tai states get [OPTIONS] {name}
 | --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
-## `tai states get-mount`
+## `tai states get-attachment`
 
-Read one module's mount on a state (404 when it is not mounted).
+Read one template's attachment on a state (404 when it is not attached).
 
 ```console
-$ tai states get-mount [OPTIONS] {name} {module}
+$ tai states get-attachment [OPTIONS] {name} {template}
 ```
 
 | Argument | Description |
 | --- | --- |
 | `name` | The state name. _(required)_ |
-| `module` | The module name. _(required)_ |
+| `template` | The template name. _(required)_ |
 
 | Option | Description |
 | --- | --- |
@@ -172,41 +224,6 @@ $ tai states merge [OPTIONS] {name}
 | `--key` `&lt;str&gt;` | The subject key within its kind. _(required)_ |
 | `--data` `&lt;str&gt;` | The patch JSON. |
 | `--file` `&lt;path&gt;` | A file holding the patch JSON. |
-| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
-
-## `tai states mount`
-
-Mount a module on a state at a path with its parameters and declarations.
-
-```console
-$ tai states mount [OPTIONS] {name} {module}
-```
-
-| Argument | Description |
-| --- | --- |
-| `name` | The state name. _(required)_ |
-| `module` | The module name. _(required)_ |
-
-| Option | Description |
-| --- | --- |
-| `--data` `&lt;str&gt;` | The mount body JSON (path/parameters/declarations). |
-| `--file` `&lt;path&gt;` | A file holding the mount body JSON. |
-| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
-
-## `tai states mounts`
-
-List the modules mounted on a state.
-
-```console
-$ tai states mounts [OPTIONS] {name}
-```
-
-| Argument | Description |
-| --- | --- |
-| `name` | The state name. _(required)_ |
-
-| Option | Description |
-| --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai states prune`
@@ -335,40 +352,76 @@ $ tai states subjects [OPTIONS] {name}
 | `--cursor` `&lt;str&gt;` | A keyset cursor from a prior page. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
-## `tai states unmount`
+## `tai states template-jq`
 
-Unmount a module from a state.
+Evaluate/apply a state's template_jq programs.
 
 ```console
-$ tai states unmount [OPTIONS] {name} {module}
+$ tai states template-jq [OPTIONS] COMMAND [ARGS]...
+```
+
+### `tai states template-jq apply`
+
+Apply an update-purpose template_jq program to a subject's record.
+
+```console
+$ tai states template-jq apply [OPTIONS] {name} {program}
 ```
 
 | Argument | Description |
 | --- | --- |
 | `name` | The state name. _(required)_ |
-| `module` | The module name. _(required)_ |
+| `program` | The template_jq program name (or &lt;template&gt;.&lt;name&gt;). _(required)_ |
 
 | Option | Description |
 | --- | --- |
+| `--target-kind` `&lt;str&gt;` | The subject's conversation-target kind (agent/tool). _(required)_ |
+| `--target-name` `&lt;str&gt;` | The subject's conversation-target name. _(required)_ |
+| `--kind` `&lt;str&gt;` | The subject kind (e.g. person, thread). _(required)_ |
+| `--key` `&lt;str&gt;` | The subject key within its kind. _(required)_ |
+| `--input` `&lt;str&gt;` | The program's input as JSON, or @&lt;file&gt; to read it from a file. |
+| `--op-id` `&lt;str&gt;` | An idempotency key for the apply. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
-## `tai states update-mount`
+### `tai states template-jq eval`
 
-Replace a mount's static declaration values, with optional reconcile options.
+Evaluate an input-purpose template_jq program for a subject.
 
 ```console
-$ tai states update-mount [OPTIONS] {name} {module}
+$ tai states template-jq eval [OPTIONS] {name} {program}
 ```
 
 | Argument | Description |
 | --- | --- |
 | `name` | The state name. _(required)_ |
-| `module` | The module name. _(required)_ |
+| `program` | The template_jq program name (or &lt;template&gt;.&lt;name&gt;). _(required)_ |
 
 | Option | Description |
 | --- | --- |
-| `--declarations` `&lt;str&gt;` | The mount declaration values JSON object. _(required)_ |
-| `--options` `&lt;str&gt;` | The reconcile options JSON object passed to mount reconcilers. |
+| `--target-kind` `&lt;str&gt;` | The subject's conversation-target kind (agent/tool). _(required)_ |
+| `--target-name` `&lt;str&gt;` | The subject's conversation-target name. _(required)_ |
+| `--kind` `&lt;str&gt;` | The subject kind (e.g. person, thread). _(required)_ |
+| `--key` `&lt;str&gt;` | The subject key within its kind. _(required)_ |
+| `--param` `&lt;str&gt;` | An input-program parameter as key=&lt;json&gt; (repeatable). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai states update-attachment`
+
+Replace an attachment's static declaration values, with optional reconcile options.
+
+```console
+$ tai states update-attachment [OPTIONS] {name} {template}
+```
+
+| Argument | Description |
+| --- | --- |
+| `name` | The state name. _(required)_ |
+| `template` | The template name. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--declarations` `&lt;str&gt;` | The attachment declaration values JSON object. _(required)_ |
+| `--options` `&lt;str&gt;` | The reconcile options JSON object passed to attach reconcilers. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai states writes`

@@ -1,6 +1,6 @@
 ---
 title: "Flows editor"
-description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the LLM router and loop mode, the visual jq editor, and state bindings."
+description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the LLM router and its dispatch modes, the visual jq editor, and per-node state bindings."
 icon: "pen-ruler"
 ---
 
@@ -45,8 +45,8 @@ flow for downstream jq that still reads the removed path off this agent
 (`.upstream_outputs.<agent>.<path>`, including the flow-level on-error handler) and
 names the references that would silently start resolving to null — it never blocks the
 save (references built dynamically are, honestly, not detected). The State tab is the
-node's fills editor — or, on the Start node, this flow's state bindings — and its tab
-label carries a live fill-count.
+node's [state binding](#state-bindings) — the shared binding editor, one per node — and
+its tab label carries a live count of the states the node binds.
 
 ## Schema-aware run results
 
@@ -77,63 +77,36 @@ priority — and a row reorders by [dragging its grip or stepping its move
 buttons](/babelfish#the-routes-table); the table's advisory notes flag a row an earlier
 one already covers, without ever blocking the save.
 
-## Loop mode
+The card also carries one **Dispatch** control, set once for the whole card — **Once**
+(every matched chip continues the flow along its line) or **Loop** (each chip's line starts
+a body that runs once per classified item, sequentially or in parallel with an optional
+max-concurrency cap, or repeatedly while an authored jq condition holds under a max-runs
+safety cap). Under Loop the card grows a **result** chip through which the collected output
+of every chip leaves. The chips look and connect the same in both modes; the modes are
+documented on the [router page](/babelfish#dispatch-once-or-loop).
 
-A **Loop mode** form group turns the card into a [bounded loop over a mounted
-module](/babelfish#loop-mode). A checkbox opens it; when on, a **State** select (the
-states this flow is bound to), a **Module** select (that state's mounts whose document
-declares a loop contract), a **Subject** jq field prefilled from the binding, and a **Max
-passes** number field whose placeholder is the effective cap with its source ("20
-(platform default)" or the module's value). Below the Max passes input a muted helper line
-reads "Longest chain in this manifest: {M} passes" — the manifest's longest run of
-dependent phases; when the resolved cap falls below it the field shows a blocking inline
-alert, "Max passes {N} is below the manifest's longest chain ({M} passes).", and the save is
-refused. The Kinds and Routes editors are replaced by a
-read-only **Phases from the manifest** table — kind, phase, handler tool, and a
-tool-found / tool-missing status badge, each kind row carrying a muted "Extracts: …" line
-when it declares classifier fields — with a **Regenerate from manifest** button; a
-drift or missing-tool lint renders as an inline alert under the group. On the canvas the
-router node shows a **loop** badge in its kind slot and one solid chip per generated phase
-labeled `kind:phase` (the handler tool in its tooltip), and the iterate body group wraps
-the generated handler and outcome nodes under the card's name; when the manifest drifts,
-the node's errors card shows a **regenerate the loop card** message.
+## The updates half of the binding editor
 
-<Frame caption="The Router card on the canvas in loop mode: a loop badge and one chip per generated phase, its handler foreach and outcome recorder wrapped in the iterate body group.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-canvas-light.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-canvas-dark.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-</Frame>
+A node's [state binding](#state-bindings) applies **updates** to a bound state after the
+node runs, edited in the **Updates** list of the shared binding editor. Each update writes
+one of two ways:
 
-<Frame caption="The Router edit form's Loop mode group: state, module, subject, and max-passes fields above the read-only Phases-from-the-manifest table with its Regenerate action.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-form-light.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-form-dark.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-</Frame>
+- a **template jq** the state's attached templates declare (`purpose: "update"`), picked
+  from a select that lists each update program as `name — description`; the selected
+  program's declared write paths show beside it as a `writes:` badge. The run applies its
+  returned op batch — [keyed list ops](/babelfish#keyed-state-list-ops) and appends — under
+  the attachment path. Because a named update jq never sees a tool's field names, an **adapter**
+  form maps the node's `{output, input}` to the update jq's declared input — one row per
+  declared key, each picking a field, a literal, or a jq, with a write-jq escape hatch for
+  the whole adapter.
+- a **custom jq** over `{record, output, input}` returning the op batch itself, for a write
+  the templates do not name.
 
-<Frame caption="The Max passes field with a resolved cap below the manifest's longest chain: the blocking inline alert names the chain length and refuses the save.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-cap-lint-light.png" alt="The Router form Max passes field showing a blocking alert that the cap is below the manifest's longest chain." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-cap-lint-dark.png" alt="The Router form Max passes field showing a blocking alert that the cap is below the manifest's longest chain." />
-</Frame>
-
-<Frame caption="The Router loop card in a drift state: the manifest changed since the card was generated, so a regenerate-from-manifest alert blocks the save.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-drift-light.png" alt="A Router loop card showing a manifest-drift alert prompting a regenerate from manifest." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-drift-dark.png" alt="A Router loop card showing a manifest-drift alert prompting a regenerate from manifest." />
-</Frame>
-
-## The fills editor
-
-The **fills editor** on a node's **Fills** tab edits, per node, the state fields the
-node writes. It groups fills by state and defaults to a top-level-field dropdown off
-the state's served effective schema, with an advanced-path affordance that opens a
-schema-driven path picker (drilling into object properties and array items, with an
-append position for lists) plus an operation picker — `set` / `remove` and the
-[keyed list ops](/babelfish#keyed-state-list-ops) `set_by_key` / `remove_by_key`,
-which capture a key field and address a list rather than a field — and the fill's jq,
-plus an optional re-run jq for the case where the engine detects the node re-ran.
-Each fill also carries an
-optional compare-and-set [guard](/babelfish#cross-flow-state-writers) behind a
-collapsed disclosure. A save that writes a path another flow also writes **succeeds**
-and surfaces a quiet, non-alarming note beside the affected fill, pointing at the
-guard as the lost-update fix; a genuine write failure still renders loudly. With the
-states store not configured, the fills and bindings surfaces self-hide rather than
+An update may carry an optional **op id** for idempotency. The write-regime check runs at
+save: a landing path outside the update's declared writes, or an adapter whose output misses
+the declared input, is refused loudly. A save that writes a path another flow also writes
+**succeeds** and surfaces a quiet, non-alarming note; a genuine write failure still renders
+loudly. With the states store not configured, the binding surfaces self-hide rather than
 erroring.
 
 ## Presets
@@ -179,6 +152,12 @@ post-route expression and a return. Settings the form does not model — kwargs 
 API-authored or newer agent carries — are surfaced **read-only** so nothing an agent
 persists is fully invisible, and are round-tripped untouched.
 
+A jq field that can reach a bound state — a binding field, a node expression — offers
+autocomplete from the [template jq](/babelfish#state-templates) of the templates attached
+to that state: each `purpose: "input"` program by name, inserting its `tjq_<name>({…})`
+call handle (`tjq_<template>__<name>({…})` when a name is shared across the state's
+attachments).
+
 ## The visual jq editor
 
 The **Inline** tab's field is the [visual jq editor](/babelfish#the-visual-jq-editor):
@@ -204,59 +183,42 @@ represent is never mislabelled as broken. On opening the dialog, a faithful expr
 is drawn on the canvas; an unfaithful one shows the fallback, and the editable canvas
 is then reached only through **Start empty**.
 
-## State bindings and fills
+## State bindings
 
 Flows bind to the platform [state store](/concepts/states) rather than a store of
-their own, so declaring states, mounting modules, and browsing records all live on
-the Studio's [States screen](/studio/screens#states). What the flow editor owns is
-the binding: how each flow reads and writes those states. A node's edit panel
-carries a fourth tab whose role depends on the node — the **Start** node has a
-**Bindings** tab, every other node a **Fills** tab.
+their own, so declaring states, attaching templates, and browsing records all live on
+the Studio's [States screen](/studio/screens#states). What the flow editor owns is the
+binding: how each node reads and writes those states. Every node's edit panel carries a
+**State** tab, and its binding is the [same editor](/reference/studio-sdk/index) the
+platform's door screens use — shipped from the Studio SDK so a door and a node bind a
+state the same way.
 
-The **Bindings** tab binds the flow to a state. It lists each binding as
-state · subject · scope: an *ambient* binding (badged with the default subject kind)
-takes its subject from the door, an *expression* binding shows the jq that computes
-`{kind, key}`, and a binding materialised from a module's views document renders
-read-only with a **from views** label. **Add binding** opens a "Bind a state" dialog
-to pick a state, choose the subject (from the door, or a jq expression over
-`.turn.subject`), and an optional scope expression; a refused save renders the
-engine's message verbatim. A link opens the state on the
-[States screen](/studio/screens#states).
+The editor attaches one or more states to the node. Each **state** card picks the
+state and one or more **templates** (a template not yet attached is attached on save),
+then a **Subject** expression (a full subject object or a bare key) and an optional **Scope**
+predicate that gates the state for the run —
+[the same on every door and node](/concepts/states#a-bindings-subject-and-scope).
+Below the card, the **Inputs** list injects a value into the node's input before it runs —
+each row a `purpose: "input"` [template jq](/babelfish#state-templates) (or a custom jq
+over `{record, input}`) and the input field it lands in — and the **Updates** list applies
+a write after the node runs (the [updates half](#the-updates-half-of-the-binding-editor)
+above). Every jq field autocompletes from the attached templates' template jq.
 
-<Frame caption="The Bindings tab on the Start node: each binding as state, subject, and scope, with an add-binding action.">
-  <img className="block dark:hidden" src="/images/studio/flow-bindings-tab-light.png" alt="The Bindings tab on a flow's Start node listing state bindings with their subject and scope and an Add binding action." />
-  <img className="hidden dark:block" src="/images/studio/flow-bindings-tab-dark.png" alt="The Bindings tab on a flow's Start node listing state bindings with their subject and scope and an Add binding action." />
-</Frame>
+Where the node's tool is a registered preset that carries its own door binding, the editor
+shows an advisory on any state both bind — *Overrides the preset's subject* — with the
+preset's own subject shown as the read-only default beside it; the node's binding wins.
+Every control rebuilds from the stored binding: an update's adapter form recovers each row
+from the stored adapter jq, and a state or template the binding names but the server no
+longer serves shows a **Template not attached.** error with the raw jq, never a blank
+control. A refused save renders the engine's message verbatim.
 
-Every other node carries a **Fills** tab — the fills editor described above, its path
-picker reading the state's served effective schema and regimes so a mounted path
-shows its rule.
+{/* screenshot: node state binding editor — both themes */}
 
-<Frame caption="The Fills tab on a node: the per-state fills the node writes, with the schema-driven path picker.">
-  <img className="block dark:hidden" src="/images/studio/flow-fills-tab-light.png" alt="The Fills tab on a flow node listing the per-state fills the node writes with a schema-driven path picker." />
-  <img className="hidden dark:block" src="/images/studio/flow-fills-tab-dark.png" alt="The Fills tab on a flow node listing the per-state fills the node writes with a schema-driven path picker." />
-</Frame>
+## Upload
 
-## The palette and upload
-
-On the canvas palette, presets tagged with a module group under a **Module: {name}**
-heading above the folder groups — read from the module's views document — and a
-node's card on the canvas shows its module name as a badge.
-
-A preset a module ships (a `module:<name>` tag) is **generated machinery** its loop card
-mints, not a user building block, so it lists **inspect-only**: a non-draggable card carrying a
-**"generated"** badge that opens the same inspect view on click — **read-only**, with no
-Edit/Delete controls. The canvas refuses to place one, and a flow whose module status is not
-yet known stays read-only until it resolves.
-
-<Frame caption="The palette grouping module nodes under their module heading.">
-  <img className="block dark:hidden" src="/images/studio/palette-module-group-light.png" alt="The canvas palette grouping presets tagged with a module under a Module heading." />
-  <img className="hidden dark:block" src="/images/studio/palette-module-group-dark.png" alt="The canvas palette grouping presets tagged with a module under a Module heading." />
-</Frame>
-
-The flows toolbar carries an **Upload** action for a flow or node document with a
-`kind`, reporting the uploaded kind and name in a status line and prompting when a
-file carries no `kind`. State and state-module documents are uploaded from the
+The flows toolbar carries an **Upload** action for a flow or node document with a `kind`,
+reporting the uploaded kind and name in a status line and prompting when a file carries
+no `kind`. State and state-template documents are uploaded from the
 [States screen](/studio/screens#states) instead.
 
 <Frame caption="The flows toolbar Upload action with its result line.">

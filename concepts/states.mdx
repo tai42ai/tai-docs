@@ -68,12 +68,12 @@ subject resolves to:
   [Doors](#doors)).
 - `retention_days` is optional: a positive integer, or unset to keep records
   forever.
-- A state `name` matches `^[a-z0-9][a-z0-9_-]*$` — no colon, because the fill
+- A state `name` matches `^[a-z0-9][a-z0-9_-]*$` — no colon, because the write
   op-id namespace splits on `:`.
 
 Two schema fields are **computed by the platform** and served on every read:
-`effective_schema` (the base schema composed with every mounted module's fragment)
-and `regimes` (the absolute write-regime rules composed over the mounts). A client
+`effective_schema` (the base schema composed with every attached template's fragment)
+and `regimes` (the absolute write-regime rules composed over the attachments). A client
 that supplies a non-null value for either on a write is refused — neither can be
 forged across the wire.
 
@@ -85,82 +85,133 @@ is refused (`409`), and removing a subject kind still present in records is
 refused the same way. `retention_days` is metadata, not schema, so changing it
 alone is never gated.
 
-## Modules and mounts
+## Templates and attachments
 
-A **state module** is a reusable schema fragment with fillable parameters,
-per-path writer regimes, mount-time declarations, and a trace switch. It is a
-document the platform owns:
+A **state template** is a reusable schema fragment with fillable parameters,
+per-path writer regimes, attach-time declarations, a set of **template jq** programs,
+an optional **reconcile** program, and a trace switch. It is a document the platform
+owns:
 
 ```json
 {
-  "kind": "state-module",
+  "kind": "state-template",
   "name": "utilities",
   "description": "A reusable fragment.",
   "parameters": {},
   "schema": { "type": "object", "properties": { "items": { "type": "array" } } },
   "regimes": [{ "path": ["items"], "regime": "composing" }],
+  "template_jq": {},
+  "reconcile": null,
   "trace": { "enabled": true }
 }
 ```
 
-A module document is the **platform half** only — its schema, regimes, parameters,
-declarations, and trace switch. A consumer that also needs its own artifacts keeps
-them in a separate document of its own kind, beside the module and validated through
-the platform's mount validator; a module document that carries keys outside its own
-schema is refused, so an operator who pastes a whole consumer document is told exactly
-where those belong. A module `name` matches `^[a-z][a-z0-9-]{0,62}$`.
+A state template is data and the store is generic: nothing in a template is a use-case
+feature — it is a mechanism any state can reuse. A `name` is a **slug** —
+`^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,62}$`, so no leading, trailing, or consecutive hyphens —
+because the jq prelude maps `-`→`_` to build the `tjq_<template>__<name>` handle, and only a
+slug makes that encoding unambiguous. A document that carries keys outside its own schema is
+refused, so an operator who pastes a whole consumer document is told exactly where those
+belong.
 
-**Mounting** a module places its fragment at a path in a state's document:
+### Template jq
+
+A template's `template_jq` is a map of named jq programs a door or a flow node runs against
+a subject's record, each declaring a **`purpose`**:
+
+- **`input`** — `{description, purpose: "input", params, jq}`. `jq` runs over the record
+  subtree at the attach path (`.` is the attached data) with the effective `$parameters`, the
+  `$declarations`, and its declared `params` delivered as the single object `$params`, and
+  returns a value. Read-only.
+- **`update`** — `{description, purpose: "update", params, reads, writes, jq}`. `jq`'s input is
+  `{record, input}` — `.record` the current data at the attach path, `.input` the caller's
+  argument — with `$parameters`/`$declarations` bound, and returns an ordered,
+  template-relative op batch (the keyed-op shape the store applies). `params` are the key
+  names the `.input` object must carry — uniform with an `input` program's `params` — so apply
+  refuses an `.input` missing a declared key or carrying an undeclared one (`422`); a named
+  update that declares `params` needs an
+  [adapter](/babelfish#binding-a-node-to-a-state) in a binding to fill them. `reads`/`writes`
+  are template-relative paths declared for readability; at put each `reads`/`writes` path is
+  validated only for **structure** — that it resolves against the fragment — while the
+  **write regime** (that a `writes` path lies under a declared-writable regime) is enforced at
+  apply by the store guard.
+
+Sibling `input` programs are ordered dependency-first, so one may call another by name. A
+[binding](/babelfish#state-templates) on any door (or a babelfish node) injects an `input`
+program's value into a run's input before the run and applies an `update` program's batch
+after it; the record-level HTTP and CLI surfaces evaluate an `input` program and apply an
+`update` program directly (see [Template jq](#template-jq-1)).
+
+### Attaching
+
+**Attaching** a template places its fragment at a path in a state's document. The template is
+named in the URL segment (`PUT …/attachments/{template}`), never in the body; the body carries
+only `path`/`parameters`/`declarations`/`options` (the last a per-operation, never-stored bag):
 
 ```json
-{ "path": ["extras"], "parameters": {}, "declarations": {} }
+{ "path": ["extras"], "parameters": {}, "declarations": {}, "options": {} }
 ```
 
-The effective schema is the base schema with every mounted fragment composed in.
-Composing two fragments at overlapping paths, or mounting where the base schema
-already carries the property, is a conflict (`409`) naming the colliding path. A
-consumer may register a **mount validator** on the states facet: given the module
-document, the mount's declaration values, and the state's effective schema, it
-raises loudly to refuse a mount or a declarations write — it is consulted before
-every mount and every declarations write.
+The effective schema is the base schema with every attached fragment composed in. Composing
+two fragments at overlapping paths, attaching a second template at an already-occupied path,
+or attaching where the base schema already carries the property is a conflict (`409`) naming
+the colliding path. A consumer may register an **attach validator** on the states facet with
+`register_attach_validator`: given the template document, the attachment's declaration values,
+and the state's effective schema, it raises loudly to refuse an attach or a declarations
+write — it is consulted before every attach and every declarations write.
 
-### Mount reconciliation
+### Attach reconciliation
 
-Replacing a live mount's `declarations` can retire part of a module while the state still
-holds OPEN records shaped by the old declarations. A module author registers a **mount
-reconciler** on the states facet with `register_mount_reconciler(reconciler)` — a pre-write
-hook run inside every `mount` and `update_mount_declarations` write, after the validators and
-before the write. It receives a `MountReconcileContext`: the `state` name, the module document,
-the `operation` (`mount` | `update_declarations`), the `previous_declarations` (`None` on a
-first mount) and `new_declarations`, the mount `options`, and a record door bound to the state.
-The reconciler either **raises** a `ModuleValidationError` to refuse the mount (naming the
-records the new declarations would orphan) or **writes resolutions** through the context's record
-door and returns, letting the mount commit with those writes.
+Replacing a live attachment's `declarations` can retire part of a template while the state
+still holds OPEN records shaped by the old declarations. The platform runs a built-in
+**reconciler** that reads the template's `reconcile` program, and a consumer may register its
+own with `register_attach_reconciler(reconciler)` — a pre-write hook run inside every `attach`
+and `update_attachment_declarations` write, after the validators and before the write. It
+receives an `AttachReconcileContext`: the `state` name, the template document, the `operation`
+(`attach` | `update_declarations`), the `previous_declarations` (`None` on a first attach) and
+`new_declarations`, the attach `options`, and a record door bound to the state. The reconciler
+either **raises** to refuse the attach (naming the records the new declarations would orphan)
+or **writes resolutions** through the context's record door and returns, letting the attach
+commit with those writes.
 
-The `options` bag on the `PUT`/`PATCH` mount body (`MountBody.options`, `--options` on the CLI)
-is a free-form, **per-operation** directive bag the reconciler reads to decide how to settle
-open records against the new declarations — for example, whether to close records the new
-declarations no longer cover. It is passed to the reconcilers for THIS mount only, **never
-stored or served back**; any key outside `path`/`parameters`/`declarations`/`options` is refused.
+The `options` bag on the `PUT`/`PATCH` attach body (`AttachBody.options`, `--options` on the
+CLI) is a free-form, **per-operation** directive bag the reconciler reads to decide how to
+settle open records against the new declarations — for example, whether to close records the
+new declarations no longer cover. It is passed to the reconcilers for THIS attach only,
+**never stored or served back**; any key outside
+`path`/`parameters`/`declarations`/`options` is refused.
+
+### Detaching
+
+Detaching a template is guarded so a live reference is never stranded. The detach door
+consults every registered **detach referee** before it removes the attachment and refuses
+(`409`, listing the human-readable references each referee returns) while any binding still
+calls the template's [template jq](#template-jq). The platform's own binding holders — preset
+versions, conversation-route configs, hooks, and schedules — are checked, and any consumer that
+registers a referee is too: the flow engine registers one for its
+[per-node bindings](/babelfish#binding-a-node-to-a-state), just as it does against a state
+delete. Nothing is auto-detached — the author removes or rewrites the referencing bindings
+first, then detaches. A consumer registers a referee with `register_detach_referee`, beside
+`register_delete_referee` on the tools facet.
 
 ### Regimes
 
-A regime is a per-path writer rule composed over a state's mounts. Each rule is a
+A regime is a per-path writer rule composed over a state's attachments. Each rule is a
 `{path, regime}` where the path may use the `"*"` wildcard (one list index or key)
 and the regime is one of:
 
 - **`free`** — no restriction. An undeclared path is `free`.
 - **`composing`** — the path is built up by many writers, so a whole-path
   `set`/`remove` over it is refused (`422`); it admits only a keyed op or an append
-  `set`. The refusal names the path and module, for example: `composing path
-  ['items'] of module 'utilities' admits only keyed ops or an append set`.
+  `set`. The refusal names the path and template, for example: `composing path
+  ['items'] of template 'utilities' admits only keyed ops or an append set`.
 - **`single`** — a single-writer path. This is enforced as an authoring check when
   a consumer binds a state, not at the store: a hook, schedule, or builtin-tool
   write on a `single` path is recorded in the audit trail with its door and actor,
   never refused at write time.
 
-When a module's trace switch is enabled, the effective schema admits a `_trace`
-object on every write under the mount, and the platform stamps it (see
+When a template's trace switch is enabled, the effective schema admits a `_trace`
+object on every write under the attachment, and the platform stamps it (see
 [The audit trail](#the-audit-trail)).
 
 ## Doors
@@ -183,6 +234,30 @@ an async `ask_user` and resumed later rejoins the same attribution.
 A tool run with no ambient context — a sync run-tool call, a background run, the
 MCP edge — is the `api` door and a state tool it calls must carry an explicit
 subject; called with none it raises `no subject in scope`.
+
+### A binding's subject and scope
+
+A [binding](/babelfish#binding-a-node-to-a-state) — on any door definition (a preset,
+hook, schedule, or channel route) and, in babelfish, per node — resolves its subject with
+a jq `subject_expr` and gates itself with an optional jq `scope_expr`. Both mean the same
+on every door and every node:
+
+- **`subject_expr`** is **required** and non-empty, and yields either a full subject object
+  `{target_kind, target_name, kind, key}` or a bare **key** string — for a bare key the
+  `kind` is the state's declared subject kind and the target is the run's ambient target.
+  A missing or empty `subject_expr` is refused (`422`).
+- **`scope_expr`** is an optional **boolean** predicate over the run's inputs, evaluated
+  first: `false` skips the state for that run — no input injections and no updates; a
+  non-boolean is refused loudly; an absent expression means engaged.
+
+When a door dispatches a preset that carries its own binding, the **door's `scope_expr`
+wins** when present, else the preset's. A preset's own binding fires only when that preset
+is the **outermost** dispatch; called as a sub-tool of another dispatch, its binding is a
+no-op.
+
+A binding fires on every door it reaches through, the MCP edge included: an MCP `tools/call`
+that omits `arguments` still receives the binding's input injections — absent arguments are
+treated as an empty argument object, never a skipped injection.
 
 ### The turn subject block
 
@@ -247,34 +322,34 @@ stamped by the platform write chokepoint from the ambient context, `door`, `acto
 `turn_id`, and `inbound_id`. Because door, actor, and turn are stamped by the platform,
 the trail cannot be forged by a consumer.
 
-Under a **traced mount** the platform stamps a `_trace` object on every write:
+Under a **traced attachment** the platform stamps a `_trace` object on every write:
 `at` is always present; `run`, `turn`, and `inbound` are the run, turn, and inbound
 ids, or null when the writer has none (a hook, a schedule, the API, or a builtin
 `state_*` tool has none); and `meta` is an opaque object the writing consumer supplies
-— its own identifiers, for instance — stored and shown as is. A flow fill and a
-hook's keyed write get the same stamp.
+— its own identifiers, for instance — stored and shown as is. A flow's binding write
+and a hook's keyed write get the same stamp.
 
 ## The HTTP surface
 
-All routes are authed. Modules are a top-level sibling collection and prune is its
+All routes are authed. Templates are a top-level sibling collection and prune is its
 own route, so no literal segment sits on the `/api/states/{name}` position — a
-state literally named `modules` stays reachable at `GET /api/states/modules` while
-`GET /api/state-modules` lists modules.
+state literally named `templates` stays reachable at `GET /api/states/templates` while
+`GET /api/state-templates` lists templates.
 
 ### States
 
 | Method & path | Purpose |
 |---|---|
 | `GET /api/states` | list declarations |
-| `GET /api/states/{name}` | declaration, effective schema, mounts, regimes |
+| `GET /api/states/{name}` | declaration, effective schema, attachments, regimes |
 | `PUT /api/states/{name}` | declare (`?replace=`) |
 | `DELETE /api/states/{name}` | delete a declaration |
 | `GET /api/states/{name}/stats` | record and subject counts |
-| `GET /api/states/{name}/mounts` | list mounts |
-| `GET /api/states/{name}/mounts/{module}` | read a mount (404 if not mounted) |
-| `PUT /api/states/{name}/mounts/{module}` | mount a module |
-| `PATCH /api/states/{name}/mounts/{module}` | update mount declarations |
-| `DELETE /api/states/{name}/mounts/{module}` | unmount |
+| `GET /api/states/{name}/attachments` | list attachments |
+| `GET /api/states/{name}/attachments/{template}` | read an attachment (404 if not attached) |
+| `PUT /api/states/{name}/attachments/{template}` | attach a template |
+| `PATCH /api/states/{name}/attachments/{template}` | update an attachment's declarations |
+| `DELETE /api/states/{name}/attachments/{template}` | detach |
 | `GET /api/states/{name}/subjects` | list subjects (`?kind=&limit=&cursor=`) |
 | `POST /api/states/{name}/records/search` | search records by document content |
 | `GET /api/states/{name}/consumers` | what binds this state |
@@ -294,14 +369,28 @@ The subject is four path segments:
 | `POST …/fold` | fold this subject into another |
 | `GET …/writes` | the audit trail |
 
-### Modules and retention
+### Template jq
+
+The record-level jq programs a state's attached templates declare share one path, the
+method selecting the purpose:
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/state-modules` | list modules |
-| `GET /api/state-modules/{name}` | read a module |
-| `PUT /api/state-modules/{name}` | upload a module (`?replace=`) |
-| `DELETE /api/state-modules/{name}` | delete a module |
+| `GET …/template-jq/{program}` | evaluate an `input`-purpose program (query params supply its `params`) |
+| `POST …/template-jq/{program}` | apply an `update`-purpose program (body `{input?, op_id?}`) |
+
+`{program}` is a program name, or `{template}.{name}` when a name is shared across the
+state's attachments. A GET on an `update` program, or a POST on an `input` program,
+refuses loudly.
+
+### Templates and retention
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/state-templates` | list templates |
+| `GET /api/state-templates/{name}` | read a template |
+| `PUT /api/state-templates/{name}` | upload a template (`?replace=`) |
+| `DELETE /api/state-templates/{name}` | delete a template |
 | `POST /api/state-retention/prune` | prune expired records |
 
 Errors map to status: `501` when the store's database is unbound (a stable code
@@ -311,11 +400,12 @@ Errors map to status: `501` when the store's database is unbound (a stable code
 ## The command line
 
 Two command groups mirror the HTTP surface. `tai states` manages declarations,
-mounts, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
-`stats`, `mounts`, `mount`, `get-mount`, `update-mount` (its `--options` carrying the
-per-operation reconcile directives),
-`unmount`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `erase`,
-`fold`, `writes`, `consumers`, and `prune`. `tai state-modules` manages module
+attachments, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
+`stats`, `attachments`, `attach`, `get-attachment`, `update-attachment` (its `--options`
+carrying the per-operation reconcile directives),
+`detach`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `template-jq`
+(`eval` an input program, `apply` an update program), `erase`,
+`fold`, `writes`, `consumers`, and `prune`. `tai state-templates` manages template
 documents — `list`, `get`, `put`, `delete`. Record commands take
 `--target-kind`, `--target-name`, `--kind`, and `--key`; `apply`, `replace`, and
 `merge` read their JSON from `--data` or a `--file`. See the
