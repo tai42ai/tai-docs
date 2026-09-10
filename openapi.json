@@ -599,6 +599,54 @@
         "title": "ApplyResult",
         "type": "object"
       },
+      "AttachAck": {
+        "description": "A template-attach confirmation — the ``state`` and ``template`` attached.",
+        "properties": {
+          "attached": {
+            "title": "Attached",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attached",
+          "state",
+          "template"
+        ],
+        "title": "AttachAck",
+        "type": "object"
+      },
+      "AttachUpdateAck": {
+        "description": "An attachment-declarations update confirmation — the ``state`` and ``template``\nupdated.",
+        "properties": {
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "state",
+          "template"
+        ],
+        "title": "AttachUpdateAck",
+        "type": "object"
+      },
       "AuthHealthState": {
         "description": "Connection-level auth health. Reachability is separate and computed live\nby the status probe (never stored on the record).",
         "enum": [
@@ -1998,7 +2046,7 @@
               }
             ],
             "default": null,
-            "description": "A structured guest submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and the ``attachments``/``location`` siblings ride the same pattern. The platform attaches no meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant — a target that reads it validates it itself.",
+            "description": "A structured participant submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and the ``attachments``/``location`` siblings ride the same pattern. The platform attaches no meaning and NO TRUST to the contents: participant-shaped data, never schema-conformant — a target that reads it validates it itself.",
             "title": "Form"
           },
           "locale": {
@@ -2508,11 +2556,11 @@
                   "name": "form"
                 },
                 {
-                  "gloss": "inbound media the guest sent, present only when the inbound carried some",
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
                   "name": "attachments"
                 },
                 {
-                  "gloss": "a geographic point the guest shared, present only when the inbound carried one",
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
                   "name": "location"
                 },
                 {
@@ -2541,7 +2589,7 @@
             "default": null,
             "title": "Reply Expr",
             "x-tai42-expression": {
-              "blurb": "the tool/flow result (the SUCCESS shape) the route maps to the guest reply",
+              "blurb": "the tool/flow result (the SUCCESS shape) the route maps to the participant reply",
               "label": "reply expression",
               "language": "jq",
               "returns": "the reply: null (silent), a string, or a list of answer parts"
@@ -2788,11 +2836,11 @@
                   "name": "form"
                 },
                 {
-                  "gloss": "inbound media the guest sent, present only when the inbound carried some",
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
                   "name": "attachments"
                 },
                 {
-                  "gloss": "a geographic point the guest shared, present only when the inbound carried one",
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
                   "name": "location"
                 },
                 {
@@ -2821,7 +2869,7 @@
             "default": null,
             "title": "Reply Expr",
             "x-tai42-expression": {
-              "blurb": "the tool/flow result (the SUCCESS shape) the route maps to the guest reply",
+              "blurb": "the tool/flow result (the SUCCESS shape) the route maps to the participant reply",
               "label": "reply expression",
               "language": "jq",
               "returns": "the reply: null (silent), a string, or a list of answer parts"
@@ -2912,6 +2960,30 @@
         ],
         "title": "DeliveryStatus",
         "type": "string"
+      },
+      "DetachAck": {
+        "description": "A template-detach confirmation — the ``state`` and ``template`` detached.",
+        "properties": {
+          "detached": {
+            "title": "Detached",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detached",
+          "state",
+          "template"
+        ],
+        "title": "DetachAck",
+        "type": "object"
       },
       "DirDeleted": {
         "description": "A storage-directory delete confirmation.",
@@ -3852,6 +3924,17 @@
             "title": "Name",
             "type": "string"
           },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "subject": {
             "anyOf": [
               {
@@ -3972,6 +4055,17 @@
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "subject": {
             "anyOf": [
@@ -4691,7 +4785,7 @@
         "type": "object"
       },
       "LocationElement": {
-        "description": "A geographic point shared on a message — the one shape used BOTH ways: an outbound place a\nflow shares and the inbound location a guest sent.\n\n``latitude``/``longitude`` are WGS84 decimal degrees, bounded to their valid ranges\n(latitude -90..90, longitude -180..180). ``name`` is an optional place label and ``address``\nan optional street address, each a single-line non-blank string within its cap when present\n(raw whitespace and control/format characters are rejected, as on a media url — an embedded\nnewline or bidi spoof would corrupt the rendered pin label). A channel that cannot render a\nmap renders the coordinates (and any name/address) as text. Frozen.",
+        "description": "A geographic point shared on a message — the one shape used BOTH ways: an outbound place a\nflow shares and the inbound location a participant sent.\n\n``latitude``/``longitude`` are WGS84 decimal degrees, bounded to their valid ranges\n(latitude -90..90, longitude -180..180). ``name`` is an optional place label and ``address``\nan optional street address, each a single-line non-blank string within its cap when present\n(raw whitespace and control/format characters are rejected, as on a media url — an embedded\nnewline or bidi spoof would corrupt the rendered pin label). A channel that cannot render a\nmap renders the coordinates (and any name/address) as text. Frozen.",
         "properties": {
           "address": {
             "anyOf": [
@@ -5267,7 +5361,7 @@
         "type": "object"
       },
       "MediaItem": {
-        "description": "One media item shown WITH a message — a display element, and inbound the shape a guest's\nsent media takes.\n\n``kind`` selects how it renders: an ``image`` inline, a ``document``/``video``/``audio`` as\nthe matching file bubble, a ``link`` as a labelled anchor. ``url`` is the source. A file\nkind (``image``/``document``/``video``/``audio``) must be an absolute ``https`` URL, a\nsame-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to media the skeleton serves by id, or an\nabsolute ``http(s)`` served reference of that same ``{MEDIA_ROUTE_PREFIX}{id}`` path a\nchannel send mints from ``public_base_url`` (remote file media is https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an ``http:``\nremote source would be an unrenderable record); ``image`` ADDITIONALLY admits an inline\n``data:image/*`` URI — that inline form is image-only, a ``data:`` URI on any other file\nkind is refused. A ``link`` must be an absolute ``http(s)`` URL (anchors are not governed by\n``img-src``; the human clicks through). A remote url names a host directly — an ASCII DNS\nname, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply punycode); an embedded\n``user@`` credential form is rejected as it spoofs the authority — and is always a single\nline — raw whitespace and control/format characters are rejected. ``caption`` is the\naccessibility text — the image's alt text, a file's label, or the link's display label.\n``filename`` is the document's suggested display name; it is meaningful ONLY for a\n``document`` item and is refused on every other kind.",
+        "description": "One media item shown WITH a message — a display element, and inbound the shape a participant's\nsent media takes.\n\n``kind`` selects how it renders: an ``image`` inline, a ``document``/``video``/``audio`` as\nthe matching file bubble, a ``link`` as a labelled anchor. ``url`` is the source. A file\nkind (``image``/``document``/``video``/``audio``) must be an absolute ``https`` URL, a\nsame-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to media the skeleton serves by id, or an\nabsolute ``http(s)`` served reference of that same ``{MEDIA_ROUTE_PREFIX}{id}`` path a\nchannel send mints from ``public_base_url`` (remote file media is https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an ``http:``\nremote source would be an unrenderable record); ``image`` ADDITIONALLY admits an inline\n``data:image/*`` URI — that inline form is image-only, a ``data:`` URI on any other file\nkind is refused. A ``link`` must be an absolute ``http(s)`` URL (anchors are not governed by\n``img-src``; the human clicks through). A remote url names a host directly — an ASCII DNS\nname, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply punycode); an embedded\n``user@`` credential form is rejected as it spoofs the authority — and is always a single\nline — raw whitespace and control/format characters are rejected. ``caption`` is the\naccessibility text — the image's alt text, a file's label, or the link's display label.\n``filename`` is the document's suggested display name; it is meaningful ONLY for a\n``document`` item and is refused on every other kind.",
         "properties": {
           "caption": {
             "anyOf": [
@@ -5548,54 +5642,6 @@
           "avgLatencyMs"
         ],
         "title": "ModelUsageRow",
-        "type": "object"
-      },
-      "MountAck": {
-        "description": "A module-mount confirmation — the ``state`` and ``module`` mounted.",
-        "properties": {
-          "module": {
-            "title": "Module",
-            "type": "string"
-          },
-          "mounted": {
-            "title": "Mounted",
-            "type": "boolean"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "mounted",
-          "state",
-          "module"
-        ],
-        "title": "MountAck",
-        "type": "object"
-      },
-      "MountUpdateAck": {
-        "description": "A mount-declarations update confirmation — the ``state`` and ``module``\nupdated.",
-        "properties": {
-          "module": {
-            "title": "Module",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "updated": {
-            "title": "Updated",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "updated",
-          "state",
-          "module"
-        ],
-        "title": "MountUpdateAck",
         "type": "object"
       },
       "MountedRoute": {
@@ -6832,6 +6878,17 @@
             ],
             "default": null,
             "title": "Output Schema"
+          },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -7400,6 +7457,17 @@
             ],
             "default": null,
             "title": "Output Schema"
+          },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -7513,6 +7581,17 @@
             ],
             "default": null,
             "title": "Output Schema"
+          },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "title": "PresetVersionSave",
@@ -8243,46 +8322,6 @@
         "title": "QuickReplyButtonParam",
         "type": "object"
       },
-      "RecordView": {
-        "additionalProperties": false,
-        "description": "A read record: the ``state``, its ``subject``, the ``data`` document and its\nmonotonic ``seq``, plus the ``canonical_subject`` a fold resolved the subject to\nand every subject ``folded_from`` into it. Frozen.",
-        "properties": {
-          "canonical_subject": {
-            "$ref": "#/components/schemas/StateSubject"
-          },
-          "data": {
-            "additionalProperties": true,
-            "title": "Data",
-            "type": "object"
-          },
-          "folded_from": {
-            "items": {
-              "$ref": "#/components/schemas/StateSubject"
-            },
-            "title": "Folded From",
-            "type": "array"
-          },
-          "seq": {
-            "title": "Seq",
-            "type": "number"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "subject": {
-            "$ref": "#/components/schemas/StateSubject"
-          }
-        },
-        "required": [
-          "state",
-          "subject",
-          "seq",
-          "canonical_subject"
-        ],
-        "title": "RecordView",
-        "type": "object"
-      },
       "RecycleEntry": {
         "description": "One recycled or self-deferred worker line in a profile-apply report.",
         "properties": {
@@ -8426,7 +8465,7 @@
         "type": "object"
       },
       "ReplyOption": {
-        "description": "A tappable suggested reply. Tapping SUBMITS ``text`` as the guest's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the guest's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id as today. Bounded by ``OPTION_ID_MAX_CHARS`` and a\nsingle-line non-blank label — the strictest carrier's rule. Frozen.",
+        "description": "A tappable suggested reply. Tapping SUBMITS ``text`` as the participant's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id as today. Bounded by ``OPTION_ID_MAX_CHARS`` and a\nsingle-line non-blank label — the strictest carrier's rule. Frozen.",
         "properties": {
           "description": {
             "anyOf": [
@@ -9448,13 +9487,24 @@
         "type": "object"
       },
       "ScheduleCreate": {
-        "description": "Create a schedule that periodically runs ``tool_name`` with ``tool_kwargs``\non the cadence in ``schedule_kwargs``.",
+        "description": "Create a schedule that periodically runs ``tool_name`` with ``tool_kwargs``\non the cadence in ``schedule_kwargs``.\n\n``state_binding`` is the OPTIONAL door-layer binding the recurring fire applies. Unlike\nthe per-schedule ``subject`` (a free key inside ``tool_kwargs`` that legitimately reaches\nthe base tool), it is a top-level field: it is injected into the dispatched arguments as\na reserved key the kit's ``schedule_task`` wrapper stamps under a backend arg and pops\nbefore the base tool runs, so the tool never sees it.",
         "properties": {
           "schedule_kwargs": {
             "additionalProperties": true,
             "default": {},
             "title": "Schedule Kwargs",
             "type": "object"
+          },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "tool_kwargs": {
             "additionalProperties": true,
@@ -9593,8 +9643,15 @@
         "type": "object"
       },
       "ServedStateView": {
-        "description": "The full served declaration read of ``get_state``: the base ``schema`` and the\ncomposed ``effective_schema`` (both open JSON-Schema objects), the ``subject_kinds``\nthe state serves and its ``default_subject_kind``, an optional ``retention_days``\n(``null`` to keep records forever), the state's ``mounts``, the absolute write-regime\nrules ``regimes`` (each ``{path, regime}``), and ``updated_at`` (the ISO timestamp of\nthe last write, ``null`` before any). The Python attribute for the wire ``schema`` key\nis suffixed to avoid shadowing a ``BaseModel`` member; the wire key stays ``schema``\nvia the alias.",
+        "description": "The full served declaration read of ``get_state``: the base ``schema`` and the\ncomposed ``effective_schema`` (both open JSON-Schema objects), the ``subject_kinds``\nthe state serves and its ``default_subject_kind``, an optional ``retention_days``\n(``null`` to keep records forever), the state's ``attachments``, the absolute write-regime\nrules ``regimes`` (each ``{path, regime}``), and ``updated_at`` (the ISO timestamp of\nthe last write, ``null`` before any). The Python attribute for the wire ``schema`` key\nis suffixed to avoid shadowing a ``BaseModel`` member; the wire key stays ``schema``\nvia the alias.",
         "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/StateAttachmentView"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
           "default_subject_kind": {
             "title": "Default Subject Kind",
             "type": "string"
@@ -9609,13 +9666,6 @@
             },
             "title": "Effective Schema",
             "type": "object"
-          },
-          "mounts": {
-            "items": {
-              "$ref": "#/components/schemas/StateMountView"
-            },
-            "title": "Mounts",
-            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -9676,7 +9726,7 @@
           "subject_kinds",
           "default_subject_kind",
           "retention_days",
-          "mounts",
+          "attachments",
           "regimes",
           "updated_at"
         ],
@@ -10082,6 +10132,168 @@
         "title": "StartReconnectRequest",
         "type": "object"
       },
+      "StateAttach": {
+        "additionalProperties": false,
+        "description": "One state attached by a binding: the ``state`` name, the ``templates`` to mount on it\n(mount-on-use, idempotent at save), the ``subject_expr`` (a jq over the run input → a full\nsubject object or the record KEY, its scope taken from the ambient door context and its\nkind from the state's declared subject kind), an optional ``scope_expr`` (a BOOLEAN\npredicate over the run input evaluated first — ``false`` skips this state for the run, a\nnon-boolean is a loud error, absent engages), and the ordered ``input_injections`` /\n``updates``. Frozen.",
+        "properties": {
+          "input_injections": {
+            "items": {
+              "$ref": "#/components/schemas/StateInjection"
+            },
+            "title": "Input Injections",
+            "type": "array"
+          },
+          "scope_expr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scope Expr"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subject_expr": {
+            "minLength": 1,
+            "title": "Subject Expr",
+            "type": "string"
+          },
+          "templates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Templates",
+            "type": "array"
+          },
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/StateUpdate"
+            },
+            "title": "Updates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "state",
+          "subject_expr"
+        ],
+        "title": "StateAttach",
+        "type": "object"
+      },
+      "StateAttachmentList": {
+        "description": "The bare-list body of ``list_state_attachments`` — every template attached on the\nstate.",
+        "items": {
+          "$ref": "#/components/schemas/StateAttachmentRow"
+        },
+        "title": "StateAttachmentList",
+        "type": "array"
+      },
+      "StateAttachmentRow": {
+        "description": "One attachment as the ``list_state_attachments`` listing carries it — the served\n:class:`StateAttachmentView` fields plus the ``state`` the attachment sits on.",
+        "properties": {
+          "declarations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Declarations",
+            "type": "object"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "path",
+          "parameters",
+          "declarations",
+          "state"
+        ],
+        "title": "StateAttachmentRow",
+        "type": "object"
+      },
+      "StateAttachmentView": {
+        "description": "One template attached on a state, as the served declaration read carries it: the\n``template`` name, the ``path`` in the document where its fragment lands, and the\nattachment's resolved ``parameters`` and static ``declarations`` (both arbitrary\nper-template JSON).",
+        "properties": {
+          "declarations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Declarations",
+            "type": "object"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "path",
+          "parameters",
+          "declarations"
+        ],
+        "title": "StateAttachmentView",
+        "type": "object"
+      },
+      "StateBinding": {
+        "additionalProperties": false,
+        "description": "The optional binding a door carries: one or more :class:`StateAttach` entries. Frozen.\n\nThe same shape is stored on ``PresetBody``/``PresetSeed``, ``TargetConversationConfig``,\n``HookRegister`` and ``ScheduleCreate``, deposited on ``ToolInvocation`` through the\nambient dispatch context, and repeated per node by a flow engine.",
+        "properties": {
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/StateAttach"
+            },
+            "minItems": 1,
+            "title": "States",
+            "type": "array"
+          }
+        },
+        "required": [
+          "states"
+        ],
+        "title": "StateBinding",
+        "type": "object"
+      },
       "StateConsumerList": {
         "description": "The bare-list body of ``state_consumers`` — everything that binds the state (flows,\nhooks, schedules, agents), each a ``ConsumerRow`` (an unlistable consumer family is a\nlabelled ``unavailable`` row).",
         "items": {
@@ -10092,7 +10304,7 @@
       },
       "StateDeclaration": {
         "additionalProperties": false,
-        "description": "A declared state: its ``name``, human ``description``, base JSON ``schema``\n(wire key ``schema``, attribute ``schema_``), the ``subject_kinds`` it serves\n(≥1, unique, each matching :data:`SUBJECT_KIND_RE`), the ``default_subject_kind``\na door's ambient subject resolves to (one of ``subject_kinds``), and an optional\n``retention_days`` (a positive INT4, or unset to keep records forever).\n\n``effective_schema`` is the base ``schema`` composed with every mounted module's\nfragment, and ``regimes`` are the absolute write-regime rules composed over the\nmounts (each ``{path, regime}``, the mount path prefixed onto the module's regime\npaths). ``updated_at`` is the row's last-write timestamp. The platform computes all\nthree and serves them on every read; a client that supplies a non-``None`` value for\nany of them on a write is refused (``… is set/computed by the platform``), so none can\nbe forged across the wire.",
+        "description": "A declared state: its ``name``, human ``description``, base JSON ``schema``\n(wire key ``schema``, attribute ``schema_``), the ``subject_kinds`` it serves\n(≥1, unique, each matching :data:`SUBJECT_KIND_RE`), the ``default_subject_kind``\na door's ambient subject resolves to (one of ``subject_kinds``), and an optional\n``retention_days`` (a positive INT4, or unset to keep records forever).\n\n``effective_schema`` is the base ``schema`` composed with every attached template's\nfragment, and ``regimes`` are the absolute write-regime rules composed over the\nattachments (each ``{path, regime}``, the attachment path prefixed onto the template's regime\npaths). ``updated_at`` is the row's last-write timestamp. The platform computes all\nthree and serves them on every read; a client that supplies a non-``None`` value for\nany of them on a write is refused (``… is set/computed by the platform``), so none can\nbe forged across the wire.",
         "properties": {
           "default_subject_kind": {
             "title": "Default Subject Kind",
@@ -10194,7 +10406,7 @@
         "type": "array"
       },
       "StateDeleteResult": {
-        "description": "A state (or state-module) delete confirmation — ``deleted`` and the ``name``\nremoved.",
+        "description": "A state (or state-template) delete confirmation — ``deleted`` and the ``name``\nremoved.",
         "properties": {
           "deleted": {
             "title": "Deleted",
@@ -10212,247 +10424,96 @@
         "title": "StateDeleteResult",
         "type": "object"
       },
-      "StateModuleCatalog": {
-        "description": "The bare-list body of ``list_state_modules`` — every platform state-module document\nwith its catalog columns.",
-        "items": {
-          "$ref": "#/components/schemas/StateModuleCatalogEntry"
-        },
-        "title": "StateModuleCatalog",
-        "type": "array"
-      },
-      "StateModuleCatalogEntry": {
+      "StateInjection": {
         "additionalProperties": false,
-        "description": "One state-module document in the catalog listing — the stored\n:class:`StateModuleDocument` plus ``mounted_on`` (the number of states it is mounted\non) and ``shipped_default`` (true when it is an unedited shipped default).",
+        "description": "One input injection placed into the run input under ``into`` before the dispatch.\n\nExactly one source is set: ``template_jq`` names an ``input``-purpose template jq\n(``name`` or ``<template>.<name>``) evaluated over the record, or ``jq`` is a custom\nprogram over ``{record, input}``. ``into`` IS the adapter for an injection — the\nrun-input field the value lands under. Frozen.",
         "properties": {
-          "declarations": {
+          "into": {
+            "minLength": 1,
+            "title": "Into",
+            "type": "string"
+          },
+          "jq": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "title": "Declarations"
+            "title": "Jq"
           },
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "kind": {
-            "const": "state-module",
-            "default": "state-module",
-            "title": "Kind",
-            "type": "string"
-          },
-          "mounted_on": {
-            "title": "Mounted On",
-            "type": "integer"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "parameters": {
-            "additionalProperties": true,
-            "title": "Parameters",
-            "type": "object"
-          },
-          "regimes": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Regimes",
-            "type": "array"
-          },
-          "schema": {
-            "additionalProperties": true,
-            "title": "Schema",
-            "type": "object"
-          },
-          "shipped_default": {
-            "title": "Shipped Default",
-            "type": "boolean"
-          },
-          "trace": {
-            "additionalProperties": true,
-            "title": "Trace",
-            "type": "object"
-          }
-        },
-        "required": [
-          "name",
-          "mounted_on",
-          "shipped_default"
-        ],
-        "title": "StateModuleCatalogEntry",
-        "type": "object"
-      },
-      "StateModuleDocument": {
-        "additionalProperties": false,
-        "description": "A state-module document: the reusable schema fragment plus the parameters, write\nregimes, mount-time ``declarations`` and ``trace`` switch the platform owns.\n``extra=\"forbid\"`` refuses any key outside these — a consumer keeps its own documents\n(its views, predicates, or whatever it needs) beside the module under its own kind,\nvalidated through its registered mount validator, never folded into this shape.\n\nThe wire key ``schema`` is the attribute ``schema_`` (alias). Structural\nvalidation of the fragment, regime paths and declarations lives at the store.",
-        "properties": {
-          "declarations": {
+          "template_jq": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "title": "Declarations"
-          },
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "kind": {
-            "const": "state-module",
-            "default": "state-module",
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "parameters": {
-            "additionalProperties": true,
-            "title": "Parameters",
-            "type": "object"
-          },
-          "regimes": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Regimes",
-            "type": "array"
-          },
-          "schema": {
-            "additionalProperties": true,
-            "title": "Schema",
-            "type": "object"
-          },
-          "trace": {
-            "additionalProperties": true,
-            "title": "Trace",
-            "type": "object"
+            "title": "Template Jq"
           }
         },
         "required": [
-          "name"
+          "into"
         ],
-        "title": "StateModuleDocument",
+        "title": "StateInjection",
         "type": "object"
       },
-      "StateMountList": {
-        "description": "The bare-list body of ``list_state_mounts`` — every module mounted on the\nstate.",
-        "items": {
-          "$ref": "#/components/schemas/StateMountRow"
-        },
-        "title": "StateMountList",
-        "type": "array"
-      },
-      "StateMountRow": {
-        "description": "One mount as the ``list_state_mounts`` listing carries it — the served\n:class:`StateMountView` fields plus the ``state`` the mount sits on.",
+      "StateRecord": {
+        "additionalProperties": false,
+        "description": "A read record: the ``state``, its ``subject``, the ``data`` document and its\nmonotonic ``seq``, plus the ``canonical_subject`` a fold resolved the subject to\nand every subject ``folded_from`` into it. Frozen.",
         "properties": {
-          "declarations": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "title": "Declarations",
+          "canonical_subject": {
+            "$ref": "#/components/schemas/StateSubject"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
             "type": "object"
           },
-          "module": {
-            "title": "Module",
-            "type": "string"
-          },
-          "parameters": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "title": "Parameters",
-            "type": "object"
-          },
-          "path": {
+          "folded_from": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StateSubject"
             },
-            "title": "Path",
+            "title": "Folded From",
             "type": "array"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "number"
           },
           "state": {
             "title": "State",
             "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/StateSubject"
           }
         },
         "required": [
-          "module",
-          "path",
-          "parameters",
-          "declarations",
-          "state"
+          "state",
+          "subject",
+          "seq",
+          "canonical_subject"
         ],
-        "title": "StateMountRow",
-        "type": "object"
-      },
-      "StateMountView": {
-        "description": "One module mounted on a state, as the served declaration read carries it: the\n``module`` name, the ``path`` in the document where its fragment lands, and the\nmount's resolved ``parameters`` and static ``declarations`` (both arbitrary\nper-module JSON).",
-        "properties": {
-          "declarations": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "title": "Declarations",
-            "type": "object"
-          },
-          "module": {
-            "title": "Module",
-            "type": "string"
-          },
-          "parameters": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "title": "Parameters",
-            "type": "object"
-          },
-          "path": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Path",
-            "type": "array"
-          }
-        },
-        "required": [
-          "module",
-          "path",
-          "parameters",
-          "declarations"
-        ],
-        "title": "StateMountView",
+        "title": "StateRecord",
         "type": "object"
       },
       "StateRecordOrNull": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/RecordView"
+            "$ref": "#/components/schemas/StateRecord"
           },
           {
             "type": "null"
           }
         ],
-        "description": "The ``read_state_record`` body: one subject's record as a ``RecordView``, or\n``null`` when the subject holds none.",
+        "description": "The ``read_state_record`` body: one subject's record as a ``StateRecord``, or\n``null`` when the subject holds none.",
         "title": "StateRecordOrNull"
       },
       "StateSearchPage": {
@@ -10599,6 +10660,256 @@
           "next_cursor"
         ],
         "title": "StateSubjectsPage",
+        "type": "object"
+      },
+      "StateTemplateCatalog": {
+        "description": "The bare-list body of ``list_state_templates`` — every platform state-template\ndocument with its catalog columns.",
+        "items": {
+          "$ref": "#/components/schemas/StateTemplateCatalogEntry"
+        },
+        "title": "StateTemplateCatalog",
+        "type": "array"
+      },
+      "StateTemplateCatalogEntry": {
+        "additionalProperties": false,
+        "description": "One state-template document in the catalog listing — the stored\n:class:`StateTemplateDocument` plus ``attached_to`` (the number of states it is attached\non) and ``shipped_default`` (true when it is an unedited shipped default).",
+        "properties": {
+          "attached_to": {
+            "title": "Attached To",
+            "type": "integer"
+          },
+          "declarations": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Declarations"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "state-template",
+            "default": "state-template",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "reconcile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reconcile"
+          },
+          "regimes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Regimes",
+            "type": "array"
+          },
+          "schema": {
+            "additionalProperties": true,
+            "title": "Schema",
+            "type": "object"
+          },
+          "shipped_default": {
+            "title": "Shipped Default",
+            "type": "boolean"
+          },
+          "template_jq": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Template Jq"
+          },
+          "trace": {
+            "additionalProperties": true,
+            "title": "Trace",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "attached_to",
+          "shipped_default"
+        ],
+        "title": "StateTemplateCatalogEntry",
+        "type": "object"
+      },
+      "StateTemplateDocument": {
+        "additionalProperties": false,
+        "description": "A state-template document: the reusable schema fragment plus the parameters, write\nregimes, attach-time ``declarations`` and ``trace`` switch the platform owns, plus\n``template_jq`` (named jq programs — ``input``-purpose reads and ``update``-purpose\nrecord operations) and ``reconcile`` (how a declarations edit settles open records)\nthat give the record its meaning. A template is data end to end: the states API serves\nan input-purpose result for a subject and applies an update-purpose program to a subject\ngenerically, so a template is usable through the API with no other engine.\n``extra=\"forbid\"`` refuses any key outside these.\n\nThe wire key ``schema`` is the attribute ``schema_`` (alias). Structural validation of\nthe fragment, regime paths, declarations, template_jq and reconcile lives at the store\n— ``template_jq``/``reconcile`` travel as free ``dict`` objects here (matching\n``declarations``/``regimes``) and are parsed and checked in the skeleton.",
+        "properties": {
+          "declarations": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Declarations"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "state-template",
+            "default": "state-template",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "reconcile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reconcile"
+          },
+          "regimes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Regimes",
+            "type": "array"
+          },
+          "schema": {
+            "additionalProperties": true,
+            "title": "Schema",
+            "type": "object"
+          },
+          "template_jq": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Template Jq"
+          },
+          "trace": {
+            "additionalProperties": true,
+            "title": "Trace",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "StateTemplateDocument",
+        "type": "object"
+      },
+      "StateUpdate": {
+        "additionalProperties": false,
+        "description": "One update applied through the store after the dispatch.\n\nExactly one source is set: ``template_jq`` names an ``update``-purpose template jq\n(``name`` or ``<template>.<name>``) whose ``.input`` object the optional ``adapter`` (a\njq over ``{output, input}``) shapes from the run's output/input; or ``jq`` is a custom\nprogram over ``{record, output, input}`` authoring the whole op batch itself (a custom\nupdate carries no adapter). ``op_id`` is an optional idempotency-key expression. Frozen.",
+        "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Adapter"
+          },
+          "jq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Jq"
+          },
+          "op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op Id"
+          },
+          "template_jq": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Template Jq"
+          }
+        },
+        "title": "StateUpdate",
         "type": "object"
       },
       "StorageInfo": {
@@ -10973,6 +11284,17 @@
             "title": "Multichannel",
             "type": "boolean"
           },
+          "state_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "target_kind": {
             "enum": [
               "agent",
@@ -11079,6 +11401,84 @@
           "schema"
         ],
         "title": "TemplateFetchView",
+        "type": "object"
+      },
+      "TemplateJqApplyResult": {
+        "additionalProperties": false,
+        "description": "The outcome of applying an ``update``-purpose ``template_jq`` program to a subject:\nits ``name`` and the :class:`ApplyResult` outcome of the op batch its jq returned, run\nthrough the same ``apply`` chokepoint as a delta — ``applied`` (a replayed ``op_id`` or\nan empty batch is ``False``), the resulting ``data`` and ``seq`` when it applied, and the\nguard-``skipped`` ops.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seq"
+          },
+          "skipped": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "applied"
+        ],
+        "title": "TemplateJqApplyResult",
+        "type": "object"
+      },
+      "TemplateJqResult": {
+        "additionalProperties": false,
+        "description": "The result of evaluating an ``input``-purpose ``template_jq`` program for a subject:\nthe resolved ``name``, its ``purpose`` (always ``\"input\"`` here), and the ``value`` (any\nJSON — the program's jq output over the subject's record). A read; no write is\nrecorded.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "input",
+            "default": "input",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "value": {
+            "default": null,
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TemplateJqResult",
         "type": "object"
       },
       "TemplateRender": {
@@ -12598,30 +12998,6 @@
         "title": "UninstallResult",
         "type": "object"
       },
-      "UnmountAck": {
-        "description": "A module-unmount confirmation — the ``state`` and ``module`` unmounted.",
-        "properties": {
-          "module": {
-            "title": "Module",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "unmounted": {
-            "title": "Unmounted",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "unmounted",
-          "state",
-          "module"
-        ],
-        "title": "UnmountAck",
-        "type": "object"
-      },
       "UpgradeAllResult": {
         "description": "The complete per-ref upgrade-all report.",
         "properties": {
@@ -12943,7 +13319,7 @@
   "info": {
     "description": "The operator HTTP surface served under /api/*.",
     "title": "tai42-skeleton API",
-    "version": "11.4.0"
+    "version": "12.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -18481,7 +18857,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the guest-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT, so this is the\ncreate path AND the edit path for a route of that name.\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` jq programs, when\ngiven, are compiled here so an invalid one is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the participant-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
@@ -18597,7 +18973,7 @@
     },
     "/api/conversations/{route_name}/events": {
       "post": {
-        "description": "Run a structured event as a turn on an EXISTING thread of ``route_name``.\n\nThe thread must already exist: an event enters a conversation as a turn and never mints a\nthread. Address it by the ``address`` its listing shows or by its ``thread_id`` (exactly\none). The turn runs the route's TOOL target AS the route's execution key — an\nagent-target route is refused (``409``) since an event carries no rendered text. The\nevent is IDEMPOTENT on ``event_id``: a redelivery returns the original turn's\n``message_id`` (``202``) and runs no second turn.\n\nThe answer is delivered by the TARGET route's door — a channel route texts the thread's\naddress, an api route POSTs the route's signed callback (a ``wait_seconds`` body field,\nclamped to ``sync_wait_max_seconds``, returns a finished turn's answer inline in the\n``200`` and suppresses the callback). Default is ``202 {message_id, thread_id}``.\n\nThis is a TRUSTED-integration door: an authorized writer may address ANY existing thread\nof the route by ``thread_id`` (a channel guest's included), so a deployment grants its\nwrite action to service principals, not to low-trust API keys.",
+        "description": "Run a structured event as a turn on an EXISTING thread of ``route_name``.\n\nThe thread must already exist: an event enters a conversation as a turn and never mints a\nthread. Address it by the ``address`` its listing shows or by its ``thread_id`` (exactly\none). The turn runs the route's TOOL target AS the route's execution key — an\nagent-target route is refused (``409``) since an event carries no rendered text. The\nevent is IDEMPOTENT on ``event_id``: a redelivery returns the original turn's\n``message_id`` (``202``) and runs no second turn.\n\nThe answer is delivered by the TARGET route's door — a channel route texts the thread's\naddress, an api route POSTs the route's signed callback (a ``wait_seconds`` body field,\nclamped to ``sync_wait_max_seconds``, returns a finished turn's answer inline in the\n``200`` and suppresses the callback). Default is ``202 {message_id, thread_id}``.\n\nThis is a TRUSTED-integration door: an authorized writer may address ANY existing thread\nof the route by ``thread_id`` (a channel participant's included), so a deployment grants its\nwrite action to service principals, not to low-trust API keys.",
         "operationId": "post_api_conversations_route_name_events",
         "parameters": [
           {
@@ -19246,7 +19622,7 @@
     },
     "/api/conversations/{route_name}/thread/messages": {
       "post": {
-        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity, and\nreturn ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?, \"filename\"?}`` display items),\n``location`` (a shared map pin ``{\"latitude\", \"longitude\", \"name\"?, \"address\"?}``),\n``template`` (a pre-approved ``{\"name\", \"language\", \"header_media\"?, \"body_parameters\"?,\n\"buttons\"?}`` out-of-window template), ``options`` (a list of FLAT tappable option objects —\neach a ``{\"kind\": \"reply\", \"text\"}`` reply or a ``{\"kind\": \"link\", \"label\", \"url\"}`` link\naction), ``sections`` (the SECTIONED tappable-options alternative — titled groups of reply\nrows), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the guest's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms — FULL parity with the flow answer path's ``AnswerPart`` vocabulary —\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or a combination the shared\ncomposition matrix refuses — ``options`` XOR ``sections``, ``schema`` excludes both,\n``header``/``footer`` require a choice surface, ``template`` standalone) is a loud 400;\nomit them all for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
+        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity, and\nreturn ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?, \"filename\"?}`` display items),\n``location`` (a shared map pin ``{\"latitude\", \"longitude\", \"name\"?, \"address\"?}``),\n``template`` (a pre-approved ``{\"name\", \"language\", \"header_media\"?, \"body_parameters\"?,\n\"buttons\"?}`` out-of-window template), ``options`` (a list of FLAT tappable option objects —\neach a ``{\"kind\": \"reply\", \"text\"}`` reply or a ``{\"kind\": \"link\", \"label\", \"url\"}`` link\naction), ``sections`` (the SECTIONED tappable-options alternative — titled groups of reply\nrows), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the participant's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms — FULL parity with the flow answer path's ``AnswerPart`` vocabulary —\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or a combination the shared\ncomposition matrix refuses — ``options`` XOR ``sections``, ``schema`` excludes both,\n``header``/``footer`` require a choice surface, ``template`` standalone) is a loud 400;\nomit them all for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
         "operationId": "post_api_conversations_route_name_thread_messages",
         "parameters": [
           {
@@ -21289,7 +21665,7 @@
     },
     "/api/interactions/{interaction_id}/cancel": {
       "post": {
-        "description": "Cancel a pending interaction — WITHDRAW one specific ask without answering it and\nwithout deleting its conversation thread.\n\nThe mirror of ``answer_interaction`` for the terminal-without-an-answer case: it\ntears the pending question down via the store's status-gated ``prune_pending`` (the\nsame primitive the timeout path and the thread-delete cascade use), so NO continuation\nfires — a parked async flow is never resumed — and the removed event rides tagged\n``reason=\"cancelled\"`` so a live operator surface tells a deliberate withdrawal apart\nfrom a timeout/expiry removal.\n\nStatus-gated exactly like the answer door: only a PENDING (or parked) question cancels.\nA question already ``answered`` (its state retained) is a loud ``409`` conflict; a\nquestion whose state is GONE — expired, already cancelled, or never existed (all\nleave no distinguishable tombstone, the same limit the answer door has) — is a ``404``.\nIdempotent at the store seam: ``prune_pending`` re-run on a withdrawn question is a\nclean no-op, so a re-cancel simply reports the question gone (``404``) rather than\ndouble-tearing anything down. Unlike the answer door it is answer-format-AGNOSTIC: an\nEXTERNAL ask is a pending ask an operator may withdraw, so it is cancellable too.\n\nChannel-blind by construction: a channel-side pending correlation is NOT proactively\ntorn down. A later guest reply forwarded to the callback door finds the state gone and\nthe door answers ``404``, which the inbound ladder maps to a fresh bridged turn — the\nidentical path a timeout/expiry removal already takes.\n\nAudience gate identical to ``answer_interaction`` (after the existence/status guards):\na question's ``audience`` identity OR any unrestricted caller (the operator can always\nwithdraw a stuck question) may cancel; every other restricted caller is a loud ``403``.",
+        "description": "Cancel a pending interaction — WITHDRAW one specific ask without answering it and\nwithout deleting its conversation thread.\n\nThe mirror of ``answer_interaction`` for the terminal-without-an-answer case: it\ntears the pending question down via the store's status-gated ``prune_pending`` (the\nsame primitive the timeout path and the thread-delete cascade use), so NO continuation\nfires — a parked async flow is never resumed — and the removed event rides tagged\n``reason=\"cancelled\"`` so a live operator surface tells a deliberate withdrawal apart\nfrom a timeout/expiry removal.\n\nStatus-gated exactly like the answer door: only a PENDING (or parked) question cancels.\nA question already ``answered`` (its state retained) is a loud ``409`` conflict; a\nquestion whose state is GONE — expired, already cancelled, or never existed (all\nleave no distinguishable tombstone, the same limit the answer door has) — is a ``404``.\nIdempotent at the store seam: ``prune_pending`` re-run on a withdrawn question is a\nclean no-op, so a re-cancel simply reports the question gone (``404``) rather than\ndouble-tearing anything down. Unlike the answer door it is answer-format-AGNOSTIC: an\nEXTERNAL ask is a pending ask an operator may withdraw, so it is cancellable too.\n\nChannel-blind by construction: a channel-side pending correlation is NOT proactively\ntorn down. A later participant reply forwarded to the callback door finds the state gone and\nthe door answers ``404``, which the inbound ladder maps to a fresh bridged turn — the\nidentical path a timeout/expiry removal already takes.\n\nAudience gate identical to ``answer_interaction`` (after the existence/status guards):\na question's ``audience`` identity OR any unrestricted caller (the operator can always\nwithdraw a stuck question) may cancel; every other restricted caller is a loud ``403``.",
         "operationId": "post_api_interactions_interaction_id_cancel",
         "parameters": [
           {
@@ -24818,6 +25194,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "503": {
             "content": {
               "application/json": {
@@ -26585,10 +26971,10 @@
         "x-destructive": true
       }
     },
-    "/api/state-modules": {
-      "get": {
-        "description": "Every platform state-module document (the reusable schema fragments), each with the\ncatalog columns ``mounted_on`` (the number of states it is mounted on) and\n``shipped_default`` (whether it is an unedited shipped default).",
-        "operationId": "get_api_state_modules",
+    "/api/state-retention/prune": {
+      "post": {
+        "description": "Delete every record past its state's ``retention_days`` horizon; returns the per-state\ndeleted counts.",
+        "operationId": "post_api_state_retention_prune",
         "responses": {
           "200": {
             "content": {
@@ -26596,7 +26982,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/StateModuleCatalog"
+                      "$ref": "#/components/schemas/PruneResult"
                     }
                   },
                   "required": [
@@ -26634,16 +27020,72 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "List state modules",
+        "summary": "Prune expired state records",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/state-templates": {
+      "get": {
+        "description": "Every platform state-template document (the reusable schema fragments), each with the\ncatalog columns ``attached_to`` (the number of states it is attached on) and\n``shipped_default`` (whether it is an unedited shipped default).",
+        "operationId": "get_api_state_templates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StateTemplateCatalog"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List state templates",
         "tags": [
           "states"
         ]
       }
     },
-    "/api/state-modules/{name}": {
+    "/api/state-templates/{name}": {
       "delete": {
-        "description": "Delete a state-module document; refused while it is still mounted.",
-        "operationId": "delete_api_state_modules_name",
+        "description": "Delete a state-template document; refused while it is still attached.",
+        "operationId": "delete_api_state_templates_name",
         "parameters": [
           {
             "in": "path",
@@ -26719,15 +27161,15 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Delete a state module",
+        "summary": "Delete a state template",
         "tags": [
           "states"
         ],
         "x-destructive": true
       },
       "get": {
-        "description": "One state-module document by name.",
-        "operationId": "get_api_state_modules_name",
+        "description": "One state-template document by name.",
+        "operationId": "get_api_state_templates_name",
         "parameters": [
           {
             "in": "path",
@@ -26745,7 +27187,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/StateModuleDocument"
+                      "$ref": "#/components/schemas/StateTemplateDocument"
                     }
                   },
                   "required": [
@@ -26793,14 +27235,14 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Get a state module",
+        "summary": "Get a state template",
         "tags": [
           "states"
         ]
       },
       "put": {
-        "description": "Upload a state-module document; the ``name`` is taken from the path. An existing name\nwithout ``replace`` is refused so an overwrite is deliberate.",
-        "operationId": "put_api_state_modules_name",
+        "description": "Upload a state-template document; the ``name`` is taken from the path. An existing name\nwithout ``replace`` is refused so an overwrite is deliberate.",
+        "operationId": "put_api_state_templates_name",
         "parameters": [
           {
             "in": "path",
@@ -26818,7 +27260,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/StateModuleDocument"
+                      "$ref": "#/components/schemas/StateTemplateDocument"
                     }
                   },
                   "required": [
@@ -26876,63 +27318,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Create or replace a state module",
-        "tags": [
-          "states"
-        ],
-        "x-destructive": true
-      }
-    },
-    "/api/state-retention/prune": {
-      "post": {
-        "description": "Delete every record past its state's ``retention_days`` horizon; returns the per-state\ndeleted counts.",
-        "operationId": "post_api_state_retention_prune",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/PruneResult"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Prune expired state records",
+        "summary": "Create or replace a state template",
         "tags": [
           "states"
         ],
@@ -26996,7 +27382,7 @@
     },
     "/api/states/{name}": {
       "delete": {
-        "description": "Delete a state with its records, mounts and aliases; refused while a consumer binds it.",
+        "description": "Delete a state with its records, attachments and aliases; refused while a consumer binds it.",
         "operationId": "delete_api_states_name",
         "parameters": [
           {
@@ -27080,7 +27466,7 @@
         "x-destructive": true
       },
       "get": {
-        "description": "One state's served declaration: base ``schema``, ``effective_schema``,\n``subject_kinds``, ``default_subject_kind``, its ``mounts``, computed ``regimes`` and\n``updated_at`` (the ISO timestamp of its last write).",
+        "description": "One state's served declaration: base ``schema``, ``effective_schema``,\n``subject_kinds``, ``default_subject_kind``, its ``attachments``, computed ``regimes`` and\n``updated_at`` (the ISO timestamp of its last write).",
         "operationId": "get_api_states_name",
         "parameters": [
           {
@@ -27247,6 +27633,460 @@
         "x-destructive": true
       }
     },
+    "/api/states/{name}/attachments": {
+      "get": {
+        "description": "Every template attached on the state — its path, resolved parameters and declarations.",
+        "operationId": "get_api_states_name_attachments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StateAttachmentList"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List a state's attachments",
+        "tags": [
+          "states"
+        ]
+      }
+    },
+    "/api/states/{name}/attachments/{template}": {
+      "delete": {
+        "description": "Remove a template's attachment and recompose the effective schema — nothing else.\n\nConsults the detach referees FIRST: a template still named by a live door binding (a\npreset version, a conversation config, a hook, a schedule) is a 409 that detaches nothing\nand lists the referencing bindings — the mount-at-save contract's referee, so a binding\nnever faults at run time on a template detached out from under it.",
+        "operationId": "delete_api_states_name_attachments_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DetachAck"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Detach a template from a state",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      },
+      "get": {
+        "description": "One template's attachment on the state — its path, resolved parameters and\ndeclarations; the same row the list serves. A template not attached on the state is a\n404.",
+        "operationId": "get_api_states_name_attachments_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StateAttachmentRow"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a state's attachment",
+        "tags": [
+          "states"
+        ]
+      },
+      "patch": {
+        "description": "Replace an attachment's static declaration values and reconcile ``options``, re-running\nthe attach validators and reconcilers and recomposing the effective schema.",
+        "operationId": "patch_api_states_name_attachments_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AttachUpdateAck"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Update an attachment's declarations",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      },
+      "put": {
+        "description": "Attach ``template`` on the state at the body's ``path`` with its parameters and static\ndeclarations; recomposes and validates the effective schema in one transaction.",
+        "operationId": "put_api_states_name_attachments_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AttachAck"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Attach a template on a state",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      }
+    },
     "/api/states/{name}/consumers": {
       "get": {
         "description": "Everything that binds the state — flows, hooks, schedules, agents — as the Consumers\ntab reads it; a consumer family the deployment cannot list is a labelled, muted row.",
@@ -27320,450 +28160,6 @@
         "tags": [
           "states"
         ]
-      }
-    },
-    "/api/states/{name}/mounts": {
-      "get": {
-        "description": "Every module mounted on the state — its path, resolved parameters and declarations.",
-        "operationId": "get_api_states_name_mounts",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/StateMountList"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "List a state's mounts",
-        "tags": [
-          "states"
-        ]
-      }
-    },
-    "/api/states/{name}/mounts/{module}": {
-      "delete": {
-        "description": "Remove a module's mount and recompose the effective schema — nothing else.",
-        "operationId": "delete_api_states_name_mounts_module",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "module",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/UnmountAck"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Unmount a module from a state",
-        "tags": [
-          "states"
-        ],
-        "x-destructive": true
-      },
-      "get": {
-        "description": "One module's mount on the state — its path, resolved parameters and declarations; the\nsame row the list serves. A module not mounted on the state is a 404.",
-        "operationId": "get_api_states_name_mounts_module",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "module",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/StateMountRow"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Get a state's mount",
-        "tags": [
-          "states"
-        ]
-      },
-      "patch": {
-        "description": "Replace a mount's static declaration values and reconcile ``options``, re-running the\nmount validators and reconcilers and recomposing the effective schema.",
-        "operationId": "patch_api_states_name_mounts_module",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "module",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/MountUpdateAck"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Conflict with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Request failed validation."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Update a mount's declarations",
-        "tags": [
-          "states"
-        ],
-        "x-destructive": true
-      },
-      "put": {
-        "description": "Mount ``module`` on the state at the body's ``path`` with its parameters and static\ndeclarations; recomposes and validates the effective schema in one transaction.",
-        "operationId": "put_api_states_name_mounts_module",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "module",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/MountAck"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or invalid api key."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Conflict with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Request failed validation."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Mount a module on a state",
-        "tags": [
-          "states"
-        ],
-        "x-destructive": true
       }
     },
     "/api/states/{name}/records/search": {
@@ -28125,7 +28521,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/RecordView"
+                      "$ref": "#/components/schemas/StateRecord"
                     }
                   },
                   "required": [
@@ -28241,7 +28637,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/RecordView"
+                      "$ref": "#/components/schemas/StateRecord"
                     }
                   },
                   "required": [
@@ -28308,7 +28704,7 @@
     },
     "/api/states/{name}/records/{target_kind}/{target_name}/{kind}/{key}/deltas": {
       "post": {
-        "description": "Apply an ordered op batch to a subject's document — refused if a whole-path write\nviolates a mounted path's regime; idempotent on a replayed ``op_id``.",
+        "description": "Apply an ordered op batch to a subject's document — refused if a whole-path write\nviolates an attached path's regime; idempotent on a replayed ``op_id``.",
         "operationId": "post_api_states_name_records_target_kind_target_name_kind_key_deltas",
         "parameters": [
           {
@@ -28546,6 +28942,255 @@
           }
         ],
         "summary": "Fold one subject into another",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/states/{name}/records/{target_kind}/{target_name}/{kind}/{key}/template-jq/{program}": {
+      "get": {
+        "description": "An ``input``-purpose ``template_jq`` program's result for one subject — its jq over the\nsubject's record. ``params`` supplies the program's declared parameters. ``program`` may be\nunqualified or ``<template>.<name>``. An unknown program (or a subject with no attachment\ndeclaring it) is a 404; an ambiguous unqualified name, an ``update``-purpose name, an\nundeclared param or a program that fails to evaluate is a 422. Read-only.",
+        "operationId": "get_api_states_name_records_target_kind_target_name_kind_key_template_jq_program",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "program",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TemplateJqResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Evaluate an input-purpose template_jq program for a subject",
+        "tags": [
+          "states"
+        ]
+      },
+      "post": {
+        "description": "Apply an ``update``-purpose ``template_jq`` program to one subject. Its jq returns a\ntemplate-relative op batch applied through the same chokepoint as a delta — regimes, the\ncomposing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``program`` may be\nunqualified or ``<template>.<name>``. An unknown program is a 404; an ambiguous unqualified\nname, an ``input``-purpose name, or a program that fails to evaluate or returns the wrong\nshape is a 422.",
+        "operationId": "post_api_states_name_records_target_kind_target_name_kind_key_template_jq_program",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "program",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TemplateJqApplyResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Apply an update-purpose template_jq program to a subject's record",
         "tags": [
           "states"
         ],
