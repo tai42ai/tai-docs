@@ -228,6 +228,15 @@ jobs:
       github.event_name == 'repository_dispatch' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule'
+    # Fed by several dispatch receivers (source-repo-push from the monorepo and
+    # tai-studio, marketplace-publish) plus the daily schedule; one upstream
+    # release can fire several within minutes. A single shared group collapses
+    # that burst to ONE regeneration. Cancelling in progress is safe: every run
+    # regenerates all sections from source `main` HEAD onto the fixed branch, so
+    # the newest run subsumes any it supersedes and the PR is opened last.
+    concurrency:
+      group: docs-regenerate
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the regeneration branch
