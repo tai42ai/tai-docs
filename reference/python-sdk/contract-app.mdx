@@ -440,7 +440,7 @@ async handle_inbound_answer(
 ) -> InboundAnswerResult
 ```
 
-Resolve one inbound guest reply against its pending ask — the ONE shared
+Resolve one inbound participant reply against its pending ask — the ONE shared
 inbound-answer ladder every correlated channel calls instead of hand-rolling
 its own "forward → interpret 2xx/404/400 → release/bridge/keep" sequence.
 
@@ -449,7 +449,7 @@ transport ack, plus the door's ``retry_reason``/``retry_field`` when it rejected
 the answer's content, so a channel that owns its correction surface can render the
 door's specific message.
 
-A channel computes its own opaque ``correlation_key`` for the guest's address,
+A channel computes its own opaque ``correlation_key`` for the participant's address,
 provides the ``answer`` value to forward to the door, its
 `CorrelationStore`, and an `InboundBridge` of the
 fields a bridged turn needs.
@@ -471,9 +471,9 @@ to read beside ``answer``; and on the BRIDGE arm the same ``params`` are passed 
 * The door returns 404 (the ask was withdrawn/expired/cancelled) -&gt; release,
   bridge the reply as a fresh turn, return `InboundAnswerOutcome.BRIDGED`.
 * The door returns 400 on a LIVE ask -&gt; read the door's ``retry_in_place``
-  (default True): True keeps the correlation, notifies the guest what's
+  (default True): True keeps the correlation, notifies the participant what's
   expected, fires ONE operator event, returns `InboundAnswerOutcome.RETRY_KEPT`;
-  False (a hard mismatch) releases, notifies the guest the question is closed,
+  False (a hard mismatch) releases, notifies the participant the question is closed,
   fires the event, bridges the reply, returns `InboundAnswerOutcome.BRIDGED`.
 * Anything else (401/413/5xx, or a transport fault) -&gt; do NOT release; raise
   `AnswerForwardError` so the channel's webhook redelivery re-runs the
@@ -733,32 +733,32 @@ entry, delivered verbatim to a tool target's payload under ``params``;
 `validate_entry_params` before accept.
 ``params`` is ALSO the opaque-enrichment seam for the channel-specific inbound
 context that has no shared shape — a tapped reply/list id, a template button
-payload, a referral, the reply-to context of the message the guest quoted, a
+payload, a referral, the reply-to context of the message the participant quoted, a
 contact card or a reaction — which a channel adapter encodes as string entries a
 route reads deliberately; the platform adds no typed field for those.
 
-``form`` is an optional structured guest submission (an ask-less form's answers)
+``form`` is an optional structured participant submission (an ask-less form's answers)
 riding WITH the required rendered ``text`` — the text stays the whole turn every
 consumer sees, while a tool target's ``payload_expr`` may map the structured copy
 from the payload's ``form`` key (present only when the inbound carried one). The
 platform bounds it as pure transport
 (`validate_inbound_form`) and attaches no
-meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant.
+meaning and NO TRUST to the contents: participant-shaped data, never schema-conformant.
 
-``attachments`` is the STRUCTURED media the guest sent WITH the message — the
+``attachments`` is the STRUCTURED media the participant sent WITH the message — the
 inbound counterpart of an outbound answer's ``media`` — as `MediaItem`
 (image/document/video/audio; a channel resolves a sticker to image/video, a voice
-note to audio). ``location`` is a `LocationElement` the guest shared. Both
+note to audio). ``location`` is a `LocationElement` the participant shared. Both
 are machine-consumable content with a shared cross-channel shape, so they are typed
 fields (not ``params``): they land in a tool target's payload under the stable
 ``attachments`` / ``location`` keys, present only when the inbound carried them, so
 a form-/media-unaware target still sees the whole turn as ``text``. ``None`` leaves
 the payload unchanged.
 
-``locale`` is the guest's BCP 47 language tag the channel resolved from its native
+``locale`` is the participant's BCP 47 language tag the channel resolved from its native
 inbound (a per-message language hint), captured onto the turn's subject so the
 rendering layer resolves every text template and list format against it — flows and
-state modules never select a language. It seeds a first-contact person's stored
+state templates never select a language. It seeds a first-contact person's stored
 locale and, absent a stored operator override, is the turn's resolved locale;
 ``None`` means the channel supplied none (no silent default to any language).
 
@@ -1330,6 +1330,7 @@ async create(
     input_schema: dict[str, Any] | None = None,
     output_schema: dict[str, Any] | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
+    state_binding: StateBinding | None = None,
     tags: list[str] | None = None,
 ) -> dict[str, Any]
 ```
@@ -1358,6 +1359,7 @@ stays on.
 | `input_schema` | `dict[str, Any] \| None` | `None` | — |
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `state_binding` | `StateBinding \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
 
@@ -1376,6 +1378,7 @@ async save_version(
     output_schema_provided: bool = False,
     description: str | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
+    state_binding: StateBinding | CarryForward | None = CARRY_FORWARD,
     tags: list[str] | None = None,
 ) -> dict[str, Any]
 ```
@@ -1400,6 +1403,7 @@ reason `create` states.
 | `output_schema_provided` | `bool` | `False` | — |
 | `description` | `str \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `state_binding` | `StateBinding \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
 
@@ -1690,7 +1694,7 @@ first), and removing a subject kind still present in records raises
 async delete_declaration(self, name: str) -> None
 ```
 
-Delete a state with its records and mounts; raise
+Delete a state with its records and attachments; raise
 `DeclarationInUseError` when a consumer still
 binds it.
 
@@ -1718,26 +1722,26 @@ Counts for a state — records, subjects by kind, consumers — for the listing.
 | `name` | `str` | — | — |
 
 
-#### list_modules
+#### list_templates
 
-`tai42_contract.app.facets.AppStates.list_modules`
-
-```python
-async list_modules(self) -> list[StateModuleDocument]
-```
-
-Every stored platform module document.
-
-
-#### get_module
-
-`tai42_contract.app.facets.AppStates.get_module`
+`tai42_contract.app.facets.AppStates.list_templates`
 
 ```python
-async get_module(self, name: str) -> StateModuleDocument | None
+async list_templates(self) -> list[StateTemplateDocument]
 ```
 
-The module document named ``name``, or ``None`` when none is stored — the
+Every stored platform template document.
+
+
+#### get_template
+
+`tai42_contract.app.facets.AppStates.get_template`
+
+```python
+async get_template(self, name: str) -> StateTemplateDocument | None
+```
+
+The template document named ``name``, or ``None`` when none is stored — the
 read a consumer's own sibling document validates against.
 
 **Parameters**
@@ -1747,40 +1751,40 @@ read a consumer's own sibling document validates against.
 | `name` | `str` | — | — |
 
 
-#### put_module
+#### put_template
 
-`tai42_contract.app.facets.AppStates.put_module`
+`tai42_contract.app.facets.AppStates.put_template`
 
 ```python
-async put_module(self, doc: StateModuleDocument, *, replace: bool) -> StateModuleDocument
+async put_template(self, doc: StateTemplateDocument, *, replace: bool) -> StateTemplateDocument
 ```
 
-Store a module document (``replace`` required to overwrite an existing name)
+Store a template document (``replace`` required to overwrite an existing name)
 and return it.
 
-Runs every registered mount validator over each live mount before the write, so
-a consumer's data-dependent check still fires here; a raise leaves the stored
+Runs every registered attach validator over each live attachment before the write,
+so a consumer's data-dependent check still fires here; a raise leaves the stored
 document untouched. Overwriting an existing name without ``replace`` raises
-`ModuleExistsError`.
+`TemplateExistsError`.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `doc` | `StateModuleDocument` | — | — |
+| `doc` | `StateTemplateDocument` | — | — |
 | `replace` | `bool` | — | — |
 
 
-#### delete_module
+#### delete_template
 
-`tai42_contract.app.facets.AppStates.delete_module`
+`tai42_contract.app.facets.AppStates.delete_template`
 
 ```python
-async delete_module(self, name: str) -> None
+async delete_template(self, name: str) -> None
 ```
 
-Delete a module document; raise
-`ModuleInUseError` while it is still mounted.
+Delete a template document; raise
+`TemplateInUseError` while it is still attached.
 
 **Parameters**
 
@@ -1789,67 +1793,67 @@ Delete a module document; raise
 | `name` | `str` | — | — |
 
 
-#### list_mounts
+#### list_attachments
 
-`tai42_contract.app.facets.AppStates.list_mounts`
+`tai42_contract.app.facets.AppStates.list_attachments`
 
 ```python
-async list_mounts(self, state: str | None = None, *, module: str | None = None) -> list[dict[str, Any]]
+async list_attachments(self, state: str | None = None, *, template: str | None = None) -> list[dict[str, Any]]
 ```
 
-Mount rows filtered by ``state``, by ``module``, or every mount when both are
-``None`` — the listing derived bindings and the Consumers tab read. Each row
-carries ``state``, ``module``, ``path``, ``parameters`` and ``declarations``.
+Attachment rows filtered by ``state``, by ``template``, or every attachment when
+both are ``None`` — what the attachments listing and the Consumers tab read. Each row
+carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str \| None` | `None` | — |
-| `module` | `str \| None` | `None` | — |
+| `template` | `str \| None` | `None` | — |
 
 
-#### mount
+#### attach
 
-`tai42_contract.app.facets.AppStates.mount`
+`tai42_contract.app.facets.AppStates.attach`
 
 ```python
-async mount(self, state: str, module: str, body: MountBody) -> None
+async attach(self, state: str, template: str, body: AttachBody) -> None
 ```
 
-Mount ``module`` on ``state`` at ``body.path``, storing the resolved
+Attach ``template`` on ``state`` at ``body.path``, storing the resolved
 parameters and declarations and recomposing the effective schema in one
 transaction.
 
-Runs every registered mount validator before the write; a raise refuses the
+Runs every registered attach validator before the write; a raise refuses the
 door with the validator's message. Overlapping fragments raise
-`MountConflictError`.
+`AttachConflictError`.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
-| `body` | `MountBody` | — | — |
+| `template` | `str` | — | — |
+| `body` | `AttachBody` | — | — |
 
 
-#### update_mount_declarations
+#### update_attachment_declarations
 
-`tai42_contract.app.facets.AppStates.update_mount_declarations`
+`tai42_contract.app.facets.AppStates.update_attachment_declarations`
 
 ```python
-async update_mount_declarations(
+async update_attachment_declarations(
     self,
     state: str,
-    module: str,
+    template: str,
     declarations: dict[str, Any],
     *,
     options: dict[str, Any] | None = None,
 ) -> None
 ```
 
-Replace a mount's declaration values, re-running every registered mount
+Replace an attachment's declaration values, re-running every registered attach
 validator and reconciler and recomposing the effective schema before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
 operation only, never stored or served back (``None`` is an empty bag).
@@ -1859,27 +1863,27 @@ operation only, never stored or served back (``None`` is an empty bag).
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
+| `template` | `str` | — | — |
 | `declarations` | `dict[str, Any]` | — | — |
 | `options` | `dict[str, Any] \| None` | `None` | — |
 
 
-#### unmount
+#### detach
 
-`tai42_contract.app.facets.AppStates.unmount`
+`tai42_contract.app.facets.AppStates.detach`
 
 ```python
-async unmount(self, state: str, module: str) -> None
+async detach(self, state: str, template: str) -> None
 ```
 
-Remove a mount and recompose the state's effective schema.
+Remove an attachment and recompose the state's effective schema.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
+| `template` | `str` | — | — |
 
 
 #### read
@@ -1887,7 +1891,7 @@ Remove a mount and recompose the state's effective schema.
 `tai42_contract.app.facets.AppStates.read`
 
 ```python
-async read(self, state: str, subject: StateSubject) -> RecordView | None
+async read(self, state: str, subject: StateSubject) -> StateRecord | None
 ```
 
 The record for ``subject`` (resolving a fold to its canonical subject), or
@@ -1914,7 +1918,7 @@ async replace(
     data: dict[str, Any],
     *,
     origin: WriteOrigin,
-) -> RecordView
+) -> StateRecord
 ```
 
 Replace ``subject``'s whole document with ``data`` and return the new record.
@@ -1941,7 +1945,7 @@ async merge(
     patch: dict[str, Any],
     *,
     origin: WriteOrigin,
-) -> RecordView
+) -> StateRecord
 ```
 
 Shallow top-level merge ``patch`` into ``subject``'s document and return the
@@ -1977,7 +1981,7 @@ Apply an op batch to ``subject``'s document under the effective schema.
 
 Refuses a whole-path write over a ``composing`` path
 (`RegimeViolationError`) before the ledger insert,
-stamps ``_trace`` under a traced mount, and records one ``state_writes`` row with
+stamps ``_trace`` under a traced attachment, and records one ``state_writes`` row with
 the touched paths and the completed origin. A replayed ``op_id`` returns
 ``applied=False`` without re-writing; guarded ops land in ``skipped``.
 
@@ -1988,6 +1992,71 @@ the touched paths and the completed origin. A replayed ``op_id`` returns
 | `state` | `str` | — | — |
 | `subject` | `StateSubject` | — | — |
 | `ops` | `list[dict[str, Any]]` | — | — |
+| `op_id` | `str \| None` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### eval_template_jq
+
+`tai42_contract.app.facets.AppStates.eval_template_jq`
+
+```python
+async eval_template_jq(self, state: str, subject: StateSubject, name: str, params: dict[str, Any]) -> TemplateJqResult
+```
+
+Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and
+return its value — the program's jq over the subject's record, ``params`` supplying
+its declared parameters. ``name`` resolves across the state's attached templates
+(unqualified → the declaring template; ``<attachment>.<name>`` → that attachment's
+template). An unknown name is a `StateNotFoundError`; an
+ambiguous unqualified name, an ``update``-purpose name, an undeclared param or an
+evaluation failure is a `ValueValidationError`. A read;
+no write is recorded.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `name` | `str` | — | — |
+| `params` | `dict[str, Any]` | — | — |
+
+
+#### apply_template_jq
+
+`tai42_contract.app.facets.AppStates.apply_template_jq`
+
+```python
+async apply_template_jq(
+    self,
+    state: str,
+    subject: StateSubject,
+    name: str,
+    input: Any,
+    *,
+    op_id: str | None,
+    origin: WriteOrigin,
+) -> TemplateJqApplyResult
+```
+
+Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``. Its jq
+maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
+path and applied through the same chokepoint as `apply` — so regimes, the
+composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
+resolves as for `eval_template_jq`. An unknown name is a
+`StateNotFoundError`; an ambiguous unqualified name, an
+``input``-purpose name, an evaluation failure or a wrong-shaped return is a
+`ValueValidationError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `name` | `str` | — | — |
+| `input` | `Any` | — | — |
 | `op_id` | `str \| None` | — | — |
 | `origin` | `WriteOrigin` | — | — |
 
@@ -2196,41 +2265,41 @@ lister — for the Consumers tab.
 | `state` | `str` | — | — |
 
 
-#### register_module_seed
+#### register_template_seed
 
-`tai42_contract.app.facets.AppStates.register_module_seed`
+`tai42_contract.app.facets.AppStates.register_template_seed`
 
 ```python
-register_module_seed(self, doc: StateModuleDocument) -> None
+register_template_seed(self, doc: StateTemplateDocument) -> None
 ```
 
-Declare a platform module document the platform seeds at import time.
+Declare a platform template document the platform seeds at import time.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-startup/reload seed applier creates it when absent and leaves a module already
+startup/reload seed applier creates it when absent and leaves a template already
 present untouched. Declaring two seeds under one name raises loudly.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `doc` | `StateModuleDocument` | — | — |
+| `doc` | `StateTemplateDocument` | — | — |
 
 
-#### register_mount_validator
+#### register_attach_validator
 
-`tai42_contract.app.facets.AppStates.register_mount_validator`
+`tai42_contract.app.facets.AppStates.register_attach_validator`
 
 ```python
-register_mount_validator(self, validator: MountValidator) -> None
+register_attach_validator(self, validator: AttachValidator) -> None
 ```
 
-Register a data-dependent mount validator.
+Register a data-dependent attach validator.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-validator receives the module document, a mount's declaration values, and the
-state's effective schema, and RAISES to refuse; it runs before every ``mount``,
-``update_mount_declarations`` and ``put_module(replace=True)`` write, so a
+validator receives the template document, an attachment's declaration values, and the
+state's effective schema, and RAISES to refuse; it runs before every ``attach``,
+``update_attachment_declarations`` and ``put_template(replace=True)`` write, so a
 consumer's checks fire at the platform's declarations doors, the States page
 included.
 
@@ -2238,33 +2307,33 @@ included.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `validator` | `MountValidator` | — | — |
+| `validator` | `AttachValidator` | — | — |
 
 
-#### register_mount_reconciler
+#### register_attach_reconciler
 
-`tai42_contract.app.facets.AppStates.register_mount_reconciler`
+`tai42_contract.app.facets.AppStates.register_attach_reconciler`
 
 ```python
-register_mount_reconciler(self, reconciler: MountReconciler) -> None
+register_attach_reconciler(self, reconciler: AttachReconciler) -> None
 ```
 
-Register a pre-write mount reconciler.
+Register a pre-write attach reconciler.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-reconciler receives a `MountReconcileContext` — the
-module, the operation, the previous and new declarations, the mount options, and a
-record door bound to the state — inside every ``mount`` and
-``update_mount_declarations`` write, after the validators and before the write. It
-RAISES to refuse the mount (naming the records the new declarations orphan) or
-writes resolutions through the context's record door and returns, letting the mount
+reconciler receives a `AttachReconcileContext` — the
+template, the operation, the previous and new declarations, the attach options, and a
+record door bound to the state — inside every ``attach`` and
+``update_attachment_declarations`` write, after the validators and before the write. It
+RAISES to refuse the attach (naming the records the new declarations orphan) or
+writes resolutions through the context's record door and returns, letting the attach
 commit with those writes.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `reconciler` | `MountReconciler` | — | — |
+| `reconciler` | `AttachReconciler` | — | — |
 
 
 
@@ -2552,6 +2621,57 @@ duplicate consult.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `provider` | `ToolRenameReferee` | — | — |
+
+
+#### register_delete_referee
+
+`tai42_contract.tools.AppTools.register_delete_referee`
+
+```python
+register_delete_referee(self, provider: ToolDeleteReferee) -> None
+```
+
+Register a `ToolDeleteReferee` consulted before a preset delete.
+
+A plugin holding resources keyed on a preset/tool name (e.g. per-node state
+bindings that reference a preset) calls this through the ``tai42_app`` handle when
+its module loads. Every registered referee is asked for the name on a delete; a
+referee cascades its own cleanup and returns empty to allow, or returns non-empty
+descriptions to VETO — any non-empty answer blocks the delete and names the
+holders. Registering the same provider object twice raises loudly — a double
+registration is a plugin bug, never a silent duplicate consult.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolDeleteReferee` | — | — |
+
+
+#### register_detach_referee
+
+`tai42_contract.tools.AppTools.register_detach_referee`
+
+```python
+register_detach_referee(self, provider: StateTemplateDetachReferee) -> None
+```
+
+Register a `StateTemplateDetachReferee` consulted before a state-template
+detach.
+
+A holder of door bindings that name templates (e.g. per-node state bindings, or the
+platform's own preset/route/hook/schedule bindings) calls this through the
+``tai42_app`` handle when its module loads. Every registered referee is asked for the
+``(state, template)`` on a detach; any non-empty answer blocks the detach and its
+descriptions name the referencing bindings. Registering the same provider object
+twice raises loudly — a double registration is a bug, never a silent duplicate
+consult.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `StateTemplateDetachReferee` | — | — |
 
 
 #### register_tier
@@ -3275,7 +3395,7 @@ async handle_inbound_answer(
 ) -> InboundAnswerResult
 ```
 
-Resolve one inbound guest reply against its pending ask — the ONE shared
+Resolve one inbound participant reply against its pending ask — the ONE shared
 inbound-answer ladder every correlated channel calls instead of hand-rolling
 its own "forward → interpret 2xx/404/400 → release/bridge/keep" sequence.
 
@@ -3284,7 +3404,7 @@ transport ack, plus the door's ``retry_reason``/``retry_field`` when it rejected
 the answer's content, so a channel that owns its correction surface can render the
 door's specific message.
 
-A channel computes its own opaque ``correlation_key`` for the guest's address,
+A channel computes its own opaque ``correlation_key`` for the participant's address,
 provides the ``answer`` value to forward to the door, its
 `CorrelationStore`, and an `InboundBridge` of the
 fields a bridged turn needs.
@@ -3306,9 +3426,9 @@ to read beside ``answer``; and on the BRIDGE arm the same ``params`` are passed 
 * The door returns 404 (the ask was withdrawn/expired/cancelled) -&gt; release,
   bridge the reply as a fresh turn, return `InboundAnswerOutcome.BRIDGED`.
 * The door returns 400 on a LIVE ask -&gt; read the door's ``retry_in_place``
-  (default True): True keeps the correlation, notifies the guest what's
+  (default True): True keeps the correlation, notifies the participant what's
   expected, fires ONE operator event, returns `InboundAnswerOutcome.RETRY_KEPT`;
-  False (a hard mismatch) releases, notifies the guest the question is closed,
+  False (a hard mismatch) releases, notifies the participant the question is closed,
   fires the event, bridges the reply, returns `InboundAnswerOutcome.BRIDGED`.
 * Anything else (401/413/5xx, or a transport fault) -&gt; do NOT release; raise
   `AnswerForwardError` so the channel's webhook redelivery re-runs the
@@ -3426,32 +3546,32 @@ entry, delivered verbatim to a tool target's payload under ``params``;
 `validate_entry_params` before accept.
 ``params`` is ALSO the opaque-enrichment seam for the channel-specific inbound
 context that has no shared shape — a tapped reply/list id, a template button
-payload, a referral, the reply-to context of the message the guest quoted, a
+payload, a referral, the reply-to context of the message the participant quoted, a
 contact card or a reaction — which a channel adapter encodes as string entries a
 route reads deliberately; the platform adds no typed field for those.
 
-``form`` is an optional structured guest submission (an ask-less form's answers)
+``form`` is an optional structured participant submission (an ask-less form's answers)
 riding WITH the required rendered ``text`` — the text stays the whole turn every
 consumer sees, while a tool target's ``payload_expr`` may map the structured copy
 from the payload's ``form`` key (present only when the inbound carried one). The
 platform bounds it as pure transport
 (`validate_inbound_form`) and attaches no
-meaning and NO TRUST to the contents: guest-shaped data, never schema-conformant.
+meaning and NO TRUST to the contents: participant-shaped data, never schema-conformant.
 
-``attachments`` is the STRUCTURED media the guest sent WITH the message — the
+``attachments`` is the STRUCTURED media the participant sent WITH the message — the
 inbound counterpart of an outbound answer's ``media`` — as `MediaItem`
 (image/document/video/audio; a channel resolves a sticker to image/video, a voice
-note to audio). ``location`` is a `LocationElement` the guest shared. Both
+note to audio). ``location`` is a `LocationElement` the participant shared. Both
 are machine-consumable content with a shared cross-channel shape, so they are typed
 fields (not ``params``): they land in a tool target's payload under the stable
 ``attachments`` / ``location`` keys, present only when the inbound carried them, so
 a form-/media-unaware target still sees the whole turn as ``text``. ``None`` leaves
 the payload unchanged.
 
-``locale`` is the guest's BCP 47 language tag the channel resolved from its native
+``locale`` is the participant's BCP 47 language tag the channel resolved from its native
 inbound (a per-message language hint), captured onto the turn's subject so the
 rendering layer resolves every text template and list format against it — flows and
-state modules never select a language. It seeds a first-contact person's stored
+state templates never select a language. It seeds a first-contact person's stored
 locale and, absent a stored operator override, is the turn's resolved locale;
 ``None`` means the channel supplied none (no silent default to any language).
 
@@ -4316,6 +4436,7 @@ async create(
     input_schema: dict[str, Any] | None = None,
     output_schema: dict[str, Any] | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
+    state_binding: StateBinding | None = None,
     tags: list[str] | None = None,
 ) -> dict[str, Any]
 ```
@@ -4344,6 +4465,7 @@ stays on.
 | `input_schema` | `dict[str, Any] \| None` | `None` | — |
 | `output_schema` | `dict[str, Any] \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `state_binding` | `StateBinding \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
 
@@ -4362,6 +4484,7 @@ async save_version(
     output_schema_provided: bool = False,
     description: str | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
+    state_binding: StateBinding | CarryForward | None = CARRY_FORWARD,
     tags: list[str] | None = None,
 ) -> dict[str, Any]
 ```
@@ -4386,6 +4509,7 @@ reason `create` states.
 | `output_schema_provided` | `bool` | `False` | — |
 | `description` | `str \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
+| `state_binding` | `StateBinding \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
 
@@ -4659,7 +4783,7 @@ first), and removing a subject kind still present in records raises
 async delete_declaration(self, name: str) -> None
 ```
 
-Delete a state with its records and mounts; raise
+Delete a state with its records and attachments; raise
 `DeclarationInUseError` when a consumer still
 binds it.
 
@@ -4687,26 +4811,26 @@ Counts for a state — records, subjects by kind, consumers — for the listing.
 | `name` | `str` | — | — |
 
 
-#### list_modules
+#### list_templates
 
-`tai42_contract.app.facets.AppStates.list_modules`
-
-```python
-async list_modules(self) -> list[StateModuleDocument]
-```
-
-Every stored platform module document.
-
-
-#### get_module
-
-`tai42_contract.app.facets.AppStates.get_module`
+`tai42_contract.app.facets.AppStates.list_templates`
 
 ```python
-async get_module(self, name: str) -> StateModuleDocument | None
+async list_templates(self) -> list[StateTemplateDocument]
 ```
 
-The module document named ``name``, or ``None`` when none is stored — the
+Every stored platform template document.
+
+
+#### get_template
+
+`tai42_contract.app.facets.AppStates.get_template`
+
+```python
+async get_template(self, name: str) -> StateTemplateDocument | None
+```
+
+The template document named ``name``, or ``None`` when none is stored — the
 read a consumer's own sibling document validates against.
 
 **Parameters**
@@ -4716,40 +4840,40 @@ read a consumer's own sibling document validates against.
 | `name` | `str` | — | — |
 
 
-#### put_module
+#### put_template
 
-`tai42_contract.app.facets.AppStates.put_module`
+`tai42_contract.app.facets.AppStates.put_template`
 
 ```python
-async put_module(self, doc: StateModuleDocument, *, replace: bool) -> StateModuleDocument
+async put_template(self, doc: StateTemplateDocument, *, replace: bool) -> StateTemplateDocument
 ```
 
-Store a module document (``replace`` required to overwrite an existing name)
+Store a template document (``replace`` required to overwrite an existing name)
 and return it.
 
-Runs every registered mount validator over each live mount before the write, so
-a consumer's data-dependent check still fires here; a raise leaves the stored
+Runs every registered attach validator over each live attachment before the write,
+so a consumer's data-dependent check still fires here; a raise leaves the stored
 document untouched. Overwriting an existing name without ``replace`` raises
-`ModuleExistsError`.
+`TemplateExistsError`.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `doc` | `StateModuleDocument` | — | — |
+| `doc` | `StateTemplateDocument` | — | — |
 | `replace` | `bool` | — | — |
 
 
-#### delete_module
+#### delete_template
 
-`tai42_contract.app.facets.AppStates.delete_module`
+`tai42_contract.app.facets.AppStates.delete_template`
 
 ```python
-async delete_module(self, name: str) -> None
+async delete_template(self, name: str) -> None
 ```
 
-Delete a module document; raise
-`ModuleInUseError` while it is still mounted.
+Delete a template document; raise
+`TemplateInUseError` while it is still attached.
 
 **Parameters**
 
@@ -4758,67 +4882,67 @@ Delete a module document; raise
 | `name` | `str` | — | — |
 
 
-#### list_mounts
+#### list_attachments
 
-`tai42_contract.app.facets.AppStates.list_mounts`
+`tai42_contract.app.facets.AppStates.list_attachments`
 
 ```python
-async list_mounts(self, state: str | None = None, *, module: str | None = None) -> list[dict[str, Any]]
+async list_attachments(self, state: str | None = None, *, template: str | None = None) -> list[dict[str, Any]]
 ```
 
-Mount rows filtered by ``state``, by ``module``, or every mount when both are
-``None`` — the listing derived bindings and the Consumers tab read. Each row
-carries ``state``, ``module``, ``path``, ``parameters`` and ``declarations``.
+Attachment rows filtered by ``state``, by ``template``, or every attachment when
+both are ``None`` — what the attachments listing and the Consumers tab read. Each row
+carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str \| None` | `None` | — |
-| `module` | `str \| None` | `None` | — |
+| `template` | `str \| None` | `None` | — |
 
 
-#### mount
+#### attach
 
-`tai42_contract.app.facets.AppStates.mount`
+`tai42_contract.app.facets.AppStates.attach`
 
 ```python
-async mount(self, state: str, module: str, body: MountBody) -> None
+async attach(self, state: str, template: str, body: AttachBody) -> None
 ```
 
-Mount ``module`` on ``state`` at ``body.path``, storing the resolved
+Attach ``template`` on ``state`` at ``body.path``, storing the resolved
 parameters and declarations and recomposing the effective schema in one
 transaction.
 
-Runs every registered mount validator before the write; a raise refuses the
+Runs every registered attach validator before the write; a raise refuses the
 door with the validator's message. Overlapping fragments raise
-`MountConflictError`.
+`AttachConflictError`.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
-| `body` | `MountBody` | — | — |
+| `template` | `str` | — | — |
+| `body` | `AttachBody` | — | — |
 
 
-#### update_mount_declarations
+#### update_attachment_declarations
 
-`tai42_contract.app.facets.AppStates.update_mount_declarations`
+`tai42_contract.app.facets.AppStates.update_attachment_declarations`
 
 ```python
-async update_mount_declarations(
+async update_attachment_declarations(
     self,
     state: str,
-    module: str,
+    template: str,
     declarations: dict[str, Any],
     *,
     options: dict[str, Any] | None = None,
 ) -> None
 ```
 
-Replace a mount's declaration values, re-running every registered mount
+Replace an attachment's declaration values, re-running every registered attach
 validator and reconciler and recomposing the effective schema before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
 operation only, never stored or served back (``None`` is an empty bag).
@@ -4828,27 +4952,27 @@ operation only, never stored or served back (``None`` is an empty bag).
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
+| `template` | `str` | — | — |
 | `declarations` | `dict[str, Any]` | — | — |
 | `options` | `dict[str, Any] \| None` | `None` | — |
 
 
-#### unmount
+#### detach
 
-`tai42_contract.app.facets.AppStates.unmount`
+`tai42_contract.app.facets.AppStates.detach`
 
 ```python
-async unmount(self, state: str, module: str) -> None
+async detach(self, state: str, template: str) -> None
 ```
 
-Remove a mount and recompose the state's effective schema.
+Remove an attachment and recompose the state's effective schema.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `state` | `str` | — | — |
-| `module` | `str` | — | — |
+| `template` | `str` | — | — |
 
 
 #### read
@@ -4856,7 +4980,7 @@ Remove a mount and recompose the state's effective schema.
 `tai42_contract.app.facets.AppStates.read`
 
 ```python
-async read(self, state: str, subject: StateSubject) -> RecordView | None
+async read(self, state: str, subject: StateSubject) -> StateRecord | None
 ```
 
 The record for ``subject`` (resolving a fold to its canonical subject), or
@@ -4883,7 +5007,7 @@ async replace(
     data: dict[str, Any],
     *,
     origin: WriteOrigin,
-) -> RecordView
+) -> StateRecord
 ```
 
 Replace ``subject``'s whole document with ``data`` and return the new record.
@@ -4910,7 +5034,7 @@ async merge(
     patch: dict[str, Any],
     *,
     origin: WriteOrigin,
-) -> RecordView
+) -> StateRecord
 ```
 
 Shallow top-level merge ``patch`` into ``subject``'s document and return the
@@ -4946,7 +5070,7 @@ Apply an op batch to ``subject``'s document under the effective schema.
 
 Refuses a whole-path write over a ``composing`` path
 (`RegimeViolationError`) before the ledger insert,
-stamps ``_trace`` under a traced mount, and records one ``state_writes`` row with
+stamps ``_trace`` under a traced attachment, and records one ``state_writes`` row with
 the touched paths and the completed origin. A replayed ``op_id`` returns
 ``applied=False`` without re-writing; guarded ops land in ``skipped``.
 
@@ -4957,6 +5081,71 @@ the touched paths and the completed origin. A replayed ``op_id`` returns
 | `state` | `str` | — | — |
 | `subject` | `StateSubject` | — | — |
 | `ops` | `list[dict[str, Any]]` | — | — |
+| `op_id` | `str \| None` | — | — |
+| `origin` | `WriteOrigin` | — | — |
+
+
+#### eval_template_jq
+
+`tai42_contract.app.facets.AppStates.eval_template_jq`
+
+```python
+async eval_template_jq(self, state: str, subject: StateSubject, name: str, params: dict[str, Any]) -> TemplateJqResult
+```
+
+Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and
+return its value — the program's jq over the subject's record, ``params`` supplying
+its declared parameters. ``name`` resolves across the state's attached templates
+(unqualified → the declaring template; ``<attachment>.<name>`` → that attachment's
+template). An unknown name is a `StateNotFoundError`; an
+ambiguous unqualified name, an ``update``-purpose name, an undeclared param or an
+evaluation failure is a `ValueValidationError`. A read;
+no write is recorded.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `name` | `str` | — | — |
+| `params` | `dict[str, Any]` | — | — |
+
+
+#### apply_template_jq
+
+`tai42_contract.app.facets.AppStates.apply_template_jq`
+
+```python
+async apply_template_jq(
+    self,
+    state: str,
+    subject: StateSubject,
+    name: str,
+    input: Any,
+    *,
+    op_id: str | None,
+    origin: WriteOrigin,
+) -> TemplateJqApplyResult
+```
+
+Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``. Its jq
+maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
+path and applied through the same chokepoint as `apply` — so regimes, the
+composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
+resolves as for `eval_template_jq`. An unknown name is a
+`StateNotFoundError`; an ambiguous unqualified name, an
+``input``-purpose name, an evaluation failure or a wrong-shaped return is a
+`ValueValidationError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `subject` | `StateSubject` | — | — |
+| `name` | `str` | — | — |
+| `input` | `Any` | — | — |
 | `op_id` | `str \| None` | — | — |
 | `origin` | `WriteOrigin` | — | — |
 
@@ -5165,41 +5354,41 @@ lister — for the Consumers tab.
 | `state` | `str` | — | — |
 
 
-#### register_module_seed
+#### register_template_seed
 
-`tai42_contract.app.facets.AppStates.register_module_seed`
+`tai42_contract.app.facets.AppStates.register_template_seed`
 
 ```python
-register_module_seed(self, doc: StateModuleDocument) -> None
+register_template_seed(self, doc: StateTemplateDocument) -> None
 ```
 
-Declare a platform module document the platform seeds at import time.
+Declare a platform template document the platform seeds at import time.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-startup/reload seed applier creates it when absent and leaves a module already
+startup/reload seed applier creates it when absent and leaves a template already
 present untouched. Declaring two seeds under one name raises loudly.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `doc` | `StateModuleDocument` | — | — |
+| `doc` | `StateTemplateDocument` | — | — |
 
 
-#### register_mount_validator
+#### register_attach_validator
 
-`tai42_contract.app.facets.AppStates.register_mount_validator`
+`tai42_contract.app.facets.AppStates.register_attach_validator`
 
 ```python
-register_mount_validator(self, validator: MountValidator) -> None
+register_attach_validator(self, validator: AttachValidator) -> None
 ```
 
-Register a data-dependent mount validator.
+Register a data-dependent attach validator.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-validator receives the module document, a mount's declaration values, and the
-state's effective schema, and RAISES to refuse; it runs before every ``mount``,
-``update_mount_declarations`` and ``put_module(replace=True)`` write, so a
+validator receives the template document, an attachment's declaration values, and the
+state's effective schema, and RAISES to refuse; it runs before every ``attach``,
+``update_attachment_declarations`` and ``put_template(replace=True)`` write, so a
 consumer's checks fire at the platform's declarations doors, the States page
 included.
 
@@ -5207,32 +5396,32 @@ included.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `validator` | `MountValidator` | — | — |
+| `validator` | `AttachValidator` | — | — |
 
 
-#### register_mount_reconciler
+#### register_attach_reconciler
 
-`tai42_contract.app.facets.AppStates.register_mount_reconciler`
+`tai42_contract.app.facets.AppStates.register_attach_reconciler`
 
 ```python
-register_mount_reconciler(self, reconciler: MountReconciler) -> None
+register_attach_reconciler(self, reconciler: AttachReconciler) -> None
 ```
 
-Register a pre-write mount reconciler.
+Register a pre-write attach reconciler.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-reconciler receives a `MountReconcileContext` — the
-module, the operation, the previous and new declarations, the mount options, and a
-record door bound to the state — inside every ``mount`` and
-``update_mount_declarations`` write, after the validators and before the write. It
-RAISES to refuse the mount (naming the records the new declarations orphan) or
-writes resolutions through the context's record door and returns, letting the mount
+reconciler receives a `AttachReconcileContext` — the
+template, the operation, the previous and new declarations, the attach options, and a
+record door bound to the state — inside every ``attach`` and
+``update_attachment_declarations`` write, after the validators and before the write. It
+RAISES to refuse the attach (naming the records the new declarations orphan) or
+writes resolutions through the context's record door and returns, letting the attach
 commit with those writes.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `reconciler` | `MountReconciler` | — | — |
+| `reconciler` | `AttachReconciler` | — | — |
 
 

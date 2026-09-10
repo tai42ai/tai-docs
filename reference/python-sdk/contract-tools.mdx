@@ -222,6 +222,57 @@ duplicate consult.
 | `provider` | `ToolRenameReferee` | — | — |
 
 
+#### register_delete_referee
+
+`tai42_contract.tools.AppTools.register_delete_referee`
+
+```python
+register_delete_referee(self, provider: ToolDeleteReferee) -> None
+```
+
+Register a `ToolDeleteReferee` consulted before a preset delete.
+
+A plugin holding resources keyed on a preset/tool name (e.g. per-node state
+bindings that reference a preset) calls this through the ``tai42_app`` handle when
+its module loads. Every registered referee is asked for the name on a delete; a
+referee cascades its own cleanup and returns empty to allow, or returns non-empty
+descriptions to VETO — any non-empty answer blocks the delete and names the
+holders. Registering the same provider object twice raises loudly — a double
+registration is a plugin bug, never a silent duplicate consult.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolDeleteReferee` | — | — |
+
+
+#### register_detach_referee
+
+`tai42_contract.tools.AppTools.register_detach_referee`
+
+```python
+register_detach_referee(self, provider: StateTemplateDetachReferee) -> None
+```
+
+Register a `StateTemplateDetachReferee` consulted before a state-template
+detach.
+
+A holder of door bindings that name templates (e.g. per-node state bindings, or the
+platform's own preset/route/hook/schedule bindings) calls this through the
+``tai42_app`` handle when its module loads. Every registered referee is asked for the
+``(state, template)`` on a detach; any non-empty answer blocks the detach and its
+descriptions name the referencing bindings. Registering the same provider object
+twice raises loudly — a double registration is a bug, never a silent duplicate
+consult.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `StateTemplateDetachReferee` | — | — |
+
+
 #### register_tier
 
 `tai42_contract.tools.AppTools.register_tier`
@@ -268,6 +319,24 @@ none (no execution fence; authoring keeps the presets' default ``write`` action)
 
 
 
+## StateTemplateDetachReferee
+
+`tai42_contract.tools.StateTemplateDetachReferee`
+
+```python
+StateTemplateDetachReferee = Callable[[str, str], Awaitable[list[str]]]
+```
+
+
+## ToolDeleteReferee
+
+`tai42_contract.tools.ToolDeleteReferee`
+
+```python
+ToolDeleteReferee = Callable[[str], Awaitable[list[str]]]
+```
+
+
 ## ToolInfo
 
 `tai42_contract.tools.ToolInfo`
@@ -303,12 +372,20 @@ The tool execution currently in flight: ``tool_name`` is the invoked
 tool's registered name. Frozen — a deposited invocation is a fact of the
 active execution, never mutated in place.
 
+``state_binding`` is the OPTIONAL door-layer binding a door deposits when it
+initiates a run (a channel route, a schedule fire, a hook, or none for a bare
+run-tool call): it rides the ambient context to the shared dispatch chokepoint,
+which carries it forward across its own re-deposit and merges it with the
+dispatched preset's own binding before applying it around the run. The contract
+interprets nothing about it — a logic-free carrier.
+
 **Attributes**
 
 | Attribute | Type |
 |---|---|
 | `model_config` | — |
 | `tool_name` | `str` |
+| `state_binding` | `StateBinding \| None` |
 
 
 ## ToolRefsExtractor
