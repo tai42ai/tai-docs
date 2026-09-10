@@ -27,9 +27,9 @@ an install needs.
 
 [`tai-distribution`](https://github.com/tai42ai/tai-distribution) packages the
 whole platform as one minimal-core container image plus a Docker Compose
-bundle and a Helm chart. The image ships the platform core plus one reference
-provider per infrastructure kind — local storage, the arq backend, redis
-identity, and the k8s config provider — and bakes the built [Studio](/studio) in,
+bundle. The image ships the platform core, the agents layer, and the baked
+reference providers — local storage, the arq backend, redis identity, and both
+sandbox providers — and bakes the built [Studio](/studio) in,
 so a self-hosted install is one image and the services it talks to. Every other
 plugin (the channels, the S3/GitHub storages, the celery/rq backends, the
 connectors, monitoring, accounts, and the extra tools) installs at runtime
@@ -53,7 +53,7 @@ out-of-date database, so a missed migration is a loud refusal, not a broken serv
 
 <Note>
 The official `docker.io/tai42/tai` image (mirrored at `ghcr.io/tai42ai/tai`) is
-what the Compose bundle and the chart run — signed, scanned, and multi-arch. Pin
+what the Compose bundle runs — signed, scanned, and multi-arch. Pin
 a release tag in production and verify its signature; the
 [quickstart](/self-hosted/quickstart)'s build-from-source is a dev-only
 alternative. See [Self-hosted](/self-hosted) for the image, upgrades, and
@@ -172,17 +172,13 @@ accounts provider described in [Accounts](/operate/accounts).
 
 ## Run on Kubernetes
 
-The repo ships a real Helm chart, published as an OCI artifact alongside the
-image. Installing it, pointing it at managed Postgres and Redis, scaling
-`serve`, and upgrading are covered in [Helm](/self-hosted/helm); the chart's
-every value lives in its own
-[`charts/tai/README.md`](https://github.com/tai42ai/tai-distribution/blob/main/charts/tai/README.md).
-The marketplace-install persistence model on Kubernetes is the platform-side
-piece that page defers back here:
+The same image runs on Kubernetes with `serve` and `backend` as separate
+workloads and the datastores pointed at managed Postgres and Redis. The
+marketplace-install persistence model is the platform-side piece to get right:
 
 <Note>
 Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,
-persistent volume (a `ReadWriteMany` PVC — the chart's default) so every `serve`
+persistent volume (a `ReadWriteMany` PVC) so every `serve`
 and `backend` pod sees the same installed code, plus the manifest on persistent
 storage. An install `pip install`s into the one pod that handled the request and
 broadcasts the manifest reload fleet-wide — the other pods only reload the
@@ -207,20 +203,9 @@ pod restart. Fleets that want fully static rosters can bake them into a
 nothing in front of it. Terminate TLS at your own reverse proxy or load balancer
 and forward to that port.
 
-On Kubernetes the chart's Ingress is single-host, single-path — the Studio and
-the `/api` surface share one origin, so there is nothing to split — and passes
-`ingress.tls` straight through to the Ingress resource:
-
-```yaml values.yaml
-ingress:
-  enabled: true
-  className: nginx
-  host: tai.example.com
-  tls:
-    - secretName: tai-tls
-      hosts:
-        - tai.example.com
-```
+On Kubernetes a single-host, single-path Ingress is enough — the Studio and the
+`/api` surface share one origin, so there is nothing to split — with TLS
+terminated at the Ingress.
 
 Some features need the public origin spelled out rather than inferred:
 [connectors](/concepts/connectors) accept an OAuth redirect only when its origin
