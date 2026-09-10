@@ -171,6 +171,21 @@ baked one (lists never concatenate). So a preset can pin default fields while st
 letting a caller override any of them. Every other baked kwarg stays a fixed, hidden
 constant.
 
+## State binding on a version
+
+A preset version's body may carry a
+[`state_binding`](/concepts/states#a-bindings-subject-and-scope) — the door-side binding that
+injects an `input`-purpose template jq's value before the tool runs and applies an
+`update`-purpose op batch after it. The binding is **part of the versioned body**, so it is
+validated and mounted on **every** write — create, save-version, and rollback alike. A rollback
+is not a bare re-point: it validates and mounts the target version's binding exactly as create
+and save-version do. Mounting is mount-on-use and idempotent, so a template that was merely
+**detached** since the version was authored — but whose document still exists — is re-attached
+automatically and the rollback succeeds. The rollback is refused (`400`) and nothing is
+re-pointed only when the named template **document** no longer exists (it was deleted) or its
+attach path is occupied — re-create the template document first (a merely detached template
+needs nothing).
+
 ## Admin registration tier
 
 A base tool can declare the authorization tier that fences it. Declaring the admin

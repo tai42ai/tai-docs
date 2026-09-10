@@ -5,7 +5,7 @@ icon: "diagram-project"
 ---
 
 Every jq expression a flow carries — a node's expression, a branch or loop
-condition, a state fill or its guard — is authored in one field two ways: by typing
+condition, a binding's injection or update jq — is authored in one field two ways: by typing
 jq into the field's resting text control, or in a **visual editor**, opened from that
 control, that draws the expression as a small, editable node graph and writes it back
 as jq. The wire always carries the jq text.
@@ -67,17 +67,22 @@ the **Validate** action checks the right shape server-side:
 - a node's **return expression** sees the narrow **return namespace** — only
   `.result`, `.outputs`, `.flow_graph_kwargs`, and `.states`; here `.upstream_outputs`
   is a **hard build error**, not a null;
-- a **state fill** and its **re-run** expression see the **fill envelope**, where
-  `.result` is the filling node's own output (a null result skips the fill) and
-  `.upstream_outputs` is the filling node's own resolved fan-in — the same upstream
-  outputs its runnable expression reads — so a `.upstream_outputs.<predecessor>` read
-  is a live cross-node read (validated at binding save and again at run mint against
-  the filling node's predecessors); a node with no upstream fan-in, or a non-object
-  fan-in, still reads it as null;
-- a fill's compare-and-set **guard** sees that same fill envelope — its jq computes
-  the expected value (null means "expect the record absent");
-- a binding's **subject** expression sees the bare **flow inputs** document (`.` is
-  `flow_graph_kwargs`, with no envelope);
+- a binding's **input injection** jq runs after the node's input is assembled, before the node runs: a
+  template `input` program sees the **record** (`.` is the subject's document at the
+  attach path) with its declared `params` bound as the single object `$params`; a
+  **custom** injection sees `{record, input}` — `.record` the bound record, `.input`
+  the node's input so far — and its value is placed into the input at the injection's
+  `into` field;
+- a binding's **update** jq runs after the node completes: a template `update` program
+  sees `{record, input}` — `.record` the bound record, `.input` the adapter's output —
+  and a **custom** update sees `{record, output, input}` (`.output` the node's output,
+  `.input` its input); either returns a template-relative **op batch**
+  (`[{op, path, value}]`), and a per-op compare-and-set guard rides an op as
+  `{path, expected}`;
+- an update's **adapter** jq sees `{output, input}` — the node's output and input — and
+  returns the named update program's declared input object;
+- a binding's **subject** and **scope** expressions see the bare **flow inputs** document
+  (`.` is `flow_graph_kwargs`, with no envelope);
 - a loop's **`while` condition** sees the **node envelope with `.iterate` present** —
   `.iterate.item` is always null there, while `.iterate.prior_outputs` holds the
   per-iteration results the condition tests;
@@ -87,6 +92,17 @@ the **Validate** action checks the right shape server-side:
   it);
 - a **map item argument** sees the **loop-body envelope**, where `.iterate.item` is
   the current item (never null here) and `.iterate.iteration` its zero-based position.
+
+## Autocomplete from a state's template jq
+
+A jq field that can reach a bound state offers autocomplete from the
+[template jq](/babelfish#state-templates) of the templates attached to that state.
+Typing offers each `purpose: "input"` template jq by name and inserts its call
+handle — `tjq_<name>({…})`, or `tjq_<template>__<name>({…})` when a name is
+shared across the state's attachments — so an expression reads a template's value
+through the prelude without hand-writing the def. The suggestions come from the
+served [state-template document](/babelfish#state-templates)'s `template_jq` for the
+bound state's templates, so they track whatever the attachment declares.
 
 ## See also
 

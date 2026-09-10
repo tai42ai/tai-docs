@@ -102,14 +102,20 @@ something to return. See the [bridge
 reference](/reference/conversation-bridge#route-targets-agent-or-tool) for the exprs
 in full.
 
+A `tool` target may also carry a
+[`state_binding`](/concepts/states#a-bindings-subject-and-scope), so the route injects a bound
+state's `input` values into the dispatch and applies its `update` afterward — a binding applies
+to tool targets (a registered preset or a plain tool). An `agent` target takes no binding: a
+route with `target_kind: agent` that carries a `state_binding` is refused at save (`400`).
+
 A tool or flow target need not answer in one synchronous step either. Like an agent
 target, its turn can async-park on an `ask_user` — pausing for a person's answer or
 its expiry — and deliver its resumed reply back into the originating thread later,
 mapped through the route's reply mapping.
 
-### Structured guest messages
+### Structured participant messages
 
-A guest message is always **text first**. When an inbound message carries a
+A participant message is always **text first**. When an inbound message carries a
 structured object — an [ask-less form](/concepts/notifications#ask-less-forms)'s
 submission — the text is a faithful rendering of the submission and stays the whole
 turn every consumer sees: an `agent` target reads the text only, the transcript
@@ -120,9 +126,9 @@ sees a byte-identical payload for a form-less inbound — a route maps the form
 deliberately or not at all. The answer record keeps the object as `inbound_form`,
 published on the admin and caller-safe reads alike.
 
-The values are **untrusted guest data**: the platform bounds them as pure transport
+The values are **untrusted participant data**: the platform bounds them as pure transport
 (a serialized-size and nesting cap) and never validates them against the form's
-schema — a submission is exactly as trustworthy as typed guest text, so a tool that
+schema — a submission is exactly as trustworthy as typed participant text, so a tool that
 consumes one validates what it reads. The API [message door](/reference/conversation-bridge#the-message-door)
 accepts the same shape: a `form` object beside the required `text`, under the same
 bounds.
@@ -141,7 +147,7 @@ Both follow the `form` pattern exactly: the `text` stays the whole turn every re
 (and every `agent` target) consumes, the structured copy is delivered only to a
 form-/media-aware `tool` route, and a form-less, attachment-less, location-less
 inbound is byte-identical to the pre-vocabulary payload. The values are the same
-untrusted, transport-bounded guest data.
+untrusted, transport-bounded participant data.
 
 <Note>
 On some channels an inbound attachment bridges as **params** rather than a typed
@@ -160,7 +166,7 @@ A conversation carries a **locale** — a BCP 47 language tag (e.g. `he-IL`) the
 list format against. The caller states the language; the flow never selects one, and a `null`
 locale means none is known (never a silent default).
 
-- **`ConversationMessage.locale`** — the guest's per-message language hint the channel resolved
+- **`ConversationMessage.locale`** — the participant's per-message language hint the channel resolved
   from its native inbound, carried beside the text (and accepted on the API message door). It
   seeds a first-contact person's stored locale and, absent a stored override, is the turn's
   resolved locale.

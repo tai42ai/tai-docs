@@ -1,29 +1,32 @@
 ---
-title: "The agenda module"
-description: "The shipped state module for conversations that handle many intents per inbound, each living through phases across turns, with one composed reply per turn."
+title: "The agenda state template"
+description: "The shipped state template for conversations that handle many intents per inbound, each living through phases across turns, with one composed reply per turn."
 icon: "list-checks"
 ---
 
-The **agenda** is a shipped [state module](/babelfish/index#state-modules) for a
+The **agenda** is a shipped [state template](/babelfish#state-templates) for a
 conversation that handles MANY intents per inbound, each intent living through **phases**
 across several turns, with dependencies between phases, and **one composed reply** per
 turn. An *intent* is the flow's job for an inbound — not the user's wish — so a single
-message can open several. The mechanism is a mint-and-bind step on the way in, a bounded
-[loop](/babelfish/index#loop-mode) that fires every phase currently due, and one compose
-step that speaks every outcome and closes; the pattern is client-agnostic, and a client
-declares only its intents, phases, handlers, follow-ons, and reply parts — the
-**manifest**.
+message can open several. The agenda is data end to end: a state-template document (its
+schema, write regimes, declarations, and [template jq](/babelfish#state-templates)) plus
+the bulky jq bodies beside it. A client attaches it to a state and drives it from a flow's
+per-node [bindings](/babelfish#binding-a-node-to-a-state) — input injections read the
+`input` template jq to decide what is due, and `update` template jq write the ledger after
+each step. The pattern is client-agnostic: a client declares only its intents, phases,
+follow-ons, and reply parts — the **manifest** — as the attachment's declarations.
 
 <Note>
-The agenda is the module document plus the Router's [loop mode](/babelfish/index#loop-mode),
-declared as a unit: the module ships a [`loop` contract](/babelfish/index#the-loop-contract),
-and the Router card in loop mode lowers itself from the manifest a client fills at mount.
-Babelfish is proprietary and licensed commercially; the agenda ships with it, not on PyPI.
+The agenda ships with babelfish as resource files under
+`resources/state-template/agenda/` — the one `state-template` document and its template jq
+bodies — not as engine code and not as a flow. It is installed like any other state
+template (`tai state-templates put`, then attach it to a state). Babelfish is proprietary
+and licensed commercially; the agenda ships with it, not on PyPI.
 </Note>
 
-## What the module stores
+## What the template stores
 
-The module's schema fragment holds four keyed lists and three single slots. The lists are
+The template's schema fragment holds four keyed lists and three single slots. The lists are
 under the `composing` writer regime — many keyed writers per list — while `turn_talk`,
 `last_outbound`, and `transcript` are each `single`, one whole-object writer:
 
@@ -36,7 +39,7 @@ under the `composing` writer regime — many keyed writers per list — while `t
   `closed` `{resolution, sent_run}` mark that compose writes. A closed intent is **pruned**
   at the next mint once no open intent still names one of its phases (below).
 - **`ledger_phases`** — one upserted row per phase key `<intent id>:<item>:<phase>`,
-  carrying the **`outcome`** label the handler returned, its derived class
+  carrying the **`outcome`** label the flow returned, its derived class
   (`resolution` — settled: `done`, or one of the manifest's declared not-done names) or wait
   (`wait_for` — `who` a party, or `waits_on` another phase
   key when `who` is `phase`), the outcome `fields`, the writing `run`/`pass`, and a `sent`
@@ -65,13 +68,13 @@ reads right:
 
 - A row's own `run` (and `minted_run.run`) is the **turn id** — the unit of work, the
   turn the row was written for.
-- `_trace.run` is the writing **sub-run's session id** — the shipped preset's own flow-as-
-  tool run that emitted the fill.
+- `_trace.run` is the writing run's **session id** — the client flow run in which the
+  update template jq wrote the row.
 
 ### The trace
 
 `trace.enabled` is `true`, so every row carries a `_trace` object:
-`{meta, run, turn, inbound, at}` — the writer-supplied `meta`, the sub-run session id, the
+`{meta, run, turn, inbound, at}` — the writer-supplied `meta`, the run's session id, the
 turn id, the turn's inbound id, and the write time. The engine supplies `meta: {node: <node
 id>}`, so the writing node reads at `_trace.meta.node`. Because a `composing` list admits
 several keyed writers per row kind and nothing statically pins one node per field, the trace
@@ -80,14 +83,14 @@ stamp is the evidence a dump needs for **which node wrote which row**.
 Record ids are `<turn.inbound.id>/<kind>/<n>`, where `n` is the 0-based mint ordinal within
 the run across every source (inbound spans, standing conditions, follow-ons) — one counter
 takes the next ordinal for every row it mints, so `n` is unique per turn. Provenance lives in
-`source` and `event`, never in the id. Both the mint and the record step derive `source`
-through the module's shared `turn_source` view — `tick` when the inbound source is
+`source` and `event`, never in the id. Both the mint and the record update derive `source`
+through the template's shared `turn_source` input jq — `tick` when the inbound source is
 `event:tick`, `event` for any other event turn, else `inbound`.
 
 ## The manifest a client declares
 
-The mount's `declarations` carry `intents`, `phases`, `outcomes`, and `parties` — the wait
-parties beyond the engine's own — plus `clarify_kind`, `unmatched_kind`, `clarify_limit`,
+The attachment's `declarations` carry `intents`, `phases`, `outcomes`, and `parties` — the
+wait parties beyond the engine's own — plus `clarify_kind`, `unmatched_kind`, `clarify_limit`,
 `talk_slot`, and an optional `max_passes` — the manifest's own promised pass
 bound. A placeholder manifest — kinds `status` and
 `utilities`, the synthetic vocabulary this page uses throughout:
@@ -112,8 +115,8 @@ bound. A placeholder manifest — kinds `status` and
                                                  //   fires per pass, in rank order (null = parallel)
       "sources": ["inbound"],
       "items": [],                               // a fixed item list; [] = the single implicit item "_"
-      "standing": null                           // a jq predicate STRING compiled into agenda_standing($kind);
-                                                 //   when it holds and no intent of the kind is open, one is minted
+      "standing": null                           // a jq predicate STRING; a standing kind is minted
+                                                 //   when it holds and no intent of the kind is open
     }
   ],
   "phases": [
@@ -121,7 +124,6 @@ bound. A placeholder manifest — kinds `status` and
       "key": "check", "kind": "status", "item": "_",
       "predecessor": null,                       // a phase key, "record", {phase, outcomes} (labels
                                                  //   that reach the successor), or null (a first phase)
-      "handler": "status-check",                 // the TOOL the loop card fixes as this branch's tool
       "expected_input": {                        // wake this wait on a correlated event
         "kind": "event",
         "event": "settle",                       //   the event kind that correlates here
@@ -141,7 +143,6 @@ bound. A placeholder manifest — kinds `status` and
     },
     {
       "key": "run", "kind": "utilities", "item": "_",
-      "handler": "utilities-run",
       "ordering_waits": [                        // {kind, phase} gates ("*" = every phase of the kind)
         {"kind": "status", "phase": "check"}     //   fires only when no status.check is still pending
       ],
@@ -203,17 +204,16 @@ key targeting the kind, must name one of those `fields`. A kind with `item {fiel
 single-item in the phase sense (its `item` segment is `_`); the item identity lives on the
 ledger row, not in the phase key.
 
-An intent's `standing` is a jq predicate **string** the mount compiles into the
-`agenda_standing($kind)` [compiled view](/babelfish/index#compiled-views) — a predicate over
-the flow **ROOT** with the mount envelope bound as `$mount`. It reads a sibling state member
-as `.states.<state>…` or a mount as `.mounts…`, and the module's own subtree as `$mount.data`;
-a bare `.data` read is refused at mount (``reads a bare `.data`, but its input is the flow
-root; read the mounted subtree as `$mount.data` ``). `agenda-mint` and `agenda-seed` evaluate it
-each pass and open one intent of the kind when it holds and none of the kind is already open
-(a `null` predicate contributes no branch).
+An intent's `standing` is a jq predicate **string** that decides whether a standing intent
+of the kind should be open. Because it reads a **sibling state** — a value on another state
+the client also binds, such as an opt-in flag — it lives in the **client's flow binding over
+that state**, not in the agenda template (a template-scoped input jq sees only its own
+attached subtree). The client's mint step evaluates it each pass and opens one intent of the
+kind when it holds and none of the kind is already open (a `null` predicate contributes no
+intent).
 
 An intent's `sources` lists the record sources the kind admits — `inbound` a classifier
-span, `event`/`tick` an event-door turn. When non-empty the record seam ENFORCES it: a span
+span, `event`/`tick` an event-door turn. When non-empty the record update ENFORCES it: a span
 minted for the kind from a source the list excludes raises
 `agenda-record: kind <kind> does not admit source <source>` (a `standing` or `follow_on`
 record is exempt — those are not inbound sources).
@@ -221,8 +221,9 @@ record is exempt — those are not inbound sources).
 ### Phases, labels, and follow-ons
 
 A **phase** names its `key`, `kind`, `item`, a `predecessor`, its `ordering_waits`, an
-optional `expected_input`, a `handler` tool name, and `outcomes` — the outcome **labels**
-the phase can record. A `predecessor` is a phase key (satisfied when that phase resolves
+optional `expected_input`, and `outcomes` — the outcome **labels**
+the phase can record. A phase names no handler — the flow runs its handler for the phase and
+returns the outcome. A `predecessor` is a phase key (satisfied when that phase resolves
 `done`), `"record"` (the intent's item order — satisfied once the earlier items' same phase
 is settled in any way), a `{phase, outcomes}` object (satisfied when the predecessor phase's
 current outcome is one of the named labels), or `null` (a first phase). `ordering_waits` is a
@@ -277,7 +278,7 @@ match-else-mint rule once PER ELEMENT in the same pass — one record (or bind) 
 carrying its element as `item` and starting its own pass count. An empty list places nothing;
 an absent value still raises. A fan-out targets a kind that declares `item {field}` (one intent
 per item), so each record carries a single element — a list into any other kind raises at
-mount, as does a list on a `close`, which names one item.
+attach, as does a list on a `close`, which names one item.
 
 A follow-on rides an outcome label's `outcomes[].follow_on`, and a label's readable fields
 ride `outcomes[].fields`.
@@ -286,16 +287,15 @@ ride `outcomes[].fields`.
 
 An **outcome** maps a `(kind, phase, outcome)` to a reply **`part`**. Every outcome row
 carries its `kind`: a phase key can repeat across kinds, so `(kind, key)` is the phase
-identity everywhere — in the outcome map, the `expectations` items, the mount check, and the
-generated node ids `__h_<kind>_<key>` / `__o_<kind>_<key>`. A part is **rendered from the
-row's `fields`**, never a literal payload:
+identity everywhere — in the outcome map, the `expectations` items, and the attach check. A
+part is **rendered from the row's `fields`**, never a literal payload:
 
 | `part.kind` | Speaks | Shape |
 | --- | --- | --- |
 | `text` | a message | `text` (one content-store template id) rendered with the row's `fields`; the platform's renderer resolves the locale from the subject |
 | `options` | a message + tappable/link options | `text` (mandatory) plus `options: {field}` (replies from a list field of strings or `{text, description?, id?}` objects) or `{fixed: [{value, label?}], links?}` (each fixed value a reply, unless `links` names it — then a link button whose url is the named field; a fixed `label`, when present, is one content-store template id) |
 | `form` | a message + a form | `text` (mandatory) plus `schema_field` (the field holding the answer schema) or a literal `schema`; an optional `values_field` names a field holding an object of top-level property → value that **pre-fills** the form |
-| `template` | a rendered provider template | `text` (mandatory) plus `{id, language, params: {<param>: <field>}}` — `language` is the provider template's registered language code (not a locale the module selects) |
+| `template` | a rendered provider template | `text` (mandatory) plus `{id, language, params: {<param>: <field>}}` — `language` is the provider template's registered language code (not a locale the template selects) |
 | `media` | media (no text required) | `{url_field \| url, kind?}` |
 | `talk` | nothing directly | its `fields` become a **fact** handed to the composed-talk slot |
 | `carried` | nothing directly | `{phase, outcome}` — its `fields` merge into the named same-intent carrier's render context under `carried.<label>` |
@@ -320,24 +320,22 @@ content}` writes the content-store path the part names — the surface the
 `talk_slot` (optional; `null` = off) turns on the composed-talk slot:
 `{prompt_ref: <path>, transcript_window_lines}`, where `prompt_ref` is one content-store talk
 prompt template id and `transcript_window_lines` (default 10) bounds
-the transcript window. When declared, compose runs the module's talk preset
-([`agenda-talk`](#the-shipped-presets)) after the fixed parts render, handing it the `talk`
-facts, the fixed parts, the prior transcript window, the inbound text, the prompt,
-and the classifier's `turn_talk` text; the preset speaks ONE verified reply
-appended last (see [the compose step](#the-compose-step)). A `talk`-disposition part with no
-`talk_slot` declared is refused at mount.
+the transcript window. When declared, compose runs the talk step after the
+fixed parts render, handing it the `talk` facts, the fixed parts, the prior transcript window,
+the inbound text, the prompt, and the classifier's `turn_talk` text; it speaks ONE verified
+reply appended last (see [the compose step](#the-compose-step)). A `talk`-disposition part with no
+`talk_slot` declared is refused at attach.
 
-## The rules the mount check enforces
+## The rules the attach check enforces
 
-The module's `declarations.check` is the agenda's structural rule; it runs at mount, names
-the first offender, and the mount **refuses** on any message it returns. In an action message
+The template's `declarations.check` is the agenda's structural rule; it runs at attach, names
+the first offender, and the attach **refuses** on any message it returns. In an action message
 `<via>` is `follow_on.<label>` (a label's follow-on) or `answer.<key>` (an
 `expected_input.follow_ons` entry).
 
 | The check refuses when… | Its refusal |
 | --- | --- |
 | the mint graph (phase → a label's `follow_on.mint` / `follow_ons.mint` → kind) has a cycle | `mint graph has a cycle through kinds: <kinds>` |
-| a phase's `handler` is blank | `phase '<key>': handler must be non-blank` |
 | a sequenced kind declares more than one item | `kind '<kind>': a sequenced kind must be single-item` |
 | a `rank` gives both or neither of `ordinal`/`match` | `phase '<phase>' <via>: rank needs exactly one of ordinal/match` |
 | a `rank` targets a kind in no sequence group | `phase '<phase>' <via>: rank targets kind '<kind>' which is not in a sequence group` |
@@ -352,9 +350,9 @@ the first offender, and the mount **refuses** on any message it returns. In an a
 | an `item_field` is not a field of its source label | `phase <kind>.<key>: label '<label>' item_field '<field>' is not in the label fields` |
 | a kind declares both `item` and `items` | `kind '<kind>': declare one of item or items, not both` |
 | an `item.field` is not in the kind's `fields` | `kind '<kind>': item field '<field>' is not declared in fields` |
-| a phase kind or key is not id-safe (each heads a node id) | `phase kind '<kind>' is not id-safe (letters, digits, underscore only)` / `phase key '<key>' …` |
+| a phase kind or key is not id-safe (each heads a phase key) | `phase kind '<kind>' is not id-safe (letters, digits, underscore only)` / `phase key '<key>' …` |
 | the same `(kind, key, item)` phase is declared twice | `phase <kind>.<key> item <item> is declared twice` |
-| two distinct `(kind, key)` phases collide under the node-id encoding | `phases <k1>.<p1> and <k2>.<p2> collide under the node-id encoding` |
+| two distinct `(kind, key)` phases collide under the phase-key encoding | `phases <k1>.<p1> and <k2>.<p2> collide under the phase-key encoding` |
 | an `ordering_waits` entry is not a `{kind, phase}` object | `ordering wait must be {kind, phase}` |
 | an `ordering_waits` entry names an undeclared kind | `ordering wait of phase '<key>' names unknown kind '<kind>'` |
 | an `ordering_waits` entry names (non-wildcard) an undeclared phase | `ordering wait of phase '<key>' names unknown phase '<kind>.<phase>'` |
@@ -380,10 +378,10 @@ the first offender, and the mount **refuses** on any message it returns. In an a
 | a `carried` part names a target that is itself `carried`/`none` | `outcome <kind>.<phase> <outcome>: carried target <phase> <outcome> is itself <kind> (carries no part)` |
 | a `talk`-disposition part is declared but `talk_slot` is null | ``label <label> is a talk row but `talk_slot` is null`` |
 | the clarify kind lacks a `which` wait label bound to `user` | `clarify kind '<ck>' must declare a 'which' wait label with who 'user'` |
-| the clarify kind lacks an `unresolved` label carrying a declared not-done resolution | `clarify kind '<kind>' must declare an 'unresolved' label with a not-done resolution (a resolution other than 'done', from the mount parameter \`resolutions\`)` |
+| the clarify kind lacks an `unresolved` label carrying a declared not-done resolution | `clarify kind '<kind>' must declare an 'unresolved' label with a not-done resolution (a resolution other than 'done', from the attach parameter \`resolutions\`)` |
 | the `unmatched_kind` is not a declared intent kind | `the unmatched kind '<uk>' is not a declared intent kind` |
 | the `unmatched_kind` declares no phase | `the unmatched kind '<uk>' must declare at least one phase` |
-| no phase of the unmatched kind carries a not-done label | `the unmatched kind '<kind>' must declare a phase with a not-done label (a resolution other than 'done', from the mount parameter \`resolutions\`)` |
+| no phase of the unmatched kind carries a not-done label | `the unmatched kind '<kind>' must declare a phase with a not-done label (a resolution other than 'done', from the attach parameter \`resolutions\`)` |
 | the `unmatched_kind`'s non-empty `sources` does not admit both `event` and `inbound` | `the unmatched kind '<uk>' must admit sources event and inbound` |
 | the manifest declares `max_passes` and its `longest_chain` exceeds it | `longest chain (<n> passes) exceeds declared max_passes <cap>` |
 
@@ -392,90 +390,80 @@ run time, so the outcome map must cover the resolution for all of them. The mani
 **no** data-fact preconditions, no discard rules, and no thresholds — dueness is computed
 from the ledger, never gated on stored values.
 
-The same mount seam also checks each [compiled view](/babelfish/index#compiled-views) the
-manifest declares — the agenda's `standing` (`result: "boolean"`) and `via`
-(`result: "string"`). Each body's INPUT is the flow **root** and the mount
-envelope is bound as `$mount`, so the module's own subtree is `$mount.data` and a sibling state
-member is `.states.<state>…`. The seam compiles each body inside the prelude, then EVALUATES it
-over a sample flow root whose mounted `.data` is an instance synthesized from the module's
-schema, and refuses these shapes (`<where>` is `<path>[<key>=<k>].<expr>` for a dispatch view,
-`<path>` for a scalar one):
+The same attach seam also compiles each jq the manifest declares against the template's
+schema — a phase's `via` correlation program — and refuses one that does not compile or whose
+value type contradicts what the field expects. The cross-state `standing` predicate is NOT
+checked here: it reads another state and lives in the client's binding, so the client's flow
+validates it against that state.
 
-| The compiled-view check refuses when… | Its refusal |
-| --- | --- |
-| a body reads a bare `.data` — its input is the flow root, so `.data` would answer `null` | `` module 'agenda' compiled view '<view>' at <where> reads a bare `.data`, but its input is the flow root; read the mounted subtree as `$mount.data` `` |
-| a body is not valid jq inside the prelude | `module 'agenda' compiled view '<view>' at <where> is not a valid jq expression: <error>` |
-| a body's value type contradicts its declared `result` (a `standing` yielding a non-boolean, a `via` yielding a non-string) | `module 'agenda' compiled view '<view>' at <where> evaluated to <value> over the sample flow root, but the view declares result '<result>' — the body must yield a <result>` |
-| a body raises over the sample flow root — it is broken over the declared schema | `module 'agenda' compiled view '<view>' at <where> raised over the sample flow root: <error>` |
+### Re-attaching over open intents
 
-### Re-mounting over open intents
-
-A mount that replaces the manifest while intents are still open is checked against those open
+An attach that replaces the manifest while intents are still open is checked against those open
 records too. When an open intent names a kind, a phase, an outcome label, or a part the NEW
-manifest no longer declares, the mount is **REFUSED** with `422` and the refusal lists every
+manifest no longer declares, the attach is **REFUSED** with `422` and the refusal lists every
 orphaned record — the declarations never change under a conversation whose next turn could no
 longer resolve:
 
 ```
-re-mounting module '<module>' on state '<state>' would orphan <N> open record item(s) the new
-declarations no longer cover: [<kind>:<key>] <label> (id <id>); … and <N> more. Re-mount with
-options {"orphans": "close", "resolution": "<not-done resolution>"} to close them.
+re-attaching template '<template>' on state '<state>' would orphan <N> open record item(s) the
+new declarations no longer cover: [<kind>:<key>] <label> (id <id>); … and <N> more. Re-attach
+with options {"orphans": "close", "resolution": "<not-done resolution>"} to close them.
 ```
 
 Open intents whose declarations survive are untouched: their ledger rows, waits, and bindings
-cross the mount unchanged.
+cross the attach unchanged.
 
-To retire those declarations anyway, the caller mounts with `options.orphans = "close"` and
+To retire those declarations anyway, the caller attaches with `options.orphans = "close"` and
 names a declared not-done resolution in `options.resolution` (one of the new manifest's
 resolution values other than `done`; a name the new declarations do not declare is itself
-refused). The mount then **closes** every intent the new manifest no longer covers with that
+refused). The attach then **closes** every intent the new manifest no longer covers with that
 resolution instead of refusing — set on the intent's open phase rows and marked `closed` on
 its ledger row. The close carries no `sent_run`, so it is unspoken: the next mint's prune drops
 the intent and compose says nothing for it.
 
 ## The parameters
 
-Two mount parameters tune the module without editing its document:
+Two attach parameters tune the template without editing its document:
 
 - **`resolutions`** — the enum schema substituted into the `resolution` field at the
   `{"$parameter": "resolutions"}` marker, default `{"enum": ["done", null]}`. `done` is the
   only resolution the engine names; every OTHER member of the enum is a **not-done** name the
   deployment declares here, and a label referencing one closes its intent instead of reaching
-  the phase's successors. The presets read the allowed set at run time as
-  `.parameters.resolutions.enum`; a deployment names its own classes (`deferred`, `expired`,
+  the phase's successors. The template jq read the allowed set as
+  `$parameters.resolutions.enum`; a deployment names its own classes (`deferred`, `expired`,
   `declined`) and keeps the wording neutral, so none inherits a business vocabulary.
 - **`yes_no_words`** — the bare yes/no word list the mint binds without the classifier,
-  default `{"yes": ["yes", "y"], "no": ["no", "n"]}`, read as `.parameters.yes_no_words`.
+  default `{"yes": ["yes", "y"], "no": ["no", "n"]}`, read as `$parameters.yes_no_words`.
 
-## The view library
+## The template jq
 
-Every view is one jq def over the mount **envelope** — `.data` the mounted subtree,
-`.declarations` the manifest, `.parameters` — reachable as `agenda_<view>` in the emitted
-prelude; `$run` is the [turn id](/operate/observe#one-run-one-trace). The
-[loop contract](#the-loop-contract) maps four of them into the loop's roles. The
-declaration-[compiled views](/babelfish/index#compiled-views) `agenda_standing` and
-`agenda_via` are the exception: their input is the flow **root**, with the envelope
-bound as `$mount` (see [the mount check](#the-rules-the-mount-check-enforces)). The core
-definitions (`pending`, `active`, `ordering_satisfied`, and the rest of the loop's decision
-predicates) read verbatim:
+The agenda's `template_jq` split into two purposes. The **`input`** programs are read-only
+predicates over the record subtree — the client's flow reads them through the
+[template-jq prelude](/babelfish#the-template-jq-prelude) (`tjq_<name>({…})`) or the record
+`GET …/template-jq/{name}` route to decide what is due each pass. `.` is the attached record
+subtree; `$declarations` is the manifest, `$parameters` the attach parameters, and a program's
+declared `params` ride the single object `$params`. The core predicates read verbatim:
 
-| View | Arity | What it answers |
+| Program | Params | What it answers |
 | --- | --- | --- |
 | `reached` | `(phase_key)` | the predecessor is satisfied: a first phase always; a phase-predecessor phase only when that predecessor's current outcome is `done`; a `record`-predecessor phase once the earlier items' same phase is settled in any way; a `{phase, outcomes}` predecessor when the predecessor's current outcome is one of the named labels |
 | `pending` | `(phase_key; run)` | `reached ∧ (no current outcome ∨ reactivated this run) ∧ ¬outcome_after_binding` — a phase that WANTS to fire this run, ordering aside |
 | `ordering_satisfied` | `(phase_key; run)` | for each `ordering_waits` `{kind, phase}`, no matching phase of ANY open intent of that kind is still `pending` — the acting intent included, the waiting phase itself excluded, `phase: "*"` matching every phase of the kind; a settled/waiting/never-reached target satisfies, only a reached-but-unfired one blocks |
-| `phase_due` | `(phase_key; run)` | `pending ∧ ordering_satisfied` — the Router branch condition |
+| `phase_due` | `(phase_key; run)` | `pending ∧ ordering_satisfied` — the branch condition a pass fires on |
 | `active` | `(id; run)` | an intent minted this run ∨ with any pending phase ∨ with any phase bound this run — reads `pending`, never `due`, so ordering never masks an intent inactive |
 | `item_of` | `(id)` | the intent's `item` identity, or `null` for an itemless kind |
-| `longest_chain` | `()` | the static pass bound, counted PER RECORD: the longest path in NODES over the `(kind, phase)` DAG of `predecessor` and ordering-wait edges — the MAX over the graph's weakly-connected components (parallel intents fire the same pass), a sequence group of N declared kinds multiplying its members' chain by N (they run serially). A `follow_on.mint` edge does not extend a path: the minted record starts a FRESH count, so re-entering a kind through a mint edge is legitimate and adds nothing to the bound |
 
-The full library beyond these: `intent_row`, `open_intents`, `standing_kinds`, `closed`,
-`key_parts`, `items_of`, `group_of`, `manifest_phase`, `current_outcome`, `settled`,
-`done_outcome`, `waiting`, `bound`, `answered`, `reactivated`, `outcome_after_binding`,
-`due_set`, `due`, `anything_due`, `expectations`, `settled_this_run`, `complete`,
-`has_open_phase`, `close_targets`, `rank_targets`, `follow_on_instances`, `placed`,
-`pending_follow_ons`, `open_yes_no_expectation`, `turn_source`, and the ambiguity decision
-`clarify_step` / `open_clarify`.
+The rest of the 55 input programs: `answer_target`, `answered`, `anything_due`, `bound`,
+`clarify_rows`, `clarify_step`, `close_targets`, `closed`, `complete`, `compose`,
+`current_outcome`, `deadlocked`, `done_outcome`, `due`, `due_set`, `expectations`,
+`fill_target`, `follow_on_instances`, `group_of`, `has_open_phase`, `intent_has_inbound`,
+`intent_row`, `intent_user_wait`, `intent_wordless`, `items_of`, `key_parts`,
+`manifest_phase`, `open_clarify`, `open_intents`, `open_option_expectations`,
+`open_yes_no_expectation`, `outcome_after_binding`, `pending_follow_ons`, `placed`,
+`rank_targets`, `reactivated`, `reply_safe`, `resolve`, `settled`, `settled_this_run`,
+`turn_source`, `unresolved_class`, `via`, `waiting`, `wordless_conflict`, and the graph
+helpers the attach check reads to bound the pass count and refuse cycles (`mint_adjacency`,
+`ow_adjacency`, `seq_edges`, `reachable_cyclic`).
 
 `due_set` orders the due items by intent `rank`, ties by the total mint order, one grouped
 intent per pass; `expectations` returns the open waits `[{key, kind, phase, outcome, who,
@@ -488,7 +476,7 @@ predicate the seed writes against, so the pair never disagrees — a branch neve
 empty slice, and the loop never over-runs a placed follow-on.
 
 `complete` is stronger than "nothing is due": it asserts every reached phase has settled or
-is waiting. The two agree because the mount check keeps each kind's `ordering_waits`,
+is waiting. The two agree because the attach check keeps each kind's `ordering_waits`,
 `predecessor`, and mint graphs acyclic. At loop end nothing is pending, or the loop would not
 have stopped; a reached phase that is neither settled nor waiting would be pending but
 ordering-blocked, so its blocker is a pending same-kind phase, whose blocker is another
@@ -497,60 +485,59 @@ ordering-satisfied phase, which is due. That contradicts the loop having stopped
 `complete` failing is a real bug — a handler that fired without recording an outcome — never
 a benign ordering stall.
 
-## The shipped presets
+### The update programs
 
-The module ships six flow presets in `defaults/files/` (each `kind: "node"`, tagged
-`["palette-node", "module:agenda"]`), each a flow-as-tool whose state writes are fills on its
-own mount-materialized binding. Their common inputs — `state`, `subject`, `run`, `pass`,
-`turn` — arrive inside the sub-run as `.flow_graph_kwargs.<key>`. Each returns its value under
-**exactly one** `return_result` node — the single-value contract the
-[loop](/babelfish/index#the-loop-contract) reads through one envelope unwrap.
+The **`update`** template jq write the ledger. Each takes `{record, input}` — `.record` the
+current subtree, `.input` the value the [binding adapter](/babelfish#binding-a-node-to-a-state)
+shaped from the node's output — and returns a template-relative op batch under the writer
+regimes; the record `POST …/template-jq/{name}` route (or a node binding's update) applies it.
+The five are:
 
-- **`agenda-mint`** — turns each inbound into records or binds it to an open expectation
-  WITHOUT language judgment. It mints standing intents whose predicate holds, binds an `event` turn by
-  `expected_input.event` and its `via` to the waiting phase whose item matches, binds a `form`
-  submission by its own row schema, binds a tapped `option` by its own row candidates, and
-  binds a bare yes/no (via `yes_no_words`, no classifier call) when exactly one
-  `open_yes_no_expectation` is open. An event with zero or several hits, or a form with no
-  hit, mints an [`unmatched_kind`](#how-re-entry-binds) record; a form with several hits opens
-  a clarify. It also **prunes** intents already closed and no longer referenced. It returns
-  `{remaining, bound, minted, phases, prune, expectations}`.
-- **`agenda-record`** — takes the classifier's structured `verdict` (or null) and writes
-  per-kind spans as `ledger` records (`source` from `turn_source`, `item` from the kind's
-  `item {field}` when declared), `answers` bindings as `ledger_inbound` rows, and each
-  `ambiguous` span as a clarify — re-binding an already-open clarify and climbing its
-  `attempt` up to `clarify_limit`, at which point it records the `unresolved` label. With a
-  `talk_slot` declared and a non-blank `verdict.talk`, it is the sole writer of `turn_talk`.
-  It returns `{minted, bound}`.
-- **`agenda-seed`** — runs every pass; re-evaluates standing conditions and places pending
-  follow-ons by one **match-else-mint** rule (bind to the open intent's waiting phase, else
-  its next reached-unsettled phase, else mint a new record — never a closed intent).
-  Follow-ons come from a wait's answer and from each label (resolution OR wait) recorded this
-  run, read as `label.follow_on`. A `close` writes the target's open phase a full outcome row
-  visible to `due` in the SAME pass; a `rank` is a `merge_by_key` on the target `ledger` row.
-  Every action is bounded by the shared `placed` predicate — one placement per instance. It
-  returns `{placed}`.
-- **`agenda-outcome`** — the loop's `outcome` role, generated after every handler branch. It
-  takes the handler's returned `outcomes` `[{key, outcome, fields, waits_on?}]`, validates
-  each (the `key` is due this pass; the `outcome` names a label the fired phase declares;
-  every `fields` key is one the label lists; a `resolution` label's derived class is among the
-  mounted `resolutions`; a `wait_for` label's derived party is `user`, `phase`, or one of the
-  manifest's declared `parties`; a `who: "phase"` label requires the handler's `waits_on`), and
-  writes one `ledger_phases` row per outcome — the class and party read from the declaration,
-  never the handler. A breach raises loudly. It returns `{recorded}`.
-- **`agenda-compose`** — the compose step (below).
-- **`agenda-talk`** — the composed-talk step, invoked by `agenda-compose` when the module
-  declares a `talk_slot`. As a sub-flow (`flow_graph_template_id: "agenda-talk"`) it renders
-  the `prompt_ref` template id through `render_text`, runs `tools_agent` constrained to the
-  `agenda_talk` response format `{text}` (the rendered prompt its system message, the inbound
-  text its user turn — a fixed line when the turn carries no inbound text), and a `check` node
-  verifies that line against the handed facts, returning `{text, unverified_numbers}`. It
-  writes no state.
+- **`mint`** — turns each inbound into records or binds it to an open expectation WITHOUT
+  language judgment (`writes` `ledger`, `ledger_phases`, `ledger_inbound`). It mints standing
+  intents whose predicate holds, binds an `event` turn by `expected_input.event` and its `via`
+  to the waiting phase whose item matches, binds a `form` submission by its own row schema,
+  binds a tapped `option` by its own row candidates, and binds a bare yes/no (via
+  `yes_no_words`, no classifier call) when exactly one `open_yes_no_expectation` is open. An
+  event with zero or several hits, or a form with no hit, mints an
+  [`unmatched_kind`](#how-re-entry-binds) record; a form with several hits opens a clarify. It
+  also **prunes** intents already closed and no longer referenced, and computes the open
+  expectations the classifier reads.
+- **`record`** — takes the classifier's structured `verdict` (or null) and writes per-kind
+  spans as `ledger` records (`source` from `turn_source`, `item` from the kind's `item
+  {field}` when declared), `answers` bindings as `ledger_inbound` rows, and each `ambiguous`
+  span as a clarify — re-binding an already-open clarify and climbing its `attempt` up to
+  `clarify_limit`, at which point it records the `unresolved` label (`writes` `ledger`,
+  `ledger_phases`, `ledger_inbound`, `turn_talk`). With a `talk_slot` declared and a non-blank
+  `verdict.talk`, it is the sole writer of `turn_talk`.
+- **`seed`** — runs every pass; re-evaluates standing conditions and places pending follow-ons
+  by one **match-else-mint** rule (bind to the open intent's waiting phase, else its next
+  reached-unsettled phase, else mint a new record — never a closed intent) (`writes` `ledger`,
+  `ledger_phases`, `ledger_inbound`). Follow-ons come from a wait's answer and from each label
+  (resolution OR wait) recorded this run, read as `label.follow_on`. A `close` writes the
+  target's open phase a full outcome row visible to `due` in the SAME pass; a `rank` is a
+  `merge_by_key` on the target `ledger` row. Every action is bounded by the shared `placed`
+  predicate — one placement per instance.
+- **`outcome`** — validates each phase's returned `{key, outcome, fields, waits_on?}` (the
+  `key` is due this pass; the `outcome` names a label the fired phase declares; every `fields`
+  key is one the label lists; a `resolution` label's derived class is among the attached
+  `resolutions`; a `wait_for` label's derived party is `user`, `phase`, or one of the
+  manifest's declared `parties`; a `who: "phase"` label requires `waits_on`) and writes one
+  `ledger_phases` row per outcome — the class and party read from the declaration, never the
+  handler (`writes` `ledger_phases`). A breach raises loudly.
+- **`compose_mark`** — after the pass loop, writes the `closed` mark on every fully-settled
+  intent, the `sent` run stamp on each rendered row, `last_outbound` `{run}` when the turn
+  speaks, and the `transcript` window (`writes` `ledger`, `ledger_phases`, `transcript`,
+  `last_outbound`). See [the compose step](#the-compose-step).
+
+`reconcile` is the template's own three-program set (`view`, `close`, `resolutions`) the
+platform runs when a [re-attach](#re-attaching-over-open-intents) retires declarations over
+open records.
 
 ## The compose step
 
-`agenda-compose` runs after the loop with `refresh_states: true`, so it reads the rows the
-outcome preset committed. It first asserts `complete($run)`, else raises
+Compose runs after the pass loop, reading the rows the outcome update committed. The `compose`
+input program first asserts `complete($run)`, else the flow raises
 `agenda: incomplete run: <intents>` (the open intents' ids) — which becomes the route's error
 reply. Then, for each row of `settled_this_run` and each open wait whose question has not yet
 been `sent`, it
@@ -559,7 +546,7 @@ row's `fields`**:
 
 - **`text`** renders through `render_text` over the part's content-store template id, the
   row's `fields` as the render context, and the platform's renderer resolves the locale from the
-  subject — the module selects no language variant. A `text` that is not a template id string
+  subject — the template selects no language variant. A `text` that is not a template id string
   raises `agenda: part text for phase <key> is not a template id` rather than sending an empty
   message.
 - **`options`**, **`form`**, **`template`**, **`media`** build their surfaces from the same
@@ -578,11 +565,11 @@ A part whose `fields` names a field the row does not carry raises
 outcome with no matching map row raises `agenda: no part for <kind>.<phase> <outcome>`
 **before** any closed mark, so an unmapped outcome never silently closes its intent.
 
-**The talk slot.** When the module declares a `talk_slot` and either a `talk` fact was handed
-or the classifier supplied `turn_talk` text, a `talk` node runs `agenda-talk` after the fixed
+**The talk slot.** When the template declares a `talk_slot` and either a `talk` fact was handed
+or the classifier supplied `turn_talk` text, the talk step runs after the fixed
 parts render, and its one verified reply appends **last**. The classifier's talk is an INPUT
 to the slot, never spoken as a part directly, and when the slot is declared but no fact and no
-classifier talk exists, no talk part is emitted. The slot's `check` node enforces two fatal
+classifier talk exists, no talk part is emitted. The slot's `check` enforces two fatal
 rules and one non-fatal one:
 
 1. every handed fact leaf must appear in the text, else
@@ -594,95 +581,72 @@ rules and one non-fatal one:
    `unverified_numbers` (visible in the run record's node output) so ordinary prose numbers
    ("two options", "in 5 minutes") never fail a turn.
 
-Compose returns `{parts, deliveries}` — `parts` the ordered `AnswerPart[]` the route returns
-as its reply, `deliveries` the other-party parts. Its own fills write the `closed` mark on
-every fully-settled intent, the `sent` run stamp on each rendered row (the guard that sends
-a wait's question exactly once, never re-asking an open wait whose question already went out),
-`last_outbound` `{run}` whenever this turn speaks (a silent
-turn re-emits the prior pointer), and the `transcript` window (written by the `emit` node,
-after the talk, so the stored outbound line includes the talk text).
+`compose` returns `{parts, deliveries}` — `parts` the ordered `AnswerPart[]` the route returns
+as its reply, `deliveries` the other-party parts. The `compose_mark` update then writes the
+`closed` mark on every fully-settled intent, the `sent` run stamp on each rendered row (the
+guard that sends a wait's question exactly once, never re-asking an open wait whose question
+already went out), `last_outbound` `{run}` whenever this turn speaks (a silent turn re-emits
+the prior pointer), and the `transcript` window (written after the talk, so the stored outbound
+line includes the talk text).
 
-## The client flow
+## Using the agenda from a flow
 
-A client's flow is `mint → classifier → record → loop{seed → router → handler → outcome} →
-compose`. The client authors no branches: it fills the manifest at mount, and the
-[Router card in loop mode](/babelfish/index#loop-mode) is **generated** from it — one branch
-per manifest phase, each branch's fixed `tool` the phase's `handler`. Each phase lowers to a
-handler foreach and outcome recorder whose ids encode the phase identity `(kind, key)` —
-`<router>__h_<kind>_<key>` and `<router>__o_<kind>_<key>`. Changing a handler regenerates the
-card. The conversation route targets the client's flow preset with a `payload_expr` that
-assembles the flow's `flow_graph_kwargs` — the `subject`, the `turn`, and the inbound's
-`message`/`form`/`event` — and passes compose's `inbound` input (the message text or the event
-kind) so the transcript window records it. Its `reply_expr` is **`.parts`** — it unwraps the
-compose node's run envelope to the parts list; the `deliveries` on the same return feed the
-client's own `send` nodes.
+A client attaches the agenda template to a state and drives it from one flow, wiring the pieces
+the template does not itself run: a classifier, the pass loop, and the reply. There is no
+shipped node, no lowering, and no chips — the template is data, and the flow orchestrates it
+through [per-node bindings](/babelfish#binding-a-node-to-a-state) and the
+[template-jq prelude](/babelfish#the-template-jq-prelude):
 
-The agenda ships as **two documents** keyed by the module name: `agenda.json`, the
-[platform module document](/babelfish/index#the-platform-module-document) (the schema
-fragment, the `composing`/`single` regimes, and the declarations schema), and
-`agenda-views.json`, the [`flow-views` document](/babelfish/index#the-flow-views-document)
-(the view library, the [loop contract](/babelfish/index#the-loop-contract), and the shipped
-node presets). Both register and list on the platform
-[States screen](/studio/screens#states): the module appears among the module documents on a
-state's **Modules** tab, with its mounted-on count and its shipped-default badge, and a
-client mounts it on a state and edits the `declarations` there — its manifest.
+- **mint** — the flow applies the `mint` update at the start of the turn (input injections
+  read the open `expectations` and `turn_source`), turning the inbound into records or binding
+  it to an open expectation.
+- **classify** — the flow's own classifier node (a `tools_agent`) runs once over the inbound
+  when the mint left spans to classify; its forced response schema and prompt are built by jq
+  from the manifest's intents. The flow applies the `record` update over the verdict.
+- **the pass loop** — a [Router](/babelfish#routing-with-an-llm) in
+  [Loop](/babelfish#dispatch-once-or-loop) mode runs the passes: each pass applies the `seed`
+  update, reads `due_set`/`anything_due` (the loop's stop condition) through the prelude,
+  dispatches each due item to the flow's handler for that intent — one run per due item, an
+  unsequenced kind in parallel, a sequenced kind one at a time in rank order — and applies the
+  `outcome` update over each handler's `{key, outcome, fields, waits_on?}`.
+- **compose** — once the loop stops, the flow reads the `compose` input program for the reply
+  and applies the `compose_mark` update; the route returns `.parts` and feeds `deliveries` to
+  its own `send` nodes.
 
-<Frame caption="The Modules tab on the platform States screen: the agenda among the module documents, and the state's mounts where its manifest lives.">
-  <img className="block dark:hidden" src="/images/studio/states-modules-light.png" alt="The Modules tab on the States screen listing the agenda among the module documents with its mounted-on count and shipped-default badge, above the state's mounts." />
-  <img className="hidden dark:block" src="/images/studio/states-modules-dark.png" alt="The Modules tab on the States screen listing the agenda among the module documents with its mounted-on count and shipped-default badge, above the state's mounts." />
-</Frame>
+Because the agenda is a state template, it appears on the platform
+[States screen](/studio/screens#states): it lists among the state-template documents, and a
+client attaches it to a state and edits the attachment's `declarations` there — its manifest.
 
-With the mount in place, the client's Router card runs in loop mode: its edit form binds
-the state, the module, and the subject, and its Phases table is read-only — generated from
-the manifest:
+{/* screenshot: states screen state-templates tab — both themes */}
 
-<Frame caption="The Router edit form's Loop mode group: state, module, subject, and max-passes fields above the read-only Phases-from-the-manifest table with its Regenerate action.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-form-light.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-form-dark.png" alt="The Router form Loop mode group with state, module, subject, and max-passes fields and a phases-from-the-manifest table." />
-</Frame>
+A handler for an intent reads the due item — its `{key, intent, item, kind, phase, rank,
+fields}` — from the pass, does its work through the flow's own tools or a published flow, and
+returns `{key, outcome, fields, waits_on?}` where `outcome` is a label the fired phase declares
+and `waits_on` is supplied only for a `who: "phase"` wait. The handler reads state only through
+the flow's own bindings and never writes the agenda ledger directly — the flow's `outcome`
+update records the returned label, deriving the class and party from the declaration.
 
-On the canvas the card folds the whole loop — the classifier, one chip per generated phase,
-and the handler-and-outcome fan-out in the iterate body group — behind the single card:
+## The pass-loop rules
 
-<Frame caption="The Router card on the canvas in loop mode: a loop badge and one chip per generated phase, its handler foreach and outcome recorder wrapped in the iterate body group.">
-  <img className="block dark:hidden" src="/images/studio/router-loop-canvas-light.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-  <img className="hidden dark:block" src="/images/studio/router-loop-canvas-dark.png" alt="A Router node in loop mode with a loop badge and phase chips above its iterate body group." />
-</Frame>
-
-### The handler tool contract
-
-Each phase branch calls its `handler` **once per due item**:
-`{state, subject, run, pass, turn, kind, phase, item: {key, intent, item, rank, fields}}`
-in, `{key, outcome, fields, waits_on?}` out — the `outcome` an outcome **label** the fired
-phase declares, `waits_on` supplied only when the label is a `who: "phase"` wait. A kind
-outside a sequence group fans out in parallel; a grouped kind gets one intent per pass, the
-group's lowest-ranked open one. A handler may be any tool (an LLM agent, a plain flow, an HTTP
-tool); it reads state only through its own bindings and never writes the agenda ledger — the
-generated `agenda-outcome` node records its returned labels, deriving the class and party from
-the declaration.
-
-## The loop rules
-
-- **No asks inside the loop.** A handler is never an `ask` or any interactive preset: a
-  parking ask inside a fan-out re-runs its siblings on resume. An outbound question is a
-  `wait_for` label the handler returns, spoken by compose — never a mid-loop prompt.
+- **No asks inside the pass loop.** A handler never contains an `ask` or any interactive
+  preset: a parking ask inside a fan-out re-runs its siblings on resume. An outbound question
+  is a `wait_for` label the handler returns, spoken by compose — never a mid-loop prompt.
 - **No preconditions on data facts.** Dueness comes only from the phase graph and the
   ledger's outcomes and bindings; the manifest declares no thresholds or stored-value gates.
-- **A hit cap is a bug.** `max_iterations` (default **20**) is the backstop, not a
+- **A hit cap is a bug.** The loop's max-runs cap (default **20**) is the backstop, not a
   conversation state: reaching it raises, and the failure travels the flow's ordinary
-  [`on_error`](/babelfish/index#handling-a-nodes-error) path. The cap must clear the
-  manifest's **longest chain** — the `longest_chain` view's static bound, the longest path in
-  nodes over one record's `(kind, phase)` DAG of predecessor and ordering-wait edges, a
+  [`on_error`](/babelfish#handling-a-nodes-error) path. The cap must clear the
+  manifest's **longest chain** — the static pass bound the attach check computes, the longest
+  path in nodes over one record's `(kind, phase)` DAG of predecessor and ordering-wait edges, a
   sequence group of N declared kinds multiplying its members' chain by N. A `follow_on.mint`
   edge starts a fresh count rather than lengthening the path, so a record re-entering a kind
-  through a mint edge is legitimate. The Studio refuses a resolved cap below the bound before
-  the save, and when the manifest declares its own `max_passes`, the mount check refuses a
-  `longest_chain` above it.
+  through a mint edge is legitimate. When the manifest declares its own `max_passes`, the attach
+  check refuses a `longest_chain` above it.
 
 ## How re-entry binds
 
 No outbound part carries a correlation key (`AnswerPart` forbids extras), so a later inbound
-binds to an open wait by MATCH, and the mint does it without the classifier:
+binds to an open wait by MATCH, and the `mint` update does it without the classifier:
 
 - an **event** binds to the waiting phase whose `expected_input.event` names the event's kind
   and whose `via` (a jq program compiled over the flow root, `$key` bound to the payload's
@@ -708,7 +672,7 @@ none, mints one record of the manifest's `unmatched_kind` (default `unmatched`) 
 minted_run}`, `reason` `no_match` (zero) or `ambiguous` (several), `candidates` the hit phase
 keys. It reaches its own phase and is resolved by that kind's handler (a `done` or a declared
 not-done resolution) like any other intent, and compose speaks its part. The record bypasses
-the record step's `sources` gate, so the check enforces the unmatched kind's admission statically (its `sources`
+the record update's `sources` gate, so the check enforces the unmatched kind's admission statically (its `sources`
 must be absent/empty or cover both `event` and `inbound`); the mint never consults `sources`
 at run time.
 
@@ -732,7 +696,7 @@ terminal resolution. Item order under a `record` predecessor is the exception �
 any resolution of the earlier items, so a not-done resolution on one item never drops the
 items that follow.
 
-Cross-intent waits are a **DAG** over `(kind, phase)`: the mount check refuses a cycle in the
+Cross-intent waits are a **DAG** over `(kind, phase)`: the attach check refuses a cycle in the
 `ordering_waits` graph, the `predecessor` graph within a kind, and the mint graph, so a chain
 of waits always bottoms out in a due phase and a fresh intent can never be minted every pass.
 Re-activations, closes, and ranks are each bounded by the `placed` predicate — one placement
