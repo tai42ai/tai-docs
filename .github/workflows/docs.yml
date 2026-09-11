@@ -48,6 +48,15 @@ env:
   # checkout. Regeneration pins them at their `main` HEAD.
   SOURCE_REF: main
 
+  # The Mintlify CLI both `gate` and `regenerate` install for the link check.
+  # `mint` and the `@mintlify/*` tree it pins exactly are republished several
+  # times a day and not always in dependency order -- a release can reach the
+  # registry before a transitive version it pins is published -- so an
+  # unpinned install resolves whatever the registry held minutes earlier and
+  # fails outright on such a window. Dependabot does not reach a global npm
+  # install; this pin moves by hand.
+  MINT_VERSION: "4.2.889"
+
 jobs:
   checks:
     # Lint and format this repo's own tooling under `scripts/`. The test suite
@@ -215,7 +224,7 @@ jobs:
         run: uv run python ../../../tai-docs/scripts/run_examples.py
 
       - name: Install Mintlify CLI
-        run: npm i -g mint
+        run: npm i -g mint@${{ env.MINT_VERSION }}
 
       - name: Mintlify build + link check
         working-directory: tai-docs
@@ -317,7 +326,7 @@ jobs:
           uv run python ../../../tai-docs/scripts/gen_capability_map.py
 
       - name: Install Mintlify CLI
-        run: npm i -g mint
+        run: npm i -g mint@${{ env.MINT_VERSION }}
 
       - name: Mintlify build + link check
         working-directory: tai-docs
