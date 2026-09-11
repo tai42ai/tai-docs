@@ -72,6 +72,11 @@ validated object is routed into the base tool's declared payload argument (see
 `PresetInputSchemaSupport`). Only a base tool that DECLARES input-schema
 support accepts one; otherwise a set ``input_schema`` is a loud authoring error.
 
+Each schema is the ``TemplatedText | dict`` union: an inline ``dict`` is the JSON
+Schema document itself; a `TemplatedText` names a stored
+schema by ``id`` (or carries it inline as ``content``), rendered and parsed as JSON to the
+same schema at the point of use and save.
+
 Every field must survive carry-forward on a version save: dropping
 ``extensions`` would make the branch tools vanish on reload, dropping
 ``base_tool`` would break the bind, dropping ``description`` would strip the
@@ -87,8 +92,8 @@ structured input.
 | `description` | `str` |
 | `fixed_kwargs` | `dict[str, Any]` |
 | `extensions` | `list[list[ExtensionElement]]` |
-| `output_schema` | `dict[str, Any] \| None` |
-| `input_schema` | `dict[str, Any] \| None` |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `state_binding` | `StateBinding \| None` |
 
 
@@ -193,8 +198,8 @@ never the applier logic.
 | `description` | `str` |
 | `base_tool` | `str` |
 | `fixed_kwargs` | `dict[str, Any]` |
-| `input_schema` | `dict[str, Any] \| None` |
-| `output_schema` | `dict[str, Any] \| None` |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `tool_meta` | `PresetSeedToolMeta \| None` |
 | `state_binding` | `StateBinding \| None` |
 
@@ -273,8 +278,8 @@ async create_preset(
     self,
     spec: PresetSpec,
     extensions: Sequence[Sequence[ExtensionElement]],
-    output_schema: dict[str, Any] | None = None,
-    input_schema: dict[str, Any] | None = None,
+    output_schema: TemplatedText | dict[str, Any] | None = None,
+    input_schema: TemplatedText | dict[str, Any] | None = None,
     *,
     state_binding: StateBinding | None = None,
     tags: list[str] | None = None,
@@ -296,8 +301,8 @@ Raise `PresetExistsError` on a duplicate name,
 |---|---|---|---|
 | `spec` | `PresetSpec` | — | — |
 | `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
-| `output_schema` | `dict[str, Any] \| None` | `None` | — |
-| `input_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
 | `state_binding` | `StateBinding \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
@@ -312,10 +317,10 @@ async save_version(
     name: str,
     fixed_kwargs: dict[str, Any] | None = None,
     extensions: Sequence[Sequence[ExtensionElement]] | None = None,
-    output_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    output_schema: TemplatedText | dict[str, Any] | CarryForward | None = CARRY_FORWARD,
     description: str | None = None,
     *,
-    input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    input_schema: TemplatedText | dict[str, Any] | CarryForward | None = CARRY_FORWARD,
     state_binding: StateBinding | CarryForward | None = CARRY_FORWARD,
     tags: list[str] | None = None,
 ) -> DocumentVersion
@@ -355,9 +360,9 @@ absent.
 | `name` | `str` | — | — |
 | `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
 | `extensions` | `Sequence[Sequence[ExtensionElement]] \| None` | `None` | — |
-| `output_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `description` | `str \| None` | `None` | — |
-| `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `state_binding` | `StateBinding \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
