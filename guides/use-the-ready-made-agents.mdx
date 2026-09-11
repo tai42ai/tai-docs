@@ -46,7 +46,7 @@ Each worked run below passes that agent's real `ToolInput` fields. A run needs t
 The plain/advanced LangGraph tools agent. It binds the named client tools to the model up front and runs them step by step. `spec_runnable` — its `ToolInput` advertises exactly the composable fields (`system_prompt`, `tool_names`, `presets`, `response_format`) an authored variant may bake.
 
 ```bash
-tai agents run tools_agent --input '{"user_message":"What is the current time in UTC?","tool_names":["current_time_info"]}'
+tai agents run tools_agent --input '{"user_message":{"content":"What is the current time in UTC?"},"tool_names":["current_time_info"]}'
 ```
 
 ### `langchain_deep_agent`
@@ -54,7 +54,7 @@ tai agents run tools_agent --input '{"user_message":"What is the current time in
 A deepagents/LangGraph-harness [deep agent](/concepts/deep-agents): planning, a per-thread scratch filesystem, skills, one level of nested sub-agents, and human-in-the-loop interrupts resumed with a LangGraph `Command`. Its scratch filesystem is a durable [sandbox](/concepts/sandbox) backend, so a run requires a sandbox provider — with none installed it fails loudly at `require_sandbox()`.
 
 ```bash
-tai agents run langchain_deep_agent --input '{"user_message":"Draft a short plan to organize a two-hour team workshop."}'
+tai agents run langchain_deep_agent --input '{"user_message":{"content":"Draft a short plan to organize a two-hour team workshop."}}'
 ```
 
 When a run requests a `response_format` (a JSON Schema with a top-level `title`, and a non-empty `title` on every `oneOf` variant — missing either is a `ValueError`) but produces no structured output, **both faces raise rather than silently omitting the structured frame**: the JSON `run` face raises on drain, and the streaming face raises after the stream drains — unless the run paused on a pending interrupt, which takes precedence over the missing-structured raise.
@@ -66,7 +66,7 @@ Claude Code as a normal platform agent: it drives the Claude Agent SDK inside a 
 The SDK reads **exactly one** of two static, long-lived env vars: `ANTHROPIC_API_KEY` (the metered-key path) **or** `CLAUDE_CODE_OAUTH_TOKEN` (the subscription path, from the official `claude setup-token`). Both are compliant for every tai42 deployment: the SDK spawns the real `claude` binary — real Claude Code sessions, the sanctioned use of `setup-token`, not a raw-API path — and every tai42 deployment is single-tenant (one client, one deployment, one operator account). The choice is operator preference (subscription economics versus a metered key); setting neither, or both, fails the run loudly at start. Residual: the session's own shell can read the injected model credential for the session lifetime.
 
 ```bash
-tai agents run claude_code --input '{"user_message":"List the Python files in the workspace and summarize what each does.","tool_names":["current_time_info"]}'
+tai agents run claude_code --input '{"user_message":{"content":"List the Python files in the workspace and summarize what each does."},"tool_names":["current_time_info"]}'
 ```
 
 Its `ToolInput` fields are `user_message` (required), and optional `system_message`, `tool_names`, `skills`, `inline_skills`, `response_format`, `max_turns`, and `subagents`; read the exact live shape with `tai tools schema claude_code`.
@@ -78,7 +78,7 @@ A plain tool-face call is ephemeral and needs no Redis. A **threaded** run takes
 A tools agent that does not bind every tool up front: it embeds each tool's description into a vector store and exposes a `retrieve_tools` semantic-search tool, binding matches on demand. Useful when the tool set is large; cap the working set with `tools_limit`.
 
 ```bash
-tai agents run retrieval_tools_agent --input '{"user_message":"Generate a unique identifier for this record.","tool_names":["generate_uuid","current_time_info"],"tools_limit":5}'
+tai agents run retrieval_tools_agent --input '{"user_message":{"content":"Generate a unique identifier for this record."},"tool_names":["generate_uuid","current_time_info"],"tools_limit":5}'
 ```
 
 <Note>
@@ -93,7 +93,7 @@ agents can bind by name through `tool_names`. See
 Runs N voter LLMs in parallel over one prompt, then a judge LLM decides by majority vote (breaking ties with its own reasoning). Returns a `VotingOutput`; only the judge streams.
 
 ```bash
-tai agents run voting_agent --input '{"voter_message":"Is 97 a prime number? Answer yes or no with a one-line reason.","judge_message":"Choose the best-justified answer."}'
+tai agents run voting_agent --input '{"voter_message":{"content":"Is 97 a prime number? Answer yes or no with a one-line reason."},"judge_message":{"content":"Choose the best-justified answer."}}'
 ```
 
 ### `refine_agent`
@@ -101,7 +101,7 @@ tai agents run voting_agent --input '{"voter_message":"Is 97 a prime number? Ans
 An Evaluator↔Critic loop: the evaluator drafts, the critic reviews, and they alternate until the critic approves or the `max_iterations` budget is exhausted (a loud error, never an unapproved draft). Only the final approved pass streams.
 
 ```bash
-tai agents run refine_agent --input '{"evaluator_message":"Write a two-sentence tagline for a note-taking app.","critic_message":"Approve only when it is under twelve words and concrete.","max_iterations":3}'
+tai agents run refine_agent --input '{"evaluator_message":{"content":"Write a two-sentence tagline for a note-taking app."},"critic_message":{"content":"Approve only when it is under twelve words and concrete."},"max_iterations":3}'
 ```
 
 ### `vqa_agent`
@@ -123,7 +123,7 @@ Every agent above accepts a `response_format` — a JSON Schema with a **require
 `system_content_kwargs` and `user_content_kwargs` merge content-block keys onto a message's text block — the former onto the system message, the latter onto the **last** user turn. With Anthropic's `{"cache_control": {"type": "ephemeral"}}` the key marks the end of the stable prompt prefix, so repeated calls read that prefix from cache instead of reprocessing it. On a thread (`thread_id`) each marked turn persists into history, but at the model call the platform keeps only the newest user-side mark, stripping the older ones from the outgoing request (stored history is untouched). So per-turn marking on a long thread always stays within the provider's per-request breakpoint cap (Anthropic: 4), and the whole growing history stays cacheable.
 
 ```bash
-tai agents run tools_agent --input '{"user_message":"What is the current time in UTC?","tool_names":["current_time_info"],"user_content_kwargs":{"cache_control":{"type":"ephemeral"}}}'
+tai agents run tools_agent --input '{"user_message":{"content":"What is the current time in UTC?"},"tool_names":["current_time_info"],"user_content_kwargs":{"cache_control":{"type":"ephemeral"}}}'
 ```
 
 `tools_agent` honors both params. `voting_agent`, `langchain_deep_agent`, `retrieval_tools_agent` and `refine_agent` honor `user_content_kwargs` only — for voting/retrieval/refine the system prompt is internal or composed, and `langchain_deep_agent`'s caller-supplied prompt is handed to its factory as a plain string (never built as a content block), so in all four `system_content_kwargs` has no content block to ride and is **rejected loudly**; `vqa_agent` takes neither. On `langchain_deep_agent`, `user_content_kwargs` alongside a `resume` is likewise rejected — a resume carries no fresh user turn. On `voting_agent` the mark lands on the judge's final voter verdict, which varies per run, so it yields no reusable cache prefix.

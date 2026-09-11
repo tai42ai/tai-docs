@@ -16,6 +16,8 @@ Subclass `Agent`, declare the three class attributes that drive tool generation,
 from pydantic import BaseModel
 from tai42_contract.agent import Agent
 from tai42_contract.app import tai42_app
+from tai42_contract.template import TemplatedText
+from tai42_kit.utils.render import render_templated_text
 
 
 class EchoInput(BaseModel):
@@ -28,9 +30,13 @@ class EchoAgent(Agent):
     tool_description = "Echo the input text back."
     ToolInput = EchoInput
 
-    async def run(self, *, user_message: str = "", **kwargs) -> str:
-        return user_message
+    async def run(self, *, user_message: TemplatedText | None = None, **kwargs) -> str:
+        if user_message is None:
+            return ""
+        return await render_templated_text(user_message)
 ```
+
+A message reaches `run` as a `TemplatedText` — inline `content` or the `id` of a stored resource, plus its render `kwargs` — so `run` renders it to a string through the kit's `render_templated_text` seam before using it.
 
 `ToolInput` is a JSON-able pydantic model of the tool parameters — a non-JSON field fails loudly when its schema is generated. The `@tai42_app.agents.agent(name)` decorator registers the agent and auto-registers its JSON `run` tool.
 
