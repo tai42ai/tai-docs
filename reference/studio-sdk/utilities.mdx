@@ -666,6 +666,25 @@ interface StateBindingSectionProps extends StateBindingEditorProps
 **Related:** [BindingSourceSchemas](/reference/studio-sdk/utilities#bindingsourceschemas), [BindingStateOption](/reference/studio-sdk/utilities#bindingstateoption), [BindingTemplateOption](/reference/studio-sdk/utilities#bindingtemplateoption), [StateBindingEditorProps](/reference/studio-sdk/utilities#statebindingeditorprops), [TemplatedTextCatalog](/reference/studio-sdk/utilities#templatedtextcatalog)
 
 
+## StoragePresenceQueryLike
+
+```ts
+interface StoragePresenceQueryLike
+```
+
+The storage-presence query result (`GET /api/storage`) fields this helper reads.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `data?` | `{ present: boolean }` | — |
+| `error` | `unknown` | — |
+| `isError` | `boolean` | — |
+| `isPending` | `boolean` | — |
+| `refetch` | `() => unknown` | — |
+
+
 ## SubjectScopeFields
 
 ```ts
@@ -725,6 +744,25 @@ One template jq offered as an insertable autocomplete entry.
 | `ref` | `string` | The jq reference, e.g. `active` or the attachment-qualified `tally.bump`. |
 
 
+## TemplateNamesQueryLike
+
+```ts
+interface TemplateNamesQueryLike
+```
+
+The stored-template-names query result (`GET /api/templates`) fields this helper reads.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `data?` | `readonly string[]` | — |
+| `error` | `unknown` | — |
+| `isError` | `boolean` | — |
+| `isPending` | `boolean` | — |
+| `refetch` | `() => unknown` | — |
+
+
 ## TemplatedText
 
 ```ts
@@ -750,6 +788,8 @@ field with the inline source only.
 | `error?` | `string` | — |
 | `loading?` | `boolean` | — |
 | `onRetry?` | `() => void` | — |
+| `storageAbsent?` | `boolean` | Storage is registered absent (`GET /api/storage` → `present: false`), so the catalog was not fetched and the stored source is not offered on the fields this catalog feeds; an already-stored id is shown read-only. |
+| `storagePresenceLoading?` | `boolean` | Storage presence is not yet known — the fields render a placeholder, not a toggle. |
 | `templates?` | `readonly TemplatedTextTemplateOption[]` | — |
 
 **Related:** [TemplatedTextTemplateOption](/reference/studio-sdk/components#templatedtexttemplateoption)
@@ -1348,11 +1388,30 @@ same tuple, so it lives here rather than as a literal duplicated across the two
 features (which cannot import each other).
 
 
+## templatedTextCatalog
+
+```ts
+function templatedTextCatalog(
+  storage: StoragePresenceQueryLike,
+  templates: TemplateNamesQueryLike,
+): TemplatedTextCatalog
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `storage` | `StoragePresenceQueryLike` | — | — |
+| `templates` | `TemplateNamesQueryLike` | — | — |
+
+**Related:** [StoragePresenceQueryLike](/reference/studio-sdk/utilities#storagepresencequerylike), [TemplateNamesQueryLike](/reference/studio-sdk/utilities#templatenamesquerylike), [TemplatedTextCatalog](/reference/studio-sdk/utilities#templatedtextcatalog)
+
+
 ## templatesCatalogFromList
 
 ```ts
 function templatesCatalogFromList(
-  items: readonly ({ attached_to: number; declarations: Record<string, unknown> | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: string; resolutions: string; view: string } | null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: string; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[],
+  items: readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } | null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[],
 ): BindingTemplateOption[]
 ```
 
@@ -1362,7 +1421,7 @@ The template catalog (with each template's template jq) from `listStateTemplates
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `items` | `readonly ({ attached_to: number; declarations: Record<string, unknown> \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: string; resolutions: string; view: string } \| null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: string; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[]` | — | — |
+| `items` | `readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } \| null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[]` | — | — |
 
 **Related:** [BindingTemplateOption](/reference/studio-sdk/utilities#bindingtemplateoption)
 
