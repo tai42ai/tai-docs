@@ -10520,15 +10520,13 @@
           "declarations": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/StateTemplateDeclarations"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Declarations"
+            "default": null
           },
           "description": {
             "default": "",
@@ -10553,15 +10551,13 @@
           "reconcile": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/StateTemplateReconcile"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Reconcile"
+            "default": null
           },
           "regimes": {
             "items": {
@@ -10590,7 +10586,9 @@
           "template_jq": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/StateTemplateJq"
+                },
                 "type": "object"
               },
               {
@@ -10614,22 +10612,47 @@
         "title": "StateTemplateCatalogEntry",
         "type": "object"
       },
-      "StateTemplateDocument": {
+      "StateTemplateDeclarations": {
         "additionalProperties": false,
-        "description": "A state-template document: the reusable schema fragment plus the parameters, write\nregimes, attach-time ``declarations`` and ``trace`` switch the platform owns, plus\n``template_jq`` (named jq programs — ``input``-purpose reads and ``update``-purpose\nrecord operations) and ``reconcile`` (how a declarations edit settles open records)\nthat give the record its meaning. A template is data end to end: the states API serves\nan input-purpose result for a subject and applies an update-purpose program to a subject\ngenerically, so a template is usable through the API with no other engine.\n``extra=\"forbid\"`` refuses any key outside these.\n\nThe wire key ``schema`` is the attribute ``schema_`` (alias). Structural validation of\nthe fragment, regime paths, declarations, template_jq and reconcile lives at the store\n— ``template_jq``/``reconcile`` travel as free ``dict`` objects here (matching\n``declarations``/``regimes``) and are parsed and checked in the skeleton.",
+        "description": "The ``declarations`` section of a state-template document: the JSON ``schema`` (wire\nkey ``schema``, attribute ``schema_``) of the static values an attachment stores, and an\nOPTIONAL ``check`` — a :class:`~tai42_contract.template.TemplatedText` carrying a jq\npredicate over those values. Structural validation (the check's jq, the schema's shape)\nlives at the store; this model pins the served wire shape.\n\nThe wire key ``schema`` is the attribute ``schema_`` (alias) because a ``schema`` field\nwould shadow ``BaseModel.schema``.",
         "properties": {
-          "declarations": {
+          "check": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/TemplatedText"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Declarations"
+            "default": null
+          },
+          "schema": {
+            "additionalProperties": true,
+            "title": "Schema",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema"
+        ],
+        "title": "StateTemplateDeclarations",
+        "type": "object"
+      },
+      "StateTemplateDocument": {
+        "additionalProperties": false,
+        "description": "A state-template document: the reusable schema fragment plus the parameters, write\nregimes, attach-time ``declarations`` and ``trace`` switch the platform owns, plus\n``template_jq`` (named jq programs — ``input``-purpose reads and ``update``-purpose\nrecord operations) and ``reconcile`` (how a declarations edit settles open records)\nthat give the record its meaning. A template is data end to end: the states API serves\nan input-purpose result for a subject and applies an update-purpose program to a subject\ngenerically, so a template is usable through the API with no other engine.\n``extra=\"forbid\"`` refuses any key outside these.\n\nThe wire key ``schema`` is the attribute ``schema_`` (alias). The ``declarations``,\n``template_jq`` and ``reconcile`` sections carry their served sub-shapes\n(:class:`StateTemplateDeclarations`, :class:`StateTemplateJq`,\n:class:`StateTemplateReconcile`); the skeleton store does the semantic validation (jq\ncompilation, regime/record path resolution against the fragment) these models do not.",
+        "properties": {
+          "declarations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateTemplateDeclarations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "description": {
             "default": "",
@@ -10654,15 +10677,13 @@
           "reconcile": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/StateTemplateReconcile"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Reconcile"
+            "default": null
           },
           "regimes": {
             "items": {
@@ -10687,7 +10708,9 @@
           "template_jq": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/StateTemplateJq"
+                },
                 "type": "object"
               },
               {
@@ -10707,6 +10730,83 @@
           "name"
         ],
         "title": "StateTemplateDocument",
+        "type": "object"
+      },
+      "StateTemplateJq": {
+        "additionalProperties": false,
+        "description": "One named jq program on a state template. ``purpose`` is ``input`` — a read over the\nrecord returning a value — or ``update`` — a program over ``{record, input}`` returning a\ntemplate-relative op batch. ``jq`` is the program body as a\n:class:`~tai42_contract.template.TemplatedText` (inline ``content`` or a stored ``id``).\n``params`` names the keys the program takes; ``reads``/``writes`` are the\ntemplate-relative record paths an ``update`` program declares and are absent on an\n``input`` program. Structural checks (jq compilation, path resolution) live at the store;\nthis model pins the served wire shape.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "jq": {
+            "$ref": "#/components/schemas/TemplatedText"
+          },
+          "params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "purpose": {
+            "enum": [
+              "input",
+              "update"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "reads": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Reads",
+            "type": "array"
+          },
+          "writes": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Writes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "purpose",
+          "jq"
+        ],
+        "title": "StateTemplateJq",
+        "type": "object"
+      },
+      "StateTemplateReconcile": {
+        "additionalProperties": false,
+        "description": "The ``reconcile`` section of a state-template document: three jq programs the store\nruns to settle a state's OPEN records on a declarations edit — ``orphans`` names the items\na record subtree orphans against the new declarations, ``resolutions`` names the\nnot-done resolutions a close may name, and ``close`` returns the op batch that closes one\norphan. Each is a :class:`~tai42_contract.template.TemplatedText` (inline ``content`` or a\nstored ``id``).",
+        "properties": {
+          "close": {
+            "$ref": "#/components/schemas/TemplatedText"
+          },
+          "orphans": {
+            "$ref": "#/components/schemas/TemplatedText"
+          },
+          "resolutions": {
+            "$ref": "#/components/schemas/TemplatedText"
+          }
+        },
+        "required": [
+          "orphans",
+          "close",
+          "resolutions"
+        ],
+        "title": "StateTemplateReconcile",
         "type": "object"
       },
       "StateUpdate": {
