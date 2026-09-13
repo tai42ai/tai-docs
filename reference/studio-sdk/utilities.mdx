@@ -447,6 +447,7 @@ function SchemaEditor(props: SchemaEditorProps): ReactNode
 |---|---|---|
 | `description?` | `string` | — |
 | `disabled?` | `boolean` | — |
+| `hideLabel?` | `boolean` | Render the field label for ASSISTIVE TECH ONLY — visually hidden but still the editor's accessible name. Used when a host control already draws the visible label above this editor (e.g. an authored-body control whose inline editor this is), so the heading is not drawn twice. Forwarded to the underlying Field. |
 | `idPrefix?` | `string` | — |
 | `label?` | `string` | — |
 | `onChange` | `(change: SchemaEditorChange) => void` | Fired on every edit with the parsed schema (or `null`) and its validity. |
@@ -484,6 +485,7 @@ interface SchemaEditorProps
 |---|---|---|
 | `description?` | `string` | — |
 | `disabled?` | `boolean` | — |
+| `hideLabel?` | `boolean` | Render the field label for ASSISTIVE TECH ONLY — visually hidden but still the editor's accessible name. Used when a host control already draws the visible label above this editor (e.g. an authored-body control whose inline editor this is), so the heading is not drawn twice. Forwarded to the underlying Field. |
 | `idPrefix?` | `string` | — |
 | `label?` | `string` | — |
 | `onChange` | `(change: SchemaEditorChange) => void` | Fired on every edit with the parsed schema (or `null`) and its validity. |
@@ -1348,7 +1350,7 @@ keyed here so the two never fetch the same catalog under diverging tuples.
 
 ```ts
 function statesCatalogFromList(
-  states: readonly ({ default_subject_kind: string; description: string; effective_schema?: Record<string, unknown> | null; name: string; regimes?: Record<string, unknown>[] | null; retention_days: number | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; subject_kinds: string[]; updated_at: string | null })[],
+  states: readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> | null; name: string; regimes: Record<string, unknown>[] | null; retention_days: number | null; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string | null })[],
 ): BindingStateOption[]
 ```
 
@@ -1358,7 +1360,7 @@ The states catalog from `listStates()`; per-state attachments are resolved lazil
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `states` | `readonly ({ default_subject_kind: string; description: string; effective_schema?: Record<string, unknown> \| null; name: string; regimes?: Record<string, unknown>[] \| null; retention_days: number \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; subject_kinds: string[]; updated_at: string \| null })[]` | — | — |
+| `states` | `readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> \| null; name: string; regimes: Record<string, unknown>[] \| null; retention_days: number \| null; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string \| null })[]` | — | — |
 
 **Related:** [BindingStateOption](/reference/studio-sdk/utilities#bindingstateoption)
 
@@ -1411,7 +1413,7 @@ function templatedTextCatalog(
 
 ```ts
 function templatesCatalogFromList(
-  items: readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } | null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[],
+  items: readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } | null; regimes: Record<string, unknown>[]; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[],
 ): BindingTemplateOption[]
 ```
 
@@ -1421,7 +1423,7 @@ The template catalog (with each template's template jq) from `listStateTemplates
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `items` | `readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } \| null; regimes: Record<string, unknown>[]; schema: z.ZodRecord<z.ZodString, z.ZodUnknown>; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[]` | — | — |
+| `items` | `readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } \| null; regimes: Record<string, unknown>[]; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[]` | — | — |
 
 **Related:** [BindingTemplateOption](/reference/studio-sdk/utilities#bindingtemplateoption)
 
