@@ -33,6 +33,11 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import uvicorn
+    from tests.access_control.conftest import FakeAccessControlPg, FakeRedis
 
 # The fakes live in the skeleton's test tree. The docs scripts run from the
 # skeleton member (cwd = tai42/core/skeleton), but resolve the skeleton root
@@ -66,6 +71,50 @@ def _restore_env(key: str, saved: str | None) -> None:
         os.environ[key] = saved
 
 
+def _register_default_identity_provider() -> None:
+    """Register the default "redis" identity provider the way a manifest import
+    would. The skeleton ships no concrete provider; a deployment lists one in its
+    manifest, so each fixture installs it before serving."""
+    from tai42_contract.access_control import registry
+    from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
+
+    registry._REGISTRY.clear()
+    registry.register_identity_provider("redis", RedisApiKeyProvider)
+
+
+def _start_uvicorn(app) -> tuple[uvicorn.Server, threading.Thread, int]:
+    """Build a uvicorn server for ``app`` on a free localhost port and start it on
+    a daemon thread. Returns the server, its thread, and the port so the caller
+    holds the handles BEFORE awaiting startup — a startup timeout can then still
+    stop the server from the caller's ``finally``."""
+    import uvicorn
+
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return server, thread, port
+
+
+def _await_started(server: uvicorn.Server, name: str) -> None:
+    """Poll until the server reports started, raising after 10s so a boot that
+    never comes up fails loud instead of hanging the example run."""
+    deadline = time.monotonic() + 10
+    while not server.started:
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{name} fixture: uvicorn did not start within 10s")
+        time.sleep(0.02)
+
+
+def _stop_uvicorn(server: uvicorn.Server | None, thread: threading.Thread | None) -> None:
+    """Ask the server to exit and join its thread. Idempotent over the
+    partial-setup paths: each handle is stopped only if it was created."""
+    if server is not None:
+        server.should_exit = True
+    if thread is not None:
+        thread.join(timeout=5)
+
+
 # Fixed demo credentials + scope for the access-control app. The allowed key's
 # policy carries the route's scope (→ 200); the denied key authenticates but its
 # policy lacks the scope (→ 403); no key at all is rejected 401.
@@ -75,32 +124,64 @@ _SCOPE = "demo-scope"
 _GUARDED_PATH = "/guarded"
 
 
+def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
+    """Seed the fake Redis with an allowed and a denied key, and the fake policy
+    store with the guarded route's scope and the two users' policies."""
+    from tai42_kit.utils.data.string_util import hash_api_key
+    from tests.access_control.conftest import (  # type: ignore[import-not-found]
+        FakeAccessControlPg,
+        FakeRedis,
+    )
+
+    fake_redis = FakeRedis(
+        hashes={
+            f"{settings.key_prefix}{hash_api_key(_ALLOW_KEY)}": {
+                "user_id": "allowed-user",
+                "description": "allowed",
+            },
+            f"{settings.key_prefix}{hash_api_key(_DENY_KEY)}": {"user_id": "denied-user", "description": "denied"},
+        },
+    )
+    fake_pg = FakeAccessControlPg()
+    fake_pg.add_route(_GUARDED_PATH, _SCOPE)
+    fake_pg.add_policy("allowed-user", scopes=[_SCOPE])
+    fake_pg.add_policy("denied-user", scopes=[])
+    return fake_redis, fake_pg
+
+
+def _swap_ac_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
+    """Point the access-control ``client_ctx`` seams at the fakes and return the
+    ``(object, attr, original)`` restore list."""
+    from tai42_identity_redis import redis_api_key_provider as provider_module
+    from tai42_skeleton.access_control import policy as policy_module
+    from tai42_skeleton.access_control import store as store_module
+    from tai42_skeleton.access_control import verifier as verifier_module
+    from tests.access_control.conftest import make_client_ctx, make_pg_ctx  # type: ignore[import-not-found]
+
+    redis_ctx = make_client_ctx(fake_redis)
+    pg_ctx = make_pg_ctx(fake_pg)
+    seams: list[tuple[object, str, object]] = []
+    for module in (verifier_module, policy_module, provider_module):
+        seams.append((module, "client_ctx", module.client_ctx))
+        module.client_ctx = redis_ctx  # type: ignore[attr-defined]
+    seams.append((store_module, "client_ctx", store_module.client_ctx))
+    store_module.client_ctx = pg_ctx  # type: ignore[attr-defined]
+    return seams
+
+
 @contextmanager
 def ac_app() -> Iterator[dict[str, str]]:
     """Boot the real access-control middleware chain over a fake store and serve
     it on a localhost socket. Yields ``TAI_BASE_URL`` + an allowed and a denied
     api key so a ``curl`` example can observe a real 200 vs 403."""
-    import uvicorn
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
     from tai42_contract.access_control import registry
     from tai42_contract.app import tai42_app
-    from tai42_identity_redis import redis_api_key_provider as provider_module
-    from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
-    from tai42_kit.utils.data.string_util import hash_api_key
-    from tai42_skeleton.access_control import policy as policy_module
-    from tai42_skeleton.access_control import store as store_module
-    from tai42_skeleton.access_control import verifier as verifier_module
     from tai42_skeleton.access_control.adapter import AuthAdapter
     from tai42_skeleton.access_control.settings import AccessControlSettings
-    from tests.access_control.conftest import (  # type: ignore[import-not-found]
-        FakeAccessControlPg,
-        FakeRedis,
-        _FakeApp,
-        make_client_ctx,
-        make_pg_ctx,
-    )
+    from tests.access_control.conftest import _FakeApp  # type: ignore[import-not-found]
 
     # Snapshot the process-global state this fixture mutates BEFORE mutating any of
     # it, so the finally can restore exactly. Reading the snapshot is side-effect
@@ -109,43 +190,20 @@ def ac_app() -> Iterator[dict[str, str]]:
     # uvicorn-startup-timeout path, which raises from inside the try.
     saved_registry = dict(registry._REGISTRY)
     saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
-    seams: list[tuple[object, object]] = []
-    server: uvicorn.Server | None = None
-    thread: threading.Thread | None = None
+    seams: list[tuple[object, str, object]] = []
+    server = None
+    thread = None
     try:
         os.environ[_DEFAULT_DATABASE_PASSWORD_ENV] = _DEFAULT_DATABASE_PASSWORD
 
-        # The skeleton ships no concrete identity provider; a deployment lists one
-        # in its manifest. Register the default "redis" provider the way a manifest
-        # import would.
-        registry._REGISTRY.clear()
-        registry.register_identity_provider("redis", RedisApiKeyProvider)
+        _register_default_identity_provider()
 
         # The auth backend renders the (empty) policy condition through the bound app.
         tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
-        fake_redis = FakeRedis(
-            hashes={
-                f"{settings.key_prefix}{hash_api_key(_ALLOW_KEY)}": {
-                    "user_id": "allowed-user",
-                    "description": "allowed",
-                },
-                f"{settings.key_prefix}{hash_api_key(_DENY_KEY)}": {"user_id": "denied-user", "description": "denied"},
-            },
-        )
-        fake_pg = FakeAccessControlPg()
-        fake_pg.add_route(_GUARDED_PATH, _SCOPE)
-        fake_pg.add_policy("allowed-user", scopes=[_SCOPE])
-        fake_pg.add_policy("denied-user", scopes=[])
-
-        redis_ctx = make_client_ctx(fake_redis)
-        pg_ctx = make_pg_ctx(fake_pg)
-        for module in (verifier_module, policy_module, provider_module):
-            seams.append((module, module.client_ctx))
-            module.client_ctx = redis_ctx  # type: ignore[attr-defined]
-        seams.append((store_module, store_module.client_ctx))
-        store_module.client_ctx = pg_ctx  # type: ignore[attr-defined]
+        fake_redis, fake_pg = _seed_ac_store(settings)
+        seams = _swap_ac_seams(fake_redis, fake_pg)
 
         async def _guarded(_request):
             return PlainTextResponse("ok")
@@ -154,16 +212,10 @@ def ac_app() -> Iterator[dict[str, str]]:
             routes=[Route(_GUARDED_PATH, _guarded)],
             middleware=AuthAdapter(settings).get_middleware(),
         )
-        port = _free_port()
-        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-
-        deadline = time.monotonic() + 10
-        while not server.started:
-            if time.monotonic() > deadline:
-                raise RuntimeError("ac_app fixture: uvicorn did not start within 10s")
-            time.sleep(0.02)
+        # Assign the handles BEFORE awaiting startup so a startup-timeout raise still
+        # leaves them in scope for the finally to stop the server.
+        server, thread, port = _start_uvicorn(app)
+        _await_started(server, "ac_app")
 
         yield {
             "TAI_BASE_URL": f"http://127.0.0.1:{port}",
@@ -174,12 +226,9 @@ def ac_app() -> Iterator[dict[str, str]]:
         # Restore is idempotent and covers every partial-setup path: stop the
         # server (if it was started), undo whichever seams were swapped, unbind the
         # app, and reinstate the identity registry.
-        if server is not None:
-            server.should_exit = True
-        if thread is not None:
-            thread.join(timeout=5)
-        for module, original in seams:
-            module.client_ctx = original  # type: ignore[attr-defined]
+        _stop_uvicorn(server, thread)
+        for obj, attr, original in seams:
+            setattr(obj, attr, original)
         tai42_app.bind(None)
         registry._REGISTRY.clear()
         registry._REGISTRY.update(saved_registry)
@@ -192,6 +241,110 @@ def ac_app() -> Iterator[dict[str, str]]:
 # a scope it does not hold is rejected at mint time.
 _OWNER_KEY = "sk-owner-demo-key"
 _OWNER_ID = "maya"
+
+
+def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
+    """Seed the fake Redis with the owner key and the fake policy store with the
+    routes the owner reaches and the owner's non-admin scope set."""
+    from tai42_kit.utils.data.string_util import hash_api_key
+    from tests.access_control.conftest import (  # type: ignore[import-not-found]
+        FakeAccessControlPg,
+        FakeRedis,
+    )
+
+    fake_redis = FakeRedis(
+        strings={},
+        hashes={
+            f"{settings.key_prefix}{hash_api_key(_OWNER_KEY)}": {
+                "user_id": _OWNER_ID,
+                "description": "owner key",
+            },
+        },
+    )
+    fake_pg = FakeAccessControlPg()
+    # Map the two authed doors the owner reaches to a scope the owner holds; the mint
+    # also validates that a granted scope exists (has a url mapping), so ``read`` gets
+    # a mapping too. ``/api/auth/me`` is an always-allowed carve-in — no mapping.
+    fake_pg.add_route("/api/auth/api-keys", "mint")
+    fake_pg.add_route("/api/auth/claim-links", "mint")
+    fake_pg.add_route("/api/tools", "read")
+    # A non-admin owner: a plain scope set with no ``*`` and no jq condition.
+    fake_pg.add_policy(_OWNER_ID, scopes=["read", "mint"])
+    return fake_redis, fake_pg
+
+
+def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
+    """Point the six ``client_ctx`` seams the owned-key routes reach at the fakes,
+    and redirect the key-policy history store to the in-memory generic store, so
+    the mint write-through runs offline. Returns the ``(object, attr, original)``
+    restore list."""
+    from tai42_identity_redis import redis_api_key_provider as provider_module
+    from tai42_skeleton.access_control import claim_links as claim_links_module
+    from tai42_skeleton.access_control import management as management_module
+    from tai42_skeleton.access_control import policy as policy_module
+    from tai42_skeleton.access_control import projection as projection_module
+    from tai42_skeleton.access_control import store as store_module
+    from tai42_skeleton.access_control import verifier as verifier_module
+    from tai42_skeleton.access_control.policy_store import AcPolicyStore
+    from tai42_skeleton.operations import api_keys as ops_api_keys
+    from tests.access_control.conftest import make_client_ctx, make_pg_ctx  # type: ignore[import-not-found]
+    from tests.access_control.test_policy_store import _MemStore  # type: ignore[import-not-found]
+
+    redis_ctx = make_client_ctx(fake_redis)
+    pg_ctx = make_pg_ctx(fake_pg)
+    seams: list[tuple[object, str, object]] = []
+    for module in (
+        verifier_module,
+        policy_module,
+        provider_module,
+        claim_links_module,
+        management_module,
+        projection_module,
+    ):
+        seams.append((module, "client_ctx", module.client_ctx))
+        module.client_ctx = redis_ctx  # type: ignore[attr-defined]
+    seams.append((store_module, "client_ctx", store_module.client_ctx))
+    store_module.client_ctx = pg_ctx  # type: ignore[attr-defined]
+
+    # A mint writes the new key's policy to durable version history through the
+    # generic versioned store, which would otherwise reach for a real Postgres pool.
+    # Point that factory at the skeleton's own in-memory generic store (the pattern
+    # its own key-create tests use), so the history write-through runs offline.
+    seams.append((ops_api_keys, "ac_policy_store", ops_api_keys.ac_policy_store))
+    ops_api_keys.ac_policy_store = lambda: AcPolicyStore(_MemStore())  # type: ignore[attr-defined]
+    return seams
+
+
+def _pin_projection_seams() -> list[tuple[object, str, object]]:
+    """Pin the projection's live-registry seams (tool/agent/sub-MCP surfaces a full
+    app would populate) to controlled values and reset its cache; the store-backed
+    route derivation stays real. Returns the ``(object, attr, original)`` restore
+    list."""
+    from tai42_skeleton.access_control import projection as projection_module
+
+    async def _empty_sub_mcp() -> dict:
+        return {}
+
+    async def _empty_tools() -> list[str]:
+        return []
+
+    def _projection_routes() -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(path="/api/auth/me", methods=["GET"]),
+            SimpleNamespace(path="/api/tools", methods=["GET"]),
+        ]
+
+    seams: list[tuple[object, str, object]] = []
+    for name, value in (
+        ("_registry_routes", _projection_routes),
+        ("_sub_mcp_routes", _empty_sub_mcp),
+        ("_all_registry_tools", _empty_tools),
+        ("_all_agent_names", list),
+    ):
+        seams.append((projection_module, name, getattr(projection_module, name)))
+        setattr(projection_module, name, value)
+    projection_module.reset_projection_cache()
+    return seams
 
 
 @contextmanager
@@ -212,33 +365,15 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     registries, which this minimal boot does not populate, so the four live-registry
     projection seams are pinned to controlled values exactly as the projection's own unit
     tests do — the route derivation still runs for real against the seeded store."""
-    import uvicorn
     from starlette.applications import Starlette
     from starlette.routing import Route
     from tai42_contract.access_control import registry
     from tai42_contract.app import tai42_app
-    from tai42_identity_redis import redis_api_key_provider as provider_module
-    from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
-    from tai42_kit.utils.data.string_util import hash_api_key
-    from tai42_skeleton.access_control import claim_links as claim_links_module
-    from tai42_skeleton.access_control import management as management_module
-    from tai42_skeleton.access_control import policy as policy_module
     from tai42_skeleton.access_control import projection as projection_module
-    from tai42_skeleton.access_control import store as store_module
-    from tai42_skeleton.access_control import verifier as verifier_module
     from tai42_skeleton.access_control.adapter import AuthAdapter
-    from tai42_skeleton.access_control.policy_store import AcPolicyStore
     from tai42_skeleton.access_control.settings import AccessControlSettings
     from tai42_skeleton.app.route_registry import load_api_routes
-    from tai42_skeleton.operations import api_keys as ops_api_keys
-    from tests.access_control.conftest import (  # type: ignore[import-not-found]
-        FakeAccessControlPg,
-        FakeRedis,
-        _FakeApp,
-        make_client_ctx,
-        make_pg_ctx,
-    )
-    from tests.access_control.test_policy_store import _MemStore  # type: ignore[import-not-found]
+    from tests.access_control.conftest import _FakeApp  # type: ignore[import-not-found]
 
     # Snapshot every process-global this fixture mutates BEFORE mutating any of it, so the
     # finally restores exactly. ``seams`` is a list of ``(object, attr, original)`` so one
@@ -248,13 +383,12 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     saved_registry = dict(registry._REGISTRY)
     saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
     seams: list[tuple[object, str, object]] = []
-    server: uvicorn.Server | None = None
-    thread: threading.Thread | None = None
+    server = None
+    thread = None
     try:
         os.environ[_DEFAULT_DATABASE_PASSWORD_ENV] = _DEFAULT_DATABASE_PASSWORD
 
-        registry._REGISTRY.clear()
-        registry.register_identity_provider("redis", RedisApiKeyProvider)
+        _register_default_identity_provider()
 
         # The delegation routes register onto the app's HTTP surface at import; importing
         # them needs a bound app. ``load_api_routes`` binds the skeleton's own offline
@@ -269,70 +403,9 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
-        fake_redis = FakeRedis(
-            strings={},
-            hashes={
-                f"{settings.key_prefix}{hash_api_key(_OWNER_KEY)}": {
-                    "user_id": _OWNER_ID,
-                    "description": "owner key",
-                },
-            },
-        )
-        fake_pg = FakeAccessControlPg()
-        # Map the two authed doors the owner reaches to a scope the owner holds; the mint
-        # also validates that a granted scope exists (has a url mapping), so ``read`` gets
-        # a mapping too. ``/api/auth/me`` is an always-allowed carve-in — no mapping.
-        fake_pg.add_route("/api/auth/api-keys", "mint")
-        fake_pg.add_route("/api/auth/claim-links", "mint")
-        fake_pg.add_route("/api/tools", "read")
-        # A non-admin owner: a plain scope set with no ``*`` and no jq condition.
-        fake_pg.add_policy(_OWNER_ID, scopes=["read", "mint"])
-
-        redis_ctx = make_client_ctx(fake_redis)
-        pg_ctx = make_pg_ctx(fake_pg)
-        for module in (
-            verifier_module,
-            policy_module,
-            provider_module,
-            claim_links_module,
-            management_module,
-            projection_module,
-        ):
-            seams.append((module, "client_ctx", module.client_ctx))
-            module.client_ctx = redis_ctx  # type: ignore[attr-defined]
-        seams.append((store_module, "client_ctx", store_module.client_ctx))
-        store_module.client_ctx = pg_ctx  # type: ignore[attr-defined]
-
-        # A mint writes the new key's policy to durable version history through the
-        # generic versioned store, which would otherwise reach for a real Postgres pool.
-        # Point that factory at the skeleton's own in-memory generic store (the pattern
-        # its own key-create tests use), so the history write-through runs offline.
-        seams.append((ops_api_keys, "ac_policy_store", ops_api_keys.ac_policy_store))
-        ops_api_keys.ac_policy_store = lambda: AcPolicyStore(_MemStore())  # type: ignore[attr-defined]
-
-        # Pin the projection's live-registry seams (tool/agent/sub-MCP surfaces a full app
-        # would populate) to controlled values; the store-backed route derivation is real.
-        async def _empty_sub_mcp() -> dict:
-            return {}
-
-        async def _empty_tools() -> list[str]:
-            return []
-
-        def _projection_routes() -> list[SimpleNamespace]:
-            return [
-                SimpleNamespace(path="/api/auth/me", methods=["GET"]),
-                SimpleNamespace(path="/api/tools", methods=["GET"]),
-            ]
-
-        for name, value in (
-            ("_registry_routes", _projection_routes),
-            ("_sub_mcp_routes", _empty_sub_mcp),
-            ("_all_registry_tools", _empty_tools),
-            ("_all_agent_names", list),
-        ):
-            seams.append((projection_module, name, getattr(projection_module, name)))
-            setattr(projection_module, name, value)
-        projection_module.reset_projection_cache()
+        fake_redis, fake_pg = _seed_owned_keys_store(settings)
+        seams = _swap_owned_keys_seams(fake_redis, fake_pg)
+        seams += _pin_projection_seams()
 
         app = Starlette(
             routes=[
@@ -343,16 +416,10 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
             ],
             middleware=AuthAdapter(settings).get_middleware(),
         )
-        port = _free_port()
-        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-
-        deadline = time.monotonic() + 10
-        while not server.started:
-            if time.monotonic() > deadline:
-                raise RuntimeError("owned_keys_app fixture: uvicorn did not start within 10s")
-            time.sleep(0.02)
+        # Assign the handles BEFORE awaiting startup so a startup-timeout raise still
+        # leaves them in scope for the finally to stop the server.
+        server, thread, port = _start_uvicorn(app)
+        _await_started(server, "owned_keys_app")
 
         base_url = f"http://127.0.0.1:{port}"
         yield {
@@ -361,10 +428,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
             "TAI_API_KEY": _OWNER_KEY,
         }
     finally:
-        if server is not None:
-            server.should_exit = True
-        if thread is not None:
-            thread.join(timeout=5)
+        _stop_uvicorn(server, thread)
         for obj, attr, original in seams:
             setattr(obj, attr, original)
         # projection_module may be unbound if an import failed before it — nothing to reset.

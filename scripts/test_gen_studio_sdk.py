@@ -28,7 +28,9 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-import gen_studio_sdk as gen  # noqa: E402
+import gen_studio_sdk  # noqa: E402
+from studio_sdk_ref import collect, config, pages  # noqa: E402
+from studio_sdk_ref.errors import GenerationError  # noqa: E402
 
 # Rendered once and shared across the coverage assertions (TypeDoc is slow-ish).
 _PROJECT = None
@@ -40,20 +42,20 @@ _ALL_SYMBOLS = None
 def _render():
     global _PROJECT, _PAGES, _PAGE_SYMBOLS, _ALL_SYMBOLS
     if _PAGES is None:
-        _PROJECT = gen.run_typedoc()
-        _PAGES, _PAGE_SYMBOLS, _ALL_SYMBOLS = gen.build_reference(_PROJECT)
+        _PROJECT = collect.run_typedoc()
+        _PAGES, _PAGE_SYMBOLS, _ALL_SYMBOLS = pages.build_reference(_PROJECT)
     return _PAGES, _PAGE_SYMBOLS, _ALL_SYMBOLS
 
 
 def test_checklist_coverage() -> None:
     """Every required symbol appears as a heading; table-bearing ones get a table."""
-    pages, _page_symbols, symbols = _render()
+    rendered_pages, _page_symbols, symbols = _render()
 
-    missing = [s for s in gen.REQUIRED_SYMBOLS if s not in symbols]
+    missing = [s for s in config.REQUIRED_SYMBOLS if s not in symbols]
     assert not missing, f"required symbols absent from render: {missing}"
 
-    all_text = "\n".join(pages.values())
-    for sym in gen.REQUIRED_SYMBOLS:
+    all_text = "\n".join(rendered_pages.values())
+    for sym in config.REQUIRED_SYMBOLS:
         assert f"## {sym}\n" in all_text, f"required symbol {sym!r} not rendered as a heading"
         # Every required symbol carries a signature code block, scoped to this
         # section (up to the next heading) so it can't match a later symbol's block.
@@ -64,7 +66,7 @@ def test_checklist_coverage() -> None:
         assert "```ts" in section, f"required symbol {sym!r} has no signature code block"
 
     # The table-bearing required symbols render a parameters/props table.
-    for sym in gen.REQUIRED_WITH_TABLE:
+    for sym in config.REQUIRED_WITH_TABLE:
         idx = all_text.index(f"## {sym}\n")
         # Slice up to the next symbol heading so the check is scoped to this section.
         rest = all_text[idx + 1 :]
@@ -74,29 +76,31 @@ def test_checklist_coverage() -> None:
             f"required symbol {sym!r} rendered without a params/props table"
         )
 
-    print(f"  checklist: all {len(gen.REQUIRED_SYMBOLS)} required symbols present across {len(pages)} pages")
-    print(f"            ({len(gen.REQUIRED_WITH_TABLE)} verified to carry a params/props table)")
+    required = len(config.REQUIRED_SYMBOLS)
+    with_table = len(config.REQUIRED_WITH_TABLE)
+    print(f"  checklist: all {required} required symbols present across {len(rendered_pages)} pages")
+    print(f"            ({with_table} verified to carry a params/props table)")
 
 
 def test_every_page_has_frontmatter() -> None:
     """Every generated page (index included) carries MDX frontmatter."""
-    pages, _page_symbols, _symbols = _render()
-    for slug, text in pages.items():
+    rendered_pages, _page_symbols, _symbols = _render()
+    for slug, text in rendered_pages.items():
         assert text.startswith("---\n"), f"{slug}: missing frontmatter"
         head = text.split("---", 2)[1]
         for key in ("title:", "description:", "icon:"):
             assert key in head, f"{slug}: frontmatter missing {key}"
-    assert "index" in pages, "index page not generated"
-    print(f"  frontmatter: all {len(pages)} pages carry title/description/icon")
+    assert "index" in rendered_pages, "index page not generated"
+    print(f"  frontmatter: all {len(rendered_pages)} pages carry title/description/icon")
 
 
 def test_fail_loud_empty_project() -> None:
     """An empty TypeDoc project -> GenerationError, nothing rendered."""
-    empty = {"kind": gen.KIND_PROJECT, "name": "@tai42/studio-sdk", "children": []}
+    empty = {"kind": config.KIND_PROJECT, "name": "@tai42/studio-sdk", "children": []}
     raised = False
     try:
-        gen.build_reference(empty)
-    except gen.GenerationError:
+        pages.build_reference(empty)
+    except GenerationError:
         raised = True
     assert raised, "build_reference must raise on a project with no exports"
     print("  fail-loud (empty project): GenerationError raised, nothing rendered")
@@ -108,18 +112,18 @@ def test_fail_loud_no_public_exports(tmp_path: Path) -> None:
     Drives the FULL generator (TypeDoc + render + write guard) against a temp
     entry file that exports nothing, proving the fail-loud path never overwrites
     a good reference with an empty one."""
-    probe = gen.STUDIO_SDK_DIR / "src" / "__failloud_probe__.ts"
+    probe = config.STUDIO_SDK_DIR / "src" / "__failloud_probe__.ts"
     probe.write_text("// A module with no public exports.\nexport {};\n", encoding="utf-8")
 
-    original_ep = gen.ENTRY_POINTS
-    original_out = gen.OUT_DIR
-    gen.ENTRY_POINTS = ["src/__failloud_probe__.ts"]
-    gen.OUT_DIR = tmp_path
+    original_ep = config.ENTRY_POINTS
+    original_out = config.OUT_DIR
+    config.ENTRY_POINTS = ["src/__failloud_probe__.ts"]
+    config.OUT_DIR = tmp_path
     try:
-        rc = gen.main()
+        rc = gen_studio_sdk.main()
     finally:
-        gen.ENTRY_POINTS = original_ep
-        gen.OUT_DIR = original_out
+        config.ENTRY_POINTS = original_ep
+        config.OUT_DIR = original_out
         probe.unlink(missing_ok=True)
 
     assert rc == 1, "generator must exit non-zero when there are no public exports"
@@ -130,15 +134,15 @@ def test_fail_loud_no_public_exports(tmp_path: Path) -> None:
 
 def test_fail_loud_missing_typedoc(tmp_path: Path) -> None:
     """A missing TypeDoc binary -> exit 1 before any write, no files written."""
-    original_bin = gen.TYPEDOC_BIN
-    original_out = gen.OUT_DIR
-    gen.TYPEDOC_BIN = tmp_path / "does-not-exist" / "typedoc"
-    gen.OUT_DIR = tmp_path
+    original_bin = config.TYPEDOC_BIN
+    original_out = config.OUT_DIR
+    config.TYPEDOC_BIN = tmp_path / "does-not-exist" / "typedoc"
+    config.OUT_DIR = tmp_path
     try:
-        rc = gen.main()
+        rc = gen_studio_sdk.main()
     finally:
-        gen.TYPEDOC_BIN = original_bin
-        gen.OUT_DIR = original_out
+        config.TYPEDOC_BIN = original_bin
+        config.OUT_DIR = original_out
 
     assert rc == 1, "generator must exit non-zero when the typedoc binary is missing"
     assert not list(tmp_path.glob("*.mdx")), "no files should be written when typedoc is absent"

@@ -330,6 +330,35 @@ def resolve(member: Object | Alias) -> Object | None:
     return member  # type: ignore[return-value]
 
 
+def _deref_export_target(module: Object, name: str, target: Object) -> Object:
+    """Walk a shadowing same-named submodule chain to the renderable target.
+
+    A same-named submodule shadows a re-exported object in griffe's model
+    (``from pkg.helper import helper`` makes ``pkg.helper`` resolve to the
+    submodule, not the function), so an export that resolves to a module is
+    dereferenced to the submodule's same-named member — repeatedly, when that
+    member is itself a shadowing submodule. Raises when the chain cycles back to
+    a visited module, or reaches a module with no same-named member, rather than
+    silently dropping a declared export."""
+    visited: set[str] = set()
+    while target.kind.value == "module":
+        if target.path in visited:
+            raise RuntimeError(
+                f"{module.path}: __all__ export {name!r} cycles through "
+                f"module {target.path} without reaching a renderable member"
+            )
+        visited.add(target.path)
+        inner = target.members.get(name)
+        inner = resolve(inner) if inner is not None else None
+        if inner is None:
+            raise RuntimeError(
+                f"{module.path}: __all__ export {name!r} resolves to module "
+                f"{target.path}, which has no same-named member to render"
+            )
+        target = inner
+    return target
+
+
 def public_targets(module: Object) -> list[Object]:
     """The public, source-defined objects a module exposes, in stable order.
 
@@ -364,22 +393,7 @@ def public_targets(module: Object) -> list[Object]:
         if target is None:
             continue
         if from_all:
-            visited: set[str] = set()
-            while target.kind.value == "module":
-                if target.path in visited:
-                    raise RuntimeError(
-                        f"{module.path}: __all__ export {name!r} cycles through "
-                        f"module {target.path} without reaching a renderable member"
-                    )
-                visited.add(target.path)
-                inner = target.members.get(name)
-                inner = resolve(inner) if inner is not None else None
-                if inner is None:
-                    raise RuntimeError(
-                        f"{module.path}: __all__ export {name!r} resolves to module "
-                        f"{target.path}, which has no same-named member to render"
-                    )
-                target = inner
+            target = _deref_export_target(module, name, target)
         if target.kind.value not in ("class", "function", "attribute"):
             continue
         if target.path in seen:
