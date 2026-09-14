@@ -39,6 +39,7 @@ import tempfile
 import textwrap
 from collections.abc import Iterator
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -383,7 +384,8 @@ def test_foreign_module_not_found_aborts(tmp_path: Path) -> None:
 def test_database_group_registers_once_under_the_placeholder_prefix() -> None:
     """``_register_database_group`` registers exactly one group whose fields read
     the ``TAI_DATABASE_<NAME>_PG_*`` placeholder prefix."""
-    qualname = generate_settings_reference._register_database_group()
+    cls = generate_settings_reference._register_database_group()
+    qualname = f"{cls.__module__}.{cls.__qualname__}"
 
     groups = [i for i in registered_settings() if i.qualname == qualname]
     assert len(groups) == 1, groups
@@ -410,3 +412,29 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+_LIMITS = {"a": 1}
+
+
+def test_factory_defaults_render_as_computed_except_empty_containers() -> None:
+    """A field whose default a factory reads from the machine renders ``computed at
+    startup``; an empty-container or constant-expression factory keeps its literal."""
+    import os
+
+    from pydantic import Field
+    from tai42_kit.settings import TaiBaseSettings
+
+    class ComputedDefaultsSettings(TaiBaseSettings):
+        registry_exclude: ClassVar[bool] = True
+        workers: int = Field(default_factory=lambda: os.cpu_count() or 1)
+        limits: dict[str, int] = Field(default_factory=lambda: dict(_LIMITS))
+        tags: list[str] = Field(default_factory=list)
+        plain: int = 3
+
+    gen = generate_settings_reference
+    qualname = f"{ComputedDefaultsSettings.__module__}.{ComputedDefaultsSettings.__qualname__}"
+    assert gen.computed_default_fields(qualname) == frozenset({"workers"})
+    assert gen.render_default({"default": 7, "computed": True}) == gen.COMPUTED_DEFAULT
+    assert gen.render_default({"default": [], "computed": False}) == gen.code_cell("[]")
+    assert gen.render_default({"default": 3}) == gen.code_cell("3")

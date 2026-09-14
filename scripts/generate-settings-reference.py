@@ -31,16 +31,20 @@ Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
 from __future__ import annotations
 
+import builtins
 import functools
+import importlib
 import importlib.metadata
 import json
 import sys
 import tempfile
+import types
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
-from pydantic_settings import SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent
@@ -51,7 +55,7 @@ try:
     from tai42_kit.settings import registered_settings
     from tai42_skeleton.app.route_registry import load_api_routes
 
-    from _plugin_settings import discover_plugins, import_plugin_settings
+    from _plugin_settings import _all_settings_subclasses, discover_plugins, import_plugin_settings
 except ImportError as exc:  # pragma: no cover - environment guard
     print(
         f"generate-settings-reference: the tai42_skeleton/tai42_kit packages are not "
@@ -115,8 +119,8 @@ _DATABASE_GROUP_NOTE = (
 )
 
 
-def _register_database_group() -> str:
-    """Register the per-named-database Postgres group and return its qualname.
+def _register_database_group() -> type[PostgresConnectionSettings]:
+    """Register the per-named-database Postgres group and return its class.
 
     ``PostgresConnectionSettings`` is registry-excluded (its field names are
     unprefixed; the DB registry loads it under a per-database prefix at runtime).
@@ -127,7 +131,7 @@ def _register_database_group() -> str:
     class DatabaseConnection(PostgresConnectionSettings):
         model_config = SettingsConfigDict(env_prefix=_DATABASE_GROUP_PREFIX)
 
-    return f"{DatabaseConnection.__module__}.{DatabaseConnection.__qualname__}"
+    return DatabaseConnection
 
 
 def load_groups() -> list[dict]:
@@ -149,14 +153,19 @@ def load_groups() -> list[dict]:
     load_api_routes()
     plugins = discover_plugins()
     import_plugin_settings([plugins[name] for name in sorted(plugins)])
-    database_group_qualname = _register_database_group()
+    database_group = _register_database_group()
+    database_group_qualname = f"{database_group.__module__}.{database_group.__qualname__}"
     groups: list[dict] = []
     for cls_info in registered_settings():
+        computed = computed_default_fields(cls_info.qualname, {database_group_qualname: database_group})
         group = {
             "name": cls_info.name,
             "module": cls_info.module,
             "qualname": cls_info.qualname,
-            "fields": [field.model_dump() for field in cls_info.fields],
+            "fields": [
+                {**field.model_dump(), "computed": field.name in computed and field.nested_group is None}
+                for field in cls_info.fields
+            ],
         }
         if cls_info.qualname == database_group_qualname:
             # The subclass lives in this generator's module; render the note and
@@ -217,6 +226,63 @@ def code_cell(text: str) -> str:
     return "`" + str(text).replace("|", "\\|") + "`"
 
 
+# Default factories that build an empty container are literal defaults, as is a
+# factory that only assembles constants; a factory that reaches a module or calls a
+# function computes its value from the generating machine (CPU count, hostname,
+# temp directory, clock), so the page must not carry that machine's value.
+_LITERAL_FACTORIES: frozenset[Callable[[], Any]] = frozenset({list, dict, set, tuple, frozenset})
+COMPUTED_DEFAULT = "computed at startup"
+
+
+def _is_literal_factory(factory: Callable[[], Any]) -> bool:
+    """True when the factory builds an empty container or only assembles constants.
+
+    A constant-assembling factory's code references, beyond its own constants,
+    only empty-container constructors and plain non-callable module values (a
+    module-level dict it copies); any free variable, module, or callable it
+    reaches can read the machine, so such a factory counts as computed.
+    """
+    if any(factory is literal for literal in _LITERAL_FACTORIES):
+        return True
+    code = getattr(factory, "__code__", None)
+    if code is None or code.co_freevars:
+        return False
+    namespace: dict[str, Any] = getattr(factory, "__globals__", {})
+    for name in code.co_names:
+        value = namespace.get(name, getattr(builtins, name, None))
+        if any(value is literal for literal in _LITERAL_FACTORIES):
+            continue
+        if isinstance(value, types.ModuleType) or callable(value):
+            return False
+    return True
+
+
+def computed_default_fields(qualname: str, known: Mapping[str, type[BaseSettings]] | None = None) -> frozenset[str]:
+    """The names of the registered class's fields whose default is computed by a
+    factory other than an empty-container constructor.
+
+    The registry evaluates a zero-argument factory and reports its value, which
+    is machine-specific for such a factory; this reads the class's own field
+    declarations to tell those defaults apart from literal ones. ``qualname`` is
+    the registry's qualified name (module plus qualified class name); a class the
+    subclass walk cannot find is a loud failure, never a page with bare values.
+    ``known`` supplies classes the subclass walk may not reach, such as the
+    transient placeholder database class this generator registers itself.
+    """
+    by_qualname: dict[str, type[BaseSettings]] = {
+        f"{cls.__module__}.{cls.__qualname__}": cls for cls in _all_settings_subclasses()
+    }
+    by_qualname.update(known or {})
+    cls = by_qualname.get(qualname)
+    if cls is None:
+        raise LookupError(f"registered settings class {qualname!r} not found among TaiBaseSettings subclasses")
+    return frozenset(
+        name
+        for name, info in cls.model_fields.items()
+        if info.default_factory is not None and not _is_literal_factory(info.default_factory)
+    )
+
+
 def render_default(field: dict) -> str:
     """The Default cell: the code-level default, rendered as inline code.
 
@@ -224,10 +290,13 @@ def render_default(field: dict) -> str:
     including ``false``, ``0``, ``""``, ``[]``, and ``{}`` — renders as its JSON
     literal so the empty and the absent cases stay distinct.
 
-    A string default rooted in the running machine's temp directory is
-    normalised to the canonical ``/tmp`` form, so the generated page is
-    identical whatever platform generates it.
+    A default a factory computes from the generating machine renders as
+    ``computed at startup``, and a string default rooted in the running
+    machine's temp directory is normalised to the canonical ``/tmp`` form, so
+    the generated page is identical whatever machine generates it.
     """
+    if field.get("computed"):
+        return COMPUTED_DEFAULT
     default = field.get("default")
     if default is None:
         return "—"
