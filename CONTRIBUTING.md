@@ -107,6 +107,8 @@ uv run --no-sync ruff format --check .
 uv run --no-sync pytest
 ```
 
+With the `tai-distribution` sibling checked out, `check_docs_refs.py` and `pytest` need the bundled plugins installed, so run them from the monorepo skeleton environment (`cd ../tai42/core/skeleton && uv sync --all-packages --all-extras && uv run --no-sync pytest ../../../tai-docs/scripts -q`); a docs-only clone runs the plain flow above and the distribution-dependent checks report a note and pass.
+
 `make dev` installs the `tai42` monorepo members `core/contract`, `core/kit`, `core/skeleton`, and `plugins/identity-redis` as editable installs for local cross-repo development.
 
 Before any commit, run a secret scan over `scripts/` and `examples/` (e.g.

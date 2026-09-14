@@ -57,6 +57,18 @@ a stable release; a prerelease publishes its exact version tag only and leaves
 the moving tags on the last stable image. **Pin an exact `X.Y.Z` tag in
 production**; `latest` moves under you.
 
+## Minimum to run
+
+- **A default database connection.** `POSTGRES_PASSWORD` has no default — the
+  stack refuses to start until it is set. It feeds the `default` database every
+  core Postgres store binds to (`TAI_DATABASE_DEFAULT_PG_*`).
+- **A Redis URL** once any of these is on: access control, a registered task
+  backend, more than one server worker, or config served from a non-`file`
+  provider. The Compose bundle registers the arq backend and runs two workers,
+  so it presets `TAI_BUS_REDIS_URL` (and the per-feature Redis URLs) for you.
+- **Everything else has a working default** — see the
+  [settings reference](/reference/settings) for every variable and its default.
+
 ## What the image bundles
 
 The image is the **minimal core**: the platform layers, the agents layer, and
@@ -81,6 +93,39 @@ SPA. The bundled package set is exactly:
 | `tai42-sandbox-local` | the direct-on-host sandbox provider (weightless; the sandbox stays off until a manifest selects it) |
 
 {/* core-roster:end */}
+
+The bundle ships a value for these bundled-plugin variables (a compose-file or
+env-template value; a value the operator must fill is shown as a placeholder):
+
+{/* bundled-plugin-env:start — the value each row shows is checked against tai-distribution/compose (the docker-compose.yml anchor, each service's environment block, and .env.example) by scripts/check_docs_refs.py; the variable set is derived from the bundled plugins' settings prefixes, so keep every row equal to the value the bundle ships. Operator-fill placeholders use one convention: an image digest the operator replaces shows as `@<digest>`, a value the operator sets shows as `<set by operator>`. */}
+
+| Bundled plugin | Variable | Value the bundle ships |
+| --- | --- | --- |
+| `tai42-backend-arq` | `ARQ_REDIS_URL` | `redis://redis:6379/0` |
+| `tai42-sandbox-docker` | `SANDBOX_DOCKER_HOST` | `tcp://sandbox-engine:2376` |
+| `tai42-sandbox-docker` | `SANDBOX_DOCKER_READINESS_PROBE_ENABLED` | `1` |
+| `tai42-sandbox-local` | `SANDBOX_LOCAL_ROOT` | `/var/lib/tai-sandbox-local` |
+| `tai42-agents` | `TAI_AGENTS_CLAUDE_SESSION_IMAGE` | `docker.io/tai42/tai-sandbox-claude-code@<digest>` |
+| `tai42-agents` | `TAI_AGENTS_LANGCHAIN_DEEP_SESSION_IMAGE` | `docker.io/tai42/tai-sandbox-exec@<digest>` |
+| `tai42-agents` | `TAI_AGENTS_CLAUDE_API_KEY` | `<set by operator>` |
+
+{/* bundled-plugin-env:end */}
+
+The two `tai42-agents` session images ship as digest placeholders the operator
+replaces with the released digests, and the operator sets exactly one of
+`TAI_AGENTS_CLAUDE_API_KEY` or the commented `TAI_AGENTS_CLAUDE_OAUTH_TOKEN` (the
+bundle ships neither). `tai42-storage-local`
+writes under `STORAGE_LOCAL_ROOT_PATH`, which defaults to `./templates` resolved
+under the app's working directory `/app`; the bundle's example manifest selects
+the provider (`storage_module: tai42_storage_local`) and backs `/app/templates`
+with the `tai-storage-local-data` named volume, so stored files survive a
+container recreation. `tai42-identity-redis` presets nothing — it stays off until
+a manifest names it, then reads the shared `TAI_DEFAULT_REDIS_URL`. The two sandbox
+providers stay off until a manifest names one (`sandbox_module`); the variables
+above apply once a provider is selected. The bundle turns the docker sandbox's
+egress-firewall readiness probe on for the session-creating services
+(`SANDBOX_DOCKER_READINESS_PROBE_ENABLED` on serve and backend), which has no
+effect until that provider is active.
 
 Every other plugin — the channels, the S3/GitHub storages, the celery/rq
 backends, the connectors, the webhook verifiers, monitoring, accounts, and the

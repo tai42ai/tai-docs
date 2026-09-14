@@ -11,7 +11,11 @@ Guarantees asserted:
 1. A doc naming a real distribution / real repo passes.
 2. A fabricated ``tai42-bogus`` distribution fails, naming its ``file:line``.
 3. A documented ALWAYS_PUBLIC value that differs from the compose default fails.
-4. The current committed tree passes (no reference drift).
+4. A bundled-plugin-env value that differs from the dist preset fails, and the
+   block must name exactly the tracked bundled-plugin variables; operator-fill
+   placeholders (all-zero digest, empty value) match by convention, while a name
+   drift or a real value behind a placeholder is still caught.
+5. The current committed tree passes (no reference drift).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_docs_refs  # noqa: E402
+from _plugin_settings import BundledEnvNamespaces  # noqa: E402
 
 
 def _dist_map() -> dict[str, str]:
@@ -263,6 +268,227 @@ def test_absent_requirements_notes_not_fails() -> None:
     assert len(notes) == 1, notes
     assert "not present offline" in notes[0], notes
     print("  absent requirements: offline note, no failure")
+
+
+# --- bundled-plugin env presets --------------------------------------------
+
+
+def _bundled_env_doc(rows: list[tuple[str, str, str]]) -> str:
+    start = check_docs_refs.BUNDLED_PLUGIN_ENV_MARKER_START
+    end = check_docs_refs.BUNDLED_PLUGIN_ENV_MARKER_END
+    body = "\n".join(f"| `{pkg}` | `{var}` | `{value}` |" for pkg, var, value in rows)
+    return f"line one\n{{/* {start} */}}\n| a | b | c |\n{body}\n{{/* {end} */}}\n"
+
+
+def _write_dist_env(tmp_path: Path, compose: str, env_example: str) -> None:
+    compose_dir = tmp_path / "tai-distribution" / "compose"
+    compose_dir.mkdir(parents=True)
+    (compose_dir / "docker-compose.yml").write_text(compose)
+    (compose_dir / ".env.example").write_text(env_example)
+
+
+_FIXTURE_COMPOSE = (
+    "x-tai-app-env: &tai-app-env\n"
+    "  ARQ_REDIS_URL: redis://redis:6379/0\n"
+    '  SANDBOX_DOCKER_HOST: "${SANDBOX_DOCKER_HOST:-}"\n'
+    '  SANDBOX_LOCAL_ROOT: "${SANDBOX_LOCAL_ROOT:-}"\n'
+    "services:\n"
+    "  serve:\n"
+    "    image: x\n"
+    "    environment:\n"
+    "      <<: *tai-app-env\n"
+    '      SANDBOX_DOCKER_READINESS_PROBE_ENABLED: "1"\n'
+)
+_ZERO_DIGEST = "sha256:" + "0" * 64
+_FIXTURE_ENV = (
+    "# comment\n"
+    "SANDBOX_DOCKER_HOST=tcp://sandbox-engine:2376\n"
+    "SANDBOX_LOCAL_ROOT=/var/lib/tai-sandbox-local\n"
+    f"TAI_AGENTS_CLAUDE_SESSION_IMAGE=docker.io/tai42/tai-sandbox-claude-code@{_ZERO_DIGEST}\n"
+    f"TAI_AGENTS_LANGCHAIN_DEEP_SESSION_IMAGE=docker.io/tai42/tai-sandbox-exec@{_ZERO_DIGEST}\n"
+    "TAI_AGENTS_CLAUDE_API_KEY=\n"
+)
+
+# Synthetic bundled-plugin namespaces (the registry prefixes the real derivation
+# reads) injected into the check so these tests never touch the live registry.
+_FIXTURE_NAMESPACES = BundledEnvNamespaces(
+    prefixes=frozenset({"ARQ_", "SANDBOX_DOCKER_", "SANDBOX_LOCAL_", "TAI_AGENTS_"}),
+    env_vars=frozenset(),
+)
+
+_MATCHING_ROWS = [
+    ("tai42-backend-arq", "ARQ_REDIS_URL", "redis://redis:6379/0"),
+    ("tai42-sandbox-docker", "SANDBOX_DOCKER_HOST", "tcp://sandbox-engine:2376"),
+    ("tai42-sandbox-docker", "SANDBOX_DOCKER_READINESS_PROBE_ENABLED", "1"),
+    ("tai42-sandbox-local", "SANDBOX_LOCAL_ROOT", "/var/lib/tai-sandbox-local"),
+    ("tai42-agents", "TAI_AGENTS_CLAUDE_SESSION_IMAGE", "docker.io/tai42/tai-sandbox-claude-code@<digest>"),
+    ("tai42-agents", "TAI_AGENTS_LANGCHAIN_DEEP_SESSION_IMAGE", "docker.io/tai42/tai-sandbox-exec@<digest>"),
+    ("tai42-agents", "TAI_AGENTS_CLAUDE_API_KEY", "<set by operator>"),
+]
+
+
+def _check(docs: list[tuple[str, str]], tmp_path: Path) -> tuple[list[str], list[str]]:
+    """Run the bundled-plugin-env check with the synthetic namespaces injected."""
+    return check_docs_refs.check_bundled_plugin_env(docs, workspace_root=tmp_path, namespaces=_FIXTURE_NAMESPACES)
+
+
+def test_compose_env_presets_merges_anchor_and_services() -> None:
+    """The preset reader resolves a literal, a ``${VAR:-default}``, and a
+    ``${VAR:?msg}`` (required, no default) to ``None``, and merges each service's
+    own ``environment`` block over the shared anchor."""
+    presets = check_docs_refs._compose_env_presets(
+        _FIXTURE_COMPOSE.replace(
+            "  SANDBOX_LOCAL_ROOT:", '  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set it}"\n  SANDBOX_LOCAL_ROOT:'
+        )
+    )
+    assert presets["ARQ_REDIS_URL"] == "redis://redis:6379/0"
+    assert presets["SANDBOX_DOCKER_HOST"] == ""
+    assert presets["POSTGRES_PASSWORD"] is None
+    # From serve's own environment block, merged over the anchor.
+    assert presets["SANDBOX_DOCKER_READINESS_PROBE_ENABLED"] == "1"
+    print("  compose env presets: anchor + service env merged, substitutions resolved")
+
+
+def test_compose_env_presets_conflicting_service_values_raise() -> None:
+    """A key two services set to disagreeing values is a source ambiguity and raises."""
+    compose = (
+        "x-tai-app-env: &tai-app-env\n"
+        "  ARQ_REDIS_URL: redis://redis:6379/0\n"
+        "services:\n"
+        "  serve:\n"
+        "    environment:\n"
+        "      <<: *tai-app-env\n"
+        '      KNOB: "1"\n'
+        "  backend:\n"
+        "    environment:\n"
+        "      <<: *tai-app-env\n"
+        '      KNOB: "2"\n'
+    )
+    with pytest.raises(RuntimeError, match="conflicting values"):
+        check_docs_refs._compose_env_presets(compose)
+    print("  compose env presets: conflicting service values raise")
+
+
+def test_env_example_parse_skips_comments() -> None:
+    """The env-template parse records uncommented ``KEY=value`` and skips comments."""
+    values = check_docs_refs._parse_env_example("# skip me\nSANDBOX_LOCAL_ROOT=/var/lib/tai-sandbox-local\nEMPTY=\n")
+    assert values == {"SANDBOX_LOCAL_ROOT": "/var/lib/tai-sandbox-local", "EMPTY": ""}
+    print("  env template: comments skipped, empty value kept")
+
+
+def test_bundled_plugin_env_matching_passes(tmp_path: Path) -> None:
+    """A block matching the dist presets (env-template value winning over the anchor
+    default, plus the readiness probe from a service block) produces no problems."""
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, _FIXTURE_ENV)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, notes = _check(docs, tmp_path)
+    assert problems == [], problems
+    assert notes == [], notes
+    print("  matching bundled-plugin-env: no problems")
+
+
+def test_placeholder_normalizer_maps_digest_and_empty() -> None:
+    """The placeholder normalizer maps an all-zero digest to ``@<digest>`` (keeping
+    the image name) and an empty value to ``<set by operator>``; a real value passes
+    through unchanged so it is still compared."""
+    assert (
+        check_docs_refs._normalize_placeholder(f"docker.io/tai42/tai-sandbox-exec@{_ZERO_DIGEST}")
+        == "docker.io/tai42/tai-sandbox-exec@<digest>"
+    )
+    assert check_docs_refs._normalize_placeholder("") == "<set by operator>"
+    assert (
+        check_docs_refs._normalize_placeholder("docker.io/tai42/x@sha256:abc123") == "docker.io/tai42/x@sha256:abc123"
+    )
+    print("  placeholder normalizer: digest and empty mapped, real value unchanged")
+
+
+def test_bundled_plugin_env_placeholder_row_matches(tmp_path: Path) -> None:
+    """An agents row using the placeholder convention (digest -> `@<digest>`, empty
+    -> `<set by operator>`) matches the dist placeholders."""
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, _FIXTURE_ENV)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, _ = _check(docs, tmp_path)
+    agents_problems = [p for p in problems if "TAI_AGENTS_" in p]
+    assert agents_problems == [], agents_problems
+    print("  bundled-plugin-env placeholder rows: match")
+
+
+def test_bundled_plugin_env_name_drift_behind_placeholder_flagged(tmp_path: Path) -> None:
+    """A changed image NAME behind an all-zero digest is still caught: the digest
+    normalizes but the name does not, so it does not equal the documented value."""
+    drifted_env = _FIXTURE_ENV.replace("tai-sandbox-claude-code", "tai-sandbox-renamed")
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, drifted_env)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, _ = _check(docs, tmp_path)
+    assert any("TAI_AGENTS_CLAUDE_SESSION_IMAGE" in p and "!=" in p for p in problems), problems
+    print("  bundled-plugin-env image name drift behind placeholder: flagged")
+
+
+def test_bundled_plugin_env_real_value_behind_placeholder_flagged(tmp_path: Path) -> None:
+    """A real value landing where the docs show a placeholder is caught: a non-empty
+    secret does not normalize to `<set by operator>`."""
+    real_env = _FIXTURE_ENV.replace("TAI_AGENTS_CLAUDE_API_KEY=\n", "TAI_AGENTS_CLAUDE_API_KEY=sk-real\n")
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, real_env)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, _ = _check(docs, tmp_path)
+    assert any("TAI_AGENTS_CLAUDE_API_KEY" in p and "!=" in p for p in problems), problems
+    print("  bundled-plugin-env real value behind placeholder: flagged")
+
+
+def test_bundled_plugin_env_value_drift_flagged(tmp_path: Path) -> None:
+    """A documented value that differs from the dist value is flagged (docs->source)."""
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, _FIXTURE_ENV)
+    rows = list(_MATCHING_ROWS)
+    rows[0] = ("tai42-backend-arq", "ARQ_REDIS_URL", "redis://wrong:6379/0")
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(rows))]
+    problems, _ = _check(docs, tmp_path)
+    assert len(problems) == 1, problems
+    assert "ARQ_REDIS_URL" in problems[0], problems[0]
+    assert "!=" in problems[0], problems[0]
+    print("  bundled-plugin-env value drift: flagged")
+
+
+def test_bundled_plugin_env_missing_var_flagged(tmp_path: Path) -> None:
+    """A preset in a bundled prefix that the table omits is flagged (source->docs)."""
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, _FIXTURE_ENV)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS[:2]))]
+    problems, _ = _check(docs, tmp_path)
+    assert any("missing" in p and "SANDBOX_LOCAL_ROOT" in p for p in problems), problems
+    print("  bundled-plugin-env missing var: flagged")
+
+
+def test_bundled_plugin_env_new_preset_under_bundled_prefix_flagged_missing(tmp_path: Path) -> None:
+    """A preset ADDED to the compose for a bundled prefix, absent from the table, is
+    flagged missing — the expected set follows the bundle, not a hand-kept list."""
+    compose = _FIXTURE_COMPOSE.replace(
+        "  ARQ_REDIS_URL: redis://redis:6379/0\n",
+        "  ARQ_REDIS_URL: redis://redis:6379/0\n  ARQ_EXTRA: on\n",
+    )
+    _write_dist_env(tmp_path, compose, _FIXTURE_ENV)
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, _ = _check(docs, tmp_path)
+    assert any("missing" in p and "ARQ_EXTRA" in p for p in problems), problems
+    print("  bundled-plugin-env new preset under bundled prefix: flagged missing")
+
+
+def test_bundled_plugin_env_extra_var_flagged(tmp_path: Path) -> None:
+    """A table row for a variable outside every bundled prefix is flagged extra."""
+    _write_dist_env(tmp_path, _FIXTURE_COMPOSE, _FIXTURE_ENV)
+    rows = [*_MATCHING_ROWS, ("tai42-mystery", "MYSTERY_VAR", "x")]
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(rows))]
+    problems, _ = _check(docs, tmp_path)
+    assert any("not bundled-plugin presets" in p and "MYSTERY_VAR" in p for p in problems), problems
+    print("  bundled-plugin-env extra var: flagged")
+
+
+def test_bundled_plugin_env_absent_dist_notes(tmp_path: Path) -> None:
+    """Offline (no dist compose/env) the check notes, never fails."""
+    docs = [("self-hosted/index.mdx", _bundled_env_doc(_MATCHING_ROWS))]
+    problems, notes = _check(docs, tmp_path)
+    assert problems == [], problems
+    assert len(notes) == 1, notes
+    assert "not present offline" in notes[0], notes
+    print("  bundled-plugin-env absent dist: noted, no failure")
 
 
 # --- whole tree ------------------------------------------------------------

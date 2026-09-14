@@ -62,26 +62,30 @@ runtime refuses to boot. See [Turn on access control](/operate#turn-on-access-co
 
 ## The persistent mounts
 
-Two directories a real deployment must keep across a container recreation, each
+Three paths a real deployment must keep across a container recreation, each
 located by an env var the server reads:
 
 | Mount | Env var | Holds |
 | --- | --- | --- |
 | Config directory | `TAI_MANIFEST_PATH` (in `TAI_CONFIG_DIR_PATH`) | the manifest — the **registration** of every runtime-installed plugin |
 | Plugin prefix | `TAI_PLUGINS_PREFIX` | the installed plugin **code** |
+| Local storage data | `STORAGE_LOCAL_ROOT_PATH` (default `./templates` under `/app`) | files the local storage provider serves |
 
-The bundle bind-mounts `config/` for the first. Give the plugin prefix its own
-persistent volume the same way, or a [marketplace](/concepts/marketplace) install
-lands in the image's ephemeral venv and is lost when the container is replaced.
-Persist both, or a recreated container boots with the code and its registration
-out of sync. The bundled Postgres and Redis keep their own named data volumes.
+The bundle bind-mounts `config/` for the first and backs `/app/templates` with
+the `tai-storage-local-data` named volume for the third. Give the plugin prefix
+its own persistent volume the same way, or a [marketplace](/concepts/marketplace)
+install lands in the image's ephemeral venv and is lost when the container is
+replaced. Persist all three, or a recreated container loses stored files or boots
+with the code and its registration out of sync. The bundled Postgres and Redis
+keep their own named data volumes.
 
 See [Add plugins](/operate#add-plugins) for the two ways a deployment installs
 plugins onto these mounts.
 
 ## Profiles
 
-The core stack is arq-on-Redis with local storage. Three opt-in profiles add
+The core stack is arq-on-Redis, and the example manifest selects local storage
+(`storage_module: tai42_storage_local`). Three opt-in profiles add
 infrastructure for plugins that are **not** in the minimal image — add the plugin
 (a derived image or a marketplace install) before enabling its profile:
 

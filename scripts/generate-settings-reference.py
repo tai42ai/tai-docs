@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Generate the settings / env-var reference from the registered settings groups.
 
-The data source is the SAME settings registry the ``GET /api/config/settings-schema``
+The data source is the settings registry the ``GET /api/config/settings-schema``
 route reports and that ``tai config lint`` validates offline: importing the API
-surface with :func:`load_api_routes` registers every kit + skeleton (and
-manifest-loaded plugin) settings class, and :func:`registered_settings` then
-yields each group with its field metadata. This runs entirely OFFLINE with no
-server, no manifest, and no auth — matching the other reference generators, which
-introspect the installed ``tai42_skeleton`` package rather than calling a live
-server.
+surface with :func:`load_api_routes` registers every kit + skeleton settings class,
+importing every installed first-party plugin's descriptor modules (see
+``_plugin_settings``) registers the plugin groups, and one synthesized
+placeholder group stands in for the per-named-database Postgres settings.
+:func:`registered_settings` then yields each group with its field metadata. This
+runs entirely OFFLINE with no server, no manifest, and no auth — matching the
+other reference generators, which introspect the installed packages rather than
+calling a live server.
 
 Only the field DEFAULT is rendered, never a resolved runtime value: the schema
 route resolves each field against ``os.environ`` and the stored env override and
@@ -29,14 +31,27 @@ Run it where ``tai42_skeleton`` resolves (the tai42-skeleton virtualenv)::
 
 from __future__ import annotations
 
+import functools
+import importlib.metadata
 import json
 import sys
 import tempfile
+from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
+from pydantic_settings import SettingsConfigDict
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+DOCS_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
 try:
+    from tai42_kit.clients.settings import PostgresConnectionSettings
     from tai42_kit.settings import registered_settings
     from tai42_skeleton.app.route_registry import load_api_routes
+
+    from _plugin_settings import discover_plugins, import_plugin_settings
 except ImportError as exc:  # pragma: no cover - environment guard
     print(
         f"generate-settings-reference: the tai42_skeleton/tai42_kit packages are not "
@@ -44,10 +59,6 @@ except ImportError as exc:  # pragma: no cover - environment guard
         file=sys.stderr,
     )
     raise SystemExit(1) from exc
-
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-DOCS_ROOT = SCRIPT_DIR.parent
 
 # Defaults derived from ``tempfile.gettempdir()`` resolve to a machine-specific
 # path (``/var/folders/...`` on macOS, ``/tmp`` on Linux). The published page is
@@ -72,31 +83,87 @@ NAV_INSERT_AFTER = "CLI"
 
 
 def _anchor(heading: str) -> str:
-    """The Mintlify anchor slug for a Markdown heading."""
-    return heading.lower().replace(" ", "-")
+    """The Mintlify anchor slug for a Markdown heading: lower-cased, punctuation
+    dropped, spaces hyphenated (so ``Foo (tai42-bar)`` slugs to ``foo-tai42-bar``).
+    """
+    kept = [c if (c.isalnum() or c in " -_") else "" for c in heading.lower()]
+    return "".join(kept).replace(" ", "-")
+
+
+@functools.cache
+def _owner_label(module: str) -> str:
+    """The distribution that ships ``module``'s top-level package, used to
+    disambiguate two settings groups that share a class name; the top-level package
+    name itself when no installed distribution claims it (a synthetic module)."""
+    top_level = module.split(".", 1)[0]
+    dists = importlib.metadata.packages_distributions().get(top_level)
+    return sorted(set(dists))[0] if dists else top_level
+
+
+# The per-named-database Postgres group is loaded once per named database under a
+# ``TAI_DATABASE_<NAME>_`` prefix (``<NAME>`` a placeholder for the database name);
+# ``default`` is the database every core Postgres store binds to unless a component
+# names another. The group's fields are ``PostgresConnectionSettings``' (module
+# below); the registry excludes that unprefixed base, so a prefixed subclass is
+# registered under the placeholder prefix to render the group once.
+_DATABASE_GROUP_PREFIX = "TAI_DATABASE_<NAME>_"
+_DATABASE_GROUP_MODULE = PostgresConnectionSettings.__module__
+_DATABASE_GROUP_NOTE = (
+    "One connection block per named database, read under the `TAI_DATABASE_<NAME>_` prefix "
+    "(`<NAME>` is a placeholder for the database name). `default` is the database every core "
+    "Postgres store binds to unless a component names another."
+)
+
+
+def _register_database_group() -> str:
+    """Register the per-named-database Postgres group and return its qualname.
+
+    ``PostgresConnectionSettings`` is registry-excluded (its field names are
+    unprefixed; the DB registry loads it under a per-database prefix at runtime).
+    A prefixed subclass self-registers through the ordinary registration path, so
+    the group renders once with placeholder ``TAI_DATABASE_<NAME>_PG_*`` env vars.
+    """
+
+    class DatabaseConnection(PostgresConnectionSettings):
+        model_config = SettingsConfigDict(env_prefix=_DATABASE_GROUP_PREFIX)
+
+    return f"{DatabaseConnection.__module__}.{DatabaseConnection.__qualname__}"
 
 
 def load_groups() -> list[dict]:
     """Every registered settings group with its field metadata, offline.
 
-    Importing the API surface registers the kit + skeleton settings classes —
-    the same set ``GET /api/config/settings-schema`` reports — without booting a
-    server. Each field is dumped to the plain metadata mapping the route emits
-    (``name``, ``env_var``, ``type``, ``default``, ``required``, ``secret``,
-    ``description``, ``nested_group``); the resolved per-request ``value`` the
-    route adds is deliberately NOT included, so no runtime value is published.
+    Importing the API surface registers the kit + skeleton settings classes;
+    importing every installed first-party plugin's descriptor modules
+    (``provides[].module``, the modules a live deployment imports) registers the
+    plugin groups; and a prefixed subclass registers the per-named-database group.
+    The assembled set equals the set ``GET /api/config/settings-schema`` reports
+    for a deployment that has every first-party plugin loaded PLUS the synthesized
+    placeholder per-named-database group — without booting a server. Each field is
+    dumped to the plain metadata mapping the route emits (``name``, ``env_var``,
+    ``type``, ``default``, ``required``, ``secret``, ``description``,
+    ``nested_group``); the resolved per-request ``value`` the route adds is
+    deliberately NOT included, so no runtime value is published. A bundled plugin
+    module the environment cannot import aborts the run loudly.
     """
     load_api_routes()
+    plugins = discover_plugins()
+    import_plugin_settings([plugins[name] for name in sorted(plugins)])
+    database_group_qualname = _register_database_group()
     groups: list[dict] = []
     for cls_info in registered_settings():
-        groups.append(
-            {
-                "name": cls_info.name,
-                "module": cls_info.module,
-                "qualname": cls_info.qualname,
-                "fields": [field.model_dump() for field in cls_info.fields],
-            }
-        )
+        group = {
+            "name": cls_info.name,
+            "module": cls_info.module,
+            "qualname": cls_info.qualname,
+            "fields": [field.model_dump() for field in cls_info.fields],
+        }
+        if cls_info.qualname == database_group_qualname:
+            # The subclass lives in this generator's module; render the note and
+            # the module the fields actually come from.
+            group["module"] = _DATABASE_GROUP_MODULE
+            group["note"] = _DATABASE_GROUP_NOTE
+        groups.append(group)
     if not groups:
         print(
             "generate-settings-reference: no settings groups registered — the "
@@ -169,13 +236,15 @@ def render_default(field: dict) -> str:
     return code_cell(json.dumps(default))
 
 
-def render_description(field: dict) -> str:
+def render_description(field: dict, resolve_nested: Callable[[str], tuple[str, str]] | None = None) -> str:
     """The Description cell: the field description plus a Secret / reference note.
 
     The settings metadata carries no free-text description today, so the cell is
     built from what the schema does expose — a ``Secret.`` marker for masked
     fields and, for a nested-group reference field (empty ``env_var``), a link to
-    the nested group's own section below.
+    the nested group's own section below. ``resolve_nested`` maps a nested-group
+    name to the ``(display, anchor)`` of that group's (possibly disambiguated)
+    heading; without it the name is used verbatim.
     """
     parts: list[str] = []
     description = field.get("description")
@@ -183,7 +252,8 @@ def render_description(field: dict) -> str:
         parts.append(mdx_cell(description))
     nested = field.get("nested_group")
     if not field.get("env_var") and nested:
-        parts.append(f"Grouped settings — see [{mdx_cell(nested)}](#{_anchor(nested)}).")
+        display, anchor = resolve_nested(nested) if resolve_nested else (nested, _anchor(nested))
+        parts.append(f"Grouped settings — see [{mdx_cell(display)}](#{anchor}).")
     if field.get("secret"):
         parts.append("Secret.")
     if field.get("key_material"):
@@ -277,6 +347,34 @@ def render(groups: list[dict]) -> str:
     variables, references = count_rows(groups)
     ordered = sorted(groups, key=lambda g: g["name"])
 
+    # Two registered classes can share a name (e.g. a channel's and a tool's
+    # ``TwilioSettings``). Their headings — and so their anchors — are disambiguated
+    # with the owning distribution, and every nested-group link resolves to the
+    # disambiguated anchor.
+    groups_by_name: dict[str, list[dict]] = defaultdict(list)
+    for group in groups:
+        groups_by_name[group["name"]].append(group)
+
+    def heading_of(group: dict) -> str:
+        if len(groups_by_name[group["name"]]) > 1:
+            return f"{group['name']} ({_owner_label(group['module'])})"
+        return group["name"]
+
+    def resolve_nested_from(referencing_group: dict) -> Callable[[str], tuple[str, str]]:
+        def resolve(nested_name: str) -> tuple[str, str]:
+            candidates = groups_by_name.get(nested_name, [])
+            if not candidates:
+                return nested_name, _anchor(nested_name)
+            if len(candidates) == 1:
+                target = candidates[0]
+            else:
+                owner = _owner_label(referencing_group["module"])
+                target = next((c for c in candidates if _owner_label(c["module"]) == owner), candidates[0])
+            heading = heading_of(target)
+            return heading, _anchor(heading)
+
+        return resolve
+
     lines: list[str] = [
         "---",
         'title: "Settings reference"',
@@ -289,11 +387,14 @@ def render(groups: list[dict]) -> str:
         "  with `scripts/generate-settings-reference.py`.",
         "</Note>",
         "",
-        f"Every registered settings group and the environment variables it reads — "
-        f"{count_noun(variables + references, 'entry', 'entries')} across "
+        f"Every registered settings group and the environment variables it reads — the core "
+        f"server groups, every first-party plugin's groups, and the per-named-database Postgres "
+        f"group — {count_noun(variables + references, 'entry', 'entries')} across "
         f"{count_noun(len(ordered), 'group', 'groups')} "
         f"({count_noun(variables, 'variable', 'variables')} and "
-        f"{count_noun(references, 'nested-group reference', 'nested-group references')}). Each variable "
+        f"{count_noun(references, 'nested-group reference', 'nested-group references')}). A "
+        "deployment reads only the groups its manifest loads; a plugin group appears here whether "
+        "or not a given deployment loads it. Each variable "
         "row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls "
         "back to when set (a `—` for every field that is not a shared connection identity), whether it is "
         "required, its reload class (how a live "
@@ -308,13 +409,17 @@ def render(groups: list[dict]) -> str:
     ]
 
     for group in ordered:
-        heading = group["name"]
+        heading = heading_of(group)
         lines.append(f"## {heading}")
         lines.append("")
         lines.append(f"Module `{group['module']}`.")
         lines.append("")
+        if group.get("note"):
+            lines.append(group["note"])
+            lines.append("")
         lines.append("| Env var | Type | Default | Fallback | Required | Reload | Description |")
         lines.append("|---|---|---|---|---|---|---|")
+        resolve_nested = resolve_nested_from(group)
         for field in group["fields"]:
             required = "Required" if field.get("required") else "Optional"
             type_cell = code_cell(field["type"]) if field.get("type") else "—"
@@ -325,7 +430,7 @@ def render(groups: list[dict]) -> str:
                 render_fallback(field),
                 required,
                 render_reload(field),
-                render_description(field),
+                render_description(field, resolve_nested),
             )
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")

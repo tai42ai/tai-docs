@@ -9,7 +9,10 @@
 # checkout, so it does not execute locally; the generators and the drift /
 # registry checks it invokes are the same scripts run locally under `scripts/`.
 #
-# Two jobs, selected by trigger:
+# The jobs, selected by trigger:
+#
+#   * `checks` runs on every pull request and on push to `main`: lint and
+#     format of the `scripts/` tooling.
 #
 #   * `gate` runs on every pull request and on push to `main`. It re-runs the
 #     generators against a snapshot and FAILS if the committed reference has
@@ -17,6 +20,13 @@
 #     the examples type-check, and a Mintlify build + link check. It never
 #     mutates the tree. While a pending regeneration PR (below) is unmerged the
 #     drift gate stays red; merging that PR clears it.
+#
+#   * `refs-drift` runs on the source-repo push hook, manual dispatch, and the
+#     daily schedule (the triggers `gate` does not cover). It re-runs the
+#     hand-written-reference drift-check (`scripts/check_docs_refs.py`), so a
+#     preset the tai-distribution bundle changed without the narrative
+#     self-hosted page following turns the docs repo RED -- regeneration never
+#     rewrites that page, so a drift gate, not a PR, is what enforces its sync.
 #
 #   * `regenerate` runs on the source-repo push hook (repository_dispatch), on
 #     manual dispatch, and on a daily schedule. It regenerates every reference
@@ -136,9 +146,12 @@ jobs:
 
       - name: Sync the generator environment
         working-directory: tai42/core/skeleton
-        # Installs tai42_skeleton + tai42_contract + tai42_kit + griffe so the SDK,
-        # CLI, and OpenAPI generators resolve their inputs.
-        run: uv sync --all-extras
+        # --all-packages installs every first-party workspace plugin alongside
+        # tai42_skeleton/contract/kit/griffe, so the SDK, CLI, and OpenAPI
+        # generators resolve their inputs AND the settings-reference generator can
+        # import every plugin's settings modules to render its groups. --all-extras
+        # keeps skeleton's toolbox/files extras the example type-check imports.
+        run: uv sync --all-packages --all-extras
 
       - name: Set up Node
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
@@ -180,11 +193,12 @@ jobs:
 
       - name: Docs reference drift-check (hand-written package/repo/config refs)
         working-directory: tai42/core/skeleton
-        # Fails if a hand-written tai42-<name> distribution, a
-        # github.com/tai42ai/tai-<repo> URL, or the documented
-        # ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES example has drifted from its
-        # source of truth (the committed plugins/_registry.json, the tai42ai repos,
-        # and the tai-distribution compose default). This job clones tai-distribution (in
+        # Fails if any of the script's five hand-written-reference checks drift from
+        # source — a tai42-<name> distribution, a github.com/tai42ai/tai-<repo> URL,
+        # the ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES example, the core-roster
+        # block, or the bundled-plugin-env block (see the check_docs_refs.py
+        # docstring) — against the committed plugins/_registry.json, the tai42ai
+        # repos, and the tai-distribution compose bundle. This job clones tai-distribution (in
         # the sibling loop above), so the ALWAYS_PUBLIC compose comparison runs
         # STRICTLY here — removing tai-distribution from that loop would downgrade
         # it to a non-failing note, so keep it there.
@@ -230,6 +244,60 @@ jobs:
         working-directory: tai-docs
         run: |
           mint broken-links
+
+  refs-drift:
+    # Hand-written-reference drift gate for the dispatch + schedule triggers the
+    # `gate` job does not cover (it runs on pull_request/push only). Regeneration
+    # rebuilds only generator-owned sections, never the narrative self-hosted page,
+    # so a preset change in the tai-distribution bundle produces no PR and its
+    # bundled-plugin-env / core-roster / ALWAYS_PUBLIC facts would silently rot on
+    # the live site until an unrelated docs push. This job re-runs check_docs_refs.py
+    # on every source-repo push (tai-distribution's notify hook fires it) and on the
+    # daily schedule, so a bundle change that the docs did not follow turns the docs
+    # repo RED at once — the intended loud signal.
+    if: >-
+      github.event_name == 'repository_dispatch' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # read-only drift check: it validates, never mutates the tree
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # The monorepo may be private, so the clones authenticate with
+        # TAI_CI_TOKEN via a git url.insteadOf rewrite.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          for repo in tai42 tai-studio tai-distribution; do
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/tai42ai/${repo}.git" "$repo"
+          done
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Sync the generator environment
+        working-directory: tai42/core/skeleton
+        # check_docs_refs.py imports the bundled plugins' settings to derive the
+        # bundled-plugin-env variable set, so it needs every first-party plugin
+        # installed — the same scoped closure the `gate` job syncs.
+        run: uv sync --all-packages --all-extras
+
+      - name: Docs reference drift-check (hand-written package/repo/config refs)
+        working-directory: tai42/core/skeleton
+        # Runs from the synced skeleton env so the settings registry loads. A dist
+        # preset the self-hosted page did not follow fails here, going RED on the
+        # dispatch-triggered run.
+        run: uv run python ../../../tai-docs/scripts/check_docs_refs.py
 
   regenerate:
     # Regenerate against source `main` HEAD and open an automated PR on drift.
@@ -277,7 +345,10 @@ jobs:
 
       - name: Sync the generator environment
         working-directory: tai42/core/skeleton
-        run: uv sync --all-extras
+        # --all-packages installs every first-party workspace plugin so the
+        # settings-reference generator can import each plugin's settings modules
+        # and render its groups; --all-extras keeps skeleton's toolbox/files extras.
+        run: uv sync --all-packages --all-extras
 
       - name: Set up Node
         uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0

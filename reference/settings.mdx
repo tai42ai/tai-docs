@@ -9,7 +9,7 @@ icon: "sliders"
   with `scripts/generate-settings-reference.py`.
 </Note>
 
-Every registered settings group and the environment variables it reads — 265 entries across 51 groups (256 variables and 9 nested-group references). Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
+Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 507 entries across 86 groups (498 variables and 9 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
 
 ## AccessControlRedisSettings
 
@@ -64,6 +64,51 @@ Module `tai42_skeleton.access_control.settings`.
 | `ACCESS_CONTROL_COMPILED_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 
+## AccountsSettings
+
+Module `tai42_accounts_postgres.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_ACCOUNTS_SESSION_IDLE_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_SESSION_ABSOLUTE_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_INVITE_TTL_SECONDS` | `integer` | `259200` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_BACKOFF_THRESHOLD` | `integer` | `5` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_BACKOFF_CAP_SECONDS` | `integer` | `900` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_IP_MAX_ATTEMPTS` | `integer` | `30` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_IP_WINDOW_SECONDS` | `integer` | `900` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_HASH_CONCURRENCY` | `integer` | `36` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_LOGIN_HASH_WAIT_SECONDS` | `number` | `2.0` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_BOOTSTRAP_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `TAI_ACCOUNTS_BOOTSTRAP_OPEN` | `boolean` | `false` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_REDIS_KEY_PREFIX` | `string` | — | — | Optional | `hot` | — |
+
+## AgentsLimitsSettings
+
+Module `tai42_agents.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_AGENTS_MAX_VOTERS` | `integer` | `16` | — | Optional | `hot` | — |
+| `TAI_AGENTS_VOTER_CONCURRENCY` | `integer` | `8` | — | Optional | `hot` | — |
+| `TAI_AGENTS_EMBEDDING_DIMS_CACHE_SIZE` | `integer` | `64` | — | Optional | `hot` | — |
+| `TAI_AGENTS_CHAINED_PARK_HORIZON_CAP_HOURS` | `integer` | `168` | — | Optional | `hot` | — |
+| `TAI_AGENTS_DEFAULT_RECURSION_LIMIT` | `integer` | `50` | — | Optional | `hot` | — |
+
+## AgentsParkRedisSettings
+
+Module `tai42_agents.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_AGENTS_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_AGENTS_REDIS_MAX_CONNECTIONS` | `integer` | `10` | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_AGENTS_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `TAI_AGENTS_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `TAI_AGENTS_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
 ## AppArgsSettings
 
 Module `tai42_skeleton.settings.settings`.
@@ -76,6 +121,21 @@ Module `tai42_skeleton.settings.settings`.
 | `APP_ARGS_UDS` | `string` | — | — | Optional | `excluded` | — |
 | `APP_ARGS_TIMEOUT_GRACEFUL_SHUTDOWN` | `integer` | `10` | — | Optional | `recycle` | — |
 
+## ArqSettings
+
+Module `tai42_backend_arq.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `ARQ_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
+| `ARQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `ARQ_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
+| `ARQ_REDIS_URL` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `ARQ_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `ARQ_QUEUE_NAME` | `string` | `"arq:queue"` | — | Optional | `hot` | — |
+| `ARQ_CALLBACK_TIMEOUT` | `integer` | `5` | — | Optional | `hot` | — |
+| `ARQ_JOB_COMPLETION_WAIT` | `integer` | `300` | — | Optional | `hot` | — |
+
 ## AuditLogSettings
 
 Module `tai42_skeleton.settings.audit_log`.
@@ -83,6 +143,15 @@ Module `tai42_skeleton.settings.audit_log`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `TAI_AUDIT_LOG_ENABLE` | `boolean` | `true` | — | Optional | `hot` | — |
+
+## BatchSettings
+
+Module `tai42_toolbox._internal.extensions.batch_executor`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `BATCH_DEFAULT_MAX_CONCURRENT` | `integer` | `5` | — | Optional | `hot` | — |
+| `BATCH_MAX_BATCH_SIZE` | `integer` | `100` | — | Optional | `hot` | — |
 
 ## BodyLimitSettings
 
@@ -117,6 +186,49 @@ Module `tai42_skeleton.app.bus_settings`.
 | `TAI_BUS_ACK_TIMEOUT` | `number` | `2.0` | — | Optional | `recycle` | — |
 | `TAI_BUS_APPLY_TIMEOUT` | `number` | `30.0` | — | Optional | `recycle` | — |
 | `TAI_BUS_HEARTBEAT_TTL` | `number` | `15.0` | — | Optional | `recycle` | — |
+
+## CacheSettings
+
+Module `tai42_toolbox._internal.extensions.cache_store`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CACHE_MAX_ENTRIES` | `integer` | `1024` | — | Optional | `hot` | — |
+
+## CelerySettings
+
+Module `tai42_backend_celery.core.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CELERY_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
+| `CELERY_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `CELERY_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
+| `CELERY_BROKER_URL` | `string` | `"amqp://localhost:5672//"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CELERY_RESULT_BACKEND` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CELERY_REDBEAT_REDIS_URL` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CELERY_REDBEAT_KEY_PREFIX` | `string` | `"redbeat:"` | — | Optional | `hot` | — |
+| `CELERY_BEAT_MAX_LOOP_INTERVAL` | `integer` | `60` | — | Optional | `hot` | — |
+| `CELERY_WORKER_CONCURRENCY` | `integer` | `1` | — | Optional | `hot` | — |
+
+## ClaudeCodeSettings
+
+Module `tai42_agents.claude_code.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_AGENTS_CLAUDE_API_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `TAI_AGENTS_CLAUDE_OAUTH_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `TAI_AGENTS_CLAUDE_SESSION_IMAGE` | `string` | — | — | Required | `hot` | — |
+| `TAI_AGENTS_CLAUDE_CREDS` | `array` | `[]` | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_HOOK_SETTINGS` | `object` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_MODEL` | `string` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_MAX_TURNS` | `integer` | `100` | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_MAX_BUDGET_USD` | `number` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_RUN_TIMEOUT_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_SESSION_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_NETWORK` | `string` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_CLAUDE_CRASH_RESUME` | `boolean` | `false` | — | Optional | `recycle` | — |
 
 ## ClientTrustSettings
 
@@ -276,6 +388,45 @@ Module `tai42_skeleton.settings.settings`.
 | `TAI_MCP_MCP_REPROBE_INITIAL_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
 | `TAI_MCP_MCP_REPROBE_MAX_SECONDS` | `number` | `600.0` | — | Optional | `hot` | — |
 
+## DatabaseConnection
+
+Module `tai42_kit.clients.settings`.
+
+One connection block per named database, read under the `TAI_DATABASE_<NAME>_` prefix (`<NAME>` is a placeholder for the database name). `default` is the database every core Postgres store binds to unless a component names another.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_DATABASE_<NAME>_PG_HOST` | `string` | — | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_PORT` | `integer` | `5432` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_DB` | `string` | `"postgres"` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_USER` | `string` | `"postgres"` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_PASSWORD` | `string` | — | — | Optional | `hot` | Secret. |
+| `TAI_DATABASE_<NAME>_PG_MIN_CONNECTIONS` | `integer` | `2` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_MAX_CONNECTIONS` | `integer` | `10` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_CONNECT_TIMEOUT` | `integer` | `10` | — | Optional | `hot` | — |
+| `TAI_DATABASE_<NAME>_PG_STATEMENT_TIMEOUT_SECONDS` | `number` | `60` | — | Optional | `hot` | — |
+
+## DockerSandboxSettings
+
+Module `tai42_sandbox_docker.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `SANDBOX_DOCKER_DEFAULT_TTL_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_REAP_INTERVAL_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_EXEC_DEFAULT_TIMEOUT_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_HOST` | `string` | — | — | Required | `hot` | — |
+| `SANDBOX_DOCKER_TLS_VERIFY` | `boolean` | `true` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_TLS_CERT_PATH` | `string` | `"/certs/client/cert.pem"` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_TLS_KEY_PATH` | `string` | `"/certs/client/key.pem"` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_TLS_CA_PATH` | `string` | `"/certs/client/ca.pem"` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_DEFAULT_CPU` | `number` | — | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_DEFAULT_MEMORY_MB` | `integer` | — | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_PULL_POLICY` | `string` | `"missing"` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_READINESS_PROBE_ENABLED` | `boolean` | `false` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_READINESS_PROBE_IMAGE` | `string` | `"busybox:latest"` | — | Optional | `hot` | — |
+| `SANDBOX_DOCKER_READINESS_PROBE_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
+
 ## EmbeddingSettings
 
 Module `tai42_kit.llm.settings`.
@@ -306,6 +457,34 @@ Module `tai42_skeleton.template.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `FILE_LOADING_MAX_BYTES` | `integer` | `26214400` | — | Optional | `hot` | — |
+
+## GithubStorageSettings
+
+Module `tai42_storage_github.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `STORAGE_GITHUB_USERNAME` | `string` | — | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_REPO` | `string` | — | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_BRANCH` | `string` | `"main"` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `STORAGE_GITHUB_RAW_BASE_URL` | `string` | `"https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}"` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_CONTENTS_API_URL` | `string` | `"https://api.github.com/repos/{username}/{repo}/contents"` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_TREES_API_URL` | `string` | `"https://api.github.com/repos/{username}/{repo}/git/trees/{branch}"` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_TIMEOUT_TOTAL` | `number` | `15.0` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_MAX_CONNECTIONS` | `integer` | `200` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_MAX_KEEPALIVE_CONNECTIONS` | `integer` | `50` | — | Optional | `hot` | — |
+| `STORAGE_GITHUB_KEEPALIVE_EXPIRY` | `number` | `300.0` | — | Optional | `hot` | — |
+
+## GithubToolsSettings
+
+Module `tai42_tools_github._internal.tools.github_client`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TOOLS_GITHUB_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `TOOLS_GITHUB_API_BASE` | `string` | `"https://api.github.com"` | — | Optional | `hot` | — |
+| `TOOLS_GITHUB_REQUEST_TIMEOUT_SECONDS` | `number` | `20` | — | Optional | `hot` | — |
 
 ## HooksRedisSettings
 
@@ -405,6 +584,41 @@ Module `tai42_kit.llm.settings`.
 | `LLM_TOP_K` | `integer` | — | — | Optional | `hot` | — |
 | `LLM_N` | `integer` | — | — | Optional | `hot` | — |
 
+## LangchainDeepAgentSettings
+
+Module `tai42_agents.langchain_deep_agent.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_AGENTS_LANGCHAIN_DEEP_SESSION_IMAGE` | `string` | `""` | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CREDS` | `array` | `[]` | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_SESSION_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_NETWORK` | `string` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CPU` | `number` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_MEMORY_MB` | `integer` | — | — | Optional | `hot` | — |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CRASH_RESUME` | `boolean` | `false` | — | Optional | `recycle` | — |
+
+## LangfuseSettings
+
+Module `tai42_monitoring_langfuse.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `LANGFUSE_PUBLIC_KEY` | `string` | `""` | — | Optional | `hot` | — |
+| `LANGFUSE_SECRET_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `LANGFUSE_HOST` | `string` | `""` | — | Optional | `hot` | — |
+| `LANGFUSE_TIMEOUT_SECONDS` | `integer` | `30` | — | Optional | `hot` | — |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `string` | `"tai"` | — | Optional | `hot` | — |
+
+## LocalStorageSettings
+
+Module `tai42_storage_local.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `STORAGE_LOCAL_ROOT_PATH` | `string` | `"./templates"` | — | Optional | `hot` | — |
+| `STORAGE_LOCAL_CREATE_DIRS` | `boolean` | `true` | — | Optional | `hot` | — |
+
 ## LoggingSettings
 
 Module `tai42_kit.logging.settings`.
@@ -452,6 +666,30 @@ Module `tai42_skeleton.routers.metrics_settings`.
 | `BACKEND_METRICS_PORT` | `integer` | `8012` | — | Optional | `excluded` | — |
 | `PROMETHEUS_MULTIPROC_DIR` | `string` | `"/tmp/tai42_prometheus"` | — | Optional | `excluded` | — |
 
+## OidcAccountsSettings
+
+Module `tai42_accounts_oidc.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_ACCOUNTS_OIDC_PROVIDERS` | `array` | `[]` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_OIDC_STATE_KEY` | `string` | — | — | Optional | `hot` | Secret. Key material — refused in a settings profile; rotate through its own path. |
+| `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_OIDC_SESSION_IDLE_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_OIDC_SESSION_ABSOLUTE_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
+
+## OidcIdentitySettings
+
+Module `tai42_identity_oidc.provider`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_IDENTITY_OIDC_ISSUER` | `string` | — | — | Optional | `hot` | — |
+| `TAI_IDENTITY_OIDC_AUDIENCE` | `string` | — | — | Optional | `hot` | — |
+| `TAI_IDENTITY_OIDC_ALLOWED_ALGS` | `array` | `["RS256"]` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_OIDC_CLAIM` | `string` | `"sub"` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_OIDC_JWKS_TTL_SECONDS` | `number` | `3600.0` | — | Optional | `hot` | — |
+
 ## PluginPrefixSettings
 
 Module `tai42_skeleton.marketplace.prefix`.
@@ -467,6 +705,25 @@ Module `tai42_skeleton.plugins.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `STUDIO_DIST_PATH` | `string` | — | — | Optional | `hot` | — |
+
+## PrometheusSettings
+
+Module `tai42_toolbox._internal.extensions.prometheus_counters`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `PROMETHEUS_METRICS_NAMESPACE` | `string` | `"tai"` | — | Optional | `hot` | — |
+| `PROMETHEUS_RUNTIME` | `string` | `"main"` | — | Optional | `hot` | — |
+
+## ProxySettings
+
+Module `tai42_toolbox._internal.extensions.proxy_context`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `PROXY_POOL` | `array` | `[]` | — | Optional | `hot` | — |
+| `PROXY_ALLOW_CALLER_URLS` | `boolean` | `false` | — | Optional | `hot` | — |
+| `PROXY_CONNECT_TIMEOUT` | `integer` | `30` | — | Optional | `hot` | — |
 
 ## RateLimitRedisSettings
 
@@ -495,6 +752,19 @@ Module `tai42_skeleton.settings.rate_limit`.
 | `TAI_RATE_LIMIT_DEFAULT_BURST` | `integer` | `120` | — | Optional | `hot` | — |
 | `TAI_RATE_LIMIT_FAMILIES` | `object` | `{}` | — | Optional | `hot` | — |
 
+## RqSettings
+
+Module `tai42_backend_rq.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `RQ_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
+| `RQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `RQ_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
+| `RQ_REDIS_URL` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `RQ_RQ_PREFIX` | `string` | `"rq:"` | — | Optional | `hot` | — |
+| `RQ_QUEUE_NAME` | `string` | `"default"` | — | Optional | `hot` | — |
+
 ## RunIndexSettings
 
 Module `tai42_skeleton.runs.settings`.
@@ -503,6 +773,24 @@ Module `tai42_skeleton.runs.settings`.
 |---|---|---|---|---|---|---|
 | `TAI_RUNS_INDEX_RETENTION_DAYS` | `integer` | — | — | Optional | `hot` | — |
 | `TAI_RUNS_INDEX_MAX_PAGE_SIZE` | `integer` | `200` | — | Optional | `hot` | — |
+
+## S3Settings
+
+Module `tai42_storage_s3.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `STORAGE_S3_BUCKET` | `string` | — | — | Optional | `hot` | — |
+| `STORAGE_S3_ENDPOINT` | `string` | — | — | Optional | `hot` | — |
+| `STORAGE_S3_ACCESS_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `STORAGE_S3_SECRET_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `STORAGE_S3_SECURE` | `boolean` | `true` | — | Optional | `hot` | — |
+| `STORAGE_S3_REGION` | `string` | `"us-east-1"` | — | Optional | `hot` | — |
+| `STORAGE_S3_VERIFY_SSL` | `boolean` | `true` | — | Optional | `hot` | — |
+| `STORAGE_S3_CONNECT_TIMEOUT` | `integer` | `5` | — | Optional | `hot` | — |
+| `STORAGE_S3_READ_TIMEOUT` | `integer` | `30` | — | Optional | `hot` | — |
+| `STORAGE_S3_ADDRESSING_STYLE` | `string` | `"auto"` | — | Optional | `hot` | — |
+| `STORAGE_S3_REQUEST_CHECKSUM_CALCULATION` | `string` | — | — | Optional | `hot` | — |
 
 ## SamplingSettings
 
@@ -513,6 +801,46 @@ Module `tai42_skeleton.tools.sampling_settings`.
 | `TAI_SAMPLING_MAX_TOKENS_PER_CALL` | `integer` | `32768` | — | Optional | `hot` | — |
 | `TAI_SAMPLING_MAX_CALLS_PER_INVOCATION` | `integer` | `20` | — | Optional | `hot` | — |
 
+## SandboxLocalSettings
+
+Module `tai42_sandbox_local.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `SANDBOX_LOCAL_DEFAULT_TTL_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
+| `SANDBOX_LOCAL_REAP_INTERVAL_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
+| `SANDBOX_LOCAL_EXEC_DEFAULT_TIMEOUT_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
+| `SANDBOX_LOCAL_ROOT` | `string` | `"/var/lib/tai-sandbox-local"` | — | Optional | `recycle` | — |
+| `SANDBOX_LOCAL_BASE_PATH` | `string` | `"/usr/local/bin:/usr/bin:/bin"` | — | Optional | `hot` | — |
+
+## SlackRedisSettings
+
+Module `tai42_channel_slack.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_SLACK_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_SLACK_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_SLACK_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## SlackSettings
+
+Module `tai42_channel_slack.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_SLACK_BOT_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_SLACK_SIGNING_SECRET` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_SLACK_BOT_USER_ID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_ALLOWED_RECIPIENTS` | `array` | `[]` | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_DEFAULT_RECIPIENT` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_API_BASE_URL` | `string` | `"https://slack.com/api"` | — | Optional | `hot` | — |
+| `CHANNEL_SLACK_HTTP_TIMEOUT_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
+
 ## StatesSettings
 
 Module `tai42_skeleton.states.db`.
@@ -521,6 +849,19 @@ Module `tai42_skeleton.states.db`.
 |---|---|---|---|---|---|---|
 | `STATES_OP_RETENTION_DAYS` | `integer` | `30` | — | Optional | `hot` | — |
 | `STATES_DEFAULT_RETENTION_DAYS` | `integer` | — | — | Optional | `hot` | — |
+
+## StripeSettings
+
+Module `tai42_tools_stripe._internal.tools.stripe_client`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `STRIPE_SECRET_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `STRIPE_API_BASE` | `string` | `"https://api.stripe.com"` | — | Optional | `hot` | — |
+| `STRIPE_REQUEST_TIMEOUT_SECONDS` | `number` | `20` | — | Optional | `hot` | — |
+| `STRIPE_RECONCILE_ANSWER_INTERVAL_SECONDS` | `number` | `1.2` | — | Optional | `hot` | — |
+| `TAI_BRIDGE_CALLBACK_SECRET` | `string` | — | — | Optional | `hot` | Secret. |
+| `INTERACTIONS_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
 
 ## SubMcpRedisSettings
 
@@ -555,6 +896,35 @@ Module `tai42_kit.llm.settings`.
 | `SUMMARIZATION_MIDDLEWARE_KEEP_MESSAGES` | `integer` | `20` | — | Optional | `hot` | — |
 | `SUMMARIZATION_MIDDLEWARE_TRIM_TOKENS_TO_SUMMARIZE` | `integer` | `4000` | — | Optional | `hot` | — |
 | `SUMMARIZATION_MIDDLEWARE_SUMMARY_PROMPT` | `object` | — | — | Optional | `hot` | — |
+
+## TelegramCorrelationSettings
+
+Module `tai42_channel_telegram.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_TELEGRAM_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## TelegramSettings
+
+Module `tai42_channel_telegram.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_TELEGRAM_BOT_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_TELEGRAM_ALLOWED_RECIPIENTS` | `array` | `[]` | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_DEFAULT_RECIPIENT` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_WEBHOOK_SECRET` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_TELEGRAM_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_API_BASE_URL` | `string` | `"https://api.telegram.org"` | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_HTTP_TIMEOUT_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
+| `CHANNEL_TELEGRAM_OPTION_TAP_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
 
 ## TemplateCacheSettings
 
@@ -614,6 +984,46 @@ Module `tai42_skeleton.settings.turn`.
 |---|---|---|---|---|---|---|
 | `TAI_TURN_TIMEOUT_SECONDS` | `number` | — | — | Optional | `hot` | Wall-clock budget in seconds for one synchronous turn; unset = unbounded. On expiry the turn is cancelled with a typed turn-exceeded error; a turn killed while parked on an unanswered question names that question in the error. |
 
+## TwilioRedisSettings
+
+Module `tai42_channel_twilio.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_TWILIO_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_TWILIO_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_TWILIO_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## TwilioSettings (tai42-channel-twilio)
+
+Module `tai42_channel_twilio.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_TWILIO_ACCOUNT_SID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_AUTH_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_TWILIO_FROM` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_ALLOWED_RECIPIENTS` | `array` | `[]` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_DEFAULT_RECIPIENT` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_API_BASE_URL` | `string` | `"https://api.twilio.com/2010-04-01"` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_DEDUPE_TTL` | `integer` | `172800` | — | Optional | `hot` | — |
+
+## TwilioSettings (tai42-tools-twilio)
+
+Module `tai42_tools_twilio._internal.tools.twilio_client`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_TWILIO_ACCOUNT_SID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_AUTH_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_TWILIO_API_BASE_URL` | `string` | `"https://api.twilio.com/2010-04-01"` | — | Optional | `hot` | — |
+| `CHANNEL_TWILIO_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
+
 ## UrlGuardSettings
 
 Module `tai42_kit.net.url_guard`.
@@ -625,6 +1035,43 @@ Module `tai42_kit.net.url_guard`.
 | `TAI_URL_GUARD_MAX_RESPONSE_BYTES` | `integer` | `104857600` | — | Optional | `hot` | — |
 | `TAI_URL_GUARD_MAX_REDIRECTS` | `integer` | `20` | — | Optional | `hot` | — |
 
+## WebRedisSettings
+
+Module `tai42_channel_web.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_WEB_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_WEB_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_WEB_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_WEB_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_WEB_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## WebSettings
+
+Module `tai42_channel_web.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_WEB_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_TRANSCRIPT_MAX_ENTRIES` | `integer` | `1000` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_BACKLOG_BATCH_ENTRIES` | `integer` | `200` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_TRANSCRIPT_TTL_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_BLOCKING_GRACE_SECONDS` | `number` | `5.0` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_KEEPALIVE_SECONDS` | `integer` | `15` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_SESSION_COOKIE_SECURE` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_SESSION_TTL_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_SESSION_PENDING_TTL_SECONDS` | `integer` | `600` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_MAX_ANSWER_RESTORES` | `integer` | `5` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_MAX_BODY_BYTES` | `integer` | `65536` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_MAX_STREAMS_PER_VISITOR` | `integer` | `4` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_MAX_STREAMS_TOTAL` | `integer` | `500` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_PAGE_TITLE` | `string` | `"Chat"` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_ENTRY_ATTEMPTS_PER_WINDOW` | `integer` | `10` | — | Optional | `hot` | — |
+| `CHANNEL_WEB_ENTRY_THROTTLE_WINDOW_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
+
 ## WebhookIngressSettings
 
 Module `tai42_skeleton.webhooks.settings`.
@@ -632,4 +1079,46 @@ Module `tai42_skeleton.webhooks.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `WEBHOOK_INGRESS_MAX_BODY_BYTES` | `integer` | `65536` | — | Optional | `hot` | — |
+
+## WhatsAppRedisSettings
+
+Module `tai42_channel_whatsapp.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_WHATSAPP_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_SOCKET_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_SOCKET_CONNECT_TIMEOUT` | `number` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_RETRY_ON_TIMEOUT` | `boolean` | `false` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## WhatsAppSettings
+
+Module `tai42_channel_whatsapp.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_WHATSAPP_ACCESS_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_APP_SECRET` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_VERIFY_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_API_BASE_URL` | `string` | `"https://graph.facebook.com/v23.0"` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_DEFAULT_PHONE_NUMBER_ID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_WABA_ID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_ALLOWED_RECIPIENTS` | `array` | `[]` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_DEDUPE_TTL` | `integer` | `172800` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_TEMPLATE_CONTACT_WINDOW_DAYS` | `integer` | `30` | — | Optional | `hot` | — |
+
+## WhatsAppToolsSettings
+
+Module `tai42_tools_whatsapp._internal.tools.whatsapp_client`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNEL_WHATSAPP_ACCESS_TOKEN` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_WABA_ID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_API_BASE_URL` | `string` | `"https://graph.facebook.com/v23.0"` | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
 
