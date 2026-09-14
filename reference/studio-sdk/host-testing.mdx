@@ -219,21 +219,12 @@ function loadPlugin(pluginId: string, entry: PluginEntry): Promise<void>
 Load one plugin: call its `register` entry with a context bound to `pluginId`,
 then commit everything it staged into the global registry.
 
-Contributions are STAGED into local arrays (identity captured in the closure,
-never read from ambient state) and only committed after `entry` settles
-successfully. `entry` is AWAITED before commit, so a synchronous or an `async`
-entry is fully done first: a post-`await` throw skips the commit (atomicity
-holds for async too) and a post-`await` registration cannot slip past the batch.
-The seal is set after `entry` has SETTLED — for a sync entry, after it returns
-and the `await` continuation runs; for an async entry, after its returned promise
-resolves. A registration attempted from that point on (a deferred timer, a
-callback scheduled after settle) throws loudly instead of pushing into an
-orphaned staged array that never commits. Registrations made during `entry`'s
-synchronous body — including a microtask it enqueues then, which runs before the
-`await` continuation — are still captured and committed with the batch. A
-`register` that throws commits nothing and leaves the registry untouched.
-Duplicate guards run against BOTH the staged contributions and what is already
-committed, and fail loudly.
+`entry` is AWAITED before commit, so a synchronous or an `async` entry is fully
+done first: a post-`await` throw skips the commit (atomicity holds for async too)
+and a post-`await` registration cannot slip past the batch. The seal is set after
+`entry` has SETTLED, so a later registration throws loudly; registrations made
+during `entry`'s synchronous body — including a microtask it enqueues then — are
+still captured and committed. A `register` that throws commits nothing.
 
 **Parameters**
 
