@@ -195,7 +195,7 @@ def check_orphans(referenced: set[str], problems: list[str]) -> None:
     """Fail on any ``.mdx`` file no navigation entry and no site link reaches."""
     for mdx in sorted(DOCS_ROOT.rglob("*.mdx")):
         slug = str(mdx.relative_to(DOCS_ROOT).with_suffix(""))
-        slug_dir = slug[: -len("/index")] if slug.endswith("/index") else slug
+        slug_dir = slug.removesuffix("/index")
         if slug in referenced or slug_dir in referenced or orphan_exempt(slug):
             continue
         problems.append(f"'{slug}' is reachable from neither the navigation nor a navbar/footer link")

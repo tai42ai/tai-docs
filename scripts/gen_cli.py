@@ -83,8 +83,7 @@ def _esc(text: str) -> str:
     """Escape MDX-significant characters in prose and table cells."""
     text = (text or "").replace("``", "`")
     text = text.replace("<", "&lt;").replace(">", "&gt;")
-    text = text.replace("{", "&#123;").replace("}", "&#125;")
-    return text
+    return text.replace("{", "&#123;").replace("}", "&#125;")
 
 
 def _cell(text: str) -> str:

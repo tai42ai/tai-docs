@@ -587,8 +587,7 @@ def render_object(obj: Object, level: int = 2) -> str:
         ]
         if detailed:
             parts.append(f"{'#' * (level + 1)} Members\n")
-            for member in detailed:
-                parts.append(render_object(member, level + 2))
+            parts.extend(render_object(member, level + 2) for member in detailed)
     elif isinstance(obj, Function) or obj.kind.value == "function":
         table = render_params_table(obj, param_docs)  # type: ignore[arg-type]
         if table:

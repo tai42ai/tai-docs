@@ -147,11 +147,11 @@ def render_plugins(listings: list[dict]) -> list[str]:
     lines = ["## Plugins", "", "| Item | What it provides | Docs | Source |", "|---|---|---|---|"]
     for listing in sorted(listings, key=lambda x: (x["namespace"], x["name"])):
         doc = f"/plugins/{listing['namespace']}/{listing['name']}"
-        for item in listing["items"]:
-            lines.append(
-                f"| `{_cell(item['name'])}` | {_cell(item['description'])} | "
-                f"[{_cell(listing['name'])}]({doc}) | {source_cell(item.get('module'))} |"
-            )
+        lines.extend(
+            f"| `{_cell(item['name'])}` | {_cell(item['description'])} | "
+            f"[{_cell(listing['name'])}]({doc}) | {source_cell(item.get('module'))} |"
+            for item in listing["items"]
+        )
     lines.append("")
     return lines
 

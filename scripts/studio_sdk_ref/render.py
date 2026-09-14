@@ -85,9 +85,7 @@ def render_comment_text(comment: dict | None) -> str:
     """Plain summary text of a comment (no id_index needed for table cells)."""
     if not comment:
         return ""
-    parts = []
-    for part in comment.get("summary", []) or []:
-        parts.append(part.get("text", ""))
+    parts = [part.get("text", "") for part in comment.get("summary", []) or []]
     return "".join(parts).strip()
 
 
@@ -274,12 +272,11 @@ def _render_enum_symbol(refl: dict, name: str, id_index: dict[int, dict]) -> tup
     parts.append(f"```ts\n{signature}\n```\n")
     if summary:
         parts.append(mdx_escape_prose(summary) + "\n")
-    rows = []
-    for member in refl.get("children", []) or []:
-        rows.append(
-            f"| `{member.get('name')}` | {_table_code(type_str(member.get('type')))} | "
-            f"{_table_text(render_comment_text(member.get('comment'))) or '—'} |"
-        )
+    rows = [
+        f"| `{member.get('name')}` | {_table_code(type_str(member.get('type')))} | "
+        f"{_table_text(render_comment_text(member.get('comment'))) or '—'} |"
+        for member in refl.get("children", []) or []
+    ]
     if rows:
         table = "**Members**\n\n| Member | Value | Description |\n|---|---|---|\n" + "\n".join(rows) + "\n"
         parts.append(table)
@@ -311,7 +308,6 @@ def render_symbol(
     refl: dict,
     id_index: dict[int, dict],
     location: dict[str, tuple[str, str]],
-    current_slug: str,
 ) -> str:
     name = refl["name"]
     handler = _SYMBOL_RENDERERS.get(refl.get("kind"), _render_other_symbol)

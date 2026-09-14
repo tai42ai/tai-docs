@@ -191,11 +191,12 @@ def audit_secrets(groups: list[dict]) -> None:
     baked-in credential into committed docs, so it aborts the whole run rather
     than being redacted-and-forgotten.
     """
-    offenders: list[str] = []
-    for group in groups:
-        for field in group["fields"]:
-            if field.get("secret") and field.get("default") not in (None, ""):
-                offenders.append(f"{group['name']}.{field['name']} (${field.get('env_var')})")
+    offenders: list[str] = [
+        f"{group['name']}.{field['name']} (${field.get('env_var')})"
+        for group in groups
+        for field in group["fields"]
+        if field.get("secret") and field.get("default") not in (None, "")
+    ]
     if offenders:
         print(
             "generate-settings-reference: secret field(s) ship a non-empty default — "

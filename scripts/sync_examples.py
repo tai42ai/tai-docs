@@ -235,8 +235,10 @@ def check() -> int:
     existing = _existing_snippets()
     problems: list[str] = []
 
-    for path in sorted(existing - set(expected)):
-        problems.append(f"stale snippet (no matching example): {path.relative_to(REPO_ROOT)}")
+    problems.extend(
+        f"stale snippet (no matching example): {path.relative_to(REPO_ROOT)}"
+        for path in sorted(existing - set(expected))
+    )
 
     for path, content in expected.items():
         rel = path.relative_to(REPO_ROOT)

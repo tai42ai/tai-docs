@@ -49,7 +49,7 @@ def build_reference(project: dict) -> tuple[dict[str, str], dict[str, list[str]]
         body.append(mdx_escape_prose(cat["description"]) + "\n")
         names: list[str] = []
         for refl, _module in members:
-            body.append(render_symbol(refl, id_index, location, slug))
+            body.append(render_symbol(refl, id_index, location))
             names.append(refl["name"])
             all_symbols.add(refl["name"])
         pages[slug] = "\n".join(body)

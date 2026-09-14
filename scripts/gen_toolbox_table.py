@@ -89,14 +89,14 @@ def render_table(rows: list[dict]) -> str:
         "| Name | Kind | Summary |",
         "|---|---|---|",
     ]
-    for row in rows:
-        lines.append(
-            "| `{name}` | {kind} | {summary} |".format(
-                name=mdx_cell(row["name"]),
-                kind=mdx_cell(KIND_LABELS.get(row["kind"], row["kind"])),
-                summary=mdx_cell(row["description"]),
-            )
+    lines.extend(
+        "| `{name}` | {kind} | {summary} |".format(
+            name=mdx_cell(row["name"]),
+            kind=mdx_cell(KIND_LABELS.get(row["kind"], row["kind"])),
+            summary=mdx_cell(row["description"]),
         )
+        for row in rows
+    )
     return "\n".join(lines)
 
 
