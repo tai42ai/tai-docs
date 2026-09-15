@@ -1,96 +1,19 @@
 #!/usr/bin/env python3
 """Reference drift-check for hand-written package/repo/config references in the docs.
 
-These references must never silently go stale against their sources of truth.
 Unlike the generated reference (guarded by ``check_drift.py``), these values are
-hand-authored in the narrative ``.mdx`` pages and can rot the moment a source
-renames a distribution, a repository, or changes a compose default. This check
-fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a merged
-source change that the docs did not follow is caught on the docs push/PR gate and
-on the dispatch-triggered run.
+hand-authored in the narrative ``.mdx`` pages and rot the moment a source renames
+a distribution or repository or changes a compose default. The check fails loudly
+-- exit non-zero, naming every offending ``file:line`` -- so a source change the
+docs did not follow is caught on the docs gate. Each check function's own docstring
+states what it compares and against which source.
 
-Five checks, all NETWORK-FREE; each hand-written fact is gated on the source it
-needs. Check 2's monorepo member paths need the ``tai42`` monorepo checkout; the
-three that read the ``tai-distribution`` sibling (checks 3, 4, 5) are gated on
-that checkout; and check 5 additionally reads the settings registry, so it runs
-from the monorepo skeleton environment and fails LOUDLY — rather than skipping —
-when the registry cannot be loaded while tai-distribution is present:
-
-1. Distribution names -- every ``tai42-<name>`` mentioned in any ``.mdx`` file
-   resolves to a real distribution. The authoritative set is every listing's
-   ``package`` in the committed ``plugins/_registry.json`` (the marketplace
-   snapshot ``gen_plugins`` emits), UNIONED with the foundation distributions this
-   repository's own ``pyproject.toml`` ``[tool.uv.sources]`` floats as editable
-   siblings (``tai42-skeleton`` / ``tai42-contract`` / ``tai42-kit`` -- the core
-   layers that are not marketplace listings and so are absent from the registry).
-   A ``tai42-<name>`` outside that set is drift.
-
-2. Repo URLs -- every referenced repository resolves. Two shapes coexist: the
-   ``tai42`` monorepo (``github.com/tai42ai/tai42``, optionally addressing a
-   member directory via ``/tree/<ref>/<member-path>``), and a standalone
-   repo (``github.com/tai42ai/tai-<repo>``). The monorepo root always
-   resolves; a member path is checked against the monorepo checkout when present
-   (absent offline -> loud note, present -> hard check that the member directory
-   exists). A standalone repo resolves if it is a package repo (the values side
-   of the distribution->repo mapping), a known non-package repo (the
-   ``INFRA_REPOS`` allowlist), or present as a local sibling checkout. Anything
-   else is a HARD failure naming its ``file:line`` -- offline a typo is
-   indistinguishable from a real repo, so an unknown repo fails closed rather
-   than passing.
-
-3. ALWAYS_PUBLIC example -- every documented
-   ``ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES='[...]'`` value must EQUAL the
-   default baked into ``tai-distribution``'s ``compose/docker-compose.yml``
-   (``${ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES:-[...]}``), compared as parsed
-   JSON. Gated on that compose file being present; absent -> loud note,
-   present -> hard compare that names both values on mismatch.
-
-4. Core image roster -- the self-hosted overview names the packages the release
-   image bundles inside a delimited ``core-roster`` block (the ``ROSTER_MARKER_*``
-   comments). That set, by distribution name (versions and extras ignored), must
-   EQUAL the package set pinned in ``tai-distribution``'s
-   ``docker/pypi-requirements.txt`` -- the file that IS the image's manifest of
-   contents. A package added to or dropped from the image without the docs
-   following is drift. Gated on the requirements file being present; absent ->
-   loud note, present -> hard compare that names the missing/extra packages, and
-   a present requirements file with no roster block in the docs is itself a
-   failure (the sync point must exist). This is the mechanism that keeps the
-   hand-written self-hosted page in step with the distribution: the reference
-   regeneration pipeline only rebuilds generator-owned sections, never a narrative
-   page, so a drift gate -- not a dispatch -- is what enforces this page's sync.
-
-5. Bundled-plugin env presets -- the self-hosted overview names, inside a delimited
-   ``bundled-plugin-env`` block, the env variable each bundled non-core plugin reads
-   and the value the compose bundle ships for it. The EXPECTED variable set is
-   derived, never hand-kept: every env key the bundle presets (the ``x-tai-app-env``
-   anchor, each service's own ``environment`` block, and the uncommented keys of
-   ``compose/.env.example``) that falls in a BUNDLED plugin's env namespace. Bundled
-   = the plugins pinned in ``docker/pypi-requirements.txt``; a plugin's env namespace
-   is the prefixes its settings groups declare (read from the settings registry after
-   importing the bundled plugins' modules the same way the generator does), plus the
-   exact vars of any group that declares an empty prefix. Every documented value must
-   EQUAL what ``tai-distribution`` sets -- the ``compose/.env.example`` value when the
-   template sets the variable, else the compose preset -- and the block must name
-   exactly the derived set (no more, no fewer). Gated on the compose file, env
-   template, and requirements file being present; absent -> loud note. When they are
-   present but the settings registry cannot be loaded (the bundled plugin packages
-   are not installed), the check FAILS LOUDLY naming the missing distributions and
-   saying to run from the monorepo skeleton environment, never a silent skip.
-   Present + loadable -> hard compare naming every mismatch/missing/extra and the
-   source path. A preset value changed in either repo without the other following,
-   or a variable entering/leaving a bundled plugin's namespace, is caught here.
-
-   Operator-fill placeholders follow ONE convention so an all-zero digest or an
-   empty secret cannot churn the exact compare: the table shows a stable token and
-   the gate maps the source placeholder to that token BEFORE comparing -- an all-zero
-   ``@sha256:<64 zeros>`` image digest becomes ``@<digest>`` and an empty value
-   becomes ``<set by operator>``. The image NAME before the ``@`` and every
-   non-placeholder value stay exact, so a renamed image or a real value landing in
-   the source is still caught.
-
-The distribution set (check 1) is read from the committed registry snapshot, so
-checks 1-4 need no source env; check 5 imports the bundled plugins' settings, so
-run the whole check from the monorepo skeleton environment (``uv sync
+Every check is NETWORK-FREE and gated on the source it reads: a source absent
+offline yields a loud note and is skipped; a source present is a hard compare; a
+source present but unloadable (the settings registry check 5 reads) FAILS rather
+than silently skipping. The distribution set (check 1) comes from the committed
+registry snapshot, so most checks need no source env; check 5 imports the bundled
+plugins' settings, so run from the monorepo skeleton environment (``uv sync
 --all-packages --all-extras``) when tai-distribution is present::
 
     cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/check_docs_refs.py
@@ -161,8 +84,11 @@ _ZERO_DIGEST_RE = re.compile(r"@sha256:0{64}\b")
 
 
 def _normalize_placeholder(value: str) -> str:
-    """Map a dist operator-fill placeholder to its stable table token; other values
-    pass through unchanged (so a name change or a real value is still compared)."""
+    """Map a dist operator-fill placeholder to its stable table token.
+
+    Other values pass through unchanged (so a name change or a real value is
+    still compared).
+    """
     if value == "":
         return _PLACEHOLDER_SET_BY_OPERATOR
     return _ZERO_DIGEST_RE.sub("@<digest>", value)
@@ -514,7 +440,8 @@ def _parse_env_example(text: str) -> dict[str, str]:
     """The uncommented ``KEY=value`` assignments in a compose ``.env.example``.
 
     A commented line (``# ...``) sets nothing; an empty value (``KEY=``) records the
-    empty string (the operator must fill it). Values are taken verbatim."""
+    empty string (the operator must fill it). Values are taken verbatim.
+    """
     values: dict[str, str] = {}
     for line in text.splitlines():
         stripped = line.strip()
@@ -531,7 +458,8 @@ def _resolve_compose_subst(value: str) -> str | None:
 
     ``${VAR:-default}`` yields the default (possibly empty); ``${VAR:?msg}``
     (required, no default) yields ``None``; a literal yields itself. The YAML load
-    already stripped any surrounding quotes."""
+    already stripped any surrounding quotes.
+    """
     subst = _COMPOSE_SUBST_RE.match(value)
     if subst:
         return None if subst.group("op") == ":?" else subst.group("rest")
@@ -544,7 +472,8 @@ def _compose_env_presets(compose_text: str) -> dict[str, str | None]:
     The shared ``x-tai-app-env`` anchor merged with each service's own
     ``environment`` block (YAML resolves the anchor merge), each value resolved
     through :func:`_resolve_compose_subst`. A key two services set to disagreeing
-    values is a source ambiguity and raises rather than silently picking one."""
+    values is a source ambiguity and raises rather than silently picking one.
+    """
     data = yaml.safe_load(compose_text)
     env_blocks: list[dict] = []
     anchor = data.get("x-tai-app-env")
@@ -577,7 +506,8 @@ def _load_bundled_namespaces(requirements: Path) -> BundledEnvNamespaces:
     shared plugin-settings module), then each group's env prefix is read from the
     registry. FAILS LOUDLY — never a silent skip — when a bundled plugin package is
     not installed or a bundled module is not importable, naming what is missing and
-    saying to run from the monorepo skeleton environment."""
+    saying to run from the monorepo skeleton environment.
+    """
     bundled_dists = _requirement_names(requirements.read_text(encoding="utf-8"))
     try:
         from tai42_skeleton.app.route_registry import load_api_routes
@@ -607,10 +537,12 @@ def _load_bundled_namespaces(requirements: Path) -> BundledEnvNamespaces:
 def _bundled_plugin_env_expected(
     compose_text: str, env_text: str, namespaces: BundledEnvNamespaces
 ) -> dict[str, str | None]:
-    """The variables the bundle presets that fall in a bundled plugin's env
-    namespace, mapped to the value the bundle ships: the ``.env.example`` value when
-    the template sets the variable, else the compose preset (anchor or a service's
-    ``environment`` block)."""
+    """The bundle-preset variables in a bundled plugin's env namespace.
+
+    Mapped to the value the bundle ships: the ``.env.example`` value when the
+    template sets the variable, else the compose preset (anchor or a service's
+    ``environment`` block).
+    """
     compose_presets = _compose_env_presets(compose_text)
     env_example = _parse_env_example(env_text)
     expected: dict[str, str | None] = {}
@@ -625,7 +557,8 @@ def _bundled_plugin_env_block(docs: list[tuple[str, str]]) -> tuple[str, int, li
     """Locate the docs' bundled-plugin-env block and its ``(package, var, value)`` rows.
 
     Returns ``(relative_path, start_lineno, rows)`` for the first block found, or
-    ``None`` when no page carries the markers."""
+    ``None`` when no page carries the markers.
+    """
     for rel, text in docs:
         m = _BUNDLED_PLUGIN_ENV_BLOCK_RE.search(text)
         if not m:
@@ -636,15 +569,52 @@ def _bundled_plugin_env_block(docs: list[tuple[str, str]]) -> tuple[str, int, li
     return None
 
 
+def _compare_bundled_env_block(
+    block: tuple[str, int, list[tuple[str, str, str]]],
+    expected: dict[str, str | None],
+) -> list[str]:
+    """The mismatches between a docs bundled-plugin-env block and the expected set.
+
+    Reports variables the block names that are not bundled presets, bundled
+    presets the block omits, and documented values that differ from the dist
+    value.
+    """
+    rel, lineno, rows = block
+    documented = {var: value for _, var, value in rows}
+    problems: list[str] = []
+
+    extra = set(documented) - set(expected)
+    if extra:
+        problems.append(
+            f"{rel}:{lineno}: bundled-plugin-env block names variable(s) that are not bundled-plugin presets: "
+            f"{', '.join(sorted(extra))}"
+        )
+    missing = set(expected) - set(documented)
+    if missing:
+        problems.append(
+            f"{rel}:{lineno}: bundled-plugin-env block is missing bundled-plugin preset(s): "
+            f"{', '.join(sorted(missing))}"
+        )
+
+    for var in sorted(set(expected) & set(documented)):
+        want = _normalize_placeholder(expected[var] or "")
+        if documented[var] != want:
+            problems.append(
+                f"{rel}:{lineno}: {var} documented value {documented[var]!r} != dist value {want!r} "
+                f"(from {ENV_EXAMPLE_REL} / {COMPOSE_REL})"
+            )
+    return problems
+
+
 def check_bundled_plugin_env(
     docs: list[tuple[str, str]],
     workspace_root: Path = WORKSPACE_ROOT,
     *,
     namespaces: BundledEnvNamespaces | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Compare the docs' bundled-plugin-env block against the value the bundle ships
-    for every variable in a bundled plugin's env namespace.
+    """Compare the docs' bundled-plugin-env block against the values the bundle ships.
 
+    Every variable in a bundled plugin's env namespace is checked.
     Exact both ways over the derived expected set (see
     :func:`_bundled_plugin_env_expected`): every variable must be documented with a
     value equal to what the dist ships (the ``.env.example`` value when the template
@@ -652,7 +622,8 @@ def check_bundled_plugin_env(
     Gated on the compose file, env template, and requirements file being present;
     absent -> loud note. ``namespaces`` is derived from the settings registry when
     not supplied (tests inject a synthetic set); the derivation FAILS LOUDLY when the
-    registry cannot be loaded."""
+    registry cannot be loaded.
+    """
     problems: list[str] = []
     notes: list[str] = []
 
@@ -692,30 +663,7 @@ def check_bundled_plugin_env(
         )
         return problems, notes
 
-    rel, lineno, rows = block
-    documented = {var: value for _, var, value in rows}
-
-    extra = set(documented) - set(expected)
-    if extra:
-        problems.append(
-            f"{rel}:{lineno}: bundled-plugin-env block names variable(s) that are not bundled-plugin presets: "
-            f"{', '.join(sorted(extra))}"
-        )
-    missing = set(expected) - set(documented)
-    if missing:
-        problems.append(
-            f"{rel}:{lineno}: bundled-plugin-env block is missing bundled-plugin preset(s): "
-            f"{', '.join(sorted(missing))}"
-        )
-
-    for var in sorted(set(expected) & set(documented)):
-        want = _normalize_placeholder(expected[var] or "")
-        if documented[var] != want:
-            problems.append(
-                f"{rel}:{lineno}: {var} documented value {documented[var]!r} != dist value {want!r} "
-                f"(from {ENV_EXAMPLE_REL} / {COMPOSE_REL})"
-            )
-
+    problems.extend(_compare_bundled_env_block(block, expected))
     return problems, notes
 
 

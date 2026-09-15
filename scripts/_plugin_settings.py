@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""First-party plugin discovery and settings-module import, shared by the
-settings-reference generator and the reference drift-check.
+"""First-party plugin discovery and settings-module import.
+
+Shared by the settings-reference generator and the reference drift-check.
 
 Both tools must read a deployment's plugin settings the SAME way a live server
 does — a plugin registers its settings groups by importing the modules its
@@ -48,9 +49,9 @@ _SCALAR_SLOT_KINDS = frozenset(
 
 @dataclass(frozen=True)
 class PluginInfo:
-    """One installed first-party plugin, located from its packaged descriptor
-    WITHOUT importing plugin code.
+    """One installed first-party plugin, located WITHOUT importing plugin code.
 
+    It is located from its packaged descriptor.
     ``modules`` is the import sequence whose side-effect registers the plugin's
     settings groups: the top-level package first, then each additive
     ``provides[].module`` the descriptor lists (the modules a live deployment
@@ -60,7 +61,8 @@ class PluginInfo:
     not imported directly (the top-level package covers it; importing it directly
     can eagerly construct the live provider). All deduped, order preserved; a data
     item (``mcp-server`` / ``connector``) carries no ``module`` and contributes
-    none."""
+    none.
+    """
 
     dist_name: str
     top_level: str
@@ -69,13 +71,14 @@ class PluginInfo:
 
 
 def discover_plugins() -> dict[str, PluginInfo]:
-    """Every installed first-party (``tai42-``) plugin that ships a packaged
-    ``tai-plugin.yml``, keyed by distribution name.
+    """Every installed first-party (``tai42-``) plugin, keyed by distribution name.
 
+    Covers each plugin that ships a packaged ``tai-plugin.yml``.
     Side-effect free: it locates the descriptor beside each distribution's
     top-level import package (the same ``importlib.resources`` / spec locator the
     skeleton mount map uses) and reads it off disk, importing no plugin code (a
-    plugin registers providers/routes at import, which needs a bound app)."""
+    plugin registers providers/routes at import, which needs a bound app).
+    """
     plugins: dict[str, PluginInfo] = {}
     for dist in importlib.metadata.distributions():
         name = dist.metadata["Name"] or ""
@@ -124,7 +127,8 @@ def import_plugin_settings(plugins: Iterable[PluginInfo]) -> None:
     A missing module ABORTS the run loudly, naming the plugin, the module, and the
     missing name: the published reference must render every bundled plugin's groups,
     so a module the environment cannot import is a broken environment, never a
-    silently dropped group. Any other exception propagates and aborts the run too."""
+    silently dropped group. Any other exception propagates and aborts the run too.
+    """
     from tai42_skeleton.access_control.settings import access_control_settings
     from tai42_skeleton.app.mount_map import bind_module, build_mount_map
 
@@ -152,7 +156,8 @@ def _all_settings_subclasses() -> list[type[TaiBaseSettings]]:
 
     ``type.__subclasses__`` reports only direct subclasses, so an intermediate
     base (e.g. the kit's ``SandboxDispatchSettings``) would hide a plugin's own
-    group; the recursion reaches every concrete leaf."""
+    group; the recursion reaches every concrete leaf.
+    """
     seen: dict[str, type[TaiBaseSettings]] = {}
 
     def walk(cls: type[TaiBaseSettings]) -> None:
@@ -168,14 +173,15 @@ def _all_settings_subclasses() -> list[type[TaiBaseSettings]]:
 
 @dataclass(frozen=True)
 class BundledEnvNamespaces:
-    """The env-var namespaces a set of bundled plugins own, derived from their
-    registered settings groups.
+    """The env-var namespaces a set of bundled plugins own.
 
+    Derived from the plugins' registered settings groups.
     ``prefixes`` are the non-empty ``env_prefix`` values those groups declare (a
     plugin's namespace). ``env_vars`` are the exact variables of any group that
     declares an EMPTY prefix — an empty prefix names no namespace of its own, so
     matching it as a prefix would claim every env key; its fields are matched
-    exactly instead."""
+    exactly instead.
+    """
 
     prefixes: frozenset[str]
     env_vars: frozenset[str]
@@ -186,12 +192,14 @@ class BundledEnvNamespaces:
 
 
 def bundled_env_namespaces(top_levels: set[str]) -> BundledEnvNamespaces:
-    """The env namespaces owned by the registered settings groups whose module
-    belongs to one of ``top_levels`` (the bundled plugins' top-level packages).
+    """The env namespaces owned by the registered settings groups in ``top_levels``.
 
+    Covers each group whose module belongs to one of ``top_levels`` (the bundled
+    plugins' top-level packages).
     The env prefix is read from each group's live model config; a group with an
     empty prefix contributes its exact field env vars, read from the registry
-    snapshot (which resolves aliases the same way the schema route does)."""
+    snapshot (which resolves aliases the same way the schema route does).
+    """
     fields_by_qualname = {info.qualname: info for info in registered_settings()}
     prefixes: set[str] = set()
     env_vars: set[str] = set()

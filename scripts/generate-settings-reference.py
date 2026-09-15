@@ -87,8 +87,10 @@ NAV_INSERT_AFTER = "CLI"
 
 
 def _anchor(heading: str) -> str:
-    """The Mintlify anchor slug for a Markdown heading: lower-cased, punctuation
-    dropped, spaces hyphenated (so ``Foo (tai42-bar)`` slugs to ``foo-tai42-bar``).
+    """The Mintlify anchor slug for a Markdown heading.
+
+    Lower-cased, punctuation dropped, spaces hyphenated (so ``Foo (tai42-bar)``
+    slugs to ``foo-tai42-bar``).
     """
     kept = [c if (c.isalnum() or c in " -_") else "" for c in heading.lower()]
     return "".join(kept).replace(" ", "-")
@@ -96,9 +98,12 @@ def _anchor(heading: str) -> str:
 
 @functools.cache
 def _owner_label(module: str) -> str:
-    """The distribution that ships ``module``'s top-level package, used to
-    disambiguate two settings groups that share a class name; the top-level package
-    name itself when no installed distribution claims it (a synthetic module)."""
+    """The distribution that ships ``module``'s top-level package.
+
+    Used to disambiguate two settings groups that share a class name; the
+    top-level package name itself when no installed distribution claims it (a
+    synthetic module).
+    """
     top_level = module.split(".", 1)[0]
     dists = importlib.metadata.packages_distributions().get(top_level)
     return sorted(set(dists))[0] if dists else top_level
@@ -259,9 +264,9 @@ def _is_literal_factory(factory: Callable[[], Any]) -> bool:
 
 
 def computed_default_fields(qualname: str, known: Mapping[str, type[BaseSettings]] | None = None) -> frozenset[str]:
-    """The names of the registered class's fields whose default is computed by a
-    factory other than an empty-container constructor.
+    """The names of the registered class's fields whose default is computed.
 
+    Computed means by a factory other than an empty-container constructor.
     The registry evaluates a zero-argument factory and reports its value, which
     is machine-specific for such a factory; this reads the class's own field
     declarations to tell those defaults apart from literal ones. ``qualname`` is
@@ -414,38 +419,51 @@ def count_noun(count: int, singular: str, plural: str) -> str:
     return f"{count} {singular if count == 1 else plural}"
 
 
+def _heading_of(group: dict, groups_by_name: Mapping[str, list[dict]]) -> str:
+    """The group's rendered heading, disambiguated by owner when its name collides.
+
+    Two registered classes can share a name (e.g. a channel's and a tool's
+    ``TwilioSettings``); a collided name is qualified with the owning distribution
+    so its heading — and so its anchor — is unique.
+    """
+    if len(groups_by_name[group["name"]]) > 1:
+        return f"{group['name']} ({_owner_label(group['module'])})"
+    return group["name"]
+
+
+def _resolve_nested_from(
+    referencing_group: dict, groups_by_name: Mapping[str, list[dict]]
+) -> Callable[[str], tuple[str, str]]:
+    """A resolver mapping a nested-group name to its ``(heading, anchor)``.
+
+    A collided nested name resolves to the candidate owned by the same
+    distribution as ``referencing_group`` when one exists, else the first
+    candidate; every link lands on the disambiguated anchor.
+    """
+
+    def resolve(nested_name: str) -> tuple[str, str]:
+        candidates = groups_by_name.get(nested_name, [])
+        if not candidates:
+            return nested_name, _anchor(nested_name)
+        if len(candidates) == 1:
+            target = candidates[0]
+        else:
+            owner = _owner_label(referencing_group["module"])
+            target = next((c for c in candidates if _owner_label(c["module"]) == owner), candidates[0])
+        heading = _heading_of(target, groups_by_name)
+        return heading, _anchor(heading)
+
+    return resolve
+
+
 def render(groups: list[dict]) -> str:
     """Render the full settings-reference page as MDX."""
     variables, references = count_rows(groups)
     ordered = sorted(groups, key=lambda g: g["name"])
 
-    # Two registered classes can share a name (e.g. a channel's and a tool's
-    # ``TwilioSettings``). Their headings — and so their anchors — are disambiguated
-    # with the owning distribution, and every nested-group link resolves to the
-    # disambiguated anchor.
     groups_by_name: dict[str, list[dict]] = defaultdict(list)
     for group in groups:
         groups_by_name[group["name"]].append(group)
-
-    def heading_of(group: dict) -> str:
-        if len(groups_by_name[group["name"]]) > 1:
-            return f"{group['name']} ({_owner_label(group['module'])})"
-        return group["name"]
-
-    def resolve_nested_from(referencing_group: dict) -> Callable[[str], tuple[str, str]]:
-        def resolve(nested_name: str) -> tuple[str, str]:
-            candidates = groups_by_name.get(nested_name, [])
-            if not candidates:
-                return nested_name, _anchor(nested_name)
-            if len(candidates) == 1:
-                target = candidates[0]
-            else:
-                owner = _owner_label(referencing_group["module"])
-                target = next((c for c in candidates if _owner_label(c["module"]) == owner), candidates[0])
-            heading = heading_of(target)
-            return heading, _anchor(heading)
-
-        return resolve
 
     lines: list[str] = [
         "---",
@@ -481,7 +499,7 @@ def render(groups: list[dict]) -> str:
     ]
 
     for group in ordered:
-        heading = heading_of(group)
+        heading = _heading_of(group, groups_by_name)
         lines.append(f"## {heading}")
         lines.append("")
         lines.append(f"Module `{group['module']}`.")
@@ -491,7 +509,7 @@ def render(groups: list[dict]) -> str:
             lines.append("")
         lines.append("| Env var | Type | Default | Fallback | Required | Reload | Description |")
         lines.append("|---|---|---|---|---|---|---|")
-        resolve_nested = resolve_nested_from(group)
+        resolve_nested = _resolve_nested_from(group, groups_by_name)
         for field in group["fields"]:
             required = "Required" if field.get("required") else "Optional"
             type_cell = code_cell(field["type"]) if field.get("type") else "—"
