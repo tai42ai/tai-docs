@@ -19,8 +19,10 @@ agent's ``astream`` yields and ``run`` drains.
 class Agent(ABC)
 ```
 
-The uniform agent contract. Implement `run`; override
-`astream` only when the agent produces real per-step events.
+The uniform agent contract.
+
+Implement `run`; override `astream` only when the agent produces real per-step
+events.
 
 Subclasses declare three class attributes that drive auto-tool generation:
 
@@ -214,10 +216,11 @@ agent with no thread memory raises `NotImplementedError`.
 class AgentInterruptedError(Exception)
 ```
 
-Raised by ``run``/``_drain`` when a non-streaming caller drains a run that
-paused on an interrupt. A non-streaming caller cannot act on an interrupt, so
-it surfaces loudly rather than returning a partial. ``interrupts`` is the list
-of `InterruptFinal` events the run emitted.
+Raised by ``run``/``_drain`` when a non-streaming caller drains a run that paused on an interrupt.
+
+A non-streaming caller cannot act on an interrupt, so it surfaces loudly rather than
+returning a partial. ``interrupts`` is the list of `InterruptFinal` events the run
+emitted.
 
 **Attributes**
 
@@ -299,9 +302,10 @@ The agent's complete final answer, assembled from the deltas. Terminal.
 class PresetSpec(BaseModel)
 ```
 
-A base tool bound to fixed kwargs, resolved into a ``StructuredTool`` at
-run time (see ``resolve_tools``). A base tool that interprets its fixed kwargs
-as a nested document carries that document opaquely here.
+A base tool bound to fixed kwargs, resolved into a ``StructuredTool`` at run time.
+
+See ``resolve_tools``. A base tool that interprets its fixed kwargs as a nested document
+carries that document opaquely here.
 
 **Attributes**
 
@@ -321,8 +325,9 @@ as a nested document carries that document opaquely here.
 class ReasoningStep(StreamEvent)
 ```
 
-A chunk of the model's intermediate reasoning ("thinking") for one step
-of the agent loop. Empty/whitespace-only reasoning is never emitted.
+A chunk of the model's intermediate reasoning ("thinking") for one step of the agent loop.
+
+Empty/whitespace-only reasoning is never emitted.
 
 **Attributes**
 
@@ -361,9 +366,10 @@ Token usage (and model label) for the run. Any field may be ``None``.
 class StreamEvent(BaseModel)
 ```
 
-Base class for every event an `Agent` streams. ``type`` is a stable
-discriminator; ``final`` marks a terminal event (see the terminal rule in
-`Agent._drain`).
+Base class for every event an `Agent` streams.
+
+``type`` is a stable discriminator; ``final`` marks a terminal event (see the terminal
+rule in `Agent._drain`).
 
 **Attributes**
 
@@ -382,9 +388,10 @@ discriminator; ``final`` marks a terminal event (see the terminal rule in
 class StructuredFinal(StreamEvent)
 ```
 
-The agent's structured (non-text) output. ``data`` is the object the
-agent produced — typically the validated ``response_format`` instance. A
-plain-text answer is carried by `MessageFinal` instead. Terminal.
+The agent's structured (non-text) output.
+
+``data`` is the object the agent produced — typically the validated ``response_format``
+instance. A plain-text answer is carried by `MessageFinal` instead. Terminal.
 
 **Attributes**
 
@@ -476,8 +483,9 @@ interaction ids the flow-blind platform already holds.
 class ToolCallStep(StreamEvent)
 ```
 
-One tool invocation the agent decided to make. ``call_id`` is the
-model-assigned id the matching `ToolResultStep` carries.
+One tool invocation the agent decided to make.
+
+``call_id`` is the model-assigned id the matching `ToolResultStep` carries.
 
 **Attributes**
 
@@ -497,8 +505,9 @@ model-assigned id the matching `ToolResultStep` carries.
 class ToolResultStep(StreamEvent)
 ```
 
-The value one tool call returned, matched to a `ToolCallStep` by
-``call_id``. ``result`` is passed through untouched.
+The value one tool call returned, matched to a `ToolCallStep` by ``call_id``.
+
+``result`` is passed through untouched.
 
 **Attributes**
 
@@ -519,10 +528,10 @@ The value one tool call returned, matched to a `ToolCallStep` by
 agent_session_thread(thread_id: str) -> Generator[None]
 ```
 
-Deposit ``thread_id`` as the ambient session thread for the wrapped block, resetting
-it in a ``finally``. A task created inside the block inherits it on a copy. Absent this
-wrap the deposit stays ``None`` and a run mints its own fresh thread — byte-identical to
-the pre-deposit behavior.
+Deposit ``thread_id`` as the ambient session thread for the wrapped block.
+
+The deposit is reset in a ``finally``. A task created inside the block inherits it on a
+copy. Absent this wrap the deposit stays ``None`` and a run mints its own fresh thread.
 
 **Parameters**
 
@@ -550,8 +559,9 @@ The session thread deposited for the current run, or ``None`` when none is set.
 reset_agent_session_thread(token: Token[str | None]) -> None
 ```
 
-Restore the session thread to the value captured in ``token`` by the matching
-`set_agent_session_thread` call.
+Restore the session thread to the value captured in ``token``.
+
+``token`` is the return value of the matching `set_agent_session_thread` call.
 
 **Parameters**
 
@@ -568,8 +578,9 @@ Restore the session thread to the value captured in ``token`` by the matching
 set_agent_session_thread(thread_id: str | None) -> Token[str | None]
 ```
 
-Bind ``thread_id`` as the current run's session thread; pass the returned token to
-`reset_agent_session_thread` to restore the previous value.
+Bind ``thread_id`` as the current run's session thread.
+
+Pass the returned token to `reset_agent_session_thread` to restore the previous value.
 
 **Parameters**
 

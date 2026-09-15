@@ -34,6 +34,8 @@ client to be created automatically.
 class ClientSettings(DefaultNamespaceMixin, TaiBaseSettings)
 ```
 
+Base a client's settings subclass extends to supply connection kwargs via ``client_kwargs()``.
+
 **Attributes**
 
 | Attribute | Type |
@@ -62,6 +64,11 @@ Connection kwargs passed to the client's ``_create`` / ``current``.
 class PooledClient
 ```
 
+A per-event-loop, per-epoch pool for a single driver client of type ``T``.
+
+Subclasses implement `_create` and `_close`; callers lease the shared client
+through `current`, which rebuilds it after a classified disconnection.
+
 ### Members
 
 #### current
@@ -71,6 +78,11 @@ class PooledClient
 ```python
 async current(self, **kwargs) -> AsyncIterator[T]
 ```
+
+Lease the pooled client for ``kwargs``, creating it on first use.
+
+A disconnection inside the body evicts and closes the client and raises
+`ClientDisconnectedError`; retry to rebuild it.
 
 **Parameters**
 
@@ -86,6 +98,8 @@ async current(self, **kwargs) -> AsyncIterator[T]
 ```python
 async close(self, **kwargs) -> None
 ```
+
+Close and drop the pooled client for ``kwargs`` in the current epoch, if one is pooled.
 
 **Parameters**
 
@@ -103,6 +117,8 @@ async close(self, **kwargs) -> None
 class PostgresConnectionSettings(ClientSettings)
 ```
 
+Base Postgres connection settings loaded under a database's ``TAI_DATABASE_<NAME>_`` prefix.
+
 **Attributes**
 
 | Attribute | Type |
@@ -117,9 +133,19 @@ class PostgresConnectionSettings(ClientSettings)
 | `pg_max_connections` | `int` |
 | `pg_connect_timeout` | `int` |
 | `pg_statement_timeout_seconds` | `float` |
-| `pg_dsn` *(property)* | `str` |
 
 ### Members
+
+#### pg_dsn
+
+`tai42_kit.clients.settings.PostgresConnectionSettings.pg_dsn`
+
+```python
+pg_dsn: str
+```
+
+Build the libpq DSN from the connection fields; a missing host or password raises a named error.
+
 
 #### client_kwargs
 
@@ -143,6 +169,8 @@ bounds get separate pools.
 ```python
 class RedisConnectionSettings(ClientSettings)
 ```
+
+Base Redis connection settings with unprefixed field names for a store to subclass with its own prefix.
 
 **Attributes**
 
@@ -209,6 +237,12 @@ client_ctx(
     **kwargs: Any,
 ) -> AbstractAsyncContextManager[T]
 ```
+
+Return an async context manager yielding a connected client for ``client_cls``.
+
+Pass either ``settings`` (its ``client_kwargs()`` supplies the connection kwargs) or raw
+``**kwargs``, never both. ``fresh=True`` builds a one-shot client outside the pool and closes it
+on exit; otherwise the client is pooled and reused per event-loop + connection params.
 
 **Parameters**
 

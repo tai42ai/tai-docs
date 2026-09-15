@@ -27,8 +27,10 @@ this re-export.
 class UrlGuardError(Exception)
 ```
 
-Raised when a target host cannot be resolved or is rejected as non-public, or when a
-response exceeds the guard's size cap or its redirect chain exceeds ``max_redirects``.
+Raised when a target host is unresolvable, non-public, over the size cap, or over-redirected.
+
+Covers a host that cannot be resolved or is rejected as non-public, a response that
+exceeds the guard's size cap, and a redirect chain that exceeds ``max_redirects``.
 
 
 ## UrlGuardSettings
@@ -61,6 +63,7 @@ enforce_size(nbytes: int) -> None
 ```
 
 Raise `UrlGuardError` when ``nbytes`` exceeds the configured cap.
+
 A no-op when the guard is disabled. Never truncates — an over-cap response is
 refused loudly.
 
@@ -122,8 +125,9 @@ Return whether the SSRF guard is enabled (``TAI_URL_GUARD_ENABLED``).
 async resolve_and_validate(host: str) -> str
 ```
 
-Resolve ``host``, reject it if any resolved address is non-public, and
-return the first validated address to connect to (the "pin").
+Resolve ``host``, reject non-public addresses, and return the first validated address.
+
+The returned address is the one to connect to (the "pin").
 
 Resolving once and connecting to the returned address closes DNS-rebinding:
 the same lookup that is validated is the one the connection uses, so an

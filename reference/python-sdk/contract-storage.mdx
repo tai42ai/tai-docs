@@ -46,6 +46,11 @@ a value, not a mutable handle.
 class Storage(ABC)
 ```
 
+The abstract object-store contract: load, list, upload and delete objects by path.
+
+Files and directories share one id space; a backend maps missing objects to
+``FileNotFoundError`` and colliding paths to `StoragePathConflictError`.
+
 ### Members
 
 #### load
@@ -78,6 +83,8 @@ network) must propagate as its own error.
 ```python
 async list(self) -> builtins.list[str]
 ```
+
+Return every stored object path, in no guaranteed order.
 
 
 #### upload
@@ -112,9 +119,9 @@ directory is free to hold a file.
 async delete(self, path: str) -> None
 ```
 
-Delete the object at ``path``, raising ``FileNotFoundError`` when it
-does not exist (a caller wanting idempotent semantics maps that to a
-no-op).
+Delete the object at ``path``, raising ``FileNotFoundError`` when it does not exist.
+
+A caller wanting idempotent semantics maps that ``FileNotFoundError`` to a no-op.
 
 **Parameters**
 
@@ -131,9 +138,10 @@ no-op).
 async delete_dir(self, path: str) -> None
 ```
 
-Delete every object under ``path``. Path and existence validation
-(``ValueError`` / ``FileNotFoundError``) must complete before any
-deletion begins — once destruction starts, failures surface as other
+Delete every object under ``path``.
+
+Path and existence validation (``ValueError`` / ``FileNotFoundError``) must complete
+before any deletion begins — once destruction starts, failures surface as other
 exception types, so callers can treat those two as pre-mutation.
 
 **Parameters**
@@ -151,8 +159,7 @@ exception types, so callers can treat those two as pre-mutation.
 async load_bytes(self, path: str) -> bytes
 ```
 
-Return the raw bytes at ``path``, with the same ``FileNotFoundError``
-contract as `load`.
+Return the raw bytes at ``path``, with the same ``FileNotFoundError`` contract as `load`.
 
 Text-bridge default: reads the text via `load` and UTF-8 encodes it,
 so a text-only backend serves bytes for free. A binary-native backend
@@ -250,9 +257,10 @@ names the stored ids it collides with.
 conflicts_summary(self) -> str
 ```
 
-The conflicting ids as a human string, capped at
-`_MESSAGE_CONFLICT_CAP` with a ``… and N more`` tail; the full list
-stays on `conflicts`.
+The conflicting ids as a human string, capped at `_MESSAGE_CONFLICT_CAP`.
+
+Beyond the cap a ``… and N more`` tail is appended; the full list stays on
+`conflicts`.
 
 
 

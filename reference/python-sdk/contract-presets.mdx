@@ -5,9 +5,11 @@ icon: "sliders"
 ---
 
 
-The presets contract: the `PresetSpec` data
-model, the `PresetBody` persisted shape, the preset-specific errors, and
-the `PresetStore` Protocol.
+The presets contract: the ``PresetSpec`` model, ``PresetBody`` shape, errors, and store.
+
+Covers the `PresetSpec` data model, the
+`PresetBody` persisted shape, the preset-specific errors, and the
+`PresetStore` Protocol.
 
 A *preset* is a base tool with a partial set of keyword arguments baked in,
 exposed as a new named, versioned tool. It is the FIRST typed VIEW over the
@@ -34,10 +36,9 @@ CARRY_FORWARD = CarryForward()
 class CarryForward
 ```
 
-Sentinel for a `save_version`
-editable field the caller did not provide — carry the ACTIVE value forward.
+Sentinel for a `save_version` field the caller did not provide.
 
-``fixed_kwargs`` / ``extensions`` clear with an empty container, so
+Carry the ACTIVE value forward. ``fixed_kwargs`` / ``extensions`` clear with an empty container, so
 ``None`` is their carry-forward sentinel; ``output_schema`` / ``input_schema``
 have no empty container (their cleared state IS ``None``), so each needs a
 distinct sentinel to tell "not provided" (carry forward) apart from an explicit
@@ -212,9 +213,10 @@ never the applier logic.
 class PresetSeedToolMeta(BaseModel)
 ```
 
-The optional display metadata a `PresetSeed` seeds onto its preset's
-tool_meta. Each field is applied only where the preset's tool_meta leaves it
-absent — a seed never overwrites an operator-set display value.
+The optional display metadata a `PresetSeed` seeds onto its preset's tool_meta.
+
+Each field is applied only where the preset's tool_meta leaves it absent — a seed never overwrites
+an operator-set display value.
 
 ``display_name`` is the human tool title; ``tags`` label it in listings;
 ``folder_path`` is a ``/``-style path the applier resolves into the tool_meta
@@ -237,9 +239,10 @@ folder tree (creating missing segments), never a raw stored string.
 class PresetSpec(BaseModel)
 ```
 
-A base tool bound to fixed kwargs, resolved into a ``StructuredTool`` at
-run time (see ``resolve_tools``). A base tool that interprets its fixed kwargs
-as a nested document carries that document opaquely here.
+A base tool bound to fixed kwargs, resolved into a ``StructuredTool`` at run time.
+
+See ``resolve_tools``. A base tool that interprets its fixed kwargs as a nested document
+carries that document opaquely here.
 
 **Attributes**
 
@@ -286,7 +289,9 @@ async create_preset(
 ) -> DocumentRecord
 ```
 
-Create a versioned preset. ``spec`` carries ``name``/``description``/
+Create a versioned preset.
+
+``spec`` carries ``name``/``description``/
 ``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
 optional ``output_schema`` / ``input_schema`` ride alongside — all of them
 land in the persisted `PresetBody`. ``tags`` labels version 1 in the
@@ -386,8 +391,9 @@ List the active versioned presets.
 async get_preset(self, name: str) -> DocumentRecord
 ```
 
-Fetch a preset's active record. Raise `PresetNotFoundError` if
-absent.
+Fetch a preset's active record.
+
+Raise `PresetNotFoundError` if absent.
 
 **Parameters**
 
@@ -404,8 +410,9 @@ absent.
 async get_active_kwargs(self, name: str) -> dict[str, Any]
 ```
 
-Return the active version's baked ``fixed_kwargs``. Raise
-`PresetNotFoundError` if absent.
+Return the active version's baked ``fixed_kwargs``.
+
+Raise `PresetNotFoundError` if absent.
 
 **Parameters**
 
@@ -422,8 +429,9 @@ Return the active version's baked ``fixed_kwargs``. Raise
 async list_versions(self, name: str) -> list[DocumentVersion]
 ```
 
-List every version of the preset, each carrying its ``is_current``
-signal. Raise `PresetNotFoundError` if the preset is absent.
+List every version of the preset, each carrying its ``is_current`` signal.
+
+Raise `PresetNotFoundError` if the preset is absent.
 
 **Parameters**
 
@@ -440,8 +448,9 @@ signal. Raise `PresetNotFoundError` if the preset is absent.
 async get_version(self, name: str, version: int) -> DocumentVersion
 ```
 
-Fetch one version. Raise `PresetVersionNotFoundError` if that
-version does not exist.
+Fetch one version.
+
+Raise `PresetVersionNotFoundError` if that version does not exist.
 
 **Parameters**
 
@@ -459,10 +468,10 @@ version does not exist.
 async get_active_body(self, name: str) -> PresetBody
 ```
 
-Return the FULL active-version body (``{base_tool, description,
-fixed_kwargs, extensions}``) so reload/startup can re-register from
-the whole body, not just ``fixed_kwargs``. Raise
-`PresetNotFoundError` if absent.
+Return the FULL active-version body (``{base_tool, description, fixed_kwargs, extensions}``).
+
+So reload/startup can re-register from the whole body, not just
+``fixed_kwargs``. Raise `PresetNotFoundError` if absent.
 
 **Parameters**
 
@@ -479,8 +488,9 @@ the whole body, not just ``fixed_kwargs``. Raise
 async rollback(self, name: str, version: int) -> DocumentRecord
 ```
 
-Re-point the active version to ``version`` (no data copy). Raise
-`PresetVersionNotFoundError` if that version does not exist.
+Re-point the active version to ``version`` (no data copy).
+
+Raise `PresetVersionNotFoundError` if that version does not exist.
 
 **Parameters**
 
@@ -498,8 +508,9 @@ Re-point the active version to ``version`` (no data copy). Raise
 async soft_delete(self, name: str) -> None
 ```
 
-Soft-delete the preset, keeping its version history (audit). Raise
-`PresetNotFoundError` if absent.
+Soft-delete the preset, keeping its version history (audit).
+
+Raise `PresetNotFoundError` if absent.
 
 **Parameters**
 
@@ -516,8 +527,10 @@ Soft-delete the preset, keeping its version history (audit). Raise
 async rename_preset(self, name: str, new_name: str) -> DocumentRecord
 ```
 
-Re-key a preset from ``name`` to ``new_name``, delegating to the generic
-store's rename under ``kind="preset"``. The version history, every per-version
+Re-key a preset from ``name`` to ``new_name``.
+
+Delegates to the generic store's rename under
+``kind="preset"``. The version history, every per-version
 ``tags`` label, and the ``active_version`` pointer are preserved by the store
 contract — a rename moves a key, it never rewrites the body. Raise
 `PresetNotFoundError` for an absent ``name``, `PresetExistsError`
