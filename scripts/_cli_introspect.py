@@ -81,7 +81,8 @@ def _resolve_tai_app() -> click.Command:
 
     The dumped tree is exactly what operators run, wherever the app lives. A
     missing entry point is a fail-loud contract: raise so ``main`` exits non-zero
-    and writes no placeholder tree."""
+    and writes no placeholder tree.
+    """
     matches = [ep for ep in importlib.metadata.entry_points(group="console_scripts") if ep.name == "tai"]
     if not matches:
         raise LookupError(

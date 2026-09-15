@@ -1,4 +1,4 @@
-"""Execute the CLI / curl / YAML operator examples and assert their outcomes.
+r"""Execute the CLI / curl / YAML operator examples and assert their outcomes.
 
 The Python examples are single-sourced and type-checked (``sync_examples.py`` +
 pyright), but a ``tai …`` command, a ``curl``, or a manifest YAML that only ever
@@ -17,7 +17,7 @@ Shell examples (``.sh``, i.e. ``tai`` or ``curl`` snippets)::
     #| fixture: ac_app                 # live app to boot first (default: none)
     #| expect_exit: 0                  # required process exit code (default: 0)
     #| expect_stdout_contains: 200     # substring the stdout must contain (optional)
-    curl -sS -o /dev/null -w '%{http_code}\\n' -H "X-Api-Key: $TAI_API_KEY" "$TAI_BASE_URL/guarded"
+    curl -sS -o /dev/null -w '%{http_code}\n' -H "X-Api-Key: $TAI_API_KEY" "$TAI_BASE_URL/guarded"
 
 The named fixture (``example_fixtures.FIXTURES``) is booted once and exports the
 environment variables the body references (``$TAI_BASE_URL``, ``$TAI_API_KEY``…).
@@ -108,6 +108,8 @@ def _load_yaml_models() -> None:
 
 @dataclass
 class Example:
+    """One discovered operator example: its file, kind, metadata, and body."""
+
     path: Path
     suffix: str
     meta: dict[str, str]
@@ -115,15 +117,19 @@ class Example:
 
     @property
     def rel(self) -> str:
+        """The example's path relative to the examples directory, POSIX-style."""
         return self.path.relative_to(sync_examples.EXAMPLES_DIR).as_posix()
 
     @property
     def fixture(self) -> str:
+        """The fixture name the example requests, or "none"."""
         return self.meta.get("fixture", "none")
 
 
 @dataclass
 class Result:
+    """The outcome of running one example: whether it passed and a detail message."""
+
     example: Example
     ok: bool
     detail: str
@@ -173,8 +179,8 @@ def _run_shell(example: Example, env: dict[str, str]) -> Result:
         handle.write(example.body)
         script = handle.name
     try:
-        proc = subprocess.run(
-            ["bash", script],
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
+            ["bash", script],  # noqa: S607 - trusted tool resolved from PATH
             capture_output=True,
             text=True,
             env=env,
@@ -257,6 +263,7 @@ def run(examples: list[Example]) -> _Run:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Discover and run the executable examples; return 0 when all pass, 1 otherwise."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list", action="store_true", help="list discovered executable examples and exit")
     args = parser.parse_args(argv)

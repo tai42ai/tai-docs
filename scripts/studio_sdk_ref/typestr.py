@@ -26,9 +26,11 @@ _ALIAS_ORIGIN_TO_NAME: dict[tuple[str, str], str] = {}
 
 
 def init_alias_context(project: dict, exports: list[tuple[dict, str]]) -> None:
-    """Set the per-run alias state from a TypeDoc project and its exports: the
-    ``symbolIdMap`` used to recover external-type origins, and the map from each
-    single-export external origin to that type's name."""
+    """Set the per-run alias state from a TypeDoc project and its exports.
+
+    Captures the ``symbolIdMap`` used to recover external-type origins, and the
+    map from each single-export external origin to that type's name.
+    """
     global _SYMBOL_ID_MAP, _ALIAS_ORIGIN_TO_NAME
     _SYMBOL_ID_MAP = project.get("symbolIdMap") or {}
     _ALIAS_ORIGIN_TO_NAME = _build_alias_origins(exports)
@@ -47,9 +49,12 @@ def _origin_of(decl: dict) -> tuple[str, str] | None:
 
 
 def _collapsed_alias(decl: dict) -> str | None:
-    """If ``decl`` is an inline object literal that is really a documented,
-    externally-defined named type (TypeDoc expanded it because TypeScript
-    resolved the alias away), return that type's NAME; else None."""
+    """Return the NAME of a documented external type TypeDoc expanded inline, else None.
+
+    ``decl`` matches when it is an inline object literal that is really a
+    documented, externally-defined named type (TypeDoc expanded it because
+    TypeScript resolved the alias away).
+    """
     if not decl.get("children"):
         return None
     origin = _origin_of(decl)
@@ -59,10 +64,12 @@ def _collapsed_alias(decl: dict) -> str | None:
 
 
 def _build_alias_origins(exports: list[tuple[dict, str]]) -> dict[tuple[str, str], str]:
-    """Map each EXTERNAL source origin that exports exactly one documented type to
-    that type's name. Local (``@tai42/studio-sdk``) types already render by
-    reference, so they are excluded — only re-exported external types (whose
-    aliases TypeDoc expands) need recovering."""
+    """Map each external single-export source origin to that type's name.
+
+    Local (``@tai42/studio-sdk``) types already render by reference, so they are
+    excluded — only re-exported external types (whose aliases TypeDoc expands)
+    need recovering.
+    """
     origin_names: dict[tuple[str, str], set[str]] = {}
     for refl, _module in exports:
         origin = _origin_of(refl)
@@ -73,9 +80,11 @@ def _build_alias_origins(exports: list[tuple[dict, str]]) -> dict[tuple[str, str
 
 
 def _type_params_str(container: dict | None) -> str:
-    """Render a reflection's / signature's ``<T extends C = D, …>`` type-parameter
-    list, or "" when there are none. Without this a generic symbol renders a free,
-    undeclared ``T`` in its signature."""
+    """Render a reflection's / signature's ``<T extends C = D, …>`` type-parameter list.
+
+    Returns "" when there are none. Without this a generic symbol renders a
+    free, undeclared ``T`` in its signature.
+    """
     tparams = (container or {}).get("typeParameters") or []
     if not tparams:
         return ""
@@ -110,9 +119,11 @@ def _template_literal_str(t: dict) -> str:
 
 
 def _reflection_type_str(decl: dict) -> str:
-    """Render an inline reflection type: a function type, an index signature, or
-    an object type literal. Kept compact — the full shape lives on the named
-    interface/type-alias when there is one."""
+    """Render an inline reflection type: a function type, an index signature, or an object type literal.
+
+    Kept compact — the full shape lives on the named interface/type-alias when
+    there is one.
+    """
     sigs = decl.get("signatures")
     if sigs:
         sig = sigs[0]
@@ -271,8 +282,10 @@ def type_str(t: dict | None) -> str:
 
 
 def collect_refs(t: dict | None, out: set[str]) -> None:
-    """Collect the names of every ``reference`` type reachable from ``t`` (used
-    to render a "Related types" line linking to locally documented symbols)."""
+    """Collect the names of every ``reference`` type reachable from ``t``.
+
+    Used to render a "Related types" line linking to locally documented symbols.
+    """
     if isinstance(t, dict):
         # A collapsed external alias (e.g. ApiClient) links by its recovered name;
         # stop here so its expanded internal structure is not walked.

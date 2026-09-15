@@ -19,9 +19,11 @@ from studio_sdk_ref.errors import GenerationError
 
 
 def run_typedoc(entry_points: list[str] | None = None) -> dict:
-    """Invoke the pinned TypeDoc against the entry points and return the parsed
-    project JSON. Raises GenerationError on any failure — a missing binary, a
-    TypeDoc error, or output that is not the expected project object."""
+    """Invoke the pinned TypeDoc against the entry points and return the parsed project JSON.
+
+    Raises GenerationError on any failure — a missing binary, a TypeDoc error,
+    or output that is not the expected project object.
+    """
     entry_points = entry_points if entry_points is not None else config.ENTRY_POINTS
     if not config.TYPEDOC_BIN.is_file():
         raise GenerationError(
@@ -50,7 +52,7 @@ def run_typedoc(entry_points: list[str] | None = None) -> dict:
             "--logLevel",
             "Error",  # warnings (unresolved @links etc.) are non-fatal noise
         ]
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
             cmd,
             cwd=str(config.STUDIO_SDK_DIR),
             capture_output=True,
@@ -90,9 +92,11 @@ def index_by_id(project: dict) -> dict[int, dict]:
 
 
 def source_dir(refl: dict) -> str:
-    """The first path segment under ``src/`` for a reflection's primary source
-    (e.g. ``plugin`` for ``.../src/plugin/version.ts``). Returns "" when the
-    source lives outside a package ``src/`` tree (a re-exported external type)."""
+    """Return the first path segment under ``src/`` for a reflection's primary source.
+
+    For example ``plugin`` for ``.../src/plugin/version.ts``. Returns "" when the
+    source lives outside a package ``src/`` tree (a re-exported external type).
+    """
     sources = refl.get("sources") or []
     if not sources:
         return ""
@@ -117,9 +121,11 @@ def category_for(refl: dict, module_name: str) -> str:
 
 
 def enumerate_exports(project: dict) -> list[tuple[dict, str]]:
-    """Every top-level export across the three entry-point modules, as
-    (reflection, module_name). A symbol re-exported from more than one module is
-    documented once (first module wins, in module order)."""
+    """Every top-level export across the three entry-point modules, as (reflection, module_name).
+
+    A symbol re-exported from more than one module is documented once (first
+    module wins, in module order).
+    """
     seen: set[str] = set()
     exports: list[tuple[dict, str]] = []
     modules = sorted(

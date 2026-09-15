@@ -154,7 +154,13 @@ def _validate(source: Path, suffix: str, body: str) -> None:
         if loaded is None:
             raise ValueError(f"example {source} is empty YAML")
     elif suffix == ".sh":
-        proc = subprocess.run(["bash", "-n"], input=body, text=True, capture_output=True, check=False)
+        proc = subprocess.run(
+            ["bash", "-n"],  # noqa: S607 - trusted tool resolved from PATH
+            input=body,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
         if proc.returncode != 0:
             raise ValueError(f"example {source} has a shell syntax error: {proc.stderr.strip()}")
     else:  # pragma: no cover - guarded by _iter_examples's suffix filter
@@ -259,6 +265,7 @@ def check() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Sync the example snippets into the docs, or check for drift; return a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",

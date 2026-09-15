@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Reference drift-check: hand-written package/repo/config references in the docs
-must never silently go stale against their sources of truth.
+"""Reference drift-check for hand-written package/repo/config references in the docs.
 
+These references must never silently go stale against their sources of truth.
 Unlike the generated reference (guarded by ``check_drift.py``), these values are
 hand-authored in the narrative ``.mdx`` pages and can rot the moment a source
 renames a distribution, a repository, or changes a compose default. This check
@@ -235,12 +235,14 @@ def scan_docs(docs_root: Path = DOCS_ROOT) -> list[tuple[str, str]]:
 
 
 def _pyproject_sources(docs_root: Path) -> dict[str, str]:
-    """The foundation ``tai42-<name> -> tai-<repo>`` pairs this repo floats as
-    editable siblings in ``pyproject.toml`` ``[tool.uv.sources]``.
+    """Return the foundation ``tai42-<name> -> tai-<repo>`` sibling pairs.
 
-    These are the distributions the docs build itself depends on (the contract,
-    kit, and cli foundation layers) that ship no marketplace listing and so never appear in
-    the ``plugins/_registry.json`` snapshot."""
+    These are the pairs this repo floats as editable siblings in
+    ``pyproject.toml`` ``[tool.uv.sources]`` — the distributions the docs build
+    itself depends on (the contract, kit, and cli foundation layers) that ship
+    no marketplace listing and so never appear in the ``plugins/_registry.json``
+    snapshot.
+    """
     data = tomllib.loads((docs_root / "pyproject.toml").read_text(encoding="utf-8"))
     sources = data.get("tool", {}).get("uv", {}).get("sources", {})
     mapping: dict[str, str] = {}
@@ -264,7 +266,8 @@ def load_distribution_map(docs_root: Path = DOCS_ROOT) -> dict[str, str]:
     marketplace listings -- resolve too. The values are unused (only the key set
     gates distribution names), so each registry package maps to itself. A
     descriptor-only listing has ``package`` null (it ships no distribution), so it
-    is skipped -- a null must never seed a spurious ``None -> None`` entry."""
+    is skipped -- a null must never seed a spurious ``None -> None`` entry.
+    """
     mapping: dict[str, str] = {
         listing["package"]: listing["package"] for listing in load_registry() if listing.get("package") is not None
     }
@@ -283,6 +286,7 @@ def _iter_matches(text: str, pattern: re.Pattern[str], group: int = 0):
 
 
 def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str]) -> list[str]:
+    """Return a problem for each documented distribution name absent from ``valid_dists``."""
     problems: list[str] = []
     for rel, text in docs:
         for lineno, name in _iter_matches(text, _DIST_RE):
@@ -317,6 +321,11 @@ def check_repo_urls(
     docs: list[tuple[str, str]],
     workspace_root: Path = WORKSPACE_ROOT,
 ) -> tuple[list[str], list[str]]:
+    """Check documented repository URLs against the workspace; return (problems, notes).
+
+    Notes carry references that could not be verified offline (deferred to a run
+    with the sibling checkout present).
+    """
     valid_repos = INFRA_REPOS
     monorepo_root = workspace_root / MONOREPO
     problems: list[str] = []
@@ -386,6 +395,11 @@ def check_always_public(
     docs: list[tuple[str, str]],
     workspace_root: Path = WORKSPACE_ROOT,
 ) -> tuple[list[str], list[str]]:
+    """Verify documented always-public path-prefix examples against the compose default.
+
+    Returns (problems, notes); a missing compose file offline yields a note
+    rather than a problem.
+    """
     problems: list[str] = []
     notes: list[str] = []
     doc_hits = [
@@ -424,7 +438,8 @@ def _requirement_names(text: str) -> set[str]:
     """The distribution names pinned in a pypi-requirements file.
 
     Strips comments, extras (``[toolbox,files]``), and version specifiers, so
-    ``tai42-skeleton[toolbox,files]==0.3.1`` yields ``tai42-skeleton``."""
+    ``tai42-skeleton[toolbox,files]==0.3.1`` yields ``tai42-skeleton``.
+    """
     names: set[str] = set()
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
@@ -440,7 +455,8 @@ def _roster_block(docs: list[tuple[str, str]]) -> tuple[str, int, set[str]] | No
     """Locate the docs' delimited core-roster block.
 
     Returns ``(relative_path, start_lineno, distribution_tokens)`` for the first
-    block found, or ``None`` when no page carries the markers."""
+    block found, or ``None`` when no page carries the markers.
+    """
     for rel, text in docs:
         m = _ROSTER_BLOCK_RE.search(text)
         if not m:
@@ -736,6 +752,7 @@ def evaluate(
 
 
 def main() -> int:
+    """Run every reference drift-check and report; return 0 when clean, 1 on any problem."""
     problems, notes = evaluate()
 
     for note in notes:

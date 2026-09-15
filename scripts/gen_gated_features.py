@@ -117,6 +117,7 @@ def inject(page_text: str, table: str) -> str:
 
 
 def main() -> int:
+    """Refresh the gated-features table in its page; return 0 on success, 1 on failure."""
     if not PAGE.is_file():
         print(f"gen_gated_features: page not found at {PAGE}", file=sys.stderr)
         return 1

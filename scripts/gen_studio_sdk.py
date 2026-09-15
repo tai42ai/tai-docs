@@ -44,6 +44,7 @@ from studio_sdk_ref.pages import _ordered_slugs, build_reference
 
 
 def main() -> int:
+    """Generate the Studio SDK reference from TypeDoc output; return a process exit code."""
     # 1. Run TypeDoc.
     try:
         project = run_typedoc()

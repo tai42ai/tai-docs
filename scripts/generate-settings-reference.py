@@ -69,7 +69,7 @@ except ImportError as exc:  # pragma: no cover - environment guard
 # a committed artifact checked for drift, so such defaults are rendered in the
 # canonical POSIX form the deployment targets use.
 _LOCAL_TMP_DIR = tempfile.gettempdir()
-_CANONICAL_TMP_DIR = "/tmp"
+_CANONICAL_TMP_DIR = "/tmp"  # noqa: S108 - canonical path constant for output normalization, not a temp write
 OUT_FILE = DOCS_ROOT / "reference" / "settings.mdx"
 DOCS_JSON = DOCS_ROOT / "docs.json"
 
@@ -332,11 +332,12 @@ def render_description(field: dict, resolve_nested: Callable[[str], tuple[str, s
 
 
 def render_reload(field: dict) -> str:
-    """The Reload cell: the field's ``reload_class`` — how a live
-    [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a
-    change to it.
+    """Render the Reload cell from the field's ``reload_class``.
 
-    ``hot`` re-reads the value in place, ``recycle`` tears down and rebuilds the
+    The class is how a live
+    [settings-profile](/concepts/config-and-secrets#settings-profiles) apply
+    treats a change to it. ``hot`` re-reads the value in place, ``recycle``
+    tears down and rebuilds the
     pooled resource behind it, ``excluded`` cannot change without a full process
     restart (a profile carrying an ``excluded`` key is refused). A nested-group
     reference row names no variable of its own, so it renders an em dash — the
@@ -414,6 +415,7 @@ def count_noun(count: int, singular: str, plural: str) -> str:
 
 
 def render(groups: list[dict]) -> str:
+    """Render the full settings-reference page as MDX."""
     variables, references = count_rows(groups)
     ordered = sorted(groups, key=lambda g: g["name"])
 
@@ -547,6 +549,7 @@ def _write_nav(data: dict) -> None:
 
 
 def main() -> int:
+    """Generate the settings-reference page from the registry; return a process exit code."""
     groups = load_groups()
     audit_secrets(groups)  # raises SystemExit(1) on a baked-in credential
     page = render(groups)

@@ -276,11 +276,13 @@ def _tilde_last(match: re.Match) -> str:
 
 
 def mdx_escape_prose(text: str) -> str:
-    """Escape MDX-hostile characters in prose while leaving code untouched:
-    fenced blocks (```...```) and inline-code spans (single- or
-    double-backtick) pass through verbatim, so fenced examples and annotations
-    like ``dict[str, Any]`` survive while stray ``{`` / ``<`` in narrative
-    cannot break the MDX parser."""
+    """Escape MDX-hostile characters in prose while leaving code untouched.
+
+    Fenced blocks (```...```) and inline-code spans (single- or double-backtick)
+    pass through verbatim, so fenced examples and annotations like
+    ``dict[str, Any]`` survive while stray ``{`` / ``<`` in narrative cannot
+    break the MDX parser.
+    """
     out: list[str] = []
     last = 0
     for fence in _CODE_FENCE.finditer(text):
@@ -311,6 +313,7 @@ def _escape_segment(seg: str) -> str:
 
 
 def frontmatter(title: str, description: str, icon: str) -> str:
+    """Return the MDX frontmatter block for a page (title, description, icon)."""
     # Quote to keep YAML happy regardless of punctuation in the values.
     return f'---\ntitle: "{title}"\ndescription: "{description}"\nicon: "{icon}"\n---\n'
 
@@ -339,7 +342,8 @@ def _deref_export_target(module: Object, name: str, target: Object) -> Object:
     dereferenced to the submodule's same-named member — repeatedly, when that
     member is itself a shadowing submodule. Raises when the chain cycles back to
     a visited module, or reaches a module with no same-named member, rather than
-    silently dropping a declared export."""
+    silently dropping a declared export.
+    """
     visited: set[str] = set()
     while target.kind.value == "module":
         if target.path in visited:
@@ -439,6 +443,7 @@ def _param_pieces(func: Function) -> list[str]:
 
 
 def render_signature(obj: Object) -> str:
+    """Render an object's signature line — function/method, class, or attribute — as code."""
     if isinstance(obj, Function) or obj.kind.value == "function":
         params = _param_pieces(obj)  # type: ignore[arg-type]
         ret = f" -> {obj.returns}" if getattr(obj, "returns", None) is not None else ""
@@ -508,8 +513,11 @@ def _first_line(text: str) -> str:
 
 
 def _table_code(value) -> str:
-    """A backtick code cell safe inside a Markdown table: literal pipes in the
-    value (e.g. ``list[str] | None``) are escaped so they don't split columns."""
+    """Return a backtick code cell safe inside a Markdown table.
+
+    Literal pipes in the value (e.g. ``list[str] | None``) are escaped so they
+    don't split columns.
+    """
     return "`" + str(value).replace("|", "\\|") + "`"
 
 
@@ -519,6 +527,7 @@ def _table_text(text: str) -> str:
 
 
 def render_params_table(func: Function, param_docs: dict[str, str]) -> str:
+    """Render a function's parameters as a Markdown "Parameters" table, or "" when it has none."""
     rows = []
     for p in func.parameters:
         if p.name in ("self", "cls"):
@@ -538,10 +547,12 @@ def _has_docstring(member: Object) -> bool:
 
 
 def render_attrs_table(cls: Object) -> str:
-    """A compact table of the class's plain data members (fields and simple
-    properties). Members that carry their own docstring are rendered as full
-    subsections instead (see ``render_object``), so they are not duplicated
-    here."""
+    """Render a compact table of the class's plain data members.
+
+    Covers fields and simple properties. Members that carry their own docstring
+    are rendered as full subsections instead (see ``render_object``), so they
+    are not duplicated here.
+    """
     rows = []
     for name, member in cls.members.items():
         if name.startswith("_") or member.is_alias:
@@ -631,8 +642,10 @@ def render_page(loader: GriffeLoader, spec: dict) -> tuple[str, list[str]]:
 
 
 def update_nav(slugs: list[str]) -> None:
-    """Rewrite ONLY the Reference > Python SDK group's pages to match the
-    generated files, preserving the rest of docs.json byte-for-byte otherwise."""
+    """Rewrite ONLY the Reference > Python SDK group's pages to match the generated files.
+
+    The rest of docs.json is preserved byte-for-byte otherwise.
+    """
     data = json.loads(DOCS_JSON.read_text(encoding="utf-8"))
     pages = ["reference/python-sdk/index"] + [f"reference/python-sdk/{s}" for s in slugs]
     for tab in data["navigation"]["tabs"]:
@@ -658,8 +671,10 @@ def update_nav(slugs: list[str]) -> None:
 
 
 def load_model() -> GriffeLoader:
-    """Load the three source packages into one griffe model with aliases
-    resolved. Raises if a source path is missing or a package fails to load."""
+    """Load the three source packages into one griffe model with aliases resolved.
+
+    Raises if a source path is missing or a package fails to load.
+    """
     for path in SRC_PATHS:
         if not path.is_dir():
             raise FileNotFoundError(f"source path missing: {path}")
@@ -671,8 +686,10 @@ def load_model() -> GriffeLoader:
 
 
 def build_pages(loader: GriffeLoader) -> tuple[dict[str, str], set[str]]:
-    """Render every page into memory. Returns (slug -> mdx, all symbol names).
-    Does not touch the filesystem."""
+    """Render every page into memory, returning (slug -> mdx, all symbol names).
+
+    Does not touch the filesystem.
+    """
     rendered_pages: dict[str, str] = {}
     all_symbols: set[str] = set()
     for spec in PAGES:
@@ -683,6 +700,7 @@ def build_pages(loader: GriffeLoader) -> tuple[dict[str, str], set[str]]:
 
 
 def main() -> int:
+    """Generate the Python SDK reference from the source model; return a process exit code."""
     try:
         loader = load_model()
     except Exception as exc:

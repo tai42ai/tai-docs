@@ -60,8 +60,8 @@ def _free_port() -> int:
 # the transport but model a CONFIGURED deployment (there is no store-less access-control
 # serving path), so each snapshots and sets a non-empty default-database password exactly
 # as the skeleton's own offline access-control tests do; the value never reaches a socket.
-_DEFAULT_DATABASE_PASSWORD_ENV = "TAI_DATABASE_DEFAULT_PG_PASSWORD"
-_DEFAULT_DATABASE_PASSWORD = "docs-example"
+_DEFAULT_DATABASE_PASSWORD_ENV = "TAI_DATABASE_DEFAULT_PG_PASSWORD"  # noqa: S105 - env-var name, not a secret
+_DEFAULT_DATABASE_PASSWORD = "docs-example"  # noqa: S105 - offline fixture placeholder, never reaches a socket
 
 
 def _restore_env(key: str, saved: str | None) -> None:
@@ -72,9 +72,11 @@ def _restore_env(key: str, saved: str | None) -> None:
 
 
 def _register_default_identity_provider() -> None:
-    """Register the default "redis" identity provider the way a manifest import
-    would. The skeleton ships no concrete provider; a deployment lists one in its
-    manifest, so each fixture installs it before serving."""
+    """Register the default "redis" identity provider the way a manifest import would.
+
+    The skeleton ships no concrete provider; a deployment lists one in its
+    manifest, so each fixture installs it before serving.
+    """
     from tai42_contract.access_control import registry
     from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
 
@@ -83,10 +85,12 @@ def _register_default_identity_provider() -> None:
 
 
 def _start_uvicorn(app) -> tuple[uvicorn.Server, threading.Thread, int]:
-    """Build a uvicorn server for ``app`` on a free localhost port and start it on
-    a daemon thread. Returns the server, its thread, and the port so the caller
-    holds the handles BEFORE awaiting startup — a startup timeout can then still
-    stop the server from the caller's ``finally``."""
+    """Build a uvicorn server for ``app`` on a free localhost port and start it on a daemon thread.
+
+    Returns the server, its thread, and the port so the caller holds the handles
+    BEFORE awaiting startup — a startup timeout can then still stop the server
+    from the caller's ``finally``.
+    """
     import uvicorn
 
     port = _free_port()
@@ -97,8 +101,11 @@ def _start_uvicorn(app) -> tuple[uvicorn.Server, threading.Thread, int]:
 
 
 def _await_started(server: uvicorn.Server, name: str) -> None:
-    """Poll until the server reports started, raising after 10s so a boot that
-    never comes up fails loud instead of hanging the example run."""
+    """Poll until the server reports started.
+
+    Raises after 10s so a boot that never comes up fails loud instead of hanging
+    the example run.
+    """
     deadline = time.monotonic() + 10
     while not server.started:
         if time.monotonic() > deadline:
@@ -107,8 +114,11 @@ def _await_started(server: uvicorn.Server, name: str) -> None:
 
 
 def _stop_uvicorn(server: uvicorn.Server | None, thread: threading.Thread | None) -> None:
-    """Ask the server to exit and join its thread. Idempotent over the
-    partial-setup paths: each handle is stopped only if it was created."""
+    """Ask the server to exit and join its thread.
+
+    Idempotent over the partial-setup paths: each handle is stopped only if it
+    was created.
+    """
     if server is not None:
         server.should_exit = True
     if thread is not None:
@@ -125,8 +135,11 @@ _GUARDED_PATH = "/guarded"
 
 
 def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
-    """Seed the fake Redis with an allowed and a denied key, and the fake policy
-    store with the guarded route's scope and the two users' policies."""
+    """Seed the fake Redis and fake policy store for the guarded-route example.
+
+    Redis gets an allowed and a denied key; the policy store gets the guarded
+    route's scope and the two users' policies.
+    """
     from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
@@ -150,8 +163,10 @@ def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
 
 
 def _swap_ac_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
-    """Point the access-control ``client_ctx`` seams at the fakes and return the
-    ``(object, attr, original)`` restore list."""
+    """Point the access-control ``client_ctx`` seams at the fakes.
+
+    Returns the ``(object, attr, original)`` restore list.
+    """
     from tai42_identity_redis import redis_api_key_provider as provider_module
     from tai42_skeleton.access_control import policy as policy_module
     from tai42_skeleton.access_control import store as store_module
@@ -171,9 +186,11 @@ def _swap_ac_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[
 
 @contextmanager
 def ac_app() -> Iterator[dict[str, str]]:
-    """Boot the real access-control middleware chain over a fake store and serve
-    it on a localhost socket. Yields ``TAI_BASE_URL`` + an allowed and a denied
-    api key so a ``curl`` example can observe a real 200 vs 403."""
+    """Boot the real access-control middleware chain over a fake store and serve it on a localhost socket.
+
+    Yields ``TAI_BASE_URL`` + an allowed and a denied api key so a ``curl``
+    example can observe a real 200 vs 403.
+    """
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
@@ -244,8 +261,11 @@ _OWNER_ID = "maya"
 
 
 def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
-    """Seed the fake Redis with the owner key and the fake policy store with the
-    routes the owner reaches and the owner's non-admin scope set."""
+    """Seed the fake Redis and fake policy store for the owned-key example.
+
+    Redis gets the owner key; the policy store gets the routes the owner reaches
+    and the owner's non-admin scope set.
+    """
     from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
@@ -274,10 +294,12 @@ def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
 
 
 def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
-    """Point the six ``client_ctx`` seams the owned-key routes reach at the fakes,
-    and redirect the key-policy history store to the in-memory generic store, so
-    the mint write-through runs offline. Returns the ``(object, attr, original)``
-    restore list."""
+    """Point the six ``client_ctx`` seams the owned-key routes reach at the fakes.
+
+    Redirects the key-policy history store to the in-memory generic store so the
+    mint write-through runs offline. Returns the ``(object, attr, original)``
+    restore list.
+    """
     from tai42_identity_redis import redis_api_key_provider as provider_module
     from tai42_skeleton.access_control import claim_links as claim_links_module
     from tai42_skeleton.access_control import management as management_module
@@ -316,10 +338,12 @@ def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) 
 
 
 def _pin_projection_seams() -> list[tuple[object, str, object]]:
-    """Pin the projection's live-registry seams (tool/agent/sub-MCP surfaces a full
-    app would populate) to controlled values and reset its cache; the store-backed
-    route derivation stays real. Returns the ``(object, attr, original)`` restore
-    list."""
+    """Pin the projection's live-registry seams to controlled values and reset its cache.
+
+    Pins the tool/agent/sub-MCP surfaces a full app would populate; the
+    store-backed route derivation stays real. Returns the ``(object, attr,
+    original)`` restore list.
+    """
     from tai42_skeleton.access_control import projection as projection_module
 
     async def _empty_sub_mcp() -> dict:
@@ -349,10 +373,10 @@ def _pin_projection_seams() -> list[tuple[object, str, object]]:
 
 @contextmanager
 def owned_keys_app() -> Iterator[dict[str, str]]:
-    """Boot the real owned-key delegation routes behind the real access-control chain
-    over the fake store, and serve them on a localhost socket.
+    """Boot the real owned-key delegation routes on a localhost socket.
 
-    Serves the three delegation doors — ``GET /api/auth/me`` (the capability
+    Runs behind the real access-control chain over the fake store. Serves the
+    three delegation doors — ``GET /api/auth/me`` (the capability
     projection), ``POST /api/auth/api-keys`` (mint), ``POST /api/auth/claim-links``
     (create a claim link), and the public ``POST /api/login/claim`` (exchange) — mounted
     as their REAL route handlers behind ``AuthAdapter``'s middleware, so an example
@@ -364,7 +388,8 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     projection additionally reaches into a fully-built app's tool/agent/sub-MCP
     registries, which this minimal boot does not populate, so the four live-registry
     projection seams are pinned to controlled values exactly as the projection's own unit
-    tests do — the route derivation still runs for real against the seeded store."""
+    tests do — the route derivation still runs for real against the seeded store.
+    """
     from starlette.applications import Starlette
     from starlette.routing import Route
     from tai42_contract.access_control import registry
@@ -442,8 +467,10 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
 
 @contextmanager
 def no_fixture() -> Iterator[dict[str, str]]:
-    """No server needed (a self-contained CLI or a YAML validation). Yields no
-    extra environment."""
+    """No server needed (a self-contained CLI or a YAML validation).
+
+    Yields no extra environment.
+    """
     yield {}
 
 

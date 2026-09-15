@@ -47,8 +47,8 @@ def extract_tree() -> dict:
     if not SKELETON_DIR.is_dir():
         raise GenerationError(f"tai42-skeleton checkout not found at {SKELETON_DIR}")
     try:
-        proc = subprocess.run(
-            ["uv", "run", "python", str(INTROSPECT)],
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
+            ["uv", "run", "python", str(INTROSPECT)],  # noqa: S607 - trusted tool resolved from PATH
             cwd=SKELETON_DIR,
             capture_output=True,
             text=True,
@@ -166,6 +166,7 @@ def _render_node(node: dict, level: int) -> list[str]:
 
 
 def render_page(node: dict) -> str:
+    """Render one command node as a full MDX page (frontmatter plus body)."""
     title = " ".join(node["path"])
     description = node["short_help"] or node["help"].split("\n")[0]
     body = "\n".join(_render_node(node, level=1)).rstrip() + "\n"
@@ -197,6 +198,7 @@ def update_nav(page_slugs: list[str]) -> None:
 
 
 def generate() -> list[str]:
+    """Render every command page and write it out; return the generated slugs."""
     tree = validate_tree(extract_tree())
     # Render every page into memory FIRST, so a malformed node raises before the
     # output directory is touched -- a bad tree leaves the committed reference
@@ -218,6 +220,7 @@ def generate() -> list[str]:
 
 
 def main() -> int:
+    """Generate the CLI reference pages; return 0 on success, 1 on any generation error."""
     try:
         slugs = generate()
     except GenerationError as exc:

@@ -149,7 +149,7 @@ def _base_url() -> str:
 
 def _get(url: str) -> bytes:
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310 - HTTPS marketplace fetch
             return resp.read()
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
         raise GenError(f"marketplace request failed for {url}: {exc}") from exc
@@ -254,11 +254,13 @@ def _fm_value(value: object) -> str:
     escaped rather than breaking the front matter. This covers the main page's
     title/description, which come from the marketplace SPEC and never pass
     ``validate_docs`` — a hostile third-party ``display_name`` cannot emit broken
-    YAML here."""
+    YAML here.
+    """
     return json.dumps(str(value))
 
 
 def mdx_cell(text: str) -> str:
+    """Escape a value for a Markdown table cell (pipes and MDX braces)."""
     return str(text).replace("|", "\\|").replace("{", "&#123;").replace("}", "&#125;")
 
 
@@ -271,7 +273,8 @@ def item_group(item: dict, ref: str) -> str | None:
 
     Absent key or ``null`` value means ungrouped and renders as an untagged item.
     A present value that is not a non-blank string is a loud failure naming the
-    item, matching the generator's refuse-malformed-input discipline."""
+    item, matching the generator's refuse-malformed-input discipline.
+    """
     if item.get("group") is None:
         return None
     group = item["group"]
@@ -418,7 +421,8 @@ def process_listing(spec: dict, files: dict[str, bytes]) -> dict:
     """Validate + render one listing. Returns a plan dict of files to write.
 
     Keys: ``main_slug``, ``pages`` ({slug: mdx}), ``images`` ({relpath: bytes}),
-    ``group`` (nav label), ``registry`` (the snapshot row)."""
+    ``group`` (nav label), ``registry`` (the snapshot row).
+    """
     ns, name = spec["namespace"], spec["name"]
     first_party = ns == "tai42"
 
@@ -554,10 +558,12 @@ def write_nav(group: dict) -> None:
 
 
 def prune_stale_outputs() -> None:
-    """Clear gen_plugins' prior owned output so a delisted or renamed plugin leaves
-    nothing on disk — its now-nav-less page would else trip check_docs' orphan check
-    and wedge the automated regen PR. Mirrors the sibling generators' clear-before-write
-    step, generalized to this section's nested layout.
+    """Clear this generator's prior owned output before a fresh write.
+
+    A delisted or renamed plugin must leave nothing on disk — its now-nav-less
+    page would else trip check_docs' orphan check and wedge the automated regen
+    PR. Mirrors the sibling generators' clear-before-write step, generalized to
+    this section's nested layout.
 
     Scoped STRICTLY to the ``plugins/`` tree this generator owns: every committed
     ``plugins/**/*.mdx`` (main pages AND ``{ns}/{name}/{page}.mdx`` sub-pages) except
@@ -570,7 +576,8 @@ def prune_stale_outputs() -> None:
     Hand-authored pages that live under ``plugins/`` but are NOT generated from the
     registry are exempt (``HAND_AUTHORED_PAGES``): the generator writes and owns
     ``index.mdx``, but a page like the descriptor-authoring guide is committed by
-    hand and must survive every regen."""
+    hand and must survive every regen.
+    """
     keep = {PLUGINS_DIR / "index.mdx"} | {PLUGINS_DIR / name for name in HAND_AUTHORED_PAGES}
     for existing in PLUGINS_DIR.rglob("*.mdx"):
         if existing not in keep:
@@ -615,6 +622,7 @@ def write_outputs(plans: list[dict]) -> None:
 
 
 def main() -> int:
+    """Fetch the marketplace listings and regenerate the plugin pages; return a process exit code."""
     base = _base_url()
     try:
         refs = fetch_listing_refs(base)

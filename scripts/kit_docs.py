@@ -15,8 +15,10 @@ class DocsValidationError(RuntimeError):
 
 
 def validate_docs_payload(files: dict[str, bytes], *, first_party: bool) -> None:
-    """Validate ``{docs-relative-path: bytes}`` via the kit; raise loudly on any
-    violation. ``first_party`` relaxes the third-party mdx safe-subset only."""
+    """Validate ``{docs-relative-path: bytes}`` via the kit; raise loudly on any violation.
+
+    ``first_party`` relaxes the third-party mdx safe-subset only.
+    """
     try:
         from tai42_kit.plugins import PluginDocsError, validate_docs
     except ImportError as exc:  # pragma: no cover - environment guard

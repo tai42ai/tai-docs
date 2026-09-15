@@ -115,7 +115,7 @@ def _walk_dircmp(cmp: filecmp.dircmp, prefix: Path) -> list[str]:
 
 def _run_generators() -> None:
     for gen in GENERATORS:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
             [sys.executable, str(SCRIPT_DIR / gen)],
             capture_output=True,
             text=True,
@@ -131,14 +131,15 @@ def _check_examples_sync() -> int:
     The example snippets are owned by a separate generator; check_drift mirrors
     CI by running its ``--check`` mode as one step. When the script is not yet
     present the check is skipped with a loud NOTE (CI runs it unconditionally, so
-    the gate is never silently weakened there)."""
+    the gate is never silently weakened there).
+    """
     if not SYNC_EXAMPLES.is_file():
         print(
             "check_drift: NOTE -- scripts/sync_examples.py not present; skipping the "
             "example-snippet sync check (owned separately; CI runs it unconditionally)."
         )
         return 0
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
         [sys.executable, str(SYNC_EXAMPLES), "--check"],
         capture_output=True,
         text=True,
@@ -153,6 +154,7 @@ def _check_examples_sync() -> int:
 
 
 def main() -> int:
+    """Regenerate the reference into a snapshot, diff it against the committed tree, and return an exit code."""
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = Path(tmp) / "committed"
         _snapshot(snapshot)

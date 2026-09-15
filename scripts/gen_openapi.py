@@ -42,8 +42,8 @@ def emit_spec(dest: Path) -> None:
     if not SKELETON_DIR.is_dir():
         raise GenerationError(f"tai42-skeleton checkout not found at {SKELETON_DIR}")
     try:
-        proc = subprocess.run(
-            ["uv", "run", "tai", "openapi", "--out", str(dest)],
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
+            ["uv", "run", "tai", "openapi", "--out", str(dest)],  # noqa: S607 - trusted tool resolved from PATH
             cwd=SKELETON_DIR,
             capture_output=True,
             text=True,
@@ -81,6 +81,7 @@ def validate_spec(text: str) -> dict:
 
 
 def main() -> int:
+    """Emit and validate the OpenAPI spec into the reference tree; return a process exit code."""
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp) / "openapi.json"
         try:

@@ -85,6 +85,7 @@ def toolbox_rows(listings: list[dict]) -> list[dict]:
 
 
 def render_table(rows: list[dict]) -> str:
+    """Render the toolbox rows as a Markdown table."""
     lines = [
         "| Name | Kind | Summary |",
         "|---|---|---|",
@@ -125,6 +126,7 @@ def inject(guide_text: str, table: str) -> str:
 
 
 def main() -> int:
+    """Refresh the toolbox table in its guide page; return 0 on success, 1 on failure."""
     if not GUIDE.is_file():
         print(f"gen_toolbox_table: guide not found at {GUIDE}", file=sys.stderr)
         return 1

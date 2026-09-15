@@ -19,7 +19,8 @@ def build_reference(project: dict) -> tuple[dict[str, str], dict[str, list[str]]
 
     Returns (slug -> mdx, slug -> rendered symbol names, all rendered names).
     Does not touch the filesystem. Raises GenerationError when no public export
-    is found — the fail-loud guard against writing an empty reference."""
+    is found — the fail-loud guard against writing an empty reference.
+    """
     id_index = index_by_id(project)
     exports = enumerate_exports(project)
     if not exports:

@@ -35,9 +35,11 @@ def _escape_segment(seg: str) -> str:
 
 
 def mdx_escape_prose(text: str) -> str:
-    """Escape MDX-hostile characters in prose while leaving inline-code spans
-    (single-backtick) untouched, so annotations survive verbatim but stray
-    ``{`` / ``<`` in narrative cannot break the MDX parser."""
+    """Escape MDX-hostile characters in prose, leaving inline-code spans untouched.
+
+    Single-backtick spans survive verbatim so annotations render, but stray
+    ``{`` / ``<`` in narrative cannot break the MDX parser.
+    """
     out: list[str] = []
     last = 0
     for match in _CODE_SPAN.finditer(text):
@@ -54,6 +56,7 @@ def _yaml_dq(value: str) -> str:
 
 
 def frontmatter(title: str, description: str, icon: str) -> str:
+    """Return the MDX frontmatter block for a page (title, description, icon)."""
     return f'---\ntitle: "{_yaml_dq(title)}"\ndescription: "{_yaml_dq(description)}"\nicon: "{_yaml_dq(icon)}"\n---\n'
 
 
@@ -61,7 +64,8 @@ def render_comment(comment: dict | None, id_index: dict[int, dict]) -> str:
     """Render a TypeDoc comment's summary parts to Markdown prose.
 
     Parts: ``text`` (verbatim prose), ``code`` (already backtick-wrapped), and
-    ``inline-tag`` (``{@link X}`` — rendered as the target name in backticks)."""
+    ``inline-tag`` (``{@link X}`` — rendered as the target name in backticks).
+    """
     if not comment:
         return ""
     parts: list[str] = []
@@ -95,8 +99,10 @@ def render_comment_text(comment: dict | None) -> str:
 
 
 def _table_code(value: str) -> str:
-    """A backtick code cell safe inside a Markdown table: literal pipes are
-    escaped so they don't split columns."""
+    """Return a backtick code cell safe inside a Markdown table.
+
+    Literal pipes are escaped so they don't split columns.
+    """
     return "`" + value.replace("|", "\\|") + "`"
 
 
@@ -119,8 +125,11 @@ def function_signature(refl: dict, name: str) -> tuple[str, dict]:
 
 
 def _props_interface(sig: dict, id_index: dict[int, dict]) -> dict | None:
-    """When a component takes a single destructured props param whose type is a
-    reference to a documented interface, return that interface for a props table."""
+    """Return the interface backing a component's single destructured props param.
+
+    Matches when the sole param's type is a reference to a documented interface;
+    returns None otherwise. Used to render a props table.
+    """
     params = sig.get("parameters") or []
     if len(params) != 1:
         return None
@@ -137,6 +146,7 @@ def _props_interface(sig: dict, id_index: dict[int, dict]) -> dict | None:
 
 
 def render_params_table(sig: dict) -> str:
+    """Render a signature's parameters as a Markdown "Parameters" table, or "" when it has none."""
     rows = []
     for p in sig.get("parameters", []) or []:
         name = p.get("name", "")
@@ -155,8 +165,10 @@ def render_params_table(sig: dict) -> str:
 
 
 def render_members_table(iface: dict, heading: str) -> str:
-    """Render an interface's / object's members as a table. Methods render their
-    call signature in the Type column."""
+    """Render an interface's / object's members as a table.
+
+    Methods render their call signature in the Type column.
+    """
     rows = []
     for member in sorted(iface.get("children", []) or [], key=lambda m: m.get("name", "")):
         name = member.get("name", "")
@@ -309,6 +321,7 @@ def render_symbol(
     id_index: dict[int, dict],
     location: dict[str, tuple[str, str]],
 ) -> str:
+    """Render one exported symbol as its MDX section, with a "Related" cross-link line."""
     name = refl["name"]
     handler = _SYMBOL_RENDERERS.get(refl.get("kind"), _render_other_symbol)
     body_parts, refs = handler(refl, name, id_index)

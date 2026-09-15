@@ -66,11 +66,32 @@ select = [
     "PERF",
     "FURB",
     "ERA",
+    "S",
+    "TRY",
+    "T20",
+    "D",
 ]
+ignore = [
+    # TRY003 forbids messages built at the raise site, whose only satisfying fix
+    # is a bespoke exception subclass per raise. These generators raise with
+    # context-rich messages (the offending file, field, or command) that belong
+    # at the call site; subclass-per-message adds no correctness.
+    "TRY003",
+]
+
+[tool.ruff.lint.pydocstyle]
+# Public API only: the D1xx public-symbol rules already skip underscore-private
+# names; tests are exempted below. Google style matches the repo's docstrings.
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # Complexity and unused-argument rules are source-only: tests carry fixtures and
-# scaffolding that these rules would flag without a defect being present.
-"**/test_*.py" = ["C901", "PLR0912", "PLR0915", "ARG"]
-"**/*_test.py" = ["C901", "PLR0912", "PLR0915", "ARG"]
-"**/conftest.py" = ["C901", "PLR0912", "PLR0915", "ARG"]
+# scaffolding that these rules would flag without a defect being present. Tests
+# also use bare asserts (S101) and need no public-API docstrings (D).
+"**/test_*.py" = ["C901", "PLR0912", "PLR0915", "ARG", "S101", "D"]
+"**/*_test.py" = ["C901", "PLR0912", "PLR0915", "ARG", "S101", "D"]
+"**/conftest.py" = ["C901", "PLR0912", "PLR0915", "ARG", "S101", "D"]
+# The top-level scripts are CLIs, generators, and drift checks whose stdout is
+# their interface; they print by design. The studio_sdk_ref library package is
+# kept guarded so future non-script code stays print-free.
+"scripts/*.py" = ["T201"]

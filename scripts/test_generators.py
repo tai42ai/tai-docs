@@ -134,7 +134,7 @@ def test_introspector_fails_loud_without_tai_entry_point():
         "import sys, importlib.metadata; importlib.metadata.entry_points = lambda *a, **k: []; "
         "import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
     )
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
         [sys.executable, "-c", bootstrap, str(introspect)],
         cwd=str(SCRIPTS_DIR),
         capture_output=True,

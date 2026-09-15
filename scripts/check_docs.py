@@ -63,6 +63,7 @@ GENERATED_INDEX_SLUGS = frozenset(
 
 
 def load_docs_json() -> dict:
+    """Parse ``docs.json``; exit loudly when it is missing or not valid JSON."""
     try:
         return json.loads(DOCS_JSON.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -153,6 +154,7 @@ def check_chrome_links(docs: dict, problems: list[str]) -> set[str]:
 
 
 def check_nav(docs: dict, problems: list[str]) -> set[str]:
+    """Record a problem for every nav page with no matching ``.mdx`` file; return the referenced slugs."""
     slugs = iter_nav_pages(docs.get("navigation", {}))
     referenced: set[str] = set()
     for slug in slugs:
@@ -163,6 +165,7 @@ def check_nav(docs: dict, problems: list[str]) -> set[str]:
 
 
 def check_redirects(docs: dict, problems: list[str]) -> None:
+    """Record a problem for any duplicate, self-pointing, or dangling redirect."""
     seen: set[str] = set()
     for entry in docs.get("redirects", []):
         source = entry.get("source", "")
@@ -177,6 +180,7 @@ def check_redirects(docs: dict, problems: list[str]) -> None:
 
 
 def check_links(problems: list[str]) -> int:
+    """Record a problem for every unresolved internal link in the ``.mdx`` tree; return the count checked."""
     checked = 0
     for mdx in sorted(DOCS_ROOT.rglob("*.mdx")):
         text = mdx.read_text(encoding="utf-8")
@@ -202,6 +206,7 @@ def check_orphans(referenced: set[str], problems: list[str]) -> None:
 
 
 def main() -> int:
+    """Run the docs.json static checks; return 0 when clean, 1 on any problem."""
     docs = load_docs_json()
     problems: list[str] = []
 

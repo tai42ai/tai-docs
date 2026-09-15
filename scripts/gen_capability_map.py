@@ -86,10 +86,13 @@ def _anchor(name: str) -> str:
 
 
 def _titleize(name: str) -> str:
-    """A display label from an identifier: underscores/hyphens AND camel-case
-    boundaries become word breaks, each word capitalized (its interior kept as
-    written, so "ContextOverflow" reads "Context Overflow", not the ``.title()``
-    mangling "Contextoverflow"). Deterministic and purely name-derived."""
+    """Return a display label from an identifier.
+
+    Underscores/hyphens AND camel-case boundaries become word breaks, each word
+    capitalized (its interior kept as written, so "ContextOverflow" reads
+    "Context Overflow", not the ``.title()`` mangling "Contextoverflow").
+    Deterministic and purely name-derived.
+    """
     import re
 
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name.replace("_", " ").replace("-", " "))
@@ -113,6 +116,7 @@ def source_cell(module: str | None) -> str:
 
 
 def render_http_api(openapi: dict) -> list[str]:
+    """Render the HTTP API section: one table row per operation, grouped by tag."""
     paths = openapi.get("paths") or {}
     by_tag: dict[str, list[tuple[str, str, str]]] = {}
     for path in sorted(paths):
@@ -144,6 +148,7 @@ def render_http_api(openapi: dict) -> list[str]:
 
 
 def render_plugins(listings: list[dict]) -> list[str]:
+    """Render the Plugins section: one table row per marketplace item."""
     lines = ["## Plugins", "", "| Item | What it provides | Docs | Source |", "|---|---|---|---|"]
     for listing in sorted(listings, key=lambda x: (x["namespace"], x["name"])):
         doc = f"/plugins/{listing['namespace']}/{listing['name']}"
@@ -157,6 +162,7 @@ def render_plugins(listings: list[dict]) -> list[str]:
 
 
 def render_settings(groups: list[dict]) -> list[str]:
+    """Render the Settings section: one table row per settings group."""
     lines = ["## Settings", "", "| Group | What it configures | Docs | Source |", "|---|---|---|---|"]
     for group in sorted(groups, key=lambda g: g["name"]):
         titled = _titleize(group["name"])
@@ -172,6 +178,7 @@ def render_settings(groups: list[dict]) -> list[str]:
 
 
 def render_agents_extensions(agents: list[dict], extensions: list[dict]) -> list[str]:
+    """Render the Agents & extensions section, or a pointer to Plugins when none are registered."""
     lines = ["## Agents & extensions", ""]
     if not agents and not extensions:
         lines += ["No agents or extensions are registered in the base runtime; agent- and", ""]
@@ -192,6 +199,7 @@ def render_agents_extensions(agents: list[dict], extensions: list[dict]) -> list
 def render(
     openapi: dict, listings: list[dict], settings_groups: list[dict], agents: list[dict], extensions: list[dict]
 ) -> str:
+    """Render the full capability-map page as MDX."""
     lines = [
         "---",
         'title: "Capability map"',
@@ -222,6 +230,7 @@ def render(
 
 
 def load_openapi() -> dict:
+    """Load the generated OpenAPI document, offline; raise MapError when absent or invalid."""
     if not OPENAPI.is_file():
         raise MapError(f"{OPENAPI} is absent — run gen_openapi.py first")
     try:
@@ -231,8 +240,11 @@ def load_openapi() -> dict:
 
 
 def load_settings_groups() -> list[dict]:
-    """Every registered settings group, offline — the same registry the settings
-    reference reads (importing the API surface registers the classes)."""
+    """Return every registered settings group, offline.
+
+    Reads the same registry the settings reference reads (importing the API
+    surface registers the classes).
+    """
     try:
         from tai42_kit.settings import registered_settings
         from tai42_skeleton.app.route_registry import load_api_routes
@@ -250,7 +262,8 @@ def load_agents_extensions() -> tuple[list[dict], list[dict]]:
     Otherwise the app is built and its live registries are read verbatim: a
     skeleton-present env with nothing registered returns ``([], [])`` naturally
     (both facets empty), and ANY failure reaching the app or a facet is a LOUD
-    ``MapError`` naming it — never a silently-empty area."""
+    ``MapError`` naming it — never a silently-empty area.
+    """
     try:
         from tai42_skeleton.app import instance
     except ImportError:
@@ -295,6 +308,7 @@ def _write_nav(data: dict) -> None:
 
 
 def main() -> int:
+    """Generate the capability-map page from the offline sources; return a process exit code."""
     try:
         openapi = load_openapi()
         listings = load_registry()

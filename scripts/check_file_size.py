@@ -27,7 +27,7 @@ def is_test_file(path: Path) -> bool:
 def tracked_python_files(root: Path) -> list[Path]:
     """Every git-tracked ``.py`` file under ``root``, as absolute paths."""
     out = subprocess.run(
-        ["git", "ls-files", "--", "*.py"],
+        ["git", "ls-files", "--", "*.py"],  # noqa: S607 - trusted tool resolved from PATH
         cwd=root,
         check=True,
         capture_output=True,
@@ -48,6 +48,7 @@ def oversized_files(files: list[Path], max_lines: int = MAX_LINES) -> list[tuple
 
 
 def main() -> int:
+    """Report every tracked source file over the line cap; return 1 when any exists, else 0."""
     offenders = oversized_files(tracked_python_files(REPO_ROOT))
     if offenders:
         print(f"check_file_size: {len(offenders)} source file(s) exceed {MAX_LINES} lines:")

@@ -9,14 +9,16 @@ from studio_sdk_ref.errors import GenerationError
 
 
 def build_nav(slugs: list[str]) -> dict:
-    """Parse docs.json and return the FULL mutated docs.json data with the
-    Reference > "Studio SDK" group added / refreshed (its pages matching the
-    generated files, inserted directly AFTER the Python SDK group). The rest of
-    docs.json is preserved byte-for-byte otherwise.
+    """Parse docs.json and return it mutated with the "Studio SDK" reference group.
+
+    The Reference > "Studio SDK" group is added / refreshed (its pages matching
+    the generated files, inserted directly AFTER the Python SDK group). The rest
+    of docs.json is preserved byte-for-byte otherwise.
 
     Raises GenerationError when docs.json has no Reference tab. This is a PURE
     build step run BEFORE any page is written, so a malformed docs.json fails the
-    run without leaving partial output on disk; ``write_nav`` performs the write."""
+    run without leaving partial output on disk; ``write_nav`` performs the write.
+    """
     data = json.loads(config.DOCS_JSON.read_text(encoding="utf-8"))
     pages = [f"{config.NAV_PREFIX}/index"] + [f"{config.NAV_PREFIX}/{s}" for s in slugs]
     group = {"group": "Studio SDK", "icon": "puzzle-piece", "pages": pages}
