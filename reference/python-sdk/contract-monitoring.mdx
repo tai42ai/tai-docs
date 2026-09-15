@@ -31,7 +31,7 @@ Query totals/analytics and the runtime span window.
 `tai42_contract.monitoring.reader.MonitoringReader.query_metrics`
 
 ```python
-async query_metrics(self, filter: MetricsFilter) -> MetricsResult
+async query_metrics(self, filter_: MetricsFilter) -> MetricsResult
 ```
 
 Totals / analytics screen — server-side aggregation.
@@ -43,7 +43,7 @@ requested dimensions.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `filter` | `MetricsFilter` | — | — |
+| `filter_` | `MetricsFilter` | — | — |
 
 
 #### list_spans_in_window
@@ -58,7 +58,7 @@ async list_spans_in_window(
     *,
     run: str | None = None,
     kind: SpanKind | None = None,
-    filter: MonitoringFilter | None = None,
+    filter_: MonitoringFilter | None = None,
     order_by: OrderBy | None = None,
 ) -> list[SpanWindowItem]
 ```
@@ -85,7 +85,7 @@ An unsupported ``order_by.field`` or filter clause raises
 | `t1` | `datetime` | — | — |
 | `run` | `str \| None` | `None` | — |
 | `kind` | `SpanKind \| None` | `None` | — |
-| `filter` | `MonitoringFilter \| None` | `None` | — |
+| `filter_` | `MonitoringFilter \| None` | `None` | — |
 | `order_by` | `OrderBy \| None` | `None` | — |
 
 
@@ -97,10 +97,9 @@ An unsupported ``order_by.field`` or filter clause raises
 async get_trace(self, trace_id: str) -> MonitoringTrace
 ```
 
-Fetch one COMPLETE trace (top-level attrs + every observation, with
-full input/output) for replay / evaluation / normalization.
+Fetch one COMPLETE trace (top-level attrs + every observation, with full input/output).
 
-Always returns a trace or raises — never ``None``. An absent trace
+Used for replay / evaluation / normalization. Always returns a trace or raises — never ``None``. An absent trace
 raises ``TraceNotFoundError``; a transient/backend failure (e.g. a timeout)
 propagates its error so the caller sees the failure and may retry.
 Distinct from ``list_spans_in_window`` (trimmed dashboard units).
@@ -124,16 +123,16 @@ async list_traces(
     to_timestamp: datetime | None = None,
     limit: int | None = None,
     page: int | None = None,
-    filter: MonitoringFilter | None = None,
+    filter_: MonitoringFilter | None = None,
     order_by: OrderBy | None = None,
 ) -> list[MonitoringTraceSummary]
 ```
 
-List run SUMMARIES matching the filters: one row per trace, built from
-the backend's list surface plus its batched aggregates — never a
-per-trace body. ``get_trace`` is the only body door. A malformed backend
-row fails the page loudly (never kept as a partial row nor silently
-skipped).
+List run SUMMARIES matching the filters: one row per trace.
+
+Built from the backend's list surface plus its batched aggregates — never a per-trace body.
+``get_trace`` is the only body door. A malformed backend row fails the page loudly (never kept
+as a partial row nor silently skipped).
 
 ``from_timestamp`` / ``to_timestamp`` bound the trace timestamp to the
 half-open window ``[from, to)``; either may be omitted for an open end.
@@ -153,7 +152,7 @@ or filter clause raises ``MonitoringReadNotSupportedError``.
 | `to_timestamp` | `datetime \| None` | `None` | — |
 | `limit` | `int \| None` | `None` | — |
 | `page` | `int \| None` | `None` | — |
-| `filter` | `MonitoringFilter \| None` | `None` | — |
+| `filter_` | `MonitoringFilter \| None` | `None` | — |
 | `order_by` | `OrderBy \| None` | `None` | — |
 
 
@@ -201,7 +200,7 @@ start_span(
     name: str,
     kind: SpanKind,
     trace_context: TraceContext | None = None,
-    input: Any = None,
+    input_: Any = None,
     model: str | None = None,
     model_parameters: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
@@ -222,7 +221,7 @@ Open a span for the duration of the block, yielding a ``Span`` handle.
 | `name` | `str` | — | — |
 | `kind` | `SpanKind` | — | — |
 | `trace_context` | `TraceContext \| None` | `None` | — |
-| `input` | `Any` | `None` | — |
+| `input_` | `Any` | `None` | — |
 | `model` | `str \| None` | `None` | — |
 | `model_parameters` | `dict[str, Any] \| None` | `None` | — |
 | `metadata` | `dict[str, Any] \| None` | `None` | — |
@@ -241,7 +240,7 @@ record_span(
     start: datetime,
     end: datetime,
     trace_context: TraceContext,
-    input: Any = None,
+    input_: Any = None,
     output: Any = None,
     level: MonitoringLevel | None = None,
     status_message: str | None = None,
@@ -270,7 +269,7 @@ failures are caught + logged like the other emit methods.
 | `start` | `datetime` | — | — |
 | `end` | `datetime` | — | — |
 | `trace_context` | `TraceContext` | — | — |
-| `input` | `Any` | `None` | — |
+| `input_` | `Any` | `None` | — |
 | `output` | `Any` | `None` | — |
 | `level` | `MonitoringLevel \| None` | `None` | — |
 | `status_message` | `str \| None` | `None` | — |
@@ -290,7 +289,7 @@ create_event(
     name: str,
     level: MonitoringLevel = DEFAULT_LEVEL,
     trace_context: TraceContext | None = None,
-    input: Any = None,
+    input_: Any = None,
     output: Any = None,
     status_message: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -306,7 +305,7 @@ Record a point-in-time event, carrying ``input`` / ``output``.
 | `name` | `str` | — | — |
 | `level` | `MonitoringLevel` | `DEFAULT_LEVEL` | — |
 | `trace_context` | `TraceContext \| None` | `None` | — |
-| `input` | `Any` | `None` | — |
+| `input_` | `Any` | `None` | — |
 | `output` | `Any` | `None` | — |
 | `status_message` | `str \| None` | `None` | — |
 | `metadata` | `dict[str, Any] \| None` | `None` | — |
@@ -401,8 +400,9 @@ none fire outside a trace.
 inject_context(self, ctx: TraceContext) -> dict[str, Any]
 ```
 
-Build the opaque downstream-propagation blob merged into the
-langgraph ``RunnableConfig``. Carries ``ctx.tags`` + ``ctx.metadata``.
+Build the opaque downstream-propagation blob merged into the langgraph ``RunnableConfig``.
+
+Carries ``ctx.tags`` + ``ctx.metadata``.
 
 **Parameters**
 
@@ -419,10 +419,10 @@ langgraph ``RunnableConfig``. Carries ``ctx.tags`` + ``ctx.metadata``.
 get_monitoring_callbacks(self, ctx: TraceContext) -> list[object]
 ```
 
-The LangChain/LangGraph callback handlers appended to the langgraph
-``config["callbacks"]``. The caller builds ``ctx`` (keeping the
-auto-generated-trace-id fallback); the impl reads its fields to
-construct the vendor handler.
+The LangChain/LangGraph callback handlers appended to the langgraph ``config["callbacks"]``.
+
+The caller builds ``ctx`` (keeping the auto-generated-trace-id fallback);
+the impl reads its fields to construct the vendor handler.
 
 **Parameters**
 
@@ -500,8 +500,7 @@ child inherits dead background threads otherwise.
 attribute_run(writer: MonitoringWriter, attribution: RunAttribution) -> AbstractContextManager[None]
 ```
 
-Return the context manager that stamps ``attribution`` on the ambient
-trace for the WRAPPED block.
+Return the context manager that stamps ``attribution`` on the ambient trace for the WRAPPED block.
 
 A free function composing ``writer`` over `MonitoringWriter.trace_attributes`,
 kept off the Protocol so structural writers conform without inheriting it. The

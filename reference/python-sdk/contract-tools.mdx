@@ -5,12 +5,11 @@ icon: "wrench"
 ---
 
 
-Tools contract: the ``ToolInfo`` model + the ``AppTools`` tool/toolkit
-registration sub-protocol. Vendor return types (fastmcp ``Tool``, langchain
-``StructuredTool``) are ``TYPE_CHECKING``-only.
+Tools contract: the ``ToolInfo`` model + the ``AppTools`` tool/toolkit registration sub-protocol.
 
-``AppTools`` is the ``app.tools`` namespace of the assembled facade
-(`tai42_contract.app`).
+Vendor return types (fastmcp ``Tool``, langchain ``StructuredTool``) are ``TYPE_CHECKING``-only.
+
+``AppTools`` is the ``app.tools`` namespace of the assembled facade (`tai42_contract.app`).
 
 ## DEFAULT_RETRYABLE_KINDS
 
@@ -59,6 +58,8 @@ Tool + toolkit registration / lookup surface.
 tool_title(self, func: Callable[..., object]) -> str
 ```
 
+Return the human-facing title of the tool implemented by ``func``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -73,6 +74,8 @@ tool_title(self, func: Callable[..., object]) -> str
 ```python
 async get_tool(self, key: str) -> Tool
 ```
+
+Return the assembled tool registered under ``key``.
 
 **Parameters**
 
@@ -89,6 +92,8 @@ async get_tool(self, key: str) -> Tool
 async get_tools(self) -> dict[str, Tool]
 ```
 
+Return every assembled tool keyed by name.
+
 
 #### get_client_tools
 
@@ -97,6 +102,8 @@ async get_tools(self) -> dict[str, Tool]
 ```python
 async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
 ```
+
+Return the client-facing tool objects, restricted to ``names`` when given.
 
 **Parameters**
 
@@ -112,6 +119,10 @@ async get_client_tools(self, names: list[str] | None = None) -> list[StructuredT
 ```python
 async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool = False) -> Any
 ```
+
+Execute the tool registered under ``key`` with ``arguments`` and return its result.
+
+``offload_sync`` runs a synchronous tool body off the event loop in a worker thread.
 
 **Parameters**
 
@@ -130,6 +141,8 @@ async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool 
 remove_tool(self, name: str) -> None
 ```
 
+Remove the tool registered under ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -144,6 +157,8 @@ remove_tool(self, name: str) -> None
 ```python
 register_tool_info(self, name: str, combos: Sequence[Sequence[ExtensionElement]] | None = None) -> None
 ```
+
+Register base tool ``name``'s extension combos, attaching each combo stack to the base.
 
 **Parameters**
 
@@ -161,6 +176,8 @@ register_tool_info(self, name: str, combos: Sequence[Sequence[ExtensionElement]]
 unregister_tool_info(self, name: str) -> None
 ```
 
+Drop the registered tool-info for ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -176,6 +193,8 @@ unregister_tool_info(self, name: str) -> None
 unregister_tool_base(self, tool_name: str) -> list[str]
 ```
 
+Unregister base tool ``tool_name`` and return the names removed.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -190,6 +209,8 @@ unregister_tool_base(self, tool_name: str) -> list[str]
 ```python
 tool_refs_extractor(self, name: str) -> ToolRefsExtractor | None
 ```
+
+Return the tool-references extractor base tool ``name`` registered, or ``None`` when it declared none.
 
 **Parameters**
 
@@ -255,8 +276,7 @@ registration is a plugin bug, never a silent duplicate consult.
 register_detach_referee(self, provider: StateTemplateDetachReferee) -> None
 ```
 
-Register a `StateTemplateDetachReferee` consulted before a state-template
-detach.
+Register a `StateTemplateDetachReferee` consulted before a state-template detach.
 
 A holder of door bindings that name templates (e.g. per-node state bindings, or the
 platform's own preset/route/hook/schedule bindings) calls this through the
@@ -281,8 +301,9 @@ consult.
 register_tier(self, base_tool: str, tier: RouteAction) -> None
 ```
 
-Declare ``base_tool``'s registration tier — the authorization character
-(a `RouteAction`) enforced everywhere the tier is consulted.
+Declare ``base_tool``'s registration tier (a `RouteAction`).
+
+The authorization character enforced everywhere the tier is consulted.
 
 A ``fenced`` or ``secret`` tier gates BOTH authoring a preset over the base tool
 (admin-only) AND running the tool: a ``fenced``/``secret`` tool runs only for an
@@ -308,8 +329,9 @@ One declaration per base tool; a duplicate raises loudly.
 tier(self, base_tool: str) -> RouteAction | None
 ```
 
-The registration tier ``base_tool`` declared, or ``None`` when it declared
-none (no execution fence; authoring keeps the presets' default ``write`` action).
+The registration tier ``base_tool`` declared, or ``None`` when it declared none.
+
+None means no execution fence; authoring keeps the presets' default ``write`` action.
 
 **Parameters**
 
@@ -368,9 +390,10 @@ bound from (a branch tool names itself, e.g. ``name_chain``).
 class ToolInvocation(BaseModel)
 ```
 
-The tool execution currently in flight: ``tool_name`` is the invoked
-tool's registered name. Frozen — a deposited invocation is a fact of the
-active execution, never mutated in place.
+The tool execution currently in flight.
+
+``tool_name`` is the invoked tool's registered name. Frozen — a deposited invocation is a
+fact of the active execution, never mutated in place.
 
 ``state_binding`` is the OPTIONAL door-layer binding a door deposits when it
 initiates a run (a channel route, a schedule fire, a hook, or none for a bare
@@ -414,12 +437,12 @@ ToolRenameReferee = Callable[[str], Awaitable[list[str]]]
 class ToolRetryBackoff(BaseModel)
 ```
 
-The exponential-backoff shape between attempts: attempt ``n`` waits
-``min(cap_seconds, initial_seconds * multiplier**(n-1))`` before attempt
-``n+1``. A server-provided ``retry_after`` on the failed attempt's error
-WIDENS the wait when it asks for longer (the medium's own ask wins, even
-past the cap — the cap bounds the platform's growth, not the server's
-explicit request).
+The exponential-backoff shape between attempts.
+
+Attempt ``n`` waits ``min(cap_seconds, initial_seconds * multiplier**(n-1))`` before attempt
+``n+1``. A server-provided ``retry_after`` on the failed attempt's error WIDENS the wait when
+it asks for longer (the medium's own ask wins, even past the cap — the cap bounds the
+platform's growth, not the server's explicit request).
 
 **Attributes**
 
@@ -480,8 +503,7 @@ allowlisted kind is never retried.
 current_tool_invocation() -> ToolInvocation | None
 ```
 
-The tool execution in flight for the current context, or ``None`` when no
-tool is executing.
+The tool execution in flight for the current context, or ``None`` when no tool is executing.
 
 
 ## reset_current_tool_invocation
@@ -492,8 +514,9 @@ tool is executing.
 reset_current_tool_invocation(token: Token[ToolInvocation | None]) -> None
 ```
 
-Restore the in-flight tool to the value captured in ``token`` by the
-matching `set_current_tool_invocation` call.
+Restore the in-flight tool to the value captured in ``token``.
+
+``token`` is the return value of the matching `set_current_tool_invocation` call.
 
 **Parameters**
 
@@ -510,10 +533,11 @@ matching `set_current_tool_invocation` call.
 set_current_tool_invocation(invocation: ToolInvocation) -> Token[ToolInvocation | None]
 ```
 
-Deposit ``invocation`` as the in-flight tool for the current context; pass
-the returned token to `reset_current_tool_invocation` to restore the
-previous value. Nested deposits (a tool invoking another) re-set for the inner
-call and restore the outer value on reset — ContextVar token discipline.
+Deposit ``invocation`` as the in-flight tool for the current context.
+
+Pass the returned token to `reset_current_tool_invocation` to restore the previous
+value. Nested deposits (a tool invoking another) re-set for the inner call and restore the
+outer value on reset — ContextVar token discipline.
 
 **Parameters**
 

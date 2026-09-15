@@ -5,8 +5,9 @@ icon: "file-lines"
 ---
 
 
-Manifest contract: ``Manifest`` + the ``*Config`` models (incl. the transport
-config ``TaiMCPConfig``) + the filter-predicate signatures.
+Manifest contract: ``Manifest``, the ``*Config`` models, and the filter-predicate signatures.
+
+The ``*Config`` models include the transport config ``TaiMCPConfig``.
 
 The impl methods that build the derived lookup maps and run the include/exclude
 filtering (``model_post_init`` + the private ``_build_*``/``_should_include``
@@ -20,6 +21,8 @@ validators, and the public predicate/query signatures are the contract.
 ```python
 class AgentsConfig(BaseConfig)
 ```
+
+An agents block: a ``module`` import path plus selection config (no extensions).
 
 **Attributes**
 
@@ -65,6 +68,8 @@ config and is never retrofitted onto other configs.
 class BaseConfig(BaseModel)
 ```
 
+Shared config fields: a ``title`` plus ``include``/``exclude`` selection lists.
+
 **Attributes**
 
 | Attribute | Type |
@@ -91,8 +96,9 @@ ExtensionElement = str | dict[str, Any]
 class ExtensionsConfigMixin(BaseModel)
 ```
 
-Carries the ``extensions`` attachment map, mixed into the config kinds
-that support clip-on extensions (``ToolsConfig`` and ``TaiMCPConfig``).
+Carries the ``extensions`` attachment map for config kinds that support clip-on extensions.
+
+Mixed into ``ToolsConfig`` and ``TaiMCPConfig``.
 
 ``extensions`` maps a tool base-name to the extension combo(s) attached to
 it, applied AFTER selection and independent of ``include``/``exclude``. The
@@ -118,8 +124,9 @@ normalizing validator wraps a flat combo and rejects malformed input loudly.
 normalize_extensions(cls, value: object) -> dict[str, list[list[ExtensionElement]]]
 ```
 
-Normalize each value to a list of combos and reject malformed input
-loudly (no silent coercion, mirroring ``normalize_dict_values`` above).
+Normalize each value to a list of combos and reject malformed input loudly.
+
+No silent coercion.
 
 A flat combo value is a single combo and is wrapped
 (``{weather: [chain]}`` -&gt; ``{"weather": [["chain"]]}``); a list-of-combos
@@ -145,6 +152,8 @@ SHAPE only: it does NOT check that the extension names are registered
 class MCPConfig(BaseModel)
 ```
 
+Transport config for one MCP server: exactly one of ``url``/``uds``/``command``.
+
 **Attributes**
 
 | Attribute | Type |
@@ -167,6 +176,8 @@ class MCPConfig(BaseModel)
 normalize_args(cls, value: object) -> list[str]
 ```
 
+Coerce a ``None`` ``args`` value to an empty list.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -181,6 +192,8 @@ normalize_args(cls, value: object) -> list[str]
 ```python
 normalize_dict_values(cls, value: object) -> dict[str, str]
 ```
+
+Coerce ``None`` to an empty dict and stringify values, failing loudly on a ``None`` value.
 
 **Parameters**
 
@@ -197,6 +210,8 @@ normalize_dict_values(cls, value: object) -> dict[str, str]
 ```python
 class Manifest(BaseModel)
 ```
+
+The whole application manifest: tool/agent/MCP blocks, module lists, and derived maps.
 
 **Attributes**
 
@@ -245,8 +260,9 @@ class Manifest(BaseModel)
 should_include_tool(self, name: str, module: str) -> bool
 ```
 
-Whether tool ``name`` from ``module`` survives the include/exclude
-filter (and record the decision on the matching config).
+Whether tool ``name`` from ``module`` survives the include/exclude filter.
+
+Also records the decision on the matching config.
 
 **Parameters**
 
@@ -264,6 +280,8 @@ filter (and record the decision on the matching config).
 should_include_agent(self, name: str, module: str) -> bool
 ```
 
+Whether agent ``name`` from ``module`` survives the include/exclude filter.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -279,6 +297,8 @@ should_include_agent(self, name: str, module: str) -> bool
 ```python
 should_include_mcp_tool(self, name: str, title: str) -> bool
 ```
+
+Whether MCP tool ``name`` under ``title`` survives the include/exclude filter.
 
 **Parameters**
 
@@ -313,8 +333,9 @@ Swap the MCP rows and rebuild the derived maps (surgical reload).
 live_manifest: Manifest
 ```
 
-A deep copy whose ``tools``/``agents``/``mcp`` reflect the live
-(post-filter) config maps.
+A deep copy whose ``tools``/``agents``/``mcp`` reflect the live config maps.
+
+The maps are post-filter.
 
 
 #### find_title
@@ -343,13 +364,27 @@ Map a module path to the owning tool config's title (longest prefix).
 class TaiMCPConfig(BaseConfig, ExtensionsConfigMixin)
 ```
 
+An MCP block: a transport ``config`` plus optional managed-connector binding.
+
 **Attributes**
 
 | Attribute | Type |
 |---|---|
 | `config` | `MCPConfig` |
 | `managed` | `ConnectorRef \| None` |
-| `is_managed` *(property)* | `bool` |
+
+### Members
+
+#### is_managed
+
+`tai42_contract.manifest.TaiMCPConfig.is_managed`
+
+```python
+is_managed: bool
+```
+
+Whether this MCP block is backed by a managed connector.
+
 
 
 ## ToolsConfig
@@ -359,6 +394,8 @@ class TaiMCPConfig(BaseConfig, ExtensionsConfigMixin)
 ```python
 class ToolsConfig(BaseConfig, ExtensionsConfigMixin)
 ```
+
+A tools block: a ``module`` import path plus selection and extension config.
 
 **Attributes**
 

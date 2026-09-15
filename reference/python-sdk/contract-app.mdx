@@ -42,8 +42,9 @@ current epoch, so the contract never learns about epochs.
 active_provider(self, name: str) -> IdentityProvider | None
 ```
 
-The provider the CURRENT epoch instantiated under ``name`` (an
-``AccountsProvider`` is an ``IdentityProvider``), or ``None`` when no provider is
+The provider the CURRENT epoch instantiated under ``name``, or ``None`` when none is active.
+
+An ``AccountsProvider`` is an ``IdentityProvider``. ``None`` means no provider is
 active under that name — the name is not configured, or a build is mid-flight.
 
 **Parameters**
@@ -62,11 +63,7 @@ active under that name — the name is not configured, or a build is mid-flight.
 class AppAdmin(Protocol)
 ```
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `live_manifest` *(property)* | `dict[str, Any]` |
+In-process admin operations: MCP binding, tool reload, config reload.
 
 ### Members
 
@@ -77,6 +74,8 @@ class AppAdmin(Protocol)
 ```python
 reload_mcp(self, title: str) -> dict[str, Any]
 ```
+
+Rebind the MCP server titled ``title`` and return its status.
 
 **Parameters**
 
@@ -93,6 +92,8 @@ reload_mcp(self, title: str) -> dict[str, Any]
 deregister_mcp(self, title: str) -> dict[str, Any]
 ```
 
+Remove the MCP server titled ``title`` and return its status.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -107,6 +108,8 @@ deregister_mcp(self, title: str) -> dict[str, Any]
 ```python
 reload_config(self) -> dict[str, Any]
 ```
+
+Re-init the process config in place and return the reload report.
 
 
 #### tool_reloader
@@ -134,6 +137,8 @@ Register an async ``(action, name) -> dict`` reloader for ``kind``.
 async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
 ```
 
+Run the registered ``kind`` reloader for ``action`` on ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -151,6 +156,8 @@ async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
 reload_failed_mcps(self) -> list[dict[str, Any]]
 ```
 
+Retry every MCP that failed to bind and return their statuses.
+
 
 #### list_failed_mcps
 
@@ -159,6 +166,8 @@ reload_failed_mcps(self) -> list[dict[str, Any]]
 ```python
 list_failed_mcps(self) -> list[dict[str, Any]]
 ```
+
+List the MCPs that failed to bind.
 
 
 #### live_mcp_status
@@ -172,6 +181,17 @@ live_mcp_status(self) -> dict[str, Any]
 Snapshot the in-process MCP-binding state.
 
 
+#### live_manifest
+
+`tai42_contract.app.facets.runtime.AppAdmin.live_manifest`
+
+```python
+live_manifest: dict[str, Any]
+```
+
+The manifest currently live in this process.
+
+
 
 ## AppAgents
 
@@ -180,6 +200,8 @@ Snapshot the in-process MCP-binding state.
 ```python
 class AppAgents(Protocol)
 ```
+
+The agent-provider namespace (``app.agents``).
 
 ### Members
 
@@ -196,8 +218,7 @@ agent(
 ) -> Callable[[type[_AgentT]], type[_AgentT]]
 ```
 
-Register an `Agent` subclass under ``name`` and auto-register
-its JSON ``run`` tool.
+Register an `Agent` subclass under ``name`` and auto-register its JSON ``run`` tool.
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
 ``meta`` is generic registration metadata threaded onto the same constructed
@@ -240,10 +261,10 @@ Fetch a registered agent instance by name; raise if missing.
 all_agents(self) -> dict[str, Agent]
 ```
 
-Every registered agent keyed by registration name (a shallow copy, so a
-caller iterating it cannot mutate the live registry). The preset bind kernel
-reads the keys to detect an agent base (the run tool binds under the
-registration name).
+Return every registered agent keyed by registration name.
+
+The result is a shallow copy, so a caller iterating it cannot mutate the live registry. The preset
+bind kernel reads the keys to detect an agent base (the run tool binds under the registration name).
 
 
 
@@ -255,11 +276,7 @@ registration name).
 class AppBackends(Protocol)
 ```
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `backend` *(property)* | `Backend \| None` |
+The backend-provider namespace (``app.backends``).
 
 ### Members
 
@@ -271,6 +288,19 @@ class AppBackends(Protocol)
 register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backend]], type[Backend]] | type[Backend]
 ```
 
+Register the `Backend` provider; usable bare or as a decorator factory.
+
+
+#### backend
+
+`tai42_contract.app.facets.execution.AppBackends.backend`
+
+```python
+backend: Backend | None
+```
+
+The registered backend provider, or ``None`` when none is registered.
+
 
 
 ## AppBackup
@@ -281,8 +311,7 @@ register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backe
 class AppBackup(Protocol)
 ```
 
-Registry for named backup sections and the run of one section's
-export/import.
+Registry for named backup sections and the run of one section's export/import.
 
 A plugin (or the host itself, the first consumer) registers a section under
 ``name`` by supplying an ``exporter()`` that returns a JSON-safe payload and
@@ -308,6 +337,8 @@ register_section(
 ) -> None
 ```
 
+Register a backup section's exporter/importer under ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -326,6 +357,8 @@ register_section(
 sections(self) -> list[BackupSectionInfo]
 ```
 
+List the registered backup sections.
+
 
 #### export_section
 
@@ -334,6 +367,8 @@ sections(self) -> list[BackupSectionInfo]
 ```python
 export_section(self, name: str) -> Any
 ```
+
+Run one section's exporter by ``name`` and return its payload.
 
 **Parameters**
 
@@ -349,6 +384,8 @@ export_section(self, name: str) -> Any
 ```python
 import_section(self, name: str, payload: Any) -> Any
 ```
+
+Apply ``payload`` via one section's importer by ``name`` and return its report.
 
 **Parameters**
 
@@ -366,6 +403,8 @@ import_section(self, name: str, payload: Any) -> Any
 ```python
 class AppChannels(Protocol)
 ```
+
+The channel registry namespace (``app.channels``) and inbound-answer ladder.
 
 ### Members
 
@@ -440,9 +479,11 @@ async handle_inbound_answer(
 ) -> InboundAnswerResult
 ```
 
-Resolve one inbound participant reply against its pending ask — the ONE shared
-inbound-answer ladder every correlated channel calls instead of hand-rolling
-its own "forward → interpret 2xx/404/400 → release/bridge/keep" sequence.
+Resolve one inbound participant reply against its pending ask.
+
+This is the ONE shared inbound-answer ladder every correlated channel calls
+instead of hand-rolling its own "forward → interpret 2xx/404/400 →
+release/bridge/keep" sequence.
 
 Returns an `InboundAnswerResult`: the ``outcome`` the channel maps to its
 transport ack, plus the door's ``retry_reason``/``retry_field`` when it rejected
@@ -494,12 +535,12 @@ forward; a stored callback whose host does not match is released and treated as
 | `bridge` | `InboundBridge` | — | — |
 
 
-#### record_flow_send_receipt
+#### record_send_receipt
 
-`tai42_contract.app.facets.messaging.AppChannels.record_flow_send_receipt`
+`tai42_contract.app.facets.messaging.AppChannels.record_send_receipt`
 
 ```python
-async record_flow_send_receipt(
+async record_send_receipt(
     self,
     channel: str,
     provider_message_id: str,
@@ -509,20 +550,20 @@ async record_flow_send_receipt(
 ) -> bool
 ```
 
-Post an out-of-band delivery receipt for a FLOW send (a ``notify_user`` channel
-send) back onto its originating monitoring trace.
+Post an out-of-band delivery receipt for a ``notify_user`` send back onto its originating trace.
 
-The tier-2 counterpart to the conversation bridge's ``record_delivery_status``: a
+The send is a ``notify_user`` channel send with no conversation record. The tier-2
+counterpart to the conversation bridge's ``record_delivery_status``: a
 channel's delivery-status webhook calls this when the bridge does not own the
 outbound id (``record_delivery_status`` raised ``LookupError``). It resolves the id
-through the TTL'd flow-send index and, on a hit, emits a ``delivery_receipt`` event
-into the recorded trace (a FAILED receipt at ERROR level), so the flow's own trace
+through the TTL'd send-receipt index and, on a hit, emits a ``delivery_receipt`` event
+into the recorded trace (a FAILED receipt at ERROR level), so the originating trace
 shows delivered-vs-accepted for its sends. ``errors`` carries any provider error
 detail for the event input.
 
-Returns ``True`` when the id was a known flow send (event emitted), ``False`` when it
+Returns ``True`` when the id was a known send (event emitted), ``False`` when it
 is not — so the webhook keeps its genuinely-unknown-id log only on a ``False``. A
-no-op returning ``False`` where the flow-send store is unconfigured.
+no-op returning ``False`` where the send-receipt store is unconfigured.
 
 **Parameters**
 
@@ -543,6 +584,8 @@ no-op returning ``False`` where the flow-send store is unconfigured.
 class AppClients(Protocol)
 ```
 
+Pooled async client lifecycle for the process.
+
 ### Members
 
 #### client_ctx
@@ -560,9 +603,11 @@ client_ctx(
 ) -> AbstractAsyncContextManager[ClientT]
 ```
 
-Async context manager yielding a connected client, pooled per loop +
-connection params (or one-shot when ``fresh=True``). ``settings`` is a kit
-``ClientSettings`` whose ``client_kwargs()`` supplies the connection key.
+Yield a connected client as an async context manager.
+
+Pooled per loop + connection params, or one-shot when ``fresh=True``.
+``settings`` is a kit ``ClientSettings`` whose ``client_kwargs()`` supplies
+the connection key.
 
 **Parameters**
 
@@ -594,11 +639,20 @@ Close every live client pool for the running loop.
 class AppConfig(Protocol)
 ```
 
-**Attributes**
+Access to the process config manager.
 
-| Attribute | Type |
-|---|---|
-| `config_manager` *(property)* | `ConfigManager` |
+### Members
+
+#### config_manager
+
+`tai42_contract.app.facets.runtime.AppConfig.config_manager`
+
+```python
+config_manager: ConfigManager
+```
+
+The process config manager.
+
 
 
 ## AppConnectors
@@ -608,6 +662,8 @@ class AppConfig(Protocol)
 ```python
 class AppConnectors(Protocol)
 ```
+
+Registration and credential resolution for connector providers.
 
 ### Members
 
@@ -619,10 +675,11 @@ class AppConnectors(Protocol)
 register_connector(self, descriptor: ProviderDescriptor) -> None
 ```
 
-Register a connector provider from its pure descriptor data. Called for
-every manifest ``connectors`` entry at boot/reload, and by any code holding
-the handle (a connector is pure data, so this is a plain call, not a
-decorator).
+Register a connector provider from its pure descriptor data.
+
+Called for every manifest ``connectors`` entry at boot/reload, and by any
+code holding the handle (a connector is pure data, so this is a plain call,
+not a decorator).
 
 **Parameters**
 
@@ -685,9 +742,11 @@ skeleton owns the fail-close enforcement.
 class AppConversations(Protocol)
 ```
 
-The conversation bridge's entry surface for medium adapters: inbound messages
-via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
-Routing-row CRUD, the turn engine and the API door are not part of this facet.
+The conversation bridge's entry surface for medium adapters.
+
+Inbound messages arrive via ``accept``, out-of-band delivery receipts via
+``record_delivery_status``. Routing-row CRUD, the turn engine and the API
+door are not part of this facet.
 
 ### Members
 
@@ -712,8 +771,7 @@ async accept(
 ) -> str
 ```
 
-Accept one inbound channel message, persist it, and return its
-``message_id`` (a uuid4).
+Accept one inbound channel message, persist it, and return its ``message_id`` (a uuid4).
 
 Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
 turn runs as that route's execution key and answers back over the same channel.
@@ -837,6 +895,8 @@ deferred to run time. Registering two validators for one kind raises loudly.
 class AppExtensions(Protocol)
 ```
 
+The tool-extension provider namespace (``app.extensions``).
+
 ### Members
 
 #### extension
@@ -854,10 +914,9 @@ extension(
 ) -> Callable[..., Any]
 ```
 
-Register a tool-extension factory under ``name`` (default: the
-function's own name); usable bare or with arguments.
+Register a tool-extension factory under ``name`` (default: the function's own name).
 
-``requires_body_locality`` marks an extension whose wrapper only works
+Usable bare or with arguments. ``requires_body_locality`` marks an extension whose wrapper only works
 in the process running the tool body it wraps — e.g. a proxy layer that
 routes the body's egress through a task-scoped contextvar, visible only
 where the body executes. The flag is stored as registration metadata the
@@ -897,6 +956,8 @@ List registered extension modules as ``[{"name", "kind"}]``.
 class AppHttp(Protocol)
 ```
 
+The HTTP application facet: middleware, route registration, and mount introspection.
+
 ### Members
 
 #### middleware
@@ -906,6 +967,8 @@ class AppHttp(Protocol)
 ```python
 middleware(self, cls: type[Any] | None = None, **options: Any) -> Callable[..., Any]
 ```
+
+Register a middleware on the application.
 
 **Parameters**
 
@@ -1023,12 +1086,12 @@ the reload-gate ``503`` response is derived from the handler body.
 use_raw_path_key(self, path_prefix: str) -> None
 ```
 
-Match every already-registered route whose template starts with ``path_prefix``
-against the raw (undecoded) request path, so a path parameter whose values carry
-``/`` (a state record's ``{key}``, addressed as one percent-encoded segment) stays
-ONE segment instead of splitting once the ASGI server has decoded ``%2F``; the
-matched parameters are decoded once after the match. Called AFTER the routes are
-registered, over their shared prefix, so it covers a family of doors at one seam. A
+Match already-registered routes under ``path_prefix`` against the raw (undecoded) request path.
+
+A path parameter whose values carry ``/`` (a state record's ``{key}``, addressed as one
+percent-encoded segment) stays ONE segment instead of splitting once the ASGI server has
+decoded ``%2F``; the matched parameters are decoded once after the match. Called AFTER the
+routes are registered, over their shared prefix, so it covers a family of doors at one seam. A
 no-op where no route table is served (the offline spec harness).
 
 **Parameters**
@@ -1046,9 +1109,9 @@ no-op where no route table is served (the offline spec harness).
 mount_base(self) -> str
 ```
 
-The resolved absolute mount base of the declared plugin route module
-importing now — ``/api/`` + the item's mount base, no trailing slash
-(e.g. ``/api/channels/telegram``).
+The resolved absolute mount base of the declared plugin route module importing now.
+
+``/api/`` + the item's mount base, no trailing slash (e.g. ``/api/channels/telegram``).
 
 Callable ONLY while a declared plugin route module imports — the mount
 binding is present then. A module captures this value at import for later
@@ -1079,8 +1142,9 @@ The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
 ask_user: AskUser
 ```
 
-The bound, `AskUser`-typed ``ask_user``
-callable, so an in-process plugin asks a human without importing the skeleton:
+The bound, `AskUser`-typed ``ask_user`` callable.
+
+An in-process plugin asks a human without importing the skeleton:
 ``await tai42_app.interactions.ask_user(question, ..., mode="async",
 expiry_at=...)``. The return shape is the ``AskUser`` contract's:
 ``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
@@ -1100,6 +1164,8 @@ ask semantics.
 class AppLifecycle(Protocol)
 ```
 
+Startup, shutdown, reload, and post-swap lifecycle hook registration.
+
 ### Members
 
 #### on_startup
@@ -1109,6 +1175,8 @@ class AppLifecycle(Protocol)
 ```python
 on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
+
+Register ``func`` to run at process startup (usable as a decorator).
 
 **Parameters**
 
@@ -1125,6 +1193,8 @@ on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
 on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
+Register ``func`` to run at process shutdown (usable as a decorator).
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -1140,8 +1210,9 @@ on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
 on_reload(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
-Register a handler re-run after every in-place re-init (``reload_config``) —
-e.g. dynamic tool loaders that ``on_startup`` ran once.
+Register a handler re-run after every in-place re-init (``reload_config``).
+
+For example, dynamic tool loaders that ``on_startup`` ran once.
 
 **Parameters**
 
@@ -1158,9 +1229,10 @@ e.g. dynamic tool loaders that ``on_startup`` ran once.
 on_post_swap(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
-Register an establisher for a loop-affine background loop (a periodic poll or
-sweep). Run on the real serving loop at boot and after every epoch swap — never
-on the throwaway build-thread loop the per-epoch handlers run on — so the loop
+Register an establisher for a loop-affine background loop (a periodic poll or sweep).
+
+Run on the real serving loop at boot and after every epoch swap — never on
+the throwaway build-thread loop the per-epoch handlers run on — so the loop
 it spawns attaches to the serving loop and retires with its generation.
 
 **Parameters**
@@ -1178,12 +1250,11 @@ it spawns attaches to the serving loop and retires with its generation.
 on_fleet_op_applied(self, func: Callable[[str], Any]) -> Callable[[str], Any]
 ```
 
-Register a handler fired after any worker-bus op applies in this
-process, and after the reconnect self-resync reload.
+Register a handler fired after any worker-bus op applies in this process.
 
-Unlike its zero-arg siblings, the handler takes ONE argument — the op
-name — so it can act on some ops and skip others (a query op carries no
-state change to react to).
+Also fired after the reconnect self-resync reload. Unlike its zero-arg
+siblings, the handler takes ONE argument — the op name — so it can act on
+some ops and skip others (a query op carries no state change to react to).
 
 **Parameters**
 
@@ -1200,10 +1271,10 @@ state change to react to).
 async wait_until_ready(self) -> None
 ```
 
-Block until this process's first boot self-resync has completed — the
-point at which the tool registry is fully built and stable for the run.
+Block until this process's first boot self-resync has completed.
 
-A backend runtime that forks a child (or otherwise consumes queued work)
+That is the point at which the tool registry is fully built and stable for
+the run. A backend runtime that forks a child (or otherwise consumes queued work)
 per job awaits this before its work loop accepts anything: the boot
 self-resync rebuilds the tool registry non-atomically, so a worker that
 dequeued and forked mid-rebuild would run the job against a half-built
@@ -1221,6 +1292,8 @@ already live) never un-readies the process.
 class AppMonitoring(Protocol)
 ```
 
+Registration and access for the process monitoring backend.
+
 ### Members
 
 #### register_monitoring
@@ -1230,6 +1303,8 @@ class AppMonitoring(Protocol)
 ```python
 register_monitoring(self, builder: Callable[..., Any] | None = None) -> Callable[..., Any]
 ```
+
+Register the monitoring backend builder, or return a decorator when ``builder`` is omitted.
 
 **Parameters**
 
@@ -1264,12 +1339,6 @@ The presets namespace (``app.presets``) — the typed view + the bind kernel.
 ``app.versioning.store`` (``kind="preset"``). ``bind`` is the kernel BOTH tiers
 (ephemeral and versioned) build their live tool through, so its typed-schema
 behavior reaches both.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `PresetStore` |
 
 ### Members
 
@@ -1415,8 +1484,7 @@ reason `create` states.
 register_write_validator(self, base_tool: str, validator: PresetWriteValidator) -> None
 ```
 
-Register the write validator for ``base_tool`` (one per base tool;
-duplicate registration raises).
+Register the write validator for ``base_tool`` (one per base tool; duplicate registration raises).
 
 A base-tool plugin calls this through the ``tai42_app`` handle when its tool
 module loads. The validator runs on every write that persists a body —
@@ -1440,8 +1508,7 @@ base tool with no registered validator gets no extra check.
 register_input_schema_support(self, base_tool: str, support: PresetInputSchemaSupport) -> None
 ```
 
-Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base
-tool; duplicate registration raises).
+Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base tool; duplicate raises).
 
 A base-tool plugin calls this through the ``tai42_app`` handle when its tool
 module loads. A preset that sets an ``input_schema`` over a base tool with no
@@ -1464,8 +1531,9 @@ chokepoint, never a silently-ignored schema.
 input_schema_support(self, base_tool: str) -> PresetInputSchemaSupport | None
 ```
 
-The input-schema support ``base_tool`` declared, or ``None`` if it declared
-none (its typed schema is fixed).
+The input-schema support ``base_tool`` declared, or ``None`` if it declared none.
+
+When ``None``, the base tool's typed schema is fixed.
 
 **Parameters**
 
@@ -1482,9 +1550,9 @@ none (its typed schema is fixed).
 register_registration_tier(self, base_tool: str, tier: RouteAction) -> None
 ```
 
-Declare the authz character required to AUTHOR (create/save/rollback/rename)
-a preset over ``base_tool`` (one per base tool; duplicate registration raises).
+Declare the authz tier required to author a preset over ``base_tool`` (one per base tool).
 
+Governs create/save/rollback/rename; duplicate registration raises.
 Default authoring is the presets' own ``write`` action; a base tool with no
 declaration keeps that default. A base tool declaring ``fenced`` requires the
 admin fence to author a preset over it. The shared preset-authoring chokepoint
@@ -1506,8 +1574,9 @@ reads this and enforces it BEFORE any store write on every authoring door.
 registration_tier(self, base_tool: str) -> RouteAction | None
 ```
 
-The authoring authz tier ``base_tool`` declared, or ``None`` if it declared
-none (authoring keeps the presets' default ``write`` action).
+The authoring authz tier ``base_tool`` declared, or ``None`` if it declared none.
+
+When ``None``, authoring keeps the presets' default ``write`` action.
 
 **Parameters**
 
@@ -1539,6 +1608,17 @@ plugin's default under another's.
 | `seed` | `PresetSeed` | — | — |
 
 
+#### store
+
+`tai42_contract.app.facets.authoring.AppPresets.store`
+
+```python
+store: PresetStore
+```
+
+The typed preset view over ``app.versioning.store`` (``kind="preset"``).
+
+
 
 ## AppSandboxes
 
@@ -1560,9 +1640,9 @@ The sandbox-provider namespace (``app.sandboxes``).
 register_sandbox(self, cls: type[Sandbox]) -> type[Sandbox]
 ```
 
-Register the `Sandbox` provider (decorator form, returning the class
-unchanged). One provider backs the slot; a second registration is a conflict
-the runtime rejects loudly.
+Register the `Sandbox` provider (decorator form, returning the class unchanged).
+
+One provider backs the slot; a second registration is a conflict the runtime rejects loudly.
 
 
 #### sandbox
@@ -1573,10 +1653,10 @@ the runtime rejects loudly.
 sandbox: Sandbox | None
 ```
 
-The registered provider, or ``None`` — status/introspection ONLY. Never
-gate execution on this nullable read; acquire through `require_sandbox`,
-the every-door guarantee (a ``None`` property is how per-consumer checks
-drift).
+The registered provider, or ``None`` — status/introspection ONLY.
+
+Never gate execution on this nullable read; acquire through `require_sandbox`, the every-door
+guarantee (a ``None`` property is how per-consumer checks drift).
 
 
 #### require_sandbox
@@ -1587,10 +1667,10 @@ drift).
 require_sandbox(self) -> Sandbox
 ```
 
-The ONE raising acquisition chokepoint: return the registered provider or
-raise `SandboxUnavailableError` (naming
-``TAI_MCP_SANDBOX`` and ``sandbox_module``) when none is registered. EVERY
-consumer acquires through here.
+Return the registered provider from the ONE raising acquisition chokepoint.
+
+Raise `SandboxUnavailableError` (naming ``TAI_MCP_SANDBOX`` and
+``sandbox_module``) when none is registered. EVERY consumer acquires through here.
 
 
 #### sandbox_policy
@@ -1601,8 +1681,9 @@ consumer acquires through here.
 sandbox_policy(self) -> SandboxPolicy
 ```
 
-The skeleton-resolved `SandboxPolicy` — the
-plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
+Return the skeleton-resolved `SandboxPolicy`.
+
+This is the plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
 session-create chokepoint.
 
 Available REGARDLESS of whether a provider is registered (it reads operator
@@ -1622,9 +1703,9 @@ which resolves the policy once and returns the SAME value it binds to the kit.
 class AppStates(Protocol)
 ```
 
-The subject-keyed state store namespace (``app.states``) — the door-agnostic
-contract every door and tool reads and writes a subject's document through.
+The subject-keyed state store namespace (``app.states``).
 
+The door-agnostic contract every door and tool reads and writes a subject's document through.
 The store takes a full `StateSubject` and refuses
 anything less; subject resolution happens once per door, never here. Every write
 door supplies a `WriteOrigin` carrying only what a
@@ -1694,9 +1775,9 @@ first), and removing a subject kind still present in records raises
 async delete_declaration(self, name: str) -> None
 ```
 
-Delete a state with its records and attachments; raise
-`DeclarationInUseError` when a consumer still
-binds it.
+Delete a state with its records and attachments.
+
+Raises `DeclarationInUseError` when a consumer still binds it.
 
 **Parameters**
 
@@ -1741,8 +1822,9 @@ Every stored platform template document.
 async get_template(self, name: str) -> StateTemplateDocument | None
 ```
 
-The template document named ``name``, or ``None`` when none is stored — the
-read a consumer's own sibling document validates against.
+The template document named ``name``, or ``None`` when none is stored.
+
+The read a consumer's own sibling document validates against.
 
 **Parameters**
 
@@ -1759,8 +1841,7 @@ read a consumer's own sibling document validates against.
 async put_template(self, doc: StateTemplateDocument, *, replace: bool) -> StateTemplateDocument
 ```
 
-Store a template document (``replace`` required to overwrite an existing name)
-and return it.
+Store a template document and return it (``replace`` required to overwrite an existing name).
 
 Runs every registered attach validator over each live attachment before the write,
 so a consumer's data-dependent check still fires here; a raise leaves the stored
@@ -1783,8 +1864,9 @@ document untouched. Overwriting an existing name without ``replace`` raises
 async delete_template(self, name: str) -> None
 ```
 
-Delete a template document; raise
-`TemplateInUseError` while it is still attached.
+Delete a template document.
+
+Raises `TemplateInUseError` while it is still attached.
 
 **Parameters**
 
@@ -1801,9 +1883,10 @@ Delete a template document; raise
 async list_attachments(self, state: str | None = None, *, template: str | None = None) -> list[dict[str, Any]]
 ```
 
-Attachment rows filtered by ``state``, by ``template``, or every attachment when
-both are ``None`` — what the attachments listing and the Consumers tab read. Each row
-carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
+Attachment rows filtered by ``state``, by ``template``, or every attachment when both are ``None``.
+
+What the attachments listing and the Consumers tab read. Each row carries ``state``,
+``template``, ``path``, ``parameters`` and ``declarations``.
 
 **Parameters**
 
@@ -1821,12 +1904,10 @@ carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
 async attach(self, state: str, template: str, body: AttachBody) -> None
 ```
 
-Attach ``template`` on ``state`` at ``body.path``, storing the resolved
-parameters and declarations and recomposing the effective schema in one
-transaction.
+Attach ``template`` on ``state`` at ``body.path``, recomposing the effective schema in one transaction.
 
-Runs every registered attach validator before the write; a raise refuses the
-door with the validator's message. Overlapping fragments raise
+Stores the resolved parameters and declarations. Runs every registered attach validator before the write; a
+raise refuses the door with the validator's message. Overlapping fragments raise
 `AttachConflictError`.
 
 **Parameters**
@@ -1853,8 +1934,9 @@ async update_attachment_declarations(
 ) -> None
 ```
 
-Replace an attachment's declaration values, re-running every registered attach
-validator and reconciler and recomposing the effective schema before the write.
+Replace an attachment's declaration values, recomposing the effective schema before the write.
+
+Re-runs every registered attach validator and reconciler before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
 operation only, never stored or served back (``None`` is an empty bag).
 
@@ -1894,9 +1976,9 @@ Remove an attachment and recompose the state's effective schema.
 async read(self, state: str, subject: StateSubject) -> StateRecord | None
 ```
 
-The record for ``subject`` (resolving a fold to its canonical subject), or
-``None`` when none exists. An unknown person or a target mismatch is a refusal,
-never an empty document.
+The record for ``subject`` (resolving a fold to its canonical subject), or ``None`` when none exists.
+
+An unknown person or a target mismatch is a refusal, never an empty document.
 
 **Parameters**
 
@@ -1948,8 +2030,7 @@ async merge(
 ) -> StateRecord
 ```
 
-Shallow top-level merge ``patch`` into ``subject``'s document and return the
-new record.
+Shallow top-level merge ``patch`` into ``subject``'s document and return the new record.
 
 **Parameters**
 
@@ -2004,8 +2085,9 @@ the touched paths and the completed origin. A replayed ``op_id`` returns
 async eval_template_jq(self, state: str, subject: StateSubject, name: str, params: dict[str, Any]) -> TemplateJqResult
 ```
 
-Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and
-return its value — the program's jq over the subject's record, ``params`` supplying
+Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and return its value.
+
+The program's jq runs over the subject's record, ``params`` supplying
 its declared parameters. ``name`` resolves across the state's attached templates
 (unqualified → the declaring template; ``<attachment>.<name>`` → that attachment's
 template). An unknown name is a `StateNotFoundError`; an
@@ -2033,15 +2115,16 @@ async apply_template_jq(
     state: str,
     subject: StateSubject,
     name: str,
-    input: Any,
+    input_: Any,
     *,
     op_id: str | None,
     origin: WriteOrigin,
 ) -> TemplateJqApplyResult
 ```
 
-Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``. Its jq
-maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
+Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``.
+
+Its jq maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
 path and applied through the same chokepoint as `apply` — so regimes, the
 composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
 resolves as for `eval_template_jq`. An unknown name is a
@@ -2056,7 +2139,7 @@ resolves as for `eval_template_jq`. An unknown name is a
 | `state` | `str` | — | — |
 | `subject` | `StateSubject` | — | — |
 | `name` | `str` | — | — |
-| `input` | `Any` | — | — |
+| `input_` | `Any` | — | — |
 | `op_id` | `str \| None` | — | — |
 | `origin` | `WriteOrigin` | — | — |
 
@@ -2096,12 +2179,11 @@ async fold(
 ) -> dict[str, Any]
 ```
 
-Fold ``subject`` into ``into`` (``mode`` decides how the documents combine)
-and return the resulting canonical document.
+Fold ``subject`` into ``into`` and return the resulting canonical document.
 
-A self-fold, a cycle, a conflicting re-fold, or a merge whose result fails the
-schema raises `SubjectFoldError`; a retried fold to
-the same target is a quiet no-op.
+``mode`` decides how the documents combine. A self-fold, a cycle, a conflicting re-fold,
+or a merge whose result fails the schema raises
+`SubjectFoldError`; a retried fold to the same target is a quiet no-op.
 
 **Parameters**
 
@@ -2129,7 +2211,8 @@ async list_subjects(
 ) -> dict[str, Any]
 ```
 
-A keyset page of subjects for ``state`` (optionally one ``kind``):
+A keyset page of subjects for ``state`` (optionally one ``kind``).
+
 ``{"subjects": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
@@ -2157,7 +2240,8 @@ async search(
 ) -> dict[str, Any]
 ```
 
-A keyset page of records whose document contains ``filters``:
+A keyset page of records whose document contains ``filters``.
+
 ``{"matches": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
@@ -2185,8 +2269,9 @@ async writes(
 ) -> WritesPage
 ```
 
-One keyset page of the audit trail for ``subject``, newest first — the
-``items`` (each a write with its completed origin and touched paths) plus the
+One keyset page of the audit trail for ``subject``, newest first.
+
+The ``items`` (each a write with its completed origin and touched paths) plus the
 ``next_cursor`` that pages the trail like ``list_subjects``/``search`` page
 theirs (the last row's id when the page is full, else ``None``).
 
@@ -2208,8 +2293,7 @@ theirs (the last row's id when the page is full, else ``None``).
 async prune_expired(self) -> dict[str, int]
 ```
 
-Delete records past their state's ``retention_days`` and return the per-state
-deletion counts.
+Delete records past their state's ``retention_days`` and return the per-state deletion counts.
 
 
 #### context
@@ -2220,9 +2304,9 @@ deletion counts.
 context(self) -> StateContext | None
 ```
 
-The ambient `StateContext` the current door
-deposited, or ``None`` outside a door (an ``api`` write completes from the
-request principal instead).
+The ambient `StateContext` the current door deposited.
+
+``None`` outside a door (an ``api`` write completes from the request principal instead).
 
 
 #### register_consumer_lister
@@ -2255,8 +2339,7 @@ kind raises loudly.
 async consumers(self, state: str) -> list[ConsumerRow]
 ```
 
-Everything that binds ``state`` — the union of every registered consumer
-lister — for the Consumers tab.
+Everything that binds ``state`` — the union of every registered consumer lister — for the Consumers tab.
 
 **Parameters**
 
@@ -2345,6 +2428,8 @@ commit with those writes.
 class AppStorage(Protocol)
 ```
 
+The storage-provider namespace (``app.storage``).
+
 ### Members
 
 #### register_storage
@@ -2354,6 +2439,8 @@ class AppStorage(Protocol)
 ```python
 register_storage(self, cls: type[Storage] | None = None) -> Callable[[type[Storage]], type[Storage]] | type[Storage]
 ```
+
+Register the `Storage` provider; usable bare or as a decorator factory.
 
 
 #### resource_manager
@@ -2376,11 +2463,20 @@ The active resource manager (impl type; loads/renders content over storage).
 class AppSubApp(Protocol)
 ```
 
-**Attributes**
+Access to the sub-app MCP router.
 
-| Attribute | Type |
-|---|---|
-| `mcp_sub_app_router` *(property)* | `SubMcpAppRouter` |
+### Members
+
+#### mcp_sub_app_router
+
+`tai42_contract.app.facets.runtime.AppSubApp.mcp_sub_app_router`
+
+```python
+mcp_sub_app_router: SubMcpAppRouter
+```
+
+The router for mounted sub-app MCP servers.
+
 
 
 ## AppToolMeta
@@ -2391,21 +2487,26 @@ class AppSubApp(Protocol)
 class AppToolMeta(Protocol)
 ```
 
-The tool-metadata namespace (``app.tool_meta``) — the organizational overlay
-over any live tool: a folder tree plus a per-tool row (display name, folder
-placement, tags, badges, a hidden override).
+The tool-metadata namespace (``app.tool_meta``) — the organizational overlay over any live tool.
 
+The overlay is a folder tree plus a per-tool row (display name, folder
+placement, tags, badges, a hidden override).
 ``store`` is the `ToolMetaStore` view the routes
 and the preset lifecycle cascade read and write. ``patch`` is the in-process edit
 seam beside the HTTP PATCH door.
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `ToolMetaStore` |
-
 ### Members
+
+#### store
+
+`tai42_contract.app.facets.authoring.AppToolMeta.store`
+
+```python
+store: ToolMetaStore
+```
+
+The tool-metadata overlay store the routes and preset cascade read and write.
+
 
 #### patch
 
@@ -2460,6 +2561,8 @@ Tool + toolkit registration / lookup surface.
 tool_title(self, func: Callable[..., object]) -> str
 ```
 
+Return the human-facing title of the tool implemented by ``func``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -2474,6 +2577,8 @@ tool_title(self, func: Callable[..., object]) -> str
 ```python
 async get_tool(self, key: str) -> Tool
 ```
+
+Return the assembled tool registered under ``key``.
 
 **Parameters**
 
@@ -2490,6 +2595,8 @@ async get_tool(self, key: str) -> Tool
 async get_tools(self) -> dict[str, Tool]
 ```
 
+Return every assembled tool keyed by name.
+
 
 #### get_client_tools
 
@@ -2498,6 +2605,8 @@ async get_tools(self) -> dict[str, Tool]
 ```python
 async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
 ```
+
+Return the client-facing tool objects, restricted to ``names`` when given.
 
 **Parameters**
 
@@ -2513,6 +2622,10 @@ async get_client_tools(self, names: list[str] | None = None) -> list[StructuredT
 ```python
 async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool = False) -> Any
 ```
+
+Execute the tool registered under ``key`` with ``arguments`` and return its result.
+
+``offload_sync`` runs a synchronous tool body off the event loop in a worker thread.
 
 **Parameters**
 
@@ -2531,6 +2644,8 @@ async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool 
 remove_tool(self, name: str) -> None
 ```
 
+Remove the tool registered under ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -2545,6 +2660,8 @@ remove_tool(self, name: str) -> None
 ```python
 register_tool_info(self, name: str, combos: Sequence[Sequence[ExtensionElement]] | None = None) -> None
 ```
+
+Register base tool ``name``'s extension combos, attaching each combo stack to the base.
 
 **Parameters**
 
@@ -2562,6 +2679,8 @@ register_tool_info(self, name: str, combos: Sequence[Sequence[ExtensionElement]]
 unregister_tool_info(self, name: str) -> None
 ```
 
+Drop the registered tool-info for ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -2577,6 +2696,8 @@ unregister_tool_info(self, name: str) -> None
 unregister_tool_base(self, tool_name: str) -> list[str]
 ```
 
+Unregister base tool ``tool_name`` and return the names removed.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -2591,6 +2712,8 @@ unregister_tool_base(self, tool_name: str) -> list[str]
 ```python
 tool_refs_extractor(self, name: str) -> ToolRefsExtractor | None
 ```
+
+Return the tool-references extractor base tool ``name`` registered, or ``None`` when it declared none.
 
 **Parameters**
 
@@ -2656,8 +2779,7 @@ registration is a plugin bug, never a silent duplicate consult.
 register_detach_referee(self, provider: StateTemplateDetachReferee) -> None
 ```
 
-Register a `StateTemplateDetachReferee` consulted before a state-template
-detach.
+Register a `StateTemplateDetachReferee` consulted before a state-template detach.
 
 A holder of door bindings that name templates (e.g. per-node state bindings, or the
 platform's own preset/route/hook/schedule bindings) calls this through the
@@ -2682,8 +2804,9 @@ consult.
 register_tier(self, base_tool: str, tier: RouteAction) -> None
 ```
 
-Declare ``base_tool``'s registration tier — the authorization character
-(a `RouteAction`) enforced everywhere the tier is consulted.
+Declare ``base_tool``'s registration tier (a `RouteAction`).
+
+The authorization character enforced everywhere the tier is consulted.
 
 A ``fenced`` or ``secret`` tier gates BOTH authoring a preset over the base tool
 (admin-only) AND running the tool: a ``fenced``/``secret`` tool runs only for an
@@ -2709,8 +2832,9 @@ One declaration per base tool; a duplicate raises loudly.
 tier(self, base_tool: str) -> RouteAction | None
 ```
 
-The registration tier ``base_tool`` declared, or ``None`` when it declared
-none (no execution fence; authoring keeps the presets' default ``write`` action).
+The registration tier ``base_tool`` declared, or ``None`` when it declared none.
+
+None means no execution fence; authoring keeps the presets' default ``write`` action.
 
 **Parameters**
 
@@ -2735,11 +2859,18 @@ pointer + rollback over an opaque JSONB body, discriminated by ``kind``. Direct
 consumers (e.g. AC policies under ``kind="ac_policy"``) reach it here; presets
 reach it through `AppPresets`, never as a new kind.
 
-**Attributes**
+### Members
 
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `VersionedStore` |
+#### store
+
+`tai42_contract.app.facets.authoring.AppVersioning.store`
+
+```python
+store: VersionedStore
+```
+
+The append-only versioned-document store backing this namespace.
+
 
 
 ## AppWebhookVerifiers
@@ -2749,6 +2880,8 @@ reach it through `AppPresets`, never as a new kind.
 ```python
 class AppWebhookVerifiers(Protocol)
 ```
+
+The webhook-verifier registry namespace (``app.webhook_verifiers``).
 
 ### Members
 
@@ -2846,34 +2979,271 @@ class TaiApp(Protocol)
 
 The assembled facade — per-feature sub-protocols exposed as namespaces.
 
-**Attributes**
+### Members
 
-| Attribute | Type |
-|---|---|
-| `tools` *(property)* | `AppTools` |
-| `agents` *(property)* | `AppAgents` |
-| `backends` *(property)* | `AppBackends` |
-| `sandboxes` *(property)* | `AppSandboxes` |
-| `storage` *(property)* | `AppStorage` |
-| `connectors` *(property)* | `AppConnectors` |
-| `accounts` *(property)* | `AppAccounts` |
-| `webhook_verifiers` *(property)* | `AppWebhookVerifiers` |
-| `channels` *(property)* | `AppChannels` |
-| `conversations` *(property)* | `AppConversations` |
-| `monitoring` *(property)* | `AppMonitoring` |
-| `extensions` *(property)* | `AppExtensions` |
-| `interactions` *(property)* | `AppInteractions` |
-| `http` *(property)* | `AppHttp` |
-| `clients` *(property)* | `AppClients` |
-| `lifecycle` *(property)* | `AppLifecycle` |
-| `admin` *(property)* | `AppAdmin` |
-| `config` *(property)* | `AppConfig` |
-| `backup` *(property)* | `AppBackup` |
-| `sub_app` *(property)* | `AppSubApp` |
-| `versioning` *(property)* | `AppVersioning` |
-| `presets` *(property)* | `AppPresets` |
-| `tool_meta` *(property)* | `AppToolMeta` |
-| `states` *(property)* | `AppStates` |
+#### tools
+
+`tai42_contract.app.TaiApp.tools`
+
+```python
+tools: AppTools
+```
+
+Tool and toolkit registration and lookup.
+
+
+#### agents
+
+`tai42_contract.app.TaiApp.agents`
+
+```python
+agents: AppAgents
+```
+
+Agent registration and access.
+
+
+#### backends
+
+`tai42_contract.app.TaiApp.backends`
+
+```python
+backends: AppBackends
+```
+
+Task backend registration and access.
+
+
+#### sandboxes
+
+`tai42_contract.app.TaiApp.sandboxes`
+
+```python
+sandboxes: AppSandboxes
+```
+
+Sandbox-provider registration and access.
+
+
+#### storage
+
+`tai42_contract.app.TaiApp.storage`
+
+```python
+storage: AppStorage
+```
+
+Storage-provider registration and access.
+
+
+#### connectors
+
+`tai42_contract.app.TaiApp.connectors`
+
+```python
+connectors: AppConnectors
+```
+
+Connector-provider registration and credential resolution.
+
+
+#### accounts
+
+`tai42_contract.app.TaiApp.accounts`
+
+```python
+accounts: AppAccounts
+```
+
+Read access to the current epoch's live identity/accounts providers.
+
+
+#### webhook_verifiers
+
+`tai42_contract.app.TaiApp.webhook_verifiers`
+
+```python
+webhook_verifiers: AppWebhookVerifiers
+```
+
+Inbound webhook verifier registration and lookup.
+
+
+#### channels
+
+`tai42_contract.app.TaiApp.channels`
+
+```python
+channels: AppChannels
+```
+
+Channel registration and lookup.
+
+
+#### conversations
+
+`tai42_contract.app.TaiApp.conversations`
+
+```python
+conversations: AppConversations
+```
+
+Inbound-message and delivery-status entry surface for medium adapters.
+
+
+#### monitoring
+
+`tai42_contract.app.TaiApp.monitoring`
+
+```python
+monitoring: AppMonitoring
+```
+
+Monitoring backend registration and access.
+
+
+#### extensions
+
+`tai42_contract.app.TaiApp.extensions`
+
+```python
+extensions: AppExtensions
+```
+
+Tool-extension factory registration and lookup.
+
+
+#### interactions
+
+`tai42_contract.app.TaiApp.interactions`
+
+```python
+interactions: AppInteractions
+```
+
+The ``ask_user`` interactions facade.
+
+
+#### http
+
+`tai42_contract.app.TaiApp.http`
+
+```python
+http: AppHttp
+```
+
+HTTP middleware, route registration, and mount introspection.
+
+
+#### clients
+
+`tai42_contract.app.TaiApp.clients`
+
+```python
+clients: AppClients
+```
+
+Pooled async client lifecycle for the process.
+
+
+#### lifecycle
+
+`tai42_contract.app.TaiApp.lifecycle`
+
+```python
+lifecycle: AppLifecycle
+```
+
+Startup, shutdown, reload, and post-swap lifecycle hook registration.
+
+
+#### admin
+
+`tai42_contract.app.TaiApp.admin`
+
+```python
+admin: AppAdmin
+```
+
+In-process admin operations (binding, tool reload, config reload).
+
+
+#### config
+
+`tai42_contract.app.TaiApp.config`
+
+```python
+config: AppConfig
+```
+
+Access to the process config manager.
+
+
+#### backup
+
+`tai42_contract.app.TaiApp.backup`
+
+```python
+backup: AppBackup
+```
+
+Named backup-section registration and export/import.
+
+
+#### sub_app
+
+`tai42_contract.app.TaiApp.sub_app`
+
+```python
+sub_app: AppSubApp
+```
+
+Access to the sub-app router.
+
+
+#### versioning
+
+`tai42_contract.app.TaiApp.versioning`
+
+```python
+versioning: AppVersioning
+```
+
+The generic versioned-document store.
+
+
+#### presets
+
+`tai42_contract.app.TaiApp.presets`
+
+```python
+presets: AppPresets
+```
+
+The presets namespace (typed view plus bind kernel).
+
+
+#### tool_meta
+
+`tai42_contract.app.TaiApp.tool_meta`
+
+```python
+tool_meta: AppToolMeta
+```
+
+The tool-metadata overlay over any live tool.
+
+
+#### states
+
+`tai42_contract.app.TaiApp.states`
+
+```python
+states: AppStates
+```
+
+The subject-keyed state store.
+
 
 
 ## tai42_app
@@ -2912,8 +3282,9 @@ current epoch, so the contract never learns about epochs.
 active_provider(self, name: str) -> IdentityProvider | None
 ```
 
-The provider the CURRENT epoch instantiated under ``name`` (an
-``AccountsProvider`` is an ``IdentityProvider``), or ``None`` when no provider is
+The provider the CURRENT epoch instantiated under ``name``, or ``None`` when none is active.
+
+An ``AccountsProvider`` is an ``IdentityProvider``. ``None`` means no provider is
 active under that name — the name is not configured, or a build is mid-flight.
 
 **Parameters**
@@ -2932,11 +3303,7 @@ active under that name — the name is not configured, or a build is mid-flight.
 class AppAdmin(Protocol)
 ```
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `live_manifest` *(property)* | `dict[str, Any]` |
+In-process admin operations: MCP binding, tool reload, config reload.
 
 ### Members
 
@@ -2947,6 +3314,8 @@ class AppAdmin(Protocol)
 ```python
 reload_mcp(self, title: str) -> dict[str, Any]
 ```
+
+Rebind the MCP server titled ``title`` and return its status.
 
 **Parameters**
 
@@ -2963,6 +3332,8 @@ reload_mcp(self, title: str) -> dict[str, Any]
 deregister_mcp(self, title: str) -> dict[str, Any]
 ```
 
+Remove the MCP server titled ``title`` and return its status.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -2977,6 +3348,8 @@ deregister_mcp(self, title: str) -> dict[str, Any]
 ```python
 reload_config(self) -> dict[str, Any]
 ```
+
+Re-init the process config in place and return the reload report.
 
 
 #### tool_reloader
@@ -3004,6 +3377,8 @@ Register an async ``(action, name) -> dict`` reloader for ``kind``.
 async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
 ```
 
+Run the registered ``kind`` reloader for ``action`` on ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -3021,6 +3396,8 @@ async run_tool_reload(self, kind: str, action: str, name: str) -> dict[str, Any]
 reload_failed_mcps(self) -> list[dict[str, Any]]
 ```
 
+Retry every MCP that failed to bind and return their statuses.
+
 
 #### list_failed_mcps
 
@@ -3029,6 +3406,8 @@ reload_failed_mcps(self) -> list[dict[str, Any]]
 ```python
 list_failed_mcps(self) -> list[dict[str, Any]]
 ```
+
+List the MCPs that failed to bind.
 
 
 #### live_mcp_status
@@ -3042,6 +3421,17 @@ live_mcp_status(self) -> dict[str, Any]
 Snapshot the in-process MCP-binding state.
 
 
+#### live_manifest
+
+`tai42_contract.app.facets.runtime.AppAdmin.live_manifest`
+
+```python
+live_manifest: dict[str, Any]
+```
+
+The manifest currently live in this process.
+
+
 
 ## AppAgents
 
@@ -3050,6 +3440,8 @@ Snapshot the in-process MCP-binding state.
 ```python
 class AppAgents(Protocol)
 ```
+
+The agent-provider namespace (``app.agents``).
 
 ### Members
 
@@ -3066,8 +3458,7 @@ agent(
 ) -> Callable[[type[_AgentT]], type[_AgentT]]
 ```
 
-Register an `Agent` subclass under ``name`` and auto-register
-its JSON ``run`` tool.
+Register an `Agent` subclass under ``name`` and auto-register its JSON ``run`` tool.
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
 ``meta`` is generic registration metadata threaded onto the same constructed
@@ -3110,10 +3501,10 @@ Fetch a registered agent instance by name; raise if missing.
 all_agents(self) -> dict[str, Agent]
 ```
 
-Every registered agent keyed by registration name (a shallow copy, so a
-caller iterating it cannot mutate the live registry). The preset bind kernel
-reads the keys to detect an agent base (the run tool binds under the
-registration name).
+Return every registered agent keyed by registration name.
+
+The result is a shallow copy, so a caller iterating it cannot mutate the live registry. The preset
+bind kernel reads the keys to detect an agent base (the run tool binds under the registration name).
 
 
 
@@ -3125,11 +3516,7 @@ registration name).
 class AppBackends(Protocol)
 ```
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `backend` *(property)* | `Backend \| None` |
+The backend-provider namespace (``app.backends``).
 
 ### Members
 
@@ -3141,6 +3528,19 @@ class AppBackends(Protocol)
 register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backend]], type[Backend]] | type[Backend]
 ```
 
+Register the `Backend` provider; usable bare or as a decorator factory.
+
+
+#### backend
+
+`tai42_contract.app.facets.execution.AppBackends.backend`
+
+```python
+backend: Backend | None
+```
+
+The registered backend provider, or ``None`` when none is registered.
+
 
 
 ## AppBackup
@@ -3151,8 +3551,7 @@ register_backend(self, cls: type[Backend] | None = None) -> Callable[[type[Backe
 class AppBackup(Protocol)
 ```
 
-Registry for named backup sections and the run of one section's
-export/import.
+Registry for named backup sections and the run of one section's export/import.
 
 A plugin (or the host itself, the first consumer) registers a section under
 ``name`` by supplying an ``exporter()`` that returns a JSON-safe payload and
@@ -3178,6 +3577,8 @@ register_section(
 ) -> None
 ```
 
+Register a backup section's exporter/importer under ``name``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -3196,6 +3597,8 @@ register_section(
 sections(self) -> list[BackupSectionInfo]
 ```
 
+List the registered backup sections.
+
 
 #### export_section
 
@@ -3204,6 +3607,8 @@ sections(self) -> list[BackupSectionInfo]
 ```python
 export_section(self, name: str) -> Any
 ```
+
+Run one section's exporter by ``name`` and return its payload.
 
 **Parameters**
 
@@ -3219,6 +3624,8 @@ export_section(self, name: str) -> Any
 ```python
 import_section(self, name: str, payload: Any) -> Any
 ```
+
+Apply ``payload`` via one section's importer by ``name`` and return its report.
 
 **Parameters**
 
@@ -3236,6 +3643,8 @@ import_section(self, name: str, payload: Any) -> Any
 ```python
 class AppChannels(Protocol)
 ```
+
+The channel registry namespace (``app.channels``) and inbound-answer ladder.
 
 ### Members
 
@@ -3310,9 +3719,11 @@ async handle_inbound_answer(
 ) -> InboundAnswerResult
 ```
 
-Resolve one inbound participant reply against its pending ask — the ONE shared
-inbound-answer ladder every correlated channel calls instead of hand-rolling
-its own "forward → interpret 2xx/404/400 → release/bridge/keep" sequence.
+Resolve one inbound participant reply against its pending ask.
+
+This is the ONE shared inbound-answer ladder every correlated channel calls
+instead of hand-rolling its own "forward → interpret 2xx/404/400 →
+release/bridge/keep" sequence.
 
 Returns an `InboundAnswerResult`: the ``outcome`` the channel maps to its
 transport ack, plus the door's ``retry_reason``/``retry_field`` when it rejected
@@ -3364,12 +3775,12 @@ forward; a stored callback whose host does not match is released and treated as
 | `bridge` | `InboundBridge` | — | — |
 
 
-#### record_flow_send_receipt
+#### record_send_receipt
 
-`tai42_contract.app.facets.messaging.AppChannels.record_flow_send_receipt`
+`tai42_contract.app.facets.messaging.AppChannels.record_send_receipt`
 
 ```python
-async record_flow_send_receipt(
+async record_send_receipt(
     self,
     channel: str,
     provider_message_id: str,
@@ -3379,20 +3790,20 @@ async record_flow_send_receipt(
 ) -> bool
 ```
 
-Post an out-of-band delivery receipt for a FLOW send (a ``notify_user`` channel
-send) back onto its originating monitoring trace.
+Post an out-of-band delivery receipt for a ``notify_user`` send back onto its originating trace.
 
-The tier-2 counterpart to the conversation bridge's ``record_delivery_status``: a
+The send is a ``notify_user`` channel send with no conversation record. The tier-2
+counterpart to the conversation bridge's ``record_delivery_status``: a
 channel's delivery-status webhook calls this when the bridge does not own the
 outbound id (``record_delivery_status`` raised ``LookupError``). It resolves the id
-through the TTL'd flow-send index and, on a hit, emits a ``delivery_receipt`` event
-into the recorded trace (a FAILED receipt at ERROR level), so the flow's own trace
+through the TTL'd send-receipt index and, on a hit, emits a ``delivery_receipt`` event
+into the recorded trace (a FAILED receipt at ERROR level), so the originating trace
 shows delivered-vs-accepted for its sends. ``errors`` carries any provider error
 detail for the event input.
 
-Returns ``True`` when the id was a known flow send (event emitted), ``False`` when it
+Returns ``True`` when the id was a known send (event emitted), ``False`` when it
 is not — so the webhook keeps its genuinely-unknown-id log only on a ``False``. A
-no-op returning ``False`` where the flow-send store is unconfigured.
+no-op returning ``False`` where the send-receipt store is unconfigured.
 
 **Parameters**
 
@@ -3413,6 +3824,8 @@ no-op returning ``False`` where the flow-send store is unconfigured.
 class AppClients(Protocol)
 ```
 
+Pooled async client lifecycle for the process.
+
 ### Members
 
 #### client_ctx
@@ -3430,9 +3843,11 @@ client_ctx(
 ) -> AbstractAsyncContextManager[ClientT]
 ```
 
-Async context manager yielding a connected client, pooled per loop +
-connection params (or one-shot when ``fresh=True``). ``settings`` is a kit
-``ClientSettings`` whose ``client_kwargs()`` supplies the connection key.
+Yield a connected client as an async context manager.
+
+Pooled per loop + connection params, or one-shot when ``fresh=True``.
+``settings`` is a kit ``ClientSettings`` whose ``client_kwargs()`` supplies
+the connection key.
 
 **Parameters**
 
@@ -3464,11 +3879,20 @@ Close every live client pool for the running loop.
 class AppConfig(Protocol)
 ```
 
-**Attributes**
+Access to the process config manager.
 
-| Attribute | Type |
-|---|---|
-| `config_manager` *(property)* | `ConfigManager` |
+### Members
+
+#### config_manager
+
+`tai42_contract.app.facets.runtime.AppConfig.config_manager`
+
+```python
+config_manager: ConfigManager
+```
+
+The process config manager.
+
 
 
 ## AppConnectors
@@ -3478,6 +3902,8 @@ class AppConfig(Protocol)
 ```python
 class AppConnectors(Protocol)
 ```
+
+Registration and credential resolution for connector providers.
 
 ### Members
 
@@ -3489,10 +3915,11 @@ class AppConnectors(Protocol)
 register_connector(self, descriptor: ProviderDescriptor) -> None
 ```
 
-Register a connector provider from its pure descriptor data. Called for
-every manifest ``connectors`` entry at boot/reload, and by any code holding
-the handle (a connector is pure data, so this is a plain call, not a
-decorator).
+Register a connector provider from its pure descriptor data.
+
+Called for every manifest ``connectors`` entry at boot/reload, and by any
+code holding the handle (a connector is pure data, so this is a plain call,
+not a decorator).
 
 **Parameters**
 
@@ -3555,9 +3982,11 @@ skeleton owns the fail-close enforcement.
 class AppConversations(Protocol)
 ```
 
-The conversation bridge's entry surface for medium adapters: inbound messages
-via ``accept``, out-of-band delivery receipts via ``record_delivery_status``.
-Routing-row CRUD, the turn engine and the API door are not part of this facet.
+The conversation bridge's entry surface for medium adapters.
+
+Inbound messages arrive via ``accept``, out-of-band delivery receipts via
+``record_delivery_status``. Routing-row CRUD, the turn engine and the API
+door are not part of this facet.
 
 ### Members
 
@@ -3582,8 +4011,7 @@ async accept(
 ) -> str
 ```
 
-Accept one inbound channel message, persist it, and return its
-``message_id`` (a uuid4).
+Accept one inbound channel message, persist it, and return its ``message_id`` (a uuid4).
 
 Routed to the ``door=channel`` route matching ``(channel, our_identity)``; the
 turn runs as that route's execution key and answers back over the same channel.
@@ -3707,6 +4135,8 @@ deferred to run time. Registering two validators for one kind raises loudly.
 class AppExtensions(Protocol)
 ```
 
+The tool-extension provider namespace (``app.extensions``).
+
 ### Members
 
 #### extension
@@ -3724,10 +4154,9 @@ extension(
 ) -> Callable[..., Any]
 ```
 
-Register a tool-extension factory under ``name`` (default: the
-function's own name); usable bare or with arguments.
+Register a tool-extension factory under ``name`` (default: the function's own name).
 
-``requires_body_locality`` marks an extension whose wrapper only works
+Usable bare or with arguments. ``requires_body_locality`` marks an extension whose wrapper only works
 in the process running the tool body it wraps — e.g. a proxy layer that
 routes the body's egress through a task-scoped contextvar, visible only
 where the body executes. The flag is stored as registration metadata the
@@ -3767,6 +4196,8 @@ List registered extension modules as ``[{"name", "kind"}]``.
 class AppHttp(Protocol)
 ```
 
+The HTTP application facet: middleware, route registration, and mount introspection.
+
 ### Members
 
 #### middleware
@@ -3776,6 +4207,8 @@ class AppHttp(Protocol)
 ```python
 middleware(self, cls: type[Any] | None = None, **options: Any) -> Callable[..., Any]
 ```
+
+Register a middleware on the application.
 
 **Parameters**
 
@@ -3893,12 +4326,12 @@ the reload-gate ``503`` response is derived from the handler body.
 use_raw_path_key(self, path_prefix: str) -> None
 ```
 
-Match every already-registered route whose template starts with ``path_prefix``
-against the raw (undecoded) request path, so a path parameter whose values carry
-``/`` (a state record's ``{key}``, addressed as one percent-encoded segment) stays
-ONE segment instead of splitting once the ASGI server has decoded ``%2F``; the
-matched parameters are decoded once after the match. Called AFTER the routes are
-registered, over their shared prefix, so it covers a family of doors at one seam. A
+Match already-registered routes under ``path_prefix`` against the raw (undecoded) request path.
+
+A path parameter whose values carry ``/`` (a state record's ``{key}``, addressed as one
+percent-encoded segment) stays ONE segment instead of splitting once the ASGI server has
+decoded ``%2F``; the matched parameters are decoded once after the match. Called AFTER the
+routes are registered, over their shared prefix, so it covers a family of doors at one seam. A
 no-op where no route table is served (the offline spec harness).
 
 **Parameters**
@@ -3916,9 +4349,9 @@ no-op where no route table is served (the offline spec harness).
 mount_base(self) -> str
 ```
 
-The resolved absolute mount base of the declared plugin route module
-importing now — ``/api/`` + the item's mount base, no trailing slash
-(e.g. ``/api/channels/telegram``).
+The resolved absolute mount base of the declared plugin route module importing now.
+
+``/api/`` + the item's mount base, no trailing slash (e.g. ``/api/channels/telegram``).
 
 Callable ONLY while a declared plugin route module imports — the mount
 binding is present then. A module captures this value at import for later
@@ -3949,8 +4382,9 @@ The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
 ask_user: AskUser
 ```
 
-The bound, `AskUser`-typed ``ask_user``
-callable, so an in-process plugin asks a human without importing the skeleton:
+The bound, `AskUser`-typed ``ask_user`` callable.
+
+An in-process plugin asks a human without importing the skeleton:
 ``await tai42_app.interactions.ask_user(question, ..., mode="async",
 expiry_at=...)``. The return shape is the ``AskUser`` contract's:
 ``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
@@ -3970,6 +4404,8 @@ ask semantics.
 class AppLifecycle(Protocol)
 ```
 
+Startup, shutdown, reload, and post-swap lifecycle hook registration.
+
 ### Members
 
 #### on_startup
@@ -3979,6 +4415,8 @@ class AppLifecycle(Protocol)
 ```python
 on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
+
+Register ``func`` to run at process startup (usable as a decorator).
 
 **Parameters**
 
@@ -3995,6 +4433,8 @@ on_startup(self, func: Callable[[], Any]) -> Callable[[], Any]
 on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
+Register ``func`` to run at process shutdown (usable as a decorator).
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -4010,8 +4450,9 @@ on_shutdown(self, func: Callable[[], Any]) -> Callable[[], Any]
 on_reload(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
-Register a handler re-run after every in-place re-init (``reload_config``) —
-e.g. dynamic tool loaders that ``on_startup`` ran once.
+Register a handler re-run after every in-place re-init (``reload_config``).
+
+For example, dynamic tool loaders that ``on_startup`` ran once.
 
 **Parameters**
 
@@ -4028,9 +4469,10 @@ e.g. dynamic tool loaders that ``on_startup`` ran once.
 on_post_swap(self, func: Callable[[], Any]) -> Callable[[], Any]
 ```
 
-Register an establisher for a loop-affine background loop (a periodic poll or
-sweep). Run on the real serving loop at boot and after every epoch swap — never
-on the throwaway build-thread loop the per-epoch handlers run on — so the loop
+Register an establisher for a loop-affine background loop (a periodic poll or sweep).
+
+Run on the real serving loop at boot and after every epoch swap — never on
+the throwaway build-thread loop the per-epoch handlers run on — so the loop
 it spawns attaches to the serving loop and retires with its generation.
 
 **Parameters**
@@ -4048,12 +4490,11 @@ it spawns attaches to the serving loop and retires with its generation.
 on_fleet_op_applied(self, func: Callable[[str], Any]) -> Callable[[str], Any]
 ```
 
-Register a handler fired after any worker-bus op applies in this
-process, and after the reconnect self-resync reload.
+Register a handler fired after any worker-bus op applies in this process.
 
-Unlike its zero-arg siblings, the handler takes ONE argument — the op
-name — so it can act on some ops and skip others (a query op carries no
-state change to react to).
+Also fired after the reconnect self-resync reload. Unlike its zero-arg
+siblings, the handler takes ONE argument — the op name — so it can act on
+some ops and skip others (a query op carries no state change to react to).
 
 **Parameters**
 
@@ -4070,10 +4511,10 @@ state change to react to).
 async wait_until_ready(self) -> None
 ```
 
-Block until this process's first boot self-resync has completed — the
-point at which the tool registry is fully built and stable for the run.
+Block until this process's first boot self-resync has completed.
 
-A backend runtime that forks a child (or otherwise consumes queued work)
+That is the point at which the tool registry is fully built and stable for
+the run. A backend runtime that forks a child (or otherwise consumes queued work)
 per job awaits this before its work loop accepts anything: the boot
 self-resync rebuilds the tool registry non-atomically, so a worker that
 dequeued and forked mid-rebuild would run the job against a half-built
@@ -4091,6 +4532,8 @@ already live) never un-readies the process.
 class AppMonitoring(Protocol)
 ```
 
+Registration and access for the process monitoring backend.
+
 ### Members
 
 #### register_monitoring
@@ -4100,6 +4543,8 @@ class AppMonitoring(Protocol)
 ```python
 register_monitoring(self, builder: Callable[..., Any] | None = None) -> Callable[..., Any]
 ```
+
+Register the monitoring backend builder, or return a decorator when ``builder`` is omitted.
 
 **Parameters**
 
@@ -4134,12 +4579,6 @@ The presets namespace (``app.presets``) — the typed view + the bind kernel.
 ``app.versioning.store`` (``kind="preset"``). ``bind`` is the kernel BOTH tiers
 (ephemeral and versioned) build their live tool through, so its typed-schema
 behavior reaches both.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `PresetStore` |
 
 ### Members
 
@@ -4285,8 +4724,7 @@ reason `create` states.
 register_write_validator(self, base_tool: str, validator: PresetWriteValidator) -> None
 ```
 
-Register the write validator for ``base_tool`` (one per base tool;
-duplicate registration raises).
+Register the write validator for ``base_tool`` (one per base tool; duplicate registration raises).
 
 A base-tool plugin calls this through the ``tai42_app`` handle when its tool
 module loads. The validator runs on every write that persists a body —
@@ -4310,8 +4748,7 @@ base tool with no registered validator gets no extra check.
 register_input_schema_support(self, base_tool: str, support: PresetInputSchemaSupport) -> None
 ```
 
-Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base
-tool; duplicate registration raises).
+Declare that ``base_tool`` ACCEPTS a per-preset input schema (one per base tool; duplicate raises).
 
 A base-tool plugin calls this through the ``tai42_app`` handle when its tool
 module loads. A preset that sets an ``input_schema`` over a base tool with no
@@ -4334,8 +4771,9 @@ chokepoint, never a silently-ignored schema.
 input_schema_support(self, base_tool: str) -> PresetInputSchemaSupport | None
 ```
 
-The input-schema support ``base_tool`` declared, or ``None`` if it declared
-none (its typed schema is fixed).
+The input-schema support ``base_tool`` declared, or ``None`` if it declared none.
+
+When ``None``, the base tool's typed schema is fixed.
 
 **Parameters**
 
@@ -4352,9 +4790,9 @@ none (its typed schema is fixed).
 register_registration_tier(self, base_tool: str, tier: RouteAction) -> None
 ```
 
-Declare the authz character required to AUTHOR (create/save/rollback/rename)
-a preset over ``base_tool`` (one per base tool; duplicate registration raises).
+Declare the authz tier required to author a preset over ``base_tool`` (one per base tool).
 
+Governs create/save/rollback/rename; duplicate registration raises.
 Default authoring is the presets' own ``write`` action; a base tool with no
 declaration keeps that default. A base tool declaring ``fenced`` requires the
 admin fence to author a preset over it. The shared preset-authoring chokepoint
@@ -4376,8 +4814,9 @@ reads this and enforces it BEFORE any store write on every authoring door.
 registration_tier(self, base_tool: str) -> RouteAction | None
 ```
 
-The authoring authz tier ``base_tool`` declared, or ``None`` if it declared
-none (authoring keeps the presets' default ``write`` action).
+The authoring authz tier ``base_tool`` declared, or ``None`` if it declared none.
+
+When ``None``, authoring keeps the presets' default ``write`` action.
 
 **Parameters**
 
@@ -4409,6 +4848,17 @@ plugin's default under another's.
 | `seed` | `PresetSeed` | — | — |
 
 
+#### store
+
+`tai42_contract.app.facets.authoring.AppPresets.store`
+
+```python
+store: PresetStore
+```
+
+The typed preset view over ``app.versioning.store`` (``kind="preset"``).
+
+
 
 ## AppSandboxes
 
@@ -4430,9 +4880,9 @@ The sandbox-provider namespace (``app.sandboxes``).
 register_sandbox(self, cls: type[Sandbox]) -> type[Sandbox]
 ```
 
-Register the `Sandbox` provider (decorator form, returning the class
-unchanged). One provider backs the slot; a second registration is a conflict
-the runtime rejects loudly.
+Register the `Sandbox` provider (decorator form, returning the class unchanged).
+
+One provider backs the slot; a second registration is a conflict the runtime rejects loudly.
 
 
 #### sandbox
@@ -4443,10 +4893,10 @@ the runtime rejects loudly.
 sandbox: Sandbox | None
 ```
 
-The registered provider, or ``None`` — status/introspection ONLY. Never
-gate execution on this nullable read; acquire through `require_sandbox`,
-the every-door guarantee (a ``None`` property is how per-consumer checks
-drift).
+The registered provider, or ``None`` — status/introspection ONLY.
+
+Never gate execution on this nullable read; acquire through `require_sandbox`, the every-door
+guarantee (a ``None`` property is how per-consumer checks drift).
 
 
 #### require_sandbox
@@ -4457,10 +4907,10 @@ drift).
 require_sandbox(self) -> Sandbox
 ```
 
-The ONE raising acquisition chokepoint: return the registered provider or
-raise `SandboxUnavailableError` (naming
-``TAI_MCP_SANDBOX`` and ``sandbox_module``) when none is registered. EVERY
-consumer acquires through here.
+Return the registered provider from the ONE raising acquisition chokepoint.
+
+Raise `SandboxUnavailableError` (naming ``TAI_MCP_SANDBOX`` and
+``sandbox_module``) when none is registered. EVERY consumer acquires through here.
 
 
 #### sandbox_policy
@@ -4471,8 +4921,9 @@ consumer acquires through here.
 sandbox_policy(self) -> SandboxPolicy
 ```
 
-The skeleton-resolved `SandboxPolicy` — the
-plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
+Return the skeleton-resolved `SandboxPolicy`.
+
+This is the plugin-reachable READ of the SAME policy the skeleton binds to the kit at the
 session-create chokepoint.
 
 Available REGARDLESS of whether a provider is registered (it reads operator
@@ -4492,9 +4943,9 @@ which resolves the policy once and returns the SAME value it binds to the kit.
 class AppStates(Protocol)
 ```
 
-The subject-keyed state store namespace (``app.states``) — the door-agnostic
-contract every door and tool reads and writes a subject's document through.
+The subject-keyed state store namespace (``app.states``).
 
+The door-agnostic contract every door and tool reads and writes a subject's document through.
 The store takes a full `StateSubject` and refuses
 anything less; subject resolution happens once per door, never here. Every write
 door supplies a `WriteOrigin` carrying only what a
@@ -4564,9 +5015,9 @@ first), and removing a subject kind still present in records raises
 async delete_declaration(self, name: str) -> None
 ```
 
-Delete a state with its records and attachments; raise
-`DeclarationInUseError` when a consumer still
-binds it.
+Delete a state with its records and attachments.
+
+Raises `DeclarationInUseError` when a consumer still binds it.
 
 **Parameters**
 
@@ -4611,8 +5062,9 @@ Every stored platform template document.
 async get_template(self, name: str) -> StateTemplateDocument | None
 ```
 
-The template document named ``name``, or ``None`` when none is stored — the
-read a consumer's own sibling document validates against.
+The template document named ``name``, or ``None`` when none is stored.
+
+The read a consumer's own sibling document validates against.
 
 **Parameters**
 
@@ -4629,8 +5081,7 @@ read a consumer's own sibling document validates against.
 async put_template(self, doc: StateTemplateDocument, *, replace: bool) -> StateTemplateDocument
 ```
 
-Store a template document (``replace`` required to overwrite an existing name)
-and return it.
+Store a template document and return it (``replace`` required to overwrite an existing name).
 
 Runs every registered attach validator over each live attachment before the write,
 so a consumer's data-dependent check still fires here; a raise leaves the stored
@@ -4653,8 +5104,9 @@ document untouched. Overwriting an existing name without ``replace`` raises
 async delete_template(self, name: str) -> None
 ```
 
-Delete a template document; raise
-`TemplateInUseError` while it is still attached.
+Delete a template document.
+
+Raises `TemplateInUseError` while it is still attached.
 
 **Parameters**
 
@@ -4671,9 +5123,10 @@ Delete a template document; raise
 async list_attachments(self, state: str | None = None, *, template: str | None = None) -> list[dict[str, Any]]
 ```
 
-Attachment rows filtered by ``state``, by ``template``, or every attachment when
-both are ``None`` — what the attachments listing and the Consumers tab read. Each row
-carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
+Attachment rows filtered by ``state``, by ``template``, or every attachment when both are ``None``.
+
+What the attachments listing and the Consumers tab read. Each row carries ``state``,
+``template``, ``path``, ``parameters`` and ``declarations``.
 
 **Parameters**
 
@@ -4691,12 +5144,10 @@ carries ``state``, ``template``, ``path``, ``parameters`` and ``declarations``.
 async attach(self, state: str, template: str, body: AttachBody) -> None
 ```
 
-Attach ``template`` on ``state`` at ``body.path``, storing the resolved
-parameters and declarations and recomposing the effective schema in one
-transaction.
+Attach ``template`` on ``state`` at ``body.path``, recomposing the effective schema in one transaction.
 
-Runs every registered attach validator before the write; a raise refuses the
-door with the validator's message. Overlapping fragments raise
+Stores the resolved parameters and declarations. Runs every registered attach validator before the write; a
+raise refuses the door with the validator's message. Overlapping fragments raise
 `AttachConflictError`.
 
 **Parameters**
@@ -4723,8 +5174,9 @@ async update_attachment_declarations(
 ) -> None
 ```
 
-Replace an attachment's declaration values, re-running every registered attach
-validator and reconciler and recomposing the effective schema before the write.
+Replace an attachment's declaration values, recomposing the effective schema before the write.
+
+Re-runs every registered attach validator and reconciler before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
 operation only, never stored or served back (``None`` is an empty bag).
 
@@ -4764,9 +5216,9 @@ Remove an attachment and recompose the state's effective schema.
 async read(self, state: str, subject: StateSubject) -> StateRecord | None
 ```
 
-The record for ``subject`` (resolving a fold to its canonical subject), or
-``None`` when none exists. An unknown person or a target mismatch is a refusal,
-never an empty document.
+The record for ``subject`` (resolving a fold to its canonical subject), or ``None`` when none exists.
+
+An unknown person or a target mismatch is a refusal, never an empty document.
 
 **Parameters**
 
@@ -4818,8 +5270,7 @@ async merge(
 ) -> StateRecord
 ```
 
-Shallow top-level merge ``patch`` into ``subject``'s document and return the
-new record.
+Shallow top-level merge ``patch`` into ``subject``'s document and return the new record.
 
 **Parameters**
 
@@ -4874,8 +5325,9 @@ the touched paths and the completed origin. A replayed ``op_id`` returns
 async eval_template_jq(self, state: str, subject: StateSubject, name: str, params: dict[str, Any]) -> TemplateJqResult
 ```
 
-Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and
-return its value — the program's jq over the subject's record, ``params`` supplying
+Evaluate an ``input``-purpose ``template_jq`` program ``name`` for ``subject`` and return its value.
+
+The program's jq runs over the subject's record, ``params`` supplying
 its declared parameters. ``name`` resolves across the state's attached templates
 (unqualified → the declaring template; ``<attachment>.<name>`` → that attachment's
 template). An unknown name is a `StateNotFoundError`; an
@@ -4903,15 +5355,16 @@ async apply_template_jq(
     state: str,
     subject: StateSubject,
     name: str,
-    input: Any,
+    input_: Any,
     *,
     op_id: str | None,
     origin: WriteOrigin,
 ) -> TemplateJqApplyResult
 ```
 
-Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``. Its jq
-maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
+Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``.
+
+Its jq maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
 path and applied through the same chokepoint as `apply` — so regimes, the
 composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
 resolves as for `eval_template_jq`. An unknown name is a
@@ -4926,7 +5379,7 @@ resolves as for `eval_template_jq`. An unknown name is a
 | `state` | `str` | — | — |
 | `subject` | `StateSubject` | — | — |
 | `name` | `str` | — | — |
-| `input` | `Any` | — | — |
+| `input_` | `Any` | — | — |
 | `op_id` | `str \| None` | — | — |
 | `origin` | `WriteOrigin` | — | — |
 
@@ -4966,12 +5419,11 @@ async fold(
 ) -> dict[str, Any]
 ```
 
-Fold ``subject`` into ``into`` (``mode`` decides how the documents combine)
-and return the resulting canonical document.
+Fold ``subject`` into ``into`` and return the resulting canonical document.
 
-A self-fold, a cycle, a conflicting re-fold, or a merge whose result fails the
-schema raises `SubjectFoldError`; a retried fold to
-the same target is a quiet no-op.
+``mode`` decides how the documents combine. A self-fold, a cycle, a conflicting re-fold,
+or a merge whose result fails the schema raises
+`SubjectFoldError`; a retried fold to the same target is a quiet no-op.
 
 **Parameters**
 
@@ -4999,7 +5451,8 @@ async list_subjects(
 ) -> dict[str, Any]
 ```
 
-A keyset page of subjects for ``state`` (optionally one ``kind``):
+A keyset page of subjects for ``state`` (optionally one ``kind``).
+
 ``{"subjects": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
@@ -5027,7 +5480,8 @@ async search(
 ) -> dict[str, Any]
 ```
 
-A keyset page of records whose document contains ``filters``:
+A keyset page of records whose document contains ``filters``.
+
 ``{"matches": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
@@ -5055,8 +5509,9 @@ async writes(
 ) -> WritesPage
 ```
 
-One keyset page of the audit trail for ``subject``, newest first — the
-``items`` (each a write with its completed origin and touched paths) plus the
+One keyset page of the audit trail for ``subject``, newest first.
+
+The ``items`` (each a write with its completed origin and touched paths) plus the
 ``next_cursor`` that pages the trail like ``list_subjects``/``search`` page
 theirs (the last row's id when the page is full, else ``None``).
 
@@ -5078,8 +5533,7 @@ theirs (the last row's id when the page is full, else ``None``).
 async prune_expired(self) -> dict[str, int]
 ```
 
-Delete records past their state's ``retention_days`` and return the per-state
-deletion counts.
+Delete records past their state's ``retention_days`` and return the per-state deletion counts.
 
 
 #### context
@@ -5090,9 +5544,9 @@ deletion counts.
 context(self) -> StateContext | None
 ```
 
-The ambient `StateContext` the current door
-deposited, or ``None`` outside a door (an ``api`` write completes from the
-request principal instead).
+The ambient `StateContext` the current door deposited.
+
+``None`` outside a door (an ``api`` write completes from the request principal instead).
 
 
 #### register_consumer_lister
@@ -5125,8 +5579,7 @@ kind raises loudly.
 async consumers(self, state: str) -> list[ConsumerRow]
 ```
 
-Everything that binds ``state`` — the union of every registered consumer
-lister — for the Consumers tab.
+Everything that binds ``state`` — the union of every registered consumer lister — for the Consumers tab.
 
 **Parameters**
 
@@ -5215,6 +5668,8 @@ commit with those writes.
 class AppStorage(Protocol)
 ```
 
+The storage-provider namespace (``app.storage``).
+
 ### Members
 
 #### register_storage
@@ -5224,6 +5679,8 @@ class AppStorage(Protocol)
 ```python
 register_storage(self, cls: type[Storage] | None = None) -> Callable[[type[Storage]], type[Storage]] | type[Storage]
 ```
+
+Register the `Storage` provider; usable bare or as a decorator factory.
 
 
 #### resource_manager
@@ -5246,11 +5703,20 @@ The active resource manager (impl type; loads/renders content over storage).
 class AppSubApp(Protocol)
 ```
 
-**Attributes**
+Access to the sub-app MCP router.
 
-| Attribute | Type |
-|---|---|
-| `mcp_sub_app_router` *(property)* | `SubMcpAppRouter` |
+### Members
+
+#### mcp_sub_app_router
+
+`tai42_contract.app.facets.runtime.AppSubApp.mcp_sub_app_router`
+
+```python
+mcp_sub_app_router: SubMcpAppRouter
+```
+
+The router for mounted sub-app MCP servers.
+
 
 
 ## AppToolMeta
@@ -5261,21 +5727,26 @@ class AppSubApp(Protocol)
 class AppToolMeta(Protocol)
 ```
 
-The tool-metadata namespace (``app.tool_meta``) — the organizational overlay
-over any live tool: a folder tree plus a per-tool row (display name, folder
-placement, tags, badges, a hidden override).
+The tool-metadata namespace (``app.tool_meta``) — the organizational overlay over any live tool.
 
+The overlay is a folder tree plus a per-tool row (display name, folder
+placement, tags, badges, a hidden override).
 ``store`` is the `ToolMetaStore` view the routes
 and the preset lifecycle cascade read and write. ``patch`` is the in-process edit
 seam beside the HTTP PATCH door.
 
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `ToolMetaStore` |
-
 ### Members
+
+#### store
+
+`tai42_contract.app.facets.authoring.AppToolMeta.store`
+
+```python
+store: ToolMetaStore
+```
+
+The tool-metadata overlay store the routes and preset cascade read and write.
+
 
 #### patch
 
@@ -5325,11 +5796,18 @@ pointer + rollback over an opaque JSONB body, discriminated by ``kind``. Direct
 consumers (e.g. AC policies under ``kind="ac_policy"``) reach it here; presets
 reach it through `AppPresets`, never as a new kind.
 
-**Attributes**
+### Members
 
-| Attribute | Type |
-|---|---|
-| `store` *(property)* | `VersionedStore` |
+#### store
+
+`tai42_contract.app.facets.authoring.AppVersioning.store`
+
+```python
+store: VersionedStore
+```
+
+The append-only versioned-document store backing this namespace.
+
 
 
 ## AppWebhookVerifiers
@@ -5339,6 +5817,8 @@ reach it through `AppPresets`, never as a new kind.
 ```python
 class AppWebhookVerifiers(Protocol)
 ```
+
+The webhook-verifier registry namespace (``app.webhook_verifiers``).
 
 ### Members
 

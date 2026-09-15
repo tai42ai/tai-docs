@@ -5,8 +5,10 @@ icon: "server"
 ---
 
 
-Execution-backend contract: the ``Backend`` ABC, the ``BackendRuntime`` ABC
-one launch subcommand implements, and the ``CallbackSchema``.
+Execution-backend contract.
+
+Exposes the ``Backend`` ABC, the ``BackendRuntime`` ABC one launch subcommand implements, and
+the ``CallbackSchema``.
 
 ## BUS_APPLY_TIMEOUT_DEFAULT
 
@@ -132,8 +134,7 @@ HTTP worker — the backend carries no control-plane surface of its own.
 async launch(self, args: Sequence[str]) -> None
 ```
 
-Start the worker runtime for the backend registered via
-``@tai42_app.backends.register_backend``.
+Start the worker runtime for the backend registered via ``@tai42_app.backends.register_backend``.
 
 **Parameters**
 
@@ -151,8 +152,7 @@ Start the worker runtime for the backend registered via
 class BackendRuntime(ABC)
 ```
 
-ONE launchable runtime of an execution backend, named by its launch
-subcommand.
+ONE launchable runtime of an execution backend, named by its launch subcommand.
 
 The vendor binding answers only "how MY engine starts, drains, and
 recycles"; readiness gating, signal wiring, drain-on-cancellation and pool
@@ -221,8 +221,10 @@ may set it. The host therefore reads it off the live runtime.
 from_args(cls, args: Sequence[str]) -> Self
 ```
 
-Parse this runtime's own options (strictly — an unknown option aborts
-the launch loudly) and return the runtime. Parses only; starts nothing.
+Parse this runtime's own options and return the runtime.
+
+Strict — an unknown option aborts the launch loudly. Parses only; starts
+nothing.
 
 **Parameters**
 
@@ -239,8 +241,10 @@ the launch loudly) and return the runtime. Parses only; starts nothing.
 async build(self) -> None
 ```
 
-Construct engine objects. Runs BEFORE the readiness gate — building is
-not consuming — and before any run body. Default: nothing to build.
+Construct engine objects.
+
+Runs BEFORE the readiness gate — building is not consuming — and before any
+run body. Default: nothing to build.
 
 Concrete rather than abstract: a runtime whose engine object is built by
 ``from_args`` alone must not be forced to declare an empty override.
@@ -280,8 +284,7 @@ REQUIRED iff ``mode`` is ``worker_thread`` or ``inline``.
 request_drain(self) -> None
 ```
 
-Stop accepting new work, let in-flight work finish, and make the run
-body RETURN once drained.
+Stop accepting new work, let in-flight work finish, and make the run body RETURN once drained.
 
 Called from the loop thread — while a ``worker_thread`` body runs on
 another thread — so it MUST NOT block and MUST NOT touch
@@ -317,10 +320,10 @@ drain continue — the supervisor's kill is the backstop.
 async turn_over_pool(self, *, reason: str, budget: float) -> None
 ```
 
-Replace every worker that predates the mutation named by ``reason``,
-and CONFIRM it: on return, no pre-mutation worker may still serve work.
+Replace every worker that predates the mutation named by ``reason``, and CONFIRM it.
 
-Raise loudly if it cannot be confirmed within ``budget`` seconds — the
+On return, no pre-mutation worker may still serve work. Raise loudly if it
+cannot be confirmed within ``budget`` seconds — the
 caller is inside a fleet-op apply, and a raise makes that op report
 ``failed`` rather than a false ``applied``.
 
@@ -349,8 +352,9 @@ REQUIRED iff ``pool_turnover_required``.
 async aclose(self) -> None
 ```
 
-Release engine resources once the run body is done with them. Always
-awaited, on every exit path. Default: nothing to release.
+Release engine resources once the run body is done with them.
+
+Always awaited, on every exit path. Default: nothing to release.
 
 The run body has normally LEFT by then, but there is one exception the
 binding has to survive: a blocking body cannot be cancelled, so a
@@ -370,6 +374,8 @@ be forced to declare an empty override.
 ```python
 class CallbackSchema(ConditionMixin, ExprMixin)
 ```
+
+A backend task's follow-up: an optional guard ``condition`` and a follow-up tool kwargs ``expr``.
 
 **Attributes**
 

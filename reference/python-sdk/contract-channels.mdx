@@ -73,14 +73,13 @@ TEMPLATE_PARAM_MAX_CHARS = 4096
 class AnswerForwardError(Exception)
 ```
 
-The interactions answer door did not accept a forwarded answer on a status the
-shared inbound-answer ladder cannot resolve (401/413/5xx or a transport fault).
+The interactions answer door rejected a forwarded answer on a status the shared ladder cannot resolve.
 
-Raised by `AppChannels.handle_inbound_answer` WITHOUT releasing the
+The unresolvable statuses are 401/413/5xx or a transport fault. Raised by
+`AppChannels.handle_inbound_answer` WITHOUT releasing the
 correlation, so the channel's transport-level retry (the provider's webhook
 redelivery) re-runs the ladder and the answer is never silently lost. A channel
-lets it propagate out of its inbound webhook so the provider redelivers — the
-same loud-failure contract each channel kept when it hand-rolled the ladder.
+lets it propagate out of its inbound webhook so the provider redelivers.
 
 
 ## Channel
@@ -453,8 +452,7 @@ The template's runtime arguments are its NAMED components (never one flat positi
 class Correlation(BaseModel)
 ```
 
-The per-address record a channel keeps while ONE parked ask awaits the
-participant's next inbound reply.
+The per-address record a channel keeps while ONE parked ask awaits a reply.
 
 When ``ask_user`` is delivered on a medium whose reply arrives as a fresh
 inbound message (not a tap on a signed link), the channel stores this record
@@ -486,8 +484,7 @@ once the reply is forwarded, withdrawn or expired.
 class CorrelationStore(Protocol)
 ```
 
-Storage primitives ONLY for the one-pending-per-address correlation record —
-no policy.
+Storage primitives ONLY for the one-pending-per-address correlation record — no policy.
 
 A channel that delivers ``ask_user`` questions whose replies arrive as fresh
 inbound messages keeps a `Correlation` per waiting address so the
@@ -582,8 +579,9 @@ so releasing twice — or racing an expiry — is never an error.
 class InboundAnswerOutcome(StrEnum)
 ```
 
-What the shared inbound-answer ladder decided for one inbound reply on a
-correlation key. A channel maps this to its own transport ack.
+What the shared inbound-answer ladder decided for one inbound reply on a correlation key.
+
+A channel maps this to its own transport ack.
 
 **Attributes**
 
@@ -689,7 +687,9 @@ it; the platform attaches no meaning and NO TRUST. ``None`` means no enrichment.
 class LinkOption(BaseModel)
 ```
 
-A tappable link action. Tapping OPENS ``url`` (an absolute ``http(s)`` URL) in the human's
+A tappable link action.
+
+Tapping OPENS ``url`` (an absolute ``http(s)`` URL) in the human's
 browser — NO message is submitted, distinct from a `ReplyOption`. ``label`` is the
 button text. The URL-button / call-to-action case. Frozen.
 
@@ -720,7 +720,9 @@ Option = Annotated[ReplyOption | LinkOption, Field(discriminator='kind')]
 class OptionSection(BaseModel)
 ```
 
-One titled section of a sectioned option list. ``title`` is the section header; ``rows`` are
+One titled section of a sectioned option list.
+
+``title`` is the section header; ``rows`` are
 its entries — a sectioned list holds `ReplyOption` rows ONLY (a tapped row submits its
 text; a link action is a button, never a list row). A present ``rows`` is non-empty. Frozen.
 
@@ -741,7 +743,8 @@ text; a link action is a button, never a list row). A present ``rows`` is non-em
 class QuickReplyButtonParam(BaseModel)
 ```
 
-The runtime argument for one QUICK-REPLY button of a template's buttons component:
+The runtime argument for one QUICK-REPLY button of a template's buttons component.
+
 ``payload`` is the string the medium returns when the human taps the button. Frozen.
 
 **Attributes**
@@ -761,7 +764,9 @@ The runtime argument for one QUICK-REPLY button of a template's buttons componen
 class ReplyOption(BaseModel)
 ```
 
-A tappable suggested reply. Tapping SUBMITS ``text`` as the participant's next inbound message —
+A tappable suggested reply.
+
+Tapping SUBMITS ``text`` as the participant's next inbound message —
 the quick-reply / list-row case, where the option's own text becomes the turn. ``description``
 is an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that
 renders flat buttons (no descriptions) ignores it.
@@ -800,7 +805,8 @@ TemplateButtonParam = Annotated[QuickReplyButtonParam | UrlButtonParam, Field(di
 class UrlButtonParam(BaseModel)
 ```
 
-The runtime argument for one URL button of a template's buttons component:
+The runtime argument for one URL button of a template's buttons component.
+
 ``url_parameter`` is the dynamic suffix substituted into the button's pre-approved URL.
 Frozen.
 
@@ -821,8 +827,10 @@ Frozen.
 check_footer(value: str | None) -> str | None
 ```
 
-A footer is the short trailing line under an interactive message: None means none; a
-present value is non-blank and within ``NOTIFICATION_FOOTER_MAX_CHARS``. Raises ``ValueError``.
+A footer is the short trailing line under an interactive message.
+
+None means none; a present value is non-blank and within ``NOTIFICATION_FOOTER_MAX_CHARS``.
+Raises ``ValueError``.
 
 **Parameters**
 
@@ -839,7 +847,9 @@ present value is non-blank and within ``NOTIFICATION_FOOTER_MAX_CHARS``. Raises 
 check_header(value: MediaItem | None) -> MediaItem | None
 ```
 
-A header is a SINGLE display-media item shown above an interactive message: None means
+A header is a SINGLE display-media item shown above an interactive message.
+
+None means
 none; a present item is display media (image/document/video/audio), never a ``link`` (an
 anchor is content, not a header). The item's own url/kind shape is `MediaItem`'s
 concern. Raises ``ValueError``.
@@ -871,9 +881,10 @@ check_interactive_composition(
 ) -> None
 ```
 
-The shared cross-field rules every option-carrying message carrier
-(`ChannelNotification`, `AnswerPart`) enforces, so
-the two can never drift. ``noun`` names the carrier for the raised messages
+The shared cross-field rules every option-carrying message carrier enforces.
+
+`ChannelNotification` and `AnswerPart` share these,
+so the two can never drift. ``noun`` names the carrier for the raised messages
 (``"notification"`` / ``"part"``). Rules:
 
 * message is non-blank BY DEFAULT, EXCEPT blank for a CONTENT-ONLY send — a blank message
@@ -913,7 +924,9 @@ the two can never drift. ``noun`` names the carrier for the raised messages
 check_options(value: list[Option] | None) -> list[Option] | None
 ```
 
-List-level caps on a flat interactive option list: None means none; a present list is
+List-level caps on a flat interactive option list.
+
+None means none; a present list is
 non-empty and holds at most ``NOTIFICATION_OPTIONS_MAX`` entries. Each option's own shape
 (reply text / link label+url bounds) is the `ReplyOption`/`LinkOption` concern.
 Raises ``ValueError``.
@@ -933,7 +946,9 @@ Raises ``ValueError``.
 check_sections(value: list[OptionSection] | None) -> list[OptionSection] | None
 ```
 
-List-level caps on a sectioned option list: None means none; a present list is non-empty,
+List-level caps on a sectioned option list.
+
+None means none; a present list is non-empty,
 holds at most ``NOTIFICATION_SECTIONS_MAX`` sections, and its rows summed across every section
 stay within ``NOTIFICATION_OPTIONS_MAX`` (one message never fans out an unbounded tap set).
 Raises ``ValueError``.
@@ -958,8 +973,9 @@ async notify_in_order(
 ) -> list[list[str]]
 ```
 
-Deliver ``notifications`` to ``channel`` STRICTLY in order, returning the
-per-message ids of each (one ``list[str]`` per notification, in the same order).
+Deliver ``notifications`` to ``channel`` STRICTLY in order, returning the per-message ids of each.
+
+One ``list[str]`` per notification, in the same order.
 
 The default sequential in-order primitive every channel "inherits" by a caller using
 this helper — the place a Protocol default can actually reach a structural
