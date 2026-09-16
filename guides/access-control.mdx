@@ -40,24 +40,24 @@ The gate is on by default. Before it can admit requests in a real deployment, th
   </Step>
 </Steps>
 
-## Mint the first admin key
+## Initialize the deployment
 
-With the gate on and no key yet, there is no authenticated door to create one — `tai keys create` itself needs a key. The one-shot [`tai keys bootstrap`](/reference/cli/keys) door (`POST /api/keys/bootstrap`) closes that gap: it mints the first condition-free `["*"]` admin key, gated by a boot-time token.
+With the gate on and no principal yet, there is no authenticated door to mint a key — `tai keys create` itself needs a key. The one-shot [`tai setup`](/reference/cli/setup) door (`POST /api/setup`) closes that gap: it creates the **owner** principal — the first admin — and mints the owner's first condition-free `["*"]` key, returned once.
 
 ```bash
-tai keys bootstrap --user alice --description 'root key' --token -
+tai setup --display-name alice --token -
 ```
 
-The gate resolves its token in one of two ways:
+The door resolves its token in one of two ways:
 
-- **`ACCESS_CONTROL_BOOTSTRAP_TOKEN`** — an operator-set token. When set, it is the token the door expects.
-- **the auto-generated token** — absent an operator token, each deployment fixes one random token once at startup and logs it a single time (`first-key bootstrap token: …`). Only someone who can read the server log can mint the first key.
+- **`TAI_SETUP_TOKEN`** — an operator-set token. When set, it is the token the door expects.
+- **the auto-generated token** — absent an operator token, each deployment fixes one random token once at startup and logs it a single time (`setup token: …`). Only someone who can read the server log can initialize the deployment.
 
 Pass the token out of band, never on the command line — `--token -` reads it as one line from stdin (a value on `argv` leaks via `ps` and shell history).
 
-The door is **one-shot and secure by default**: it refuses with `409 Already initialized` the moment any key exists, a wrong or absent token is a generic `403` (with a per-IP backoff that escalates against a token flood), and with the gate off (`ACCESS_CONTROL_ENABLE=false`) it is disabled with a `501` — there is no key to protect. For local, auth-free development, `ACCESS_CONTROL_BOOTSTRAP_OPEN=true` opens the door without a token.
+The door is **one-shot and secure by default**: it refuses with `409 Already initialized` the moment any principal exists, a wrong or absent token is a generic `403` (with a per-IP backoff that escalates against a token flood), and with the gate off (`ACCESS_CONTROL_ENABLE=false`) it is disabled with a `501` — there is no deployment to initialize. For local, auth-free development, `TAI_SETUP_OPEN=true` opens the door without a token.
 
-Once the first admin key is in hand, every further key is created through the authenticated surface below.
+Once the owner key is in hand, every further key is created through the authenticated surface below.
 
 ## Provision an API key
 
@@ -72,6 +72,17 @@ The scopes are granted with the repeatable `--scope` flag — the command's own 
 <KeysCreateHelp />
 
 The CLI itself authenticates with a key. Pass it out of band — read one line from stdin with the global `--api-key-stdin` flag, or set `TAI_API_KEY` in the environment. There is no `--api-key VALUE` flag, because a value would leak via `ps` and shell history.
+
+### Keys for automation
+
+A machine identity is a **service principal** — a non-human principal that holds keys but never logs in. An admin creates one, then mints keys owned by it with `--for`:
+
+```bash
+tai principals create --kind service --display-name 'CI runner' --role editor --user ci-runner
+tai keys create --user ci --description 'CI key' --scope read --for ci-runner
+```
+
+`--for` names the principal a key belongs to; omitted, a key is owned by the caller's own principal. Manage service principals with `tai principals list|disable|enable|delete`.
 
 ## Map routes to scopes
 

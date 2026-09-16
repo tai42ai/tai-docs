@@ -65,7 +65,7 @@ Restore the two stores together: bring Redis and Postgres back from snapshots of
 - A restore re-mints an identity for each orphaned row under the same user id, leaves its policy — scopes, condition, fingerprint, and owner — untouched, and returns the new plaintext once in `new_api_keys`. A user id whose identity is still present is skipped, as above.
 - Revoking an orphaned key clears its policy row.
 - Minting a key on an orphaned user id is refused until you re-import the backup to re-mint it, or revoke it.
-- The [first-key bootstrap](/guides/access-control) door counts live keys only, so an orphaned admin key never locks you out of a server whose identity store was flushed.
+- The setup door does not re-open: once the owner principal exists in Postgres, `POST /api/setup` answers `409` even when every key is orphaned. To recover the owner's access, re-import an `access_control` export — it re-mints every orphaned key, including the owner's. Without an export, run `tai setup --recover --token <setup token>` on the deployment host: it re-mints **only** the owner's key onto the surviving policy row (same fingerprint, scopes, and owner; a fresh identity record; the plaintext printed once), and refuses while an owner key still authenticates. Revoke or re-mint the other orphaned keys through `tai keys` afterward.
 
 ### The import report
 

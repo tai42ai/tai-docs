@@ -10,8 +10,9 @@ request. The key is a full-access credential — treat it like a password.
 
 ## Signing in
 
-The operator bootstraps a full-privilege API key on the server, then pastes it
-into the Studio at [`/login`](/studio/login). The key is held in memory by
+The operator gets a full-privilege API key from the server — the owner key
+[`tai setup`](/reference/cli/setup) prints once — then pastes it into the Studio
+at [`/login`](/studio/login). The key is held in memory by
 default; the **remember on this device** opt-in persists it to the browser
 session so later navigations in the tab stay authenticated. When the server also
 runs an [accounts](/concepts/accounts) provider, the key field sits behind the
@@ -35,9 +36,10 @@ changes what a key may hold and who may mint it:
   subset of its owner's own authority; a request for more is rejected at mint
   time. The cap is re-checked on every call, so if the owner's role is narrowed —
   or the owner is disabled — the key is attenuated with them on its next request.
-- **Only an admin may mint an ownerless key.** The ownerless key is the headless,
-  machine-to-machine credential that belongs to no human account. Reserving it to
-  admins keeps automation working while making an owner-bound key the default.
+- **Machine keys belong to a service principal.** For automation an admin creates
+  a **service principal** — a non-human identity that holds keys but never logs in
+  — and mints keys for it. That keeps the machine-to-machine path working while
+  making an owner-bound key the default.
 - **Key breadth is not admin.** A wide `["*"]` scope on a key does not make its
   holder an administrator of the key surface — it cannot list, edit, or revoke
   other owners' keys. Administration comes from the owner's role, never from a
@@ -49,16 +51,18 @@ Once signed in, the operator provisions further keys — full-privilege or scope
 — from the API-keys tab of the [Settings](/studio/admin-console#settings)
 screen. That tab drives the server's `/api/auth` provisioning endpoints, so a
 key minted in the Studio is the same key you could mint from the
-[`tai keys`](/reference/cli/keys) CLI.
+[`tai keys`](/reference/cli/keys) CLI. When you mint a key, the create dialog
+asks which principal owns it — yourself by default; an admin may pick a service
+principal or create one inline.
 
-The keys table carries an **Owner** column. Each row shows the account that owns
-the key — the [owner](/concepts/owned-keys) of a delegated key, or an *ownerless*
-marker for a headless machine key. Ownership is the whole story of what a key may
-hold and who may revoke it: an [owned key](/concepts/owned-keys) is capped at a
-subset of its owner's authority and dies when its owner does, while an ownerless
-key belongs to no human account and only an admin may mint one. The scope picker
-in the create dialog is capped to your own scopes, so a non-admin cannot mint a
-key wider than itself.
+The keys table carries a **Principal** column. Each row shows the principal that
+owns the key — a human or a service principal, by kind and display name. A key
+whose identity record was lost in a restore shows no principal and is marked
+**orphaned** until the backup is re-imported. Ownership is the whole story of what
+a key may hold and who may revoke it: an [owned key](/concepts/owned-keys) is
+capped at a subset of its owner's authority and dies when its owner does. The
+scope picker in the create dialog is capped to your own scopes, so a non-admin
+cannot mint a key wider than itself.
 
 <Note>
 Key provisioning and [access control](/concepts/access-control) run on the

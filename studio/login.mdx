@@ -31,13 +31,51 @@ Because the methods are data the provider declares, the login screen never
 hard-codes a specific auth scheme — swapping or adding a provider changes what
 the screen renders, with no Studio change.
 
-## First-run owner
+## Setup
 
-On a fresh deployment there are no accounts yet, so the login listing reports a
-**bootstrap** state and the screen shows a one-time **owner-creation** form
-instead of a normal login. Completing it creates the initial admin — the owner —
-and the bootstrap form disappears the moment the owner exists. From then on the
-screen shows the ordinary sign-in methods.
+On a fresh deployment no principal exists yet, so the login listing reports
+`needs_setup` and the screen shows a single **Set up this deployment** entry
+instead of a sign-in form. Setup runs in one door and closes for good the moment
+the owner exists.
+
+<Frame caption="The setup entry at /login on a fresh deployment: enter the setup token from the server log.">
+  <img className="block dark:hidden" src="/images/studio/login-setup-token-light.png" alt="The Studio setup screen asking for the setup token." />
+  <img className="hidden dark:block" src="/images/studio/login-setup-token-dark.png" alt="The Studio setup screen asking for the setup token." />
+</Frame>
+
+The entry asks for the **setup token** first — the value the server prints once
+at startup, or the one you pinned with `TAI_SETUP_TOKEN`. The token unlocks the
+owner form in the browser; it reaches the server only with the setup request
+itself. A valid token reveals the owner fields. On an accounts-enabled deployment
+the form collects a **Display name**, an **Email**, and an **Owner login** choice —
+*Set a password now* or *Send me an invite link* — with a **Password** field when
+you set one now. On a keys-only deployment the form collects the display name
+alone, and the minted key is how the owner signs in:
+
+<Frame caption="After a valid token: the owner form. On an accounts-enabled deployment it collects a display name, an email, the Owner login choice, and a password.">
+  <img className="block dark:hidden" src="/images/studio/login-setup-owner-light.png" alt="The Studio owner-creation form collecting display name, email, the Owner login choice, and a password." />
+  <img className="hidden dark:block" src="/images/studio/login-setup-owner-dark.png" alt="The Studio owner-creation form collecting display name, email, the Owner login choice, and a password." />
+</Frame>
+
+Submitting sends one `POST /api/setup`, which creates the owner and mints the
+owner's first key. The key is shown **once** — copy it then, it cannot be
+retrieved again. When you set a password, the screen confirms it for the owner's
+email; **Continue to the Studio** signs you in as the owner:
+
+<Frame caption="Setup complete: the owner's API key shown once, a note that the password is set for the owner's email, then a step into the Studio as the owner.">
+  <img className="block dark:hidden" src="/images/studio/login-setup-success-light.png" alt="The setup success screen showing the owner's key once and the password-set confirmation." />
+  <img className="hidden dark:block" src="/images/studio/login-setup-success-dark.png" alt="The setup success screen showing the owner's key once and the password-set confirmation." />
+</Frame>
+
+From then on the screen shows the ordinary sign-in methods, and setup is refused.
+On an accounts-enabled deployment this is the password form — email and password
+with a **Sign in** button — and the key field collapses behind *Use an API key
+instead*:
+
+<Frame caption="After setup: /login shows the password form, with the API-key field collapsed behind Use an API key instead, and no setup entry.">
+  <img className="block dark:hidden" src="/images/studio/login-signin-light.png" alt="The Studio sign-in screen showing the password form with the API-key fallback collapsed." />
+  <img className="hidden dark:block" src="/images/studio/login-signin-dark.png" alt="The Studio sign-in screen showing the password form with the API-key fallback collapsed." />
+</Frame>
 
 ## Invites
 

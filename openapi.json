@@ -823,51 +823,6 @@
         "title": "BackupSectionReport",
         "type": "object"
       },
-      "BootstrapKeyBody": {
-        "description": "First-admin-key creation for ``POST /api/keys/bootstrap``.",
-        "properties": {
-          "bootstrap_token": {
-            "default": "",
-            "title": "Bootstrap Token",
-            "type": "string"
-          },
-          "description": {
-            "minLength": 1,
-            "title": "Description",
-            "type": "string"
-          },
-          "user_id": {
-            "minLength": 1,
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id",
-          "description"
-        ],
-        "title": "BootstrapKeyBody",
-        "type": "object"
-      },
-      "BootstrapKeyResult": {
-        "description": "The one-time bootstrap result: the raw ``sk-…`` admin key and its user id.",
-        "properties": {
-          "token": {
-            "title": "Token",
-            "type": "string"
-          },
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token",
-          "user_id"
-        ],
-        "title": "BootstrapKeyResult",
-        "type": "object"
-      },
       "ButtonMethod": {
         "additionalProperties": false,
         "description": "A redirect button: the renderer draws a button that navigates to href (e.g. an OIDC authorize route).",
@@ -3605,10 +3560,9 @@
           },
           "purpose": {
             "default": "login",
-            "description": "What the form is FOR: \"login\" renders always; \"bootstrap\" is the owner-creation form (shown when the deployment reports bootstrap); \"invite\" is the set-your-password form (shown when the login URL carries an invite token).",
+            "description": "What the form is FOR: \"login\" renders always; \"invite\" is the set-your-password form (shown when the login URL carries an invite token).",
             "enum": [
               "login",
-              "bootstrap",
               "invite"
             ],
             "title": "Purpose",
@@ -4501,6 +4455,28 @@
         "title": "InteractionWindow",
         "type": "object"
       },
+      "InviteCredential": {
+        "additionalProperties": false,
+        "description": "A login credential that mints a one-time invite link instead of setting a password now.",
+        "properties": {
+          "email": {
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "kind": {
+            "const": "invite",
+            "default": "invite",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "InviteCredential",
+        "type": "object"
+      },
       "ItemRef": {
         "description": "One item a plugin's stored spec provides.",
         "properties": {
@@ -4676,12 +4652,8 @@
         "type": "object"
       },
       "LoginMethodsListing": {
-        "description": "The aggregated login surface.\n\nEach method is dumped ``exclude_none`` so an unset optional\n(icon/autocomplete) is OMITTED, never ``null``; ``bootstrap`` is true while a\ncreate-owner screen is still needed.",
+        "description": "The aggregated login surface.\n\nEach method is dumped ``exclude_none`` so an unset optional (icon/autocomplete) is\nOMITTED, never ``null``. ``needs_setup`` is the one platform fact \"no principal exists\"\n(the login screen renders the setup entry instead of sign-in forms while true).\n``setup_login`` names what the setup door can attach, or ``null`` when no login-attaching\nprovider is configured.",
         "properties": {
-          "bootstrap": {
-            "title": "Bootstrap",
-            "type": "boolean"
-          },
           "methods": {
             "items": {
               "discriminator": {
@@ -4702,11 +4674,26 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "needs_setup": {
+            "title": "Needs Setup",
+            "type": "boolean"
+          },
+          "setup_login": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupLogin"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
           "methods",
-          "bootstrap"
+          "needs_setup"
         ],
         "title": "LoginMethodsListing",
         "type": "object"
@@ -6225,6 +6212,34 @@
         "title": "OptionSection",
         "type": "object"
       },
+      "PasswordCredential": {
+        "additionalProperties": false,
+        "description": "A login credential that sets the principal's password now.",
+        "properties": {
+          "email": {
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "kind": {
+            "const": "password",
+            "default": "password",
+            "title": "Kind",
+            "type": "string"
+          },
+          "password": {
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "PasswordCredential",
+        "type": "object"
+      },
       "PatchSubServicesRequest": {
         "description": "Request body to change a connection's enabled sub-services.",
         "properties": {
@@ -7621,6 +7636,183 @@
         "title": "PreviewItemRoute",
         "type": "object"
       },
+      "Principal": {
+        "additionalProperties": false,
+        "description": "A principal: the unit of identity and authority every credential belongs to.\n\n``user_id`` is the id the access-control policy row is keyed by. ``kind`` is\n``human`` (authenticates through an accounts provider) or ``service`` (holds\nkeys only, never logs in interactively). ``display_name`` is the operator-\nfacing label. ``created_by`` is the principal id that created this one, or\n``None`` for the owner the setup door mints. ``disabled`` turns off every\ncredential the principal owns. ``created_at`` is timezone-aware (UTC).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created By"
+          },
+          "disabled": {
+            "default": false,
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "human",
+              "service"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "kind",
+          "display_name",
+          "created_at"
+        ],
+        "title": "Principal",
+        "type": "object"
+      },
+      "PrincipalCreate": {
+        "description": "The create-principal request body.\n\n``user_id`` is optional — the door mints one when absent. ``kind`` is ``human`` or\n``service``; ``role`` names the role template applied to the principal's policy.",
+        "properties": {
+          "display_name": {
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "human",
+              "service"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "kind",
+          "display_name",
+          "role"
+        ],
+        "title": "PrincipalCreate",
+        "type": "object"
+      },
+      "PrincipalDeleted": {
+        "description": "Acknowledges a principal deletion.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "deleted"
+        ],
+        "title": "PrincipalDeleted",
+        "type": "object"
+      },
+      "PrincipalListing": {
+        "description": "Every principal the operator manages.",
+        "items": {
+          "$ref": "#/components/schemas/Principal"
+        },
+        "title": "PrincipalListing",
+        "type": "array"
+      },
+      "PrincipalRef": {
+        "description": "The principal a credential belongs to: the owner of a key, or the human of a session.",
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "kind",
+          "display_name"
+        ],
+        "title": "PrincipalRef",
+        "type": "object"
+      },
+      "PrincipalUpdate": {
+        "description": "The update-principal request body: display name and/or disabled, both omit-means-keep.",
+        "properties": {
+          "disabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Disabled"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          }
+        },
+        "title": "PrincipalUpdate",
+        "type": "object"
+      },
       "ProfileApplyResponse": {
         "description": "The dedicated profile-apply response.\n\n``hot`` are the hot-class diff key names; ``recycle`` the recycled/self-deferred worker lines;\n``fresh`` the new ready lives seen since the pre-apply snapshot; ``refused`` is empty on success\n(any refusal aborts the pipeline before a response is built); ``fanout`` the reload broadcast's\nfleet summary. Names only — never env values.",
         "properties": {
@@ -7904,6 +8096,16 @@
             ],
             "title": "Owner User Id"
           },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "route_patterns": {
             "items": {
               "$ref": "#/components/schemas/PatternEntry"
@@ -7947,6 +8149,7 @@
         "required": [
           "user_id",
           "owner_user_id",
+          "principal",
           "admin",
           "scopes",
           "routes",
@@ -9699,6 +9902,158 @@
           "groups"
         ],
         "title": "SettingsSchemaView",
+        "type": "object"
+      },
+      "SetupLogin": {
+        "description": "What the setup door can attach as the owner's interactive login.\n\n``kinds`` are the login-credential kinds a configured login-attaching provider accepts\n(e.g. ``[\"password\", \"invite\"]``); the client decides from this whether to show the\nowner-login fields.",
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kinds"
+        ],
+        "title": "SetupLogin",
+        "type": "object"
+      },
+      "SetupRequest": {
+        "additionalProperties": false,
+        "description": "The body of ``POST /api/setup``.\n\n``setup_token`` is checked against the deployment's setup token.\n``owner_user_id`` and ``key_user_id`` are optional — the door mints ids when\nthey are absent. ``owner_display_name`` is required and non-empty (the\nprincipals door rejects an empty display name). ``login`` attaches the owner's\ninteractive login when a login-attaching provider is configured; a keys-only\ndeployment sends ``None``.",
+        "properties": {
+          "key_description": {
+            "default": "owner key",
+            "title": "Key Description",
+            "type": "string"
+          },
+          "key_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Key User Id"
+          },
+          "login": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "invite": "#/components/schemas/InviteCredential",
+                    "password": "#/components/schemas/PasswordCredential"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PasswordCredential"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InviteCredential"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Login"
+          },
+          "owner_display_name": {
+            "minLength": 1,
+            "title": "Owner Display Name",
+            "type": "string"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner User Id"
+          },
+          "setup_token": {
+            "default": "",
+            "title": "Setup Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_display_name"
+        ],
+        "title": "SetupRequest",
+        "type": "object"
+      },
+      "SetupResult": {
+        "additionalProperties": false,
+        "description": "The result of a successful ``POST /api/setup``.\n\n``api_key`` is the owner key's plaintext, returned exactly once.\n``login_attached`` is whether an interactive login was attached;\n``invite_token`` and ``login_path`` are set only when the login was an invite\nthe operator completes later.",
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "invite_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Invite Token"
+          },
+          "key_fingerprint": {
+            "title": "Key Fingerprint",
+            "type": "string"
+          },
+          "key_user_id": {
+            "title": "Key User Id",
+            "type": "string"
+          },
+          "login_attached": {
+            "title": "Login Attached",
+            "type": "boolean"
+          },
+          "login_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Login Path"
+          },
+          "owner_user_id": {
+            "title": "Owner User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_user_id",
+          "key_user_id",
+          "api_key",
+          "key_fingerprint",
+          "login_attached"
+        ],
+        "title": "SetupResult",
         "type": "object"
       },
       "SpanView": {
@@ -11923,7 +12278,7 @@
         "type": "array"
       },
       "TokenPayloadRow": {
-        "description": "A provisioned key's identity merged with its enforced policy — NEVER key material.\n\nThe policy fields are present only when the key carries a stored policy row; the owner claim, when set,\nrides inside ``policy_data``. ``orphaned`` is ``True`` for a policy row minted as an api key whose identity\nrecord is gone (a partial-restore state): it authenticates nothing until re-minted from the backup.",
+        "description": "A provisioned key's identity merged with its enforced policy — NEVER key material.\n\nThe policy fields are present only when the key carries a stored policy row; the owner claim, when set,\nrides inside ``policy_data``. ``principal`` is the key's OWNER principal (kind + display name), ``null``\nonly for a key whose principal row is absent (an orphaned restore state). ``orphaned`` is ``True`` for a\npolicy row minted as an api key whose identity record is gone (a partial-restore state): it authenticates\nnothing until re-minted from the backup.",
         "properties": {
           "condition": {
             "anyOf": [
@@ -11957,6 +12312,17 @@
             ],
             "default": null,
             "title": "Policy Data"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "scopes": {
             "anyOf": [
@@ -14638,6 +15004,333 @@
           }
         ],
         "summary": "The caller's capability projection",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/principals": {
+      "get": {
+        "description": "Every principal (admin only).",
+        "operationId": "get_api_auth_principals",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PrincipalListing"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List principals",
+        "tags": [
+          "access-control"
+        ]
+      },
+      "post": {
+        "description": "Create a ``human`` or ``service`` principal and apply its role (admin only).\n\nThe door mints a ``user_id`` when absent. A duplicate id is a 409; an unknown role is a\n400. ``created_by`` records the admin who created it.",
+        "operationId": "post_api_auth_principals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrincipalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Principal"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create a principal",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/principals/{user_id}": {
+      "delete": {
+        "description": "Delete a principal, revoking every key it owns plus its policy row (admin only).\n\nRefused (409) when a login-attaching accounts provider owns the principal's login — that\nprovider's users door deletes it and cleans the login row. A principal no attaching\nprovider claims (service, OIDC-provisioned human, keys-only owner) is deleted here;\ndeleting the last enabled admin principal is refused (409) behind the store's\nadvisory-locked guard. A missing principal is a 404.",
+        "operationId": "delete_api_auth_principals_user_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PrincipalDeleted"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a principal",
+        "tags": [
+          "access-control"
+        ],
+        "x-destructive": true
+      },
+      "put": {
+        "description": "Update a principal's display name and/or disabled state (admin only).\n\nBoth fields are omit-means-keep. A ``disabled`` change is refused (409) when a\nlogin-attaching accounts provider owns the principal's login — its disabled state lives\nat that provider's users door — and otherwise flips both homes through the single\ndisabled writer. Disabling the last enabled admin principal is refused (409) behind the\nstore's advisory-locked guard. A display-name edit is accepted for any kind. Returns the\nupdated principal; a missing principal is a 404.",
+        "operationId": "put_api_auth_principals_user_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrincipalUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Principal"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Update a principal",
         "tags": [
           "access-control"
         ]
@@ -21730,76 +22423,6 @@
         "x-destructive": true
       }
     },
-    "/api/keys/bootstrap": {
-      "post": {
-        "description": "Mint the first admin api key behind the secure-by-default token gate.\n\nOnly meaningful on an access-controlled install: with the gate OFF there is nothing to\nprotect, so the door refuses loudly with a 501 rather than minting. The per-IP backoff\nis consulted BEFORE the token, so a wrong-token flood escalates a lockout that turns\nfurther attempts away without ever comparing; a wrong/absent token is a generic 403 (no\noracle for the initialized state). The existence-check-and-mint runs under one mutex, so\ntwo concurrent bootstraps can never both mint — the loser gets a 409. On a passing gate\na condition-free ``[\"*\"]`` admin key — the ``is_admin_policy`` discriminator — is minted\nthrough the shared mint and returned ONCE.\n\nResponse mirrors the login result wire shape: ``{\"data\": {\"token\": <raw key>,\n\"user_id\": ...}}``.",
-        "operationId": "post_api_keys_bootstrap",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BootstrapKeyBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/BootstrapKeyResult"
-                    }
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Conflict with the current resource state."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          }
-        },
-        "summary": "Mint the first admin api key",
-        "tags": [
-          "access-control"
-        ]
-      }
-    },
     "/api/login/claim": {
       "post": {
         "description": "Burn a one-time claim token and return the raw API key it carried — the public exchange leg.\n\nThe public exchange leg of QR onboarding (``authed=False``; runtime public-ness comes\nfrom the always-public ``/api/login`` prefix).\n\nThe claim record is single-use: a used / unknown / expired token all answer the SAME\n404 (no oracle distinguishing them). The handed-out key is guaranteed not-REVOKED\n(re-validated at exchange), NOT owner-alive — owner-death is enforced by the gate on\nevery request. Response mirrors the ``loginResult`` wire shape:\n``{\"data\": {\"token\": <raw key>, \"user_id\": ...}}``.\n\n``authority_changing=True`` keeps this OFF the default MCP tool surface: a\ncredential-exchange login door is not an agent tool (it sits outside the\n``/api/auth/*`` prefix, so the flag is what excludes it, not the prefix).",
@@ -21852,7 +22475,7 @@
     },
     "/api/login/methods": {
       "get": {
-        "description": "Aggregate every registered accounts provider's login methods + bootstrap flag.\n\n``authed=False`` is OpenAPI truth-telling only; runtime public-ness comes from the\nalways-public ``/api/login`` prefix. Each method is serialized with\n``model_dump(exclude_none=True)`` so a ``None``-valued optional (icon/autocomplete)\nis OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). No active provider yields ``{\"methods\": [], \"bootstrap\": false}``.\nProvider errors propagate (loud, never a silently empty methods list).",
+        "description": "Aggregate every registered accounts provider's login methods + the setup state.\n\n``authed=False`` is OpenAPI truth-telling only; runtime public-ness comes from the\nalways-public ``/api/login`` prefix. Each method is serialized with\n``model_dump(exclude_none=True)`` so a ``None``-valued optional (icon/autocomplete)\nis OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). ``needs_setup`` is the one platform fact \"no principal exists\"; ``setup_login``\nnames what the setup door can attach (``kinds`` from a configured login-attaching\nprovider, ``null`` when none). Provider errors propagate (loud, never a silently empty\nmethods list).",
         "operationId": "get_api_login_methods",
         "responses": {
           "200": {
@@ -26962,6 +27585,86 @@
           "schedules"
         ],
         "x-destructive": true
+      }
+    },
+    "/api/setup": {
+      "post": {
+        "description": "Initialize the deployment once behind the secure-by-default setup-token gate.\n\nOnly meaningful on an access-controlled install: with the gate OFF there is nothing to\nprotect, so the door refuses loudly with a 501. The per-IP backoff is consulted BEFORE\nthe token, so a wrong-token flood escalates a lockout that turns further attempts away\nwithout ever comparing; a wrong/absent token is a generic 403 (no oracle for the\ninitialized state). Under one mint mutex: 409 \"Already initialized\" when ANY principal\nexists; else the owner principal (``kind=human``) is created, granted the admin role,\nits first key (owned by the owner) is minted and returned ONCE, and — when a configured\naccounts provider can attach a login and the request carries one — the owner's login is\nattached (a password set now, or an invite whose one-time link is returned). A failure\npast the owner create is compensated so setup stays retriable; a correctable login\ncredential is compensated then mapped to the caller (a too-short password → 400, a\nlogin/email collision → 409) rather than surfaced as a 500.",
+        "operationId": "post_api_setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SetupResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "summary": "Initialize the deployment (owner + first key)",
+        "tags": [
+          "access-control"
+        ]
       }
     },
     "/api/state-retention/prune": {

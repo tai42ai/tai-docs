@@ -20,11 +20,45 @@ Application-side policy services an accounts provider may invoke.
 Implemented by the application and INJECTED via
 ``AccountsProviderSettings.admin`` — accounts plugins never import the
 application package, so this Protocol is the only way plugin code can
-apply a role template, remove a principal's policy, or flip the disabled
-marker. Every method mutates application-owned policy state; the plugin
-never touches that state directly.
+create a principal, apply a role template, remove a principal's policy,
+or flip the disabled marker. Every method mutates application-owned
+principal and policy state; the plugin never touches that state directly.
 
 ### Members
+
+#### create_principal
+
+`tai42_contract.accounts.provider.AccountsAdminServices.create_principal`
+
+```python
+async create_principal(
+    self,
+    user_id: str,
+    *,
+    kind: Literal['human', 'service'],
+    display_name: str,
+    created_by: str | None,
+    role: str,
+) -> None
+```
+
+Create the principal row and apply its role.
+
+A ``human`` principal authenticates through an accounts provider; a
+``service`` principal holds keys only. ``created_by`` is the principal
+id that created this one, or ``None`` for the setup door. Raises loudly
+if the principal already exists or the role is unknown.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+| `kind` | `Literal['human', 'service']` | — | — |
+| `display_name` | `str` | — | — |
+| `created_by` | `str \| None` | — | — |
+| `role` | `str` | — | — |
+
 
 #### apply_role
 
@@ -34,7 +68,7 @@ never touches that state directly.
 async apply_role(self, user_id: str, role: str) -> None
 ```
 
-Copy the named role template into the user's enforced policy.
+Copy the named role template into the principal's enforced policy.
 
 **Parameters**
 
@@ -52,7 +86,7 @@ Copy the named role template into the user's enforced policy.
 async remove_policy(self, user_id: str) -> None
 ```
 
-Delete the user's enforced policy (and revoke keys it owned).
+Delete the principal's enforced policy and row (and revoke keys it owned).
 
 **Parameters**
 
@@ -69,7 +103,7 @@ Delete the user's enforced policy (and revoke keys it owned).
 async set_user_disabled(self, user_id: str, disabled: bool) -> None
 ```
 
-Set/clear the disabled marker on the user's enforced policy.
+Set/clear the disabled marker on the principal.
 
 **Parameters**
 
@@ -122,22 +156,6 @@ cheap and side-effect free: this is static, config-derived metadata,
 not I/O (sync by contract, like ``readiness_targets``).
 
 
-#### needs_bootstrap
-
-`tai42_contract.accounts.provider.AccountsProvider.needs_bootstrap`
-
-```python
-async needs_bootstrap(self) -> bool
-```
-
-Whether this provider still needs its first account created.
-
-A LIVE store read (async by contract): the aggregator calls it on
-every methods fetch so the owner-creation screen disappears the
-moment the owner exists. Providers with no bootstrap concept return
-``False``.
-
-
 #### revoke_session
 
 `tai42_contract.accounts.provider.AccountsProvider.revoke_session`
@@ -184,6 +202,82 @@ application or kit types. ``admin`` carries the application's
 |---|---|
 | `redis` | `Any` |
 | `admin` | `Any` |
+
+
+## LoginAttachingProvider
+
+`tai42_contract.accounts.provider.LoginAttachingProvider`
+
+```python
+class LoginAttachingProvider(AccountsProvider)
+```
+
+An accounts provider that can attach an interactive login to an existing principal.
+
+A provider mixes this in when it owns an interactive credential it can set
+for a principal (a password, or a one-time invite link). The setup door and
+the invite flow ``isinstance``-check for it: a provider whose login lives at
+an external issuer (OIDC) does not implement it, and the caller reports the
+login as not attached.
+
+Ownership of a principal's disable/delete follows the login: the principals
+door asks every registered attaching provider `has_login`, and a
+principal some provider claims is managed through that provider's users door
+(which cleans its login row and runs its own guard), never the principals
+door.
+
+### Members
+
+#### has_login
+
+`tai42_contract.accounts.provider.LoginAttachingProvider.has_login`
+
+```python
+async has_login(self, user_id: str) -> bool
+```
+
+Whether this provider holds a login for the principal ``user_id``.
+
+The principals door reads this to decide who owns a principal's
+disable/delete: a ``True`` means the provider holds the credential, so the
+principal is managed through that provider's users door; a ``False`` means
+it does not (a service principal, an OIDC-provisioned human whose login
+lives at the issuer, the keys-only owner), and the principals door manages
+it directly. A backend error raises (fail closed), never a silent ``False``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+
+
+#### attach_login
+
+`tai42_contract.accounts.provider.LoginAttachingProvider.attach_login`
+
+```python
+async attach_login(self, user_id: str, *, credential: LoginCredential) -> LoginAttachment
+```
+
+Attach ``credential`` to the existing principal ``user_id``.
+
+A `PasswordCredential` sets the
+password now; an `InviteCredential`
+mints a one-time link returned on the `LoginAttachment`.
+A correctable-input failure (a too-short password) raises
+`LoginAttachError`; a login already
+existing for the principal or a taken email raises
+`LoginConflictError`. The state is
+unchanged on either, so the caller surfaces the failure and stays retriable.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
+| `credential` | `LoginCredential` | — | — |
+
 
 
 ## ButtonMethod
@@ -247,9 +341,63 @@ A credentials form: the renderer draws the fields and POSTs them as JSON to subm
 | `shape` | `Literal['form']` |
 | `id` | `str` |
 | `title` | `str` |
-| `purpose` | `Literal['login', 'bootstrap', 'invite']` |
+| `purpose` | `Literal['login', 'invite']` |
 | `fields` | `list[FormField]` |
 | `submit_path` | `str` |
+
+
+## InviteCredential
+
+`tai42_contract.accounts.models.InviteCredential`
+
+```python
+class InviteCredential(BaseModel)
+```
+
+A login credential that mints a one-time invite link instead of setting a password now.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['invite']` |
+| `email` | `str` |
+
+
+## LoginAttachment
+
+`tai42_contract.accounts.models.LoginAttachment`
+
+```python
+class LoginAttachment(BaseModel)
+```
+
+The outcome of attaching a login to a principal.
+
+``attached`` is whether an interactive login was attached. ``invite_token``
+and ``login_path`` are set only for an invite credential — the one-time link
+the operator follows to set the password later.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `attached` | `bool` |
+| `invite_token` | `str \| None` |
+| `login_path` | `str \| None` |
+
+
+## LoginCredential
+
+`tai42_contract.accounts.models.LoginCredential`
+
+```python
+LoginCredential = Annotated[PasswordCredential | InviteCredential, Field(discriminator='kind')]
+```
+
+The closed union of login credentials a provider can attach to a principal.
 
 
 ## LoginMethod
@@ -261,6 +409,26 @@ LoginMethod = Annotated[FormMethod | ButtonMethod, Field(discriminator='shape')]
 ```
 
 The closed union of renderable login-method shapes.
+
+
+## PasswordCredential
+
+`tai42_contract.accounts.models.PasswordCredential`
+
+```python
+class PasswordCredential(BaseModel)
+```
+
+A login credential that sets the principal's password now.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `Literal['password']` |
+| `email` | `str` |
+| `password` | `str` |
 
 
 ## abort_staging

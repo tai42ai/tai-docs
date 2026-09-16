@@ -132,6 +132,9 @@ _ALLOW_KEY = "ac-allow-demo-key"
 _DENY_KEY = "ac-deny-demo-key"
 _SCOPE = "demo-scope"
 _GUARDED_PATH = "/guarded"
+# The admin operator that minted both scoped keys. Its full scopes cap nothing, so
+# each key's effective authority is exactly its own scope set.
+_OPERATOR_ID = "operator"
 
 
 def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
@@ -140,6 +143,7 @@ def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
     Redis gets an allowed and a denied key; the policy store gets the guarded
     route's scope and the two users' policies.
     """
+    from tai42_contract.access_control import OWNER_USER_ID_CLAIM
     from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
@@ -151,14 +155,21 @@ def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
             f"{settings.key_prefix}{hash_api_key(_ALLOW_KEY)}": {
                 "user_id": "allowed-user",
                 "description": "allowed",
+                "owner_user_id": _OPERATOR_ID,
             },
-            f"{settings.key_prefix}{hash_api_key(_DENY_KEY)}": {"user_id": "denied-user", "description": "denied"},
+            f"{settings.key_prefix}{hash_api_key(_DENY_KEY)}": {
+                "user_id": "denied-user",
+                "description": "denied",
+                "owner_user_id": _OPERATOR_ID,
+            },
         },
     )
     fake_pg = FakeAccessControlPg()
     fake_pg.add_route(_GUARDED_PATH, _SCOPE)
-    fake_pg.add_policy("allowed-user", scopes=[_SCOPE])
-    fake_pg.add_policy("denied-user", scopes=[])
+    fake_pg.add_principal(_OPERATOR_ID, kind="human", display_name="Operator")
+    fake_pg.add_policy(_OPERATOR_ID, scopes=["*"])
+    fake_pg.add_policy("allowed-user", scopes=[_SCOPE], policy_data={OWNER_USER_ID_CLAIM: _OPERATOR_ID})
+    fake_pg.add_policy("denied-user", scopes=[], policy_data={OWNER_USER_ID_CLAIM: _OPERATOR_ID})
     return fake_redis, fake_pg
 
 
@@ -278,6 +289,7 @@ def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
             f"{settings.key_prefix}{hash_api_key(_OWNER_KEY)}": {
                 "user_id": _OWNER_ID,
                 "description": "owner key",
+                "owner_user_id": _OWNER_ID,
             },
         },
     )
@@ -288,7 +300,9 @@ def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
     fake_pg.add_route("/api/auth/api-keys", "mint")
     fake_pg.add_route("/api/auth/claim-links", "mint")
     fake_pg.add_route("/api/tools", "read")
-    # A non-admin owner: a plain scope set with no ``*`` and no jq condition.
+    # The owner is a top-level principal: its policy carries no owner claim, so it may
+    # mint keys owned by itself. The mint's owner-exists check reads its principal row.
+    fake_pg.add_principal(_OWNER_ID, kind="human", display_name="Maya")
     fake_pg.add_policy(_OWNER_ID, scopes=["read", "mint"])
     return fake_redis, fake_pg
 

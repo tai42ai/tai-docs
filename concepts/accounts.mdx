@@ -59,10 +59,11 @@ the key, and the request gate enforces that ownership on every call:
   policy on its next request. A key does not carry a frozen snapshot of what its
   owner could once do.
 
-Only an admin can mint an **ownerless** key — the headless, machine-to-machine
-credential that belongs to no human account. That keeps the automation path
-alive while making the common case (a key tied to a person) the default. See
-[API keys](/studio/api-keys) for provisioning and the ownership cap.
+For automation, an admin creates a **service principal** — a non-human identity
+that holds keys but never logs in — and mints keys owned by it. That keeps the
+machine-to-machine path alive while making the common case (a key tied to a
+person) the default. See [API keys](/studio/api-keys) for provisioning and the
+ownership cap.
 
 ## Roles
 
@@ -86,15 +87,20 @@ the keys themselves.
 
 ## First run and invites
 
-A fresh deployment has no accounts. The login surface reports a **bootstrap**
-state, and the first sign-in creates the **owner** account — the initial admin —
-through a one-time owner-creation flow that closes the moment the owner exists.
-Concurrent first-run attempts are resolved so exactly one owner is ever created.
+A fresh deployment has no principal. The login surface reports this as
+`needs_setup`, and the one-step [setup door](/guides/access-control) initializes
+the deployment exactly once: it creates the **owner** principal — the initial
+admin — and mints the owner's first key, and when an accounts provider that
+attaches an interactive login is configured it also sets the owner's password
+(or issues an invite to set one later). The door closes the moment the owner
+exists — a second call is refused — and concurrent first-run attempts are
+resolved so exactly one owner is ever created.
 
 After that, an admin grows the user set by **invite**: the admin creates an
-account and issues an invite, and the invited person follows an invite link to
-set their own password and activate the account. Invites are single-use and
-time-bounded — an expired or already-accepted invite is refused.
+account — a human principal — and issues an invite, and the invited person
+follows an invite link to set their own password and activate the account.
+Invites are single-use and time-bounded — an expired or already-accepted invite
+is refused.
 
 ## What the users-admin page governs
 
