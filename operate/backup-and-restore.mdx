@@ -55,6 +55,18 @@ A few sections do not key per record, so mode does not apply:
 - **`env`** **merges**: every key in the backup is applied, updating a key that exists and adding one that does not. It never removes a live key the backup omits.
 - **API-key tokens** (inside `access_control`) are **never overwritten**, under either mode. A restore mints brand-new keys for absent user ids and surfaces each plaintext in `new_api_keys` to redistribute; a user id already provisioned keeps its live key and is reported as skipped. To replace one, revoke that user id's key first, then re-import — the mint refuses to overwrite an existing identity.
 
+### API keys and the identity store
+
+An api key spans two stores: its policy — scopes, condition, fingerprint, and owner — lives in Postgres, while the secret exists only as a hash on the key's identity record, which the [identity provider](/concepts/access-control) keeps in Redis. An export carries the policy alone and never any key material, which is why a restore re-mints keys and returns each new plaintext once in `new_api_keys`.
+
+Restore the two stores together: bring Redis and Postgres back from snapshots of the same moment, or import `access_control` onto an empty Postgres so every key is minted fresh. A restore that lands Postgres rows on a flushed identity store leaves those keys with a policy row but no identity — an **orphaned** state the platform names and clears rather than stranding:
+
+- The key listing marks each orphaned row `orphaned: true`, so you can find them.
+- A restore re-mints an identity for each orphaned row under the same user id, leaves its policy — scopes, condition, fingerprint, and owner — untouched, and returns the new plaintext once in `new_api_keys`. A user id whose identity is still present is skipped, as above.
+- Revoking an orphaned key clears its policy row.
+- Minting a key on an orphaned user id is refused until you re-import the backup to re-mint it, or revoke it.
+- The [first-key bootstrap](/guides/access-control) door counts live keys only, so an orphaned admin key never locks you out of a server whose identity store was flushed.
+
 ### The import report
 
 Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized — each named in the report so one bad record never silently drops or aborts the rest.
