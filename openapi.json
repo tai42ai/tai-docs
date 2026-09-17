@@ -1690,7 +1690,7 @@
         "type": "object"
       },
       "ConversationAnswer": {
-        "description": "The outcome of one conversation turn.\n\nThe body POSTed (HMAC-signed) to a ``door=api`` row's ``callback_url`` AND the bounded\nsync-wait payload.\n\n``message_id`` correlates it to the ``202``/``200`` the door returned. On\n``status=\"error\"`` the ``answer`` is generic client-safe text, never an internal\ndetail. On ``status=\"silent\"`` the turn produced no reply and ``answer`` is absent.\n\n``parts`` is the ordered list of :class:`AnswerPart` messages the turn produced when a\nsingle joined string would lose something — more than one message, or one message\ncarrying media/options/a template. It is order-significant; when it is present ``answer``\nequals the parts' NON-BLANK MESSAGE texts joined with ``\"\\n\\n\"`` (:func:`joined_answer_text`),\nso every consumer of ``answer`` (api-door callbacks, sync waits, transcripts) keeps seeing\nthe whole text with zero migration while a parts-aware consumer reads ``parts`` and delivers\neach as its own message (with its media/options). A single PLAIN-TEXT answer carries\n``parts=None`` (the joined ``answer`` says everything); a richer or multi-message answer\ncarries the parts. An ALL-MEDIA answer (every part media-only) joins to the EMPTY string, so\non ``answered``/``error`` a blank ``answer`` is admissible ONLY when ``parts`` carry the\ncontent — the media rides ``parts``. Frozen.",
+        "description": "The outcome of one conversation turn.\n\nThe body POSTed (HMAC-signed) to a ``door=api`` row's ``callback_url`` AND the bounded\nsync-wait payload.\n\n``message_id`` correlates it to the ``202``/``200`` the door returned. On\n``status=\"error\"`` the ``answer`` is generic client-safe text, never an internal\ndetail. On ``status=\"silent\"`` the turn produced no reply and ``answer`` is absent.\n\n``parts`` is the ordered list of :class:`AnswerPart` messages the turn produced when a\nsingle joined string would lose something — more than one message, or one message\ncarrying media/options/a template. It is order-significant; when it is present ``answer``\nequals the parts' NON-BLANK MESSAGE texts joined with ``\"\\n\\n\"`` (:func:`joined_answer_text`),\nso every consumer of ``answer`` (api-door callbacks, sync waits, transcripts) keeps seeing\nthe whole text with zero migration while a parts-aware consumer reads ``parts`` and delivers\neach as its own message (with its media/options). A single PLAIN-TEXT answer carries\n``parts=None`` (the joined ``answer`` says everything); a richer or multi-message answer\ncarries the parts. An ALL-MEDIA answer (every part media-only) joins to the EMPTY string, so\non ``answered``/``error`` a blank ``answer`` is admissible ONLY when ``parts`` carry the\ncontent — the media rides ``parts``.\n\n``status=\"merged\"`` / ``status=\"superseded\"`` are ANSWERLESS overlap outcomes (no ``answer``,\nno ``parts``) that carry a ``successor_id``: the ``message_id`` of the turn that took this\nmessage's place — the turn that carried this message's text (``merged``) or the newer turn it\nwas dropped in favour of (``superseded``). ``successor_id`` is set EXACTLY on those two\noutcomes and ``None`` on every other. Frozen.",
         "properties": {
           "answer": {
             "anyOf": [
@@ -1728,10 +1728,24 @@
             "enum": [
               "answered",
               "error",
-              "silent"
+              "silent",
+              "merged",
+              "superseded"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "successor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Successor Id"
           },
           "thread_id": {
             "minLength": 1,
@@ -2033,7 +2047,9 @@
                 "enum": [
                   "answered",
                   "error",
-                  "silent"
+                  "silent",
+                  "merged",
+                  "superseded"
                 ],
                 "type": "string"
               },
@@ -2273,6 +2289,18 @@
             "default": null,
             "title": "Submitted By"
           },
+          "successor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Successor Id"
+          },
           "thread_id": {
             "minLength": 1,
             "title": "Thread Id",
@@ -2385,6 +2413,14 @@
             "default": null,
             "title": "Our Identity"
           },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
           "payload_expr": {
             "anyOf": [
               {
@@ -2441,6 +2477,14 @@
                 {
                   "gloss": "a geographic point the participant shared, present only when the inbound carried one",
                   "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
                 },
                 {
                   "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
@@ -2663,6 +2707,14 @@
             "default": null,
             "title": "Our Identity"
           },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
           "payload_expr": {
             "anyOf": [
               {
@@ -2719,6 +2771,14 @@
                 {
                   "gloss": "a geographic point the participant shared, present only when the inbound carried one",
                   "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
                 },
                 {
                   "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
@@ -2824,7 +2884,7 @@
         "type": "object"
       },
       "DeliveryStatus": {
-        "description": "Where a record sits between intake and a terminal outcome.\n\n``accepted`` is pre-turn intake and carries no answer; ``pending_delivery`` is\npersisted-but-unsent (what a re-drive resumes); ``provisional`` is sent and awaiting an\nout-of-band receipt or grace expiry; ``delivered``/``failed``/``shed``/``silent`` are\nterminal and are the only states carrying the retention TTL. ``shed`` ran no turn and\nnever sends; ``silent`` ran a tool turn whose reply mapped to nothing and so, by\ndesign, sends nothing; ``delivered`` on an api record without a callback means the\nanswer is readable at the message door and nothing was sent.",
+        "description": "Where a record sits between intake and a terminal outcome.\n\n``accepted`` is pre-turn intake and carries no answer; ``pending_delivery`` is\npersisted-but-unsent (what a re-drive resumes); ``provisional`` is sent and awaiting an\nout-of-band receipt or grace expiry; ``delivered``/``failed``/``shed``/``silent``/\n``merged``/``superseded`` are terminal and are the only states carrying the retention\nTTL. ``shed`` ran no turn and never sends; ``silent`` ran a tool turn whose reply mapped\nto nothing and so, by design, sends nothing; ``delivered`` on an api record without a\ncallback means the answer is readable at the message door and nothing was sent. ``merged``\nand ``superseded`` are the channel-door terminal states of an overlap outcome — a message\nwhose text was carried into a later turn (``merged``) or dropped in favour of one\n(``superseded``); each names that turn through ``successor_id`` and, like ``silent``, never\nsends. On the API door an overlap outcome rides ``pending_delivery`` carrying the matching\n``answer_status`` until its marker is delivered, the ``silent`` split.",
         "enum": [
           "accepted",
           "pending_delivery",
@@ -2832,7 +2892,9 @@
           "delivered",
           "failed",
           "shed",
-          "silent"
+          "silent",
+          "merged",
+          "superseded"
         ],
         "title": "DeliveryStatus",
         "type": "string"
@@ -6210,6 +6272,39 @@
           "rows"
         ],
         "title": "OptionSection",
+        "type": "object"
+      },
+      "OverlapPolicy": {
+        "description": "How a route treats a running turn and the newer participant messages that overlap it.\n\nGoverns participant MESSAGE turns on one thread only (``origin=\"client\"``,\n``inbound_kind=\"message\"``); an event turn always runs as its own turn. Two knobs and a\nwindow:\n\n* ``running`` — what happens to the turn in flight when a newer message is accepted:\n  ``continue`` leaves it running (one turn per message, today's behaviour), ``cancel``\n  cancels it cooperatively in favour of the newer message.\n* ``deliver`` — what a turn carries: ``one`` exactly one message per turn, ``all`` every\n  message accepted since the last turn started, in order, as one turn.\n* ``settle_seconds`` — a turn starts no earlier than this many seconds after its lead\n  message was accepted, so a burst inside the window rides in one turn. ``0`` disables it.\n\nThe default (``continue``/``one``/``0``) leaves every path byte-identical to a route with no\noverlap handling. Frozen.",
+        "properties": {
+          "deliver": {
+            "default": "one",
+            "enum": [
+              "one",
+              "all"
+            ],
+            "title": "Deliver",
+            "type": "string"
+          },
+          "running": {
+            "default": "continue",
+            "enum": [
+              "continue",
+              "cancel"
+            ],
+            "title": "Running",
+            "type": "string"
+          },
+          "settle_seconds": {
+            "default": 0,
+            "description": "Seconds a turn waits after its lead message was accepted before it starts, so a burst inside the window rides one turn; 0 disables the window.",
+            "maximum": 30,
+            "minimum": 0,
+            "title": "Settle Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "OverlapPolicy",
         "type": "object"
       },
       "PasswordCredential": {
@@ -19524,7 +19619,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT (create AND edit path).\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` templated jq\nprograms, when given, are rendered and compiled here so an invalid one — or a by-id text\nwhose stored resource cannot be fetched — is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the participant-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT (create AND edit path).\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. A tool target's ``payload_expr``/``reply_expr`` templated jq\nprograms, when given, are rendered and compiled here so an invalid one — or a by-id text\nwhose stored resource cannot be fetched — is refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the participant-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nAn ``overlap`` policy governs how a running turn treats the newer participant messages that\noverlap it (learn/cancel/carry); ``None`` stores the default policy (continue/one/no window),\nwhich leaves every path byte-identical to a route with no overlap handling.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
