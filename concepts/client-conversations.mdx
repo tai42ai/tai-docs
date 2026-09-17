@@ -50,6 +50,7 @@ to what a turn runs — an agent or a tool — and the execution key that turn r
 | `payload_expr` / `reply_expr` | `tool` targets: jq mapping the message to the tool kwargs and the result to the reply. |
 | `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
 | `callback_url` | `api` rows, optional: the HTTPS answer sink; without one, answers are read from the poll door. |
+| `overlap` | The [overlap policy](#when-messages-overlap): how a running turn treats newer messages on the same thread — leave it, cancel it, or carry a burst into one turn. The default leaves each message its own turn. |
 
 A `channel` route's `(channel, our_identity)` pair is unique — a second route
 claiming the same identity is refused at write, so every inbound message resolves
@@ -297,16 +298,67 @@ delivery lifecycle:
   greeting is sent instead, so those are *not* silent. On an **api** route the silence is
   communicated instead — the record ends `delivered`, its callback carrying
   `status: "silent"` and no answer.
+- `merged` — this message's text was carried into the turn named by its `successor_id` under an
+  [overlap policy](#when-messages-overlap) (`deliver: all`).
+- `superseded` — this message was dropped in favour of the turn named by its `successor_id` (a
+  running turn cancelled by a newer message, or a queued message overtaken by a newer one on a
+  `cancel` route).
 
-A turn's own outcome is orthogonal: `answered`, `error`, or `silent` — an `error`
-answer carries generic client-safe text, never an internal detail, and a `silent`
-outcome carries no answer text at all. Delivery is retried
+`merged` and `superseded` are answerless terminal outcomes that name the turn that took the
+message's place through a `successor_id`. On a **channel** route they are terminal and send
+nothing; on an **api** route they are delivered as a marker exactly as `silent` is — the
+callback carries the `status` and `successor_id` with no answer text.
+
+A turn's own outcome is orthogonal: `answered`, `error`, `silent`, `merged`, or `superseded`
+— an `error` answer carries generic client-safe text, never an internal detail; `silent`,
+`merged`, and `superseded` carry no answer text at all, and `merged`/`superseded` name their
+`successor_id`. Delivery is retried
 with backoff; a permanently undelivered answer ends `failed` rather than
 disappearing.
 
 Late failures surface too: a channel can send a `2xx` and then a `failed`
 delivery-status webhook (a message rejected outside WhatsApp's 24-hour service
 window arrives this way), which flips the record to `failed`.
+
+## When messages overlap
+
+A participant does not wait their turn. A second message often lands while the turn on the
+first is still running. By default the platform keeps each message its own turn, strictly
+ordered — the second waits behind the first and then runs. A route's `overlap` policy chooses a
+different behaviour, in three knobs — a settle window needs `deliver: all` or `running: cancel` — (the [bridge
+reference](/reference/conversation-bridge#overlapping-messages) has the exact fields and how
+each outcome is delivered):
+
+- **Know / cancel** (`running`) — `continue` leaves a running turn alone; `cancel` cancels it
+  cooperatively in favour of the newer message, which runs instead.
+- **Carry** (`deliver`) — `one` runs a turn per message; `all` carries every message accepted
+  since the last turn started into one turn, in order.
+- **Settle** (`settle_seconds`) — hold a turn back a few seconds after its lead message so a
+  burst rides one turn rather than several.
+
+The policy is a generic conversation mechanism: it governs participant message turns only, and
+the target — an agent or a tool — needs to know nothing about it. Under `deliver: all` the turn
+simply sees the whole burst as its text (and, for a tool target, a `messages` list); under
+`cancel` a turn cut short resolves `superseded` and delivers nothing, and its record names the
+message that replaced it through `successor_id`.
+
+### The handler can cooperate
+
+Cancellation is **cooperative**: it can only stop a turn at an `await`, so it cannot claw back a
+synchronous step already running, and it never reverts state the turn already wrote. Where that
+matters, the handler cooperates — any code running inside a turn can read the **pending seam** to
+learn a newer message is waiting and yield before an expensive or irreversible step:
+
+- `current_conversation_turn()` returns the turn in flight (its thread and lead message), or
+  `None` outside any turn.
+- `app.conversations.pending_messages(thread_id, after=<the lead message id>)` returns the
+  participant messages accepted after the lead and not yet carried into a turn.
+
+A body that finds something pending stops early by raising `TurnSupersededError(successor_id=…)`
+— the same outcome a cancel produces: no reply, no error, no delivery. Under `running: continue`
+this is how a handler implements "the newer message wins": it yields, the next turn runs, and
+under `deliver: all` the yielded message rides that turn. The handler picks which steps must not
+run past a newer message; the platform stays agnostic to what it does.
 
 ## Control mode and operator messages
 

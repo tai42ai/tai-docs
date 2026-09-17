@@ -37,8 +37,9 @@ tai conversations create chat-line \
 `agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
 targets), `--initial-mode` (`agent`|`manual`, default `agent` — the route's default
 [control mode](#operator-messages-and-control-mode)), `--channel` / `--identity`
-(channel rows), `--callback-url` (api rows, optional, HTTPS). `--initial-mode manual` is valid on
-any target (see [control mode](#control-mode)).
+(channel rows), `--callback-url` (api rows, optional, HTTPS), `--overlap-running` /
+`--overlap-deliver` / `--overlap-settle-seconds` (the [overlap policy](#overlapping-messages)).
+`--initial-mode manual` is valid on any target (see [control mode](#control-mode)).
 
 ## Route targets: agent or tool
 
@@ -159,6 +160,110 @@ exception: a conversation turn cannot drive a step-mode run, so its reply would
 never arrive. Rather than silence a pause nothing can resume, the turn diverts to
 the loud `error` outcome, naming the misconfiguration in the recorded detail — route
 a step-mode tool to a conversation and every inbound fails this way.
+
+## Overlapping messages
+
+By default every inbound message is its own turn, strictly ordered per thread: a second
+message that arrives while the first message's turn is still running waits behind it and then
+runs its own turn. A route's **`overlap`** policy changes that — it lets a running turn learn a
+newer message is waiting, cancel in favour of it, or carry a burst of messages into one turn.
+Three knobs on the route, set at create with `--overlap-running` / `--overlap-deliver` /
+`--overlap-settle-seconds` (or the `overlap` object on the API body):
+
+| Field | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `running` | `continue` \| `cancel` | `continue` | What happens to the turn in flight when a newer message is accepted on the same thread: `continue` leaves it running (one turn per message), `cancel` cancels it cooperatively in favour of the newer message. |
+| `deliver` | `one` \| `all` | `one` | What a turn carries: `one` exactly one message per turn, `all` every message accepted since the last turn started, in order, as one turn. |
+| `settle_seconds` | `0`–`30` | `0` | A turn starts no earlier than this many seconds after its **lead** message was accepted, so a burst inside the window rides one turn. `0` disables the window. |
+
+The default policy (`continue` / `one` / `0`) leaves every path byte-identical to a route with
+no overlap handling — the same payload, records, and timing. A `settle_seconds` above `0`
+requires `deliver: all` or `running: cancel`; under `continue` + `one` a window would delay
+every turn for nothing and is refused loudly at create.
+
+The policy governs **participant message turns only** — records with `origin: client` and an
+`inbound_kind` of `message`. An [event turn](#the-event-door) always runs as its own turn: it
+is never merged, never superseded, and never cancels a message turn. An
+[operator send](#operator-send) runs no turn, and a turn parked on an `ask_user` is not
+"running" — a reply while it is parked resumes through the answer ladder exactly as it does under the default policy.
+
+### The four combinations
+
+Three messages arriving with the first turn already running:
+
+| `running` | `deliver` | Turns that complete | What each carries |
+| --- | --- | --- | --- |
+| `continue` | `one` | three | 1; 2; 3 — the default: one turn per message. |
+| `continue` | `all` | two | 1; then one turn carrying 2 and 3. |
+| `cancel` | `one` | one | 1 cancelled (`superseded`), 2 `superseded` (by 3), one turn on 3. |
+| `cancel` | `all` | one | 1 cancelled, one turn carrying 2 and 3 with 1 in `superseded`. |
+
+### The settle window
+
+`settle_seconds` holds a turn back until that many seconds have passed since its **lead**
+message was accepted — a fixed window from the lead, never sliding, so the wait is bounded and
+a stream cannot starve it. A burst that lands inside the window rides one turn (under
+`deliver: all`) or is superseded by the newest (under `cancel`). The turn's intake lease keeps
+refreshing through the wait, so the turn is never re-driven while it settles.
+
+### What cancellation can and cannot do
+
+`cancel` is **cooperative**. A newer message sets a per-thread marker; a watcher armed around
+the running turn's body cancels the owner task, and the turn stops at its **next `await`** —
+resolving `superseded` in favour of the newer message, with no reply and no delivery. It
+cannot interrupt a **synchronous** tool body already offloaded to a thread: that body runs to
+completion in the background and its result is dropped. Delivered messages and state writes are
+never reverted — a cancelled turn's partial state stays in the state module and the next turn
+reads it as its starting document; reverting is the handler's job. A tool body can cooperate
+where the watcher cannot reach: it reads the [pending
+seam](/concepts/client-conversations#when-messages-overlap) and yields early by raising
+`TurnSupersededError`, so an expensive or irreversible step never runs past a newer message.
+
+### The carried payload
+
+Under `deliver: one` the tool payload is unchanged from the default. Under `deliver: all` (a
+`tool` target) the payload gains two keys:
+
+- **`messages`** — the batch in order, each `{id, text, accepted_at}`, plus `form` /
+  `attachments` / `location` when that message carried them.
+- **`superseded`** — present only when non-empty: the earlier messages dropped in favour of
+  this turn, in the same shape.
+
+`message` becomes the turn's **whole** text: the superseded texts then the batch texts, in
+acceptance order, joined with a blank line — so a route with no `payload_expr` and an `agent`
+target both see the whole turn with no new seam. A manual-mode thread appends the batch
+members' texts to its memory (the superseded texts are not appended). The lead's own
+top-level `form` / `attachments` / `location` keys stay the lead's. Map `messages` and
+`superseded` in a `payload_expr` exactly as any other payload key.
+
+### The overlap outcomes
+
+A message handed to another turn ends in one of two answerless terminal outcomes, each naming
+the turn that took its place through **`successor_id`** (the successor turn's `message_id`):
+
+- **`merged`** — this message's text was carried into the named turn (under `deliver: all`).
+- **`superseded`** — this message was dropped in favour of the named turn (a running turn
+  cancelled by a newer message, or a queued message overtaken by a newer one on a `cancel`
+  route).
+
+The two doors deliver the outcome as they deliver `silent`:
+
+- **Channel door** — a terminal record, answerless; nothing is ever sent back.
+- **API door** — the record rides the delivery pipeline and is delivered as a marker: the
+  callback (or sync-wait reply, or poll-door record) carries `status: "merged"` /
+  `"superseded"` and the `successor_id`, no answer text, so the caller learns its message's fate
+  and where the answer will be.
+
+### The cancel marker and its setting
+
+On a `running: cancel` route every participant message accept writes a per-thread marker in the
+conversations Redis — `<prefix>:overlap:cancel:{thread_id}` = `{message_id, created_at}`, TTL
+the thread lease — naming the newest message on the thread. The watcher a running turn arms
+reads it every `overlap_cancel_poll_seconds` and cancels the turn when the marker names a
+message newer than the turn's batch. The marker lives in the shared Redis and the watcher runs
+in the turn's holder, so cancellation works across workers with no local fast path.
+`overlap_cancel_poll_seconds` (default `0.5`) must stay **below** `thread_lease_seconds`, or the
+marker could expire before the watcher next reads it. See [Settings](#settings).
 
 ## The message door
 
@@ -608,8 +713,12 @@ failed by the provider), `shed` (refused by the address rate cap; no turn ran), 
 reply was `null`/blank, or an ordinary inbound on a `manual`-mode thread whose suppressed
 target turn produced no reply). An **api** turn that resolves silent does **not** end
 `silent`: it rides the delivery pipeline like any answer and ends `delivered`, its
-callback carrying `status: "silent"`. Only the terminal states (`delivered`, `failed`,
-`shed`, `silent`) carry the retention TTL.
+callback carrying `status: "silent"`. A message handed to another turn under an
+[overlap policy](#overlapping-messages) ends `merged` (its text carried into the named turn) or
+`superseded` (dropped in favour of one) — both answerless terminal outcomes naming that turn in
+`successor_id`, and on the **api** door delivered as a marker exactly as `silent` is. Only the
+terminal states (`delivered`, `failed`, `shed`, `silent`, `merged`, `superseded`) carry the
+retention TTL.
 Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
@@ -727,7 +836,8 @@ must be absolute **HTTPS** — an `http://` or relative URL is rejected at creat
 door (`GET /api/conversations/{route_name}/messages/{message_id}`) instead. Every callback
 is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
 raw_body)>`, over a body of `{message_id, thread_id, status, answer}` — with `answer`
-absent on a `silent` outcome. See [connect your own
+absent on a `silent`, `merged`, or `superseded` outcome, and a `successor_id` present on
+`merged`/`superseded` naming the turn that took the message's place. See [connect your own
 system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
 ## Settings
@@ -759,6 +869,7 @@ combination loudly.
 | `thread_lease_seconds` | `120` | Seconds a running turn's cross-worker thread lease stays live; only on expiry (a crashed holder) may another worker take the thread. |
 | `thread_lease_refresh_seconds` | `30` | Thread-lease refresh interval; must stay below the lease. |
 | `thread_lease_poll_seconds` | `0.5` | Seconds a waiter sleeps between thread-lease acquisition attempts. |
+| `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
 
 ### Delivery bounds
