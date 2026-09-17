@@ -355,7 +355,9 @@ learn a newer message is waiting and yield before an expensive or irreversible s
   participant messages accepted after the lead and not yet carried into a turn.
 
 A body that finds something pending stops early by raising `TurnSupersededError(successor_id=…)`
-— the same outcome a cancel produces: no reply, no error, no delivery. Under `running: continue`
+— the same outcome a cancel produces: no reply, no error, no delivery. `TurnSupersededError` is a
+`BaseException`, not an `Exception`, so no broad `except Exception` between the yielding body and
+the platform's turn runner — which catches it explicitly — ever swallows the yield. Under `running: continue`
 this is how a handler implements "the newer message wins": it yields, the next turn runs, and
 under `deliver: all` the yielded message rides that turn. The handler picks which steps must not
 run past a newer message; the platform stays agnostic to what it does.
@@ -392,7 +394,9 @@ and on an `api` route the silence is delivered as a `status: "silent"` marker. T
 platform's own control turns are the exception — a pairing action still gets its reply,
 and on a multichannel route a due first-contact greeting still runs: it is prepended
 onto the otherwise-silent outcome, so **that** record ends `answered` and is delivered
-carrying the greeting text. Whether the suppressed inbound is **remembered** turns on
+carrying the greeting text. A greeting owed on a turn that is then superseded — cancelled by
+a newer message or yielded by the turn body — is never dropped: it is carried to the successor
+turn and leads that turn's reply, on every door. Whether the suppressed inbound is **remembered** turns on
 the target's memory: a target that keeps thread memory — an agent that implements the
 thread-memory append — has it **appended to that memory**, so a later agent turn once
 the thread is back in `agent` mode reads it as prior context; a target with no thread

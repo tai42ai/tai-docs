@@ -176,8 +176,8 @@ Three knobs on the route, set at create with `--overlap-running` / `--overlap-de
 | `deliver` | `one` \| `all` | `one` | What a turn carries: `one` exactly one message per turn, `all` every message accepted since the last turn started, in order, as one turn. |
 | `settle_seconds` | `0`–`30` | `0` | A turn starts no earlier than this many seconds after its **lead** message was accepted, so a burst inside the window rides one turn. `0` disables the window. |
 
-The default policy (`continue` / `one` / `0`) leaves every path byte-identical to a route with
-no overlap handling — the same payload, records, and timing. A `settle_seconds` above `0`
+The default policy (`continue` / `one` / `0`) runs one turn per message and leaves the payload
+unchanged — the same payload, records, and timing as a route that declares no overlap policy. A `settle_seconds` above `0`
 requires `deliver: all` or `running: cancel`; under `continue` + `one` a window would delay
 every turn for nothing and is refused loudly at create.
 
@@ -218,6 +218,9 @@ reads it as its starting document; reverting is the handler's job. A tool body c
 where the watcher cannot reach: it reads the [pending
 seam](/concepts/client-conversations#when-messages-overlap) and yields early by raising
 `TurnSupersededError`, so an expensive or irreversible step never runs past a newer message.
+`TurnSupersededError` is a `BaseException`, not an `Exception`, so no broad `except Exception`
+between the yielding body and the platform's turn runner — which catches it explicitly — ever
+swallows the yield.
 
 ### The carried payload
 
@@ -231,8 +234,9 @@ Under `deliver: one` the tool payload is unchanged from the default. Under `deli
 
 `message` becomes the turn's **whole** text: the superseded texts then the batch texts, in
 acceptance order, joined with a blank line — so a route with no `payload_expr` and an `agent`
-target both see the whole turn with no new seam. A manual-mode thread appends the batch
-members' texts to its memory (the superseded texts are not appended). The lead's own
+target both see the whole turn with no new seam. A manual-mode thread appends the whole turn
+to its memory — the superseded texts then the batch texts, the same order as the joined
+`message`. The lead's own
 top-level `form` / `attachments` / `location` keys stay the lead's. Map `messages` and
 `superseded` in a `payload_expr` exactly as any other payload key.
 
@@ -622,7 +626,9 @@ suppressed, so on a `channel` route the record ends terminal `silent` and on an 
 route the silence is delivered as a `status: "silent"` marker. A pairing action and a
 first-contact greeting are the exception — when a greeting is due it is prepended onto
 the otherwise-silent outcome, so **that** record ends `answered`/`delivered` carrying the
-greeting text.
+greeting text. A greeting owed on a turn that is then superseded — cancelled by a newer
+message or yielded by the turn body — is never dropped: it is carried to the successor turn
+and leads that turn's reply, on every door.
 
 Whether the suppressed inbound is **remembered** turns on the target's memory. A target
 that keeps thread memory — an agent that implements the thread-memory append — has the
