@@ -256,7 +256,7 @@ all-or-nothing barrier. Left to force-run (the default), a trigger arriving afte
 deadline releases the barrier with whatever inputs are present and the node runs a
 partial; set raise-on-timeout and that same lapsed deadline instead **fails the node
 loudly**, attributed to the waiting node as an *application* error rather than
-infrastructure — so a flow-level on-error handler sees it exactly as any node
+infrastructure — so a flow-level On Error sees it exactly as any node
 failure and can route on it. The timeout is lazy either way: it
 can only fire when some trigger arrives after the deadline, so a node whose last
 trigger already fired keeps waiting forever. Because the wait's start clock is
@@ -266,11 +266,14 @@ force the give-up immediately.
 
 ## Handling a node's error
 
-A node — and a conditional branch, and the flow itself — can carry an **on-error
-handler**. When the node fails, the handler runs, its result becomes the failed
-node's output, and the run continues from there rather than aborting.
+A node — a **runnable**, an **agent**, a conditional's **branch**, or the flow itself
+(its **Start**) — can carry an **On Error**. When the node fails, the On Error runs, its
+result becomes the failed node's output, and the run continues from there rather than
+aborting. In the Studio the same error handle also rides a **Router** card, catching its
+classifier's failure, and a **Sub-Flow Start**, where it is the sub-flow's own flow-level
+On Error.
 
-A handler's jq reads the failure through `.upstream_outputs`, the same namespace
+An On Error's jq reads the failure through `.upstream_outputs`, the same namespace
 predecessor outputs use, alongside the ordinary run channels:
 
 | jq path | What it holds |
@@ -281,47 +284,47 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
 | `.states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
-There are two ways to dispatch a handler, and they are exclusive — declaring both
+An On Error dispatches one of two ways, and they are exclusive — declaring both
 is refused rather than silently preferring one:
 
-- **A wired handler node.** Name another runnable in the flow. It is dispatched only
-  through the error-recovery seam.
-- **An inline handler tool.** Attach a **tool** directly to On Error, with optional
-  baseline keyword arguments that the handler's expression overrides map onto. Any
-  registered tool qualifies — including a flow-call preset, which makes the handler
+- **A wired Recovery.** Name another runnable in the flow as the **Recovery** node; it
+  is dispatched only through the On Error, never by ordinary routing.
+- **An inline tool.** Attach a **tool** directly to the On Error, with optional
+  baseline keyword arguments that the On Error's expression overrides map onto. Any
+  registered tool qualifies — including a flow-call preset, which makes the On Error
   an arbitrary **nested flow**.
 
-A handler may also be a bare expression that shapes a recovery value without
+An On Error may also be a bare expression that shapes a replacement value without
 dispatching anything. Baseline kwargs without a tool to receive them are refused, and
-a handler with no tool, node, or expression at all is refused as inert.
+an On Error with no tool, node, or expression at all is refused as inert.
 
 <Warning>
-A **recovery-only** handler node — one no ordinary routing reaches — never runs as a
+A **Recovery-only** node — one no ordinary routing reaches — never runs as a
 live graph step, so an edge **out** of it can never fire and an `inputs` reference
 **to** it reads an output that is never written. Both leave a downstream node waiting
-on its barrier forever, so both are rejected as dead wires. Wire the handler into the
+on its barrier forever, so both are rejected as dead wires. Wire the Recovery node into the
 flow's ordinary routing if you need its output downstream.
 </Warning>
 
-Validation also **warns** when a wired handler has no incoming routing and the flow
+Validation also **warns** when a wired Recovery has no incoming routing and the flow
 declares no entry points: the builder auto-promotes every unrouted node to a start
-entry, so that handler would run unconditionally at flow start *as well as* on error.
+entry, so that node would run unconditionally at flow start *as well as* on error.
 Wire an incoming edge to it, or declare the flow's entry points explicitly, to keep it
-handler-only.
+Recovery-only.
 
-**A flow-level handler is a different job.** A handler attached to the flow itself —
+**A flow-level On Error is a different job.** An On Error attached to the flow itself —
 the Start-attached one — runs only on the terminal error path, and the run still
 **fails**. It decorates the failure: it can send a notification or shape the error
 that surfaces, but it cannot rescue the run.
 
-To recover from a failure and keep running, put the handler on the failing node
+To recover from a failure and keep running, put the On Error on the failing node
 instead. The editor names which of the two you are editing on the form itself, so
 the rescuing kind and the decorating kind are never confused.
 
-A finished run shows what the handler did. A node that failed and was rescued reads
-as recovered, and the handler that ran — whether the On Error attachment or the wired
-target — reads as having run through the recovery path rather than as an ordinary
-step. A node reached both ways keeps its own status and gains the handler mark.
+A finished run shows what the On Error did. A node that failed and was rescued reads
+as recovered, and the On Error that ran — whether the inline tool or the wired
+Recovery — reads as having run on the error path rather than as an ordinary
+step. A node reached both ways keeps its own status and gains the On Error mark.
 
 ## Run condition
 
@@ -345,14 +348,14 @@ unresolvable upstream read or a schema-impossible comparison is a build error.
   still releases and the flow **continues past** the node — the gate stops the one node,
   not the path. To stop a whole path, use a conditional or a router instead.
 
-A skip is not a failure, so a skipped node never reaches its own [on-error
-handler](#handling-a-nodes-error) — the skip happens before any execution that could
+A skip is not a failure, so a skipped node never reaches its own [On
+Error](#handling-a-nodes-error) — the skip happens before any execution that could
 fail — and it **settles** the node, so a re-drive of the run re-evaluates nothing. A
 node flagged to return a result still contributes its key when skipped, with the value
 `null`, so a return expression on a node you might skip must tolerate a null input.
 
-The gate belongs on a **scheduled** node. A node that runs only as an [on-error
-handler](#handling-a-nodes-error) is dispatched directly and never scheduled, so a
+The gate belongs on a **scheduled** node. A node that runs only as a
+[Recovery](#handling-a-nodes-error) is dispatched directly and never scheduled, so a
 condition on it would never be evaluated; the editor does not offer the field there —
 unless one is already stored, in which case it renders with that fact stated, so the
 dead value is visible and clearable rather than silently kept.
