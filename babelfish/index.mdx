@@ -267,11 +267,16 @@ force the give-up immediately.
 ## Handling a node's error
 
 A node — a **runnable**, an **agent**, a conditional's **branch**, or the flow itself
-(its **Start**) — can carry an **On Error**. When the node fails, the On Error runs, its
+(its **Start**) — can carry an **On Error**. When a node fails, the On Error runs, its
 result becomes the failed node's output, and the run continues from there rather than
-aborting. In the Studio the same error handle also rides a **Router** card, catching its
-classifier's failure, and a **Sub-Flow Start**, where it is the sub-flow's own flow-level
-On Error.
+aborting. A failing node runs its own On Error, else — when it runs a step of its own, a
+**runnable**, an **agent**, a **flow call**, or a **custom node** — the On Error of the route
+(or hand-authored branch) that led to it, else the flow's; a **conditional**, an **iterate**,
+or a **map** takes no route or branch On Error and resolves failures at the nodes inside it.
+In the Studio the same error handle also rides a **Router** card, catching its classifier's
+failure; each **route** on that card, whose On Error covers a **runnable**, **agent**, **flow
+call**, or **custom node** the route leads to; and a **Sub-Flow Start**,
+where it is the sub-flow's own flow-level On Error.
 
 An On Error's jq reads the failure through `.upstream_outputs`, the same namespace
 predecessor outputs use, alongside the ordinary run channels:
@@ -281,6 +286,7 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.upstream_outputs.error` | The exception payload as raised — a dict is carried verbatim so jq can navigate it (`.upstream_outputs.error.code == 404`), anything else is its string form. |
 | `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
+| `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"app"` when the flow's own logic raised or `"infrastructure"` when the platform beneath it did, so recovery can gate on which. |
 | `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
 | `.states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
@@ -325,6 +331,37 @@ A finished run shows what the On Error did. A node that failed and was rescued r
 as recovered, and the On Error that ran — whether the inline tool or the wired
 Recovery — reads as having run on the error path rather than as an ordinary
 step. A node reached both ways keeps its own status and gains the On Error mark.
+
+### When a loop's failure reaches the flow's On Error
+
+An **iterate** (or its **map** face) resolves its own iterations' errors at the nodes
+inside the loop; a failure it cannot contain surfaces to the **flow-level On Error**,
+where the run still fails (a flow On Error decorates, it does not rescue). What
+`.upstream_outputs.additional` carries then depends on where the loop broke.
+
+- **The loop could not build or run its plan** — its list `input` was not a list, its
+  count was not a number, its `while` condition was not a boolean, or a **bounded**
+  driver's plan (a resolved list or count) was larger than the max-iterations ceiling.
+  `additional` carries `.failed_iterate_node` alone.
+- **The body failed while running** — one or more iterations failed inside the body, or a
+  `while` loop reached the max-iterations cap without its condition turning false.
+  Alongside `.failed_iterate_node`, `additional` carries the two keys below, so recovery
+  can name which items failed and read every completed iteration's outcome.
+
+| jq path | What it holds |
+| --- | --- |
+| `.upstream_outputs.additional.failure_indices` | The zero-based indices of the iterations that failed, in ascending order. A `while`-cap failure lists the one index that never ran. |
+| `.upstream_outputs.additional.slots` | One entry per iteration, in index order — every completed iteration, plus, on a `while`-cap failure, a final entry for the iteration that never ran. Each carries `.iteration` (its zero-based index), `.ok` (true when the iteration produced output and none of it failed), and `.terminals` — the body's end nodes keyed by node id, each a `{ "status": "ok" \| "error" \| "skipped" }` object holding its output under `.value` when it ran, or its failure under `.error`. |
+
+A terminal's `.error` carries a cause only when the failing node is one of the body's
+**end** nodes. When a node in the *middle* of the body fails — or a `while` loop hits the
+cap — that iteration's end nodes all read `skipped` and hold no cause; read the failure
+from the top level instead: `.upstream_outputs.error` summarizes the **first** failed
+iteration and the error that stopped it (its type and message) —
+`.upstream_outputs.additional.failure_indices` lists every failed iteration — and
+`.upstream_outputs.error_kind` is the failures' shared taxonomy label, reading
+`"unknown"` when they carry different labels or none. The per-item `.terminals`
+are for reading the successful iterations' outputs, not the cause.
 
 ## Run condition
 
@@ -392,11 +429,42 @@ Several branches may share one target, and a declared kind that is not wired is
 still classified — it stays in the generated schema and in the model's output, it
 just routes nowhere.
 
-Renaming a kind re-keys its branch, its schema property, and its prompt bullet
-together, so every wired edge survives the rename untouched. On save the card lowers
+Renaming a kind updates its schema property, its prompt bullet, and the condition that
+reads it together, so every wired edge survives the rename untouched; a route's
+[key](#route-keys) is your own word and is left as it is. On save the card lowers
 to ordinary engine parts — one agent call plus one hidden conditional — and folds
 back into the single card on load, the same way a [map](#looping-over-a-list) folds.
 A conditional you author by hand carries no such marker and stays a visible decision.
+
+### Route keys
+
+Every route row — a **kind** route, a **when** route, or the **otherwise** row — carries a
+**key**, the name of that route's branch. A key is an identifier — letters, digits, and
+underscore, never starting with a digit — and is unique across the router's rows.
+`otherwise` is the reserved key of the otherwise row.
+
+A kind route's key is prefilled with the kind's name when the row is added, so the common
+one-route-per-kind card reads by kind with nothing to fill in. Add a second route for the
+same kind and it starts unnamed — the prefill fills a name only when no row of the router
+already holds it — and the row is flagged until you name it; a **when** route always starts
+unnamed. Renaming a kind never rewrites keys: a key is the word you chose, and the card
+offers no auto-rename.
+
+The key names the route's branch in the saved flow and in every trace, as
+`<conditional>__<key>` for every row, so the branch a trace points at is the word you chose
+rather than a position — there is no index in it. Reordering rows never changes that branch:
+under first match the row order rides its own separate [carrier](#every-match-or-first-match),
+not the branch name. Renaming a route's target leaves it untouched too, since a target is
+only the edge drawn on the canvas. Renaming the **key** itself does rename the branch, so
+choose it before the traces you rely on are recorded.
+
+A row left unnamed, or given an invalid or duplicate key, is refused loudly — it blocks
+save, export, duplicate, and run, with a message naming the router and the route — until you
+fix it. On the card, a **condition** chip shows its key above its target, and a **kind** chip
+shows the kind name with its route keys on a second line beneath — shown when a key differs
+from the kind name or the kind carries several routes, and omitted for a single route keyed
+by the kind name. Under **Loop** dispatch a kind line is a loop body, so its key is the
+kind's name and is read-only.
 
 ### Every match or first match
 
@@ -440,9 +508,9 @@ match (every-match routing is order-free, so neither rule constrains it):
 
 Below the card, the **routes table** is one view over the router's routes: one row per
 wired route, in the order they lower. Each row shows its flavor — **kind**, **when**
-(the table's name for a Condition route), or **otherwise** — the kind or
-when-condition, an optional per-kind **guard**, and its
-**target**. Conditions and guards are edited in place; a route's target is the edge you
+(the table's name for a Condition route), or **otherwise** — its **key**, the kind or
+when-condition, an optional per-kind **guard**, its **target**, and a per-route **On Error**
+switch. Conditions, guards, and keys are edited in place; a route's target is the edge you
 drew from its chip on the card, so the table **shows** it, never picks it — the canvas
 stays the one place edges are drawn.
 
@@ -467,8 +535,8 @@ of order.
 A router can describe not just the items it **extracts** but facts about the **whole
 turn**. Beside the kinds, declare optional **turn-level output fields** — a JSON-Schema
 `properties` fragment merged into the generated response format and required alongside
-the kinds — so a field like `staff` or `sentiment` becomes an ordinary top-level output
-read as `.upstream_outputs.<router>.staff`, typed and statically checked like any other
+the kinds — so a field like `flagged` or `sentiment` becomes an ordinary top-level output
+read as `.upstream_outputs.<router>.flagged`, typed and statically checked like any other
 output rather than modelled as a kind or dug out of an item. The declaration rides the
 card's marker exactly as the kinds do (the response format is regenerated on every save)
 and follows the same absent-key discipline as the routing mode: declare none and the router is
@@ -531,6 +599,42 @@ double-fires beside a matched kind.
 {/* screenshot: router once canvas — both themes */}
 {/* screenshot: router loop canvas — both themes */}
 {/* screenshot: router dispatch form — both themes */}
+
+### Per-route On Error
+
+Every route — kind, when, or otherwise — can carry its own **On Error** that catches the
+failure of **the node the route leads to** when that node runs a step of its own — a
+**runnable**, an **agent**, a **flow call**, or a **custom node**: its result becomes that
+node's output and the run continues downstream from there, exactly as a node's own On Error
+does. A route leading to a **conditional**, an **iterate**, or a **map** is not covered here —
+those resolve failures at the nodes inside them. It still covers a
+failure of the route's own **branch step** — the branch's preparation, such as a branch
+hitting its iteration limit. The target node's own On Error, when it has one, runs instead,
+and nothing further downstream is covered — every node past the target is resolved by its own
+lookup.
+
+Each route's **On Error** switch sits in the routes table, off by default. Switched on, the
+route's On Error takes one of two exclusive forms — the same two
+[an On Error card](#handling-a-nodes-error) offers:
+
+- an **inline** tool on the row, with its own expression and condition; or
+- a **wire** from the route chip's **error dot** to an **On Error** node on the canvas —
+  that node then holds the handling, its own inline tool or its wired **Recovery**, as any
+  On Error node does.
+
+The router card's own On Error is separate: it still catches the **classifier's** failure, so
+a route's On Error and the card's On Error cover different failures. Under **Loop** dispatch a
+kind chip is a loop body, not a branch, so a kind route carries no per-route On Error there;
+**when** and **otherwise** routes carry theirs in both dispatch modes. A switch left on with
+neither form filled is a blocking error that names the route, refusing Update until you fill a
+form or switch it off; and switching a wired route off leaves its On Error node on the canvas
+unattached, to delete or re-wire before you save.
+
+For example, a router `sorter` with a route keyed `high_total` can switch that route's On
+Error on and pick an inline `notify` tool — or, instead, wire the route's error dot to an On
+Error node whose Recovery is a runnable `status_update`. Either way, when the node the route
+leads to fails, the On Error's result becomes that node's output and the run continues
+downstream.
 
 ## The visual jq editor
 
