@@ -58,6 +58,32 @@ Passing both `cron` and a structured field at once is an error. Either form is t
 
 To hand the cadence to the backend untouched, pass `backend_schedule` (the backend's own schedule spec) and optionally `backend_schedule_name` through `--schedule-kw`, or name the `<tool>_schedule_task` branch as the tool directly. Both skip the translation above and dispatch the backend's scheduling parameters as given.
 
+## Driving parked interactions
+
+A schedule can also be a **parkable-driving door**: on each fire it can cancel, resume,
+take, or start runs against the [parked interactions](/concepts/asking-the-caller) on
+its subject. Pass the four [door-contract](/concepts/asking-the-caller#the-door-contract)
+jqs — each evaluated over the schedule's fired tool arguments with the run's parked
+interactions bound as [`$parked`](/concepts/jq-variables#doors):
+
+```bash
+tai schedules add report --schedule-kw cron='0 9 * * *' \
+  --execution-key svc \
+  --start-expr '{waiting: ($parked | length)}' \
+  --resume-expr '$parked[0].id'
+```
+
+- **`--start-expr`** builds the fired tool's kwargs (`null` starts nothing).
+- **`--cancel-expr`** names parked interaction ids to cancel.
+- **`--resume-expr`** names an ask to resume with an answer (`{id, payload}`) or a
+  waiting outcome to take (a bare id).
+- **`--extras-expr`** builds the `extras` mapping handed to the started target.
+
+Any of the four requires **`--execution-key`** — the identity the fired run runs as. A
+schedule fire has no receiver, so a resumed run's terminal
+[waits on the subject](/concepts/asking-the-caller#waiting-outcomes) for its next owner
+to take.
+
 ## Inspect and remove
 
 <Steps>

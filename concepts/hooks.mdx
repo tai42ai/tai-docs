@@ -16,10 +16,10 @@ This page explains the model. To register one, use the Studio's
 
 ## The dispatch model
 
-A hook is a small record: a topic, the tool to run, the keyword arguments to pass
-it, and an optional condition and expression over the payload. Registration is
-keyed by topic, so one topic can drive several hooks and the manager dispatches to
-all of them:
+A hook is a small record: a topic, the tool to run, the static keyword arguments to
+pass it, an optional condition, and the jqs that shape and drive the fired run.
+Registration is keyed by topic, so one topic can drive several hooks and the manager
+dispatches to all of them:
 
 ```json
 {
@@ -33,9 +33,19 @@ The condition is what makes dispatch selective — a hook fires only when its
 condition matches the event payload, so one topic can route different events to
 different tools.
 
-`condition` and `expr` are jq, and they say so in the schema: both carry the
-[`x-tai42-expression` annotation](/reference/api/index#expression-fields), which
-names the input document and what the result is consumed as. An editor reads that
+A hook is also a **parkable door**: beside `condition` it carries the [door
+contract](/concepts/asking-the-caller#the-door-contract) — `start_expr` builds the
+fired tool's kwargs from the payload (the static `tool_kwargs` win on a key clash;
+absent, the tool fires with `tool_kwargs` only), and `cancel_expr` / `resume_expr` /
+`extras_expr` cancel, resume, or hand extras to the run's [parked
+interactions](/concepts/asking-the-caller). A hook fire has no receiver, so a resumed
+run's terminal [waits on the subject](/concepts/asking-the-caller#waiting-outcomes) for
+its next owner to take.
+
+`condition` and the door-contract jqs are jq, and they say so in the schema: each
+carries the [`x-tai42-expression` annotation](/reference/api/index#expression-fields),
+which names the input document and what the result is consumed as, and binds the run's
+parked interactions as [`$parked`](/concepts/jq-variables#doors). An editor reads that
 annotation and offers the [visual jq editor](/studio/jq-editor) on the field
 without being told which fields are expressions.
 

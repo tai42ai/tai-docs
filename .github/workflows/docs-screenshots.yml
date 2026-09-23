@@ -1,52 +1,65 @@
-# Studio screenshot regeneration pipeline.
+# Screenshot regeneration pipeline (two capture sets, one dispatch type).
 #
-# Regenerates the Studio docs screenshots (images/studio/*.png) by building the
-# Studio SPA, booting a docs-demo tai42-skeleton, and driving it with Playwright
-# (tai-studio/e2e/scripts/docs-screenshots.sh); it then opens an automated PR when
-# any shot changed. Kept SEPARATE from the reference regeneration (docs.yml)
-# because capturing screenshots is heavier -- it boots a real backend (docker for
-# its Redis/Postgres) and a browser -- and is only meaningful when the Studio UI
-# changes, so it is NOT on the daily schedule the reference regeneration uses.
+# Two dispatch-driven jobs regenerate the docs screenshots under
+# images/studio/*.png and each opens its own self-merging regeneration PR
+# (regen-automerge.yml auto-merges any docs/regenerate-* branch):
 #
-# Triggers: manual (workflow_dispatch) and a `studio-screenshots`
-# repository_dispatch fired by the notify-docs-screenshots hooks in tai-studio
-# and babelfish, each ONLY when its UI paths change.
+#   studio -- boots a docs-demo skeleton, builds the Studio SPA, and drives
+#     tai-studio/e2e/scripts/docs-screenshots.sh to capture the Studio screens.
+#   editor -- boots the flow-editor stack (the same backend the engine's own
+#     browser e2e job provides) against the Studio SPA shell, runs the
+#     docs-bound screenshot sweep, asserts the captured set matches the images
+#     the flow-author pages embed, then copies that set in.
+#
+# Both jobs write disjoint filenames, so their PRs never collide.
+#
+# Triggers: manual (workflow_dispatch, which runs BOTH jobs) and a single
+# repository_dispatch fired by the notify-docs-screenshots hooks in the Studio
+# and engine repos, each ONLY when its UI paths change. The jobs branch on a
+# neutral `set` payload field, never on a source repo name: the engine hook
+# sends `set: editor` (editor job only); an absent field is the Studio default
+# (Studio job) -- true for the Studio hook and for a manual dispatch.
 #
 # Secrets: TAI_CI_TOKEN (clone the private source repos) and TAI_DOCS_PR_TOKEN
 # (open the PR as a PAT so the PR triggers the docs `gate`, unlike GITHUB_TOKEN).
 #
 # NOTE on churn: the shots embed live demo data (seeded IDs, counters). The demo
 # seed is pinned (fixed tokens/fingerprints in boot.sh). Regeneration PRs
-# self-merge (regen-automerge.yml), so watch merged regen PRs: image diffs that
-# are only noise (a timestamp, a counter) rather than a real UI change mean the
-# demo seed needs further pinning.
+# self-merge, so watch merged regen PRs: image diffs that are only noise (a
+# timestamp, a counter) rather than a real UI change mean the seed needs further
+# pinning.
+#
+# Every source-clone target is a repository variable with the first-party value
+# as its default, so a fork builds against its own repos by setting the
+# variables and needs no code change. A fork has neither TAI_CI_TOKEN nor
+# TAI_DOCS_PR_TOKEN, and the source notify hooks self-skip without their own
+# dispatch token, so the pipeline never fires there.
 
 name: docs-screenshots
 
 on:
   workflow_dispatch:
   repository_dispatch:
-    types: [studio-screenshots] # fired by tai-studio and babelfish on UI-path pushes to main
+    types: [studio-screenshots] # fired by the Studio and engine notify hooks on UI-path pushes to main
 
 permissions:
   contents: read
-
-# The heavy screenshot capture (stack boot + Playwright) is fed by two dispatch
-# receivers (tai-studio and babelfish notify hooks). One upstream release can
-# fire several of them within minutes; a single shared group collapses that
-# burst to ONE run. Cancelling in progress is safe: every run recaptures from
-# source `main` HEAD onto the fixed regeneration branch, so the newest run
-# subsumes any it supersedes, and the PR is opened only in the final step.
-concurrency:
-  group: docs-screenshots
-  cancel-in-progress: true
 
 env:
   SOURCE_REF: main
 
 jobs:
-  screenshots:
+  studio:
+    # An absent `set` is the Studio default: a manual dispatch (null payload) and
+    # the Studio hook both run this job; the engine's `set: editor` skips it.
+    if: github.event.client_payload.set != 'editor'
     runs-on: ubuntu-latest
+    # Independent from the editor group so an editor dispatch never cancels an
+    # in-flight Studio capture; a burst from the Studio source still collapses to
+    # one run, which recaptures from source `main` HEAD onto the fixed branch.
+    concurrency:
+      group: docs-screenshots-studio
+      cancel-in-progress: true
     permissions:
       contents: write # push the regeneration branch
       pull-requests: write # open the automated PR
@@ -57,26 +70,29 @@ jobs:
           path: tai-docs
 
       - name: Check out source repositories
-        # docs-screenshots.sh resolves the monorepo and tai-studio as siblings of the
-        # tai-docs checkout (../tai42, ../tai-studio). The monorepo carries the
-        # skeleton (core/skeleton) plus every plugin boot.sh installs into the
-        # workspace venv (plugins/agents, plugins/storage-local, plugins/toolbox,
-        # plugins/accounts-postgres, plugins/webhook-verifier-github); its
-        # `[tool.uv.sources]` floats the workspace members editable, so `uv sync`
-        # needs the tree on disk. The monorepo may be private, so authenticate via a
-        # git url.insteadOf rewrite with TAI_CI_TOKEN.
+        # docs-screenshots.sh resolves the monorepo and Studio SPA as siblings of the
+        # tai-docs checkout (../tai42, ../tai-studio), so they are cloned into those
+        # fixed local directory names regardless of the source repo names. The
+        # monorepo carries the skeleton (core/skeleton) plus every plugin boot.sh
+        # installs into the workspace venv; its `[tool.uv.sources]` floats the
+        # workspace members editable, so `uv sync` needs the tree on disk. The
+        # monorepo may be private, so authenticate via a git url.insteadOf rewrite
+        # with TAI_CI_TOKEN.
         env:
           TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+          SOURCE_OWNER: ${{ vars.SOURCE_REPO_OWNER || github.repository_owner }}
+          MONOREPO_REPO: ${{ vars.MONOREPO_REPO || 'tai42' }}
+          STUDIO_REPO: ${{ vars.STUDIO_REPO || 'tai-studio' }}
         run: |
           git config --global \
             url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
             "https://github.com/"
-          for repo in tai42 tai-studio; do
-            git clone --depth 1 --branch "$SOURCE_REF" \
-              "https://github.com/tai42ai/${repo}.git" "$repo"
-          done
-          # Confine the source-clone credential rewrite to this step so it does not
-          # shadow TAI_DOCS_PR_TOKEN when create-pull-request pushes to tai-docs.
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" tai42
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${STUDIO_REPO}.git" tai-studio
+          # The source-clone credential rewrite is global; create-pull-request pushes
+          # to tai-docs with its own TAI_DOCS_PR_TOKEN, which takes precedence.
 
       - name: Set up uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -162,10 +178,191 @@ jobs:
           title: "docs: regenerate Studio screenshots"
           body: |
             Automated regeneration of the Studio docs screenshots
-            (`images/studio/*.png`) from tai-studio's `main` UI.
+            (`images/studio/*.png`) from the Studio repo's `main` UI.
 
             Self-merges once the required checks pass. If the only image diffs
             are noise (a timestamp or a counter) rather than a real UI change,
             the docs-demo seed needs further pinning.
+          labels: documentation, automated, screenshots
+          delete-branch: true
+
+  editor:
+    # The engine hook sends `set: editor`; a manual dispatch runs this job too.
+    if: github.event_name == 'workflow_dispatch' || github.event.client_payload.set == 'editor'
+    runs-on: ubuntu-latest
+    # Independent from the Studio group (see the Studio job's note): an editor
+    # burst collapses to one run without ever cancelling a Studio capture.
+    concurrency:
+      group: docs-screenshots-editor
+      cancel-in-progress: true
+    permissions:
+      contents: write # push the regeneration branch
+      pull-requests: write # open the automated PR
+    # The flow-editor sweep boots the engine's studio stack; provide the same
+    # backend the engine's own browser e2e job provides.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+      redis-checkpoint:
+        # Module-capable Redis the studio stack the Playwright webServer boots
+        # checkpoints against.
+        image: redis:8
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+    env:
+      TAI_E2E_REDIS_URL: redis://localhost:6379
+      TAI_E2E_PG_HOST: localhost
+      TAI_E2E_PG_PASSWORD: postgres
+      TAI_E2E_CHECKPOINT_REDIS_URL: redis://localhost:6380
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # The engine is private, so authenticate via a git url.insteadOf rewrite with
+        # TAI_CI_TOKEN; the Studio SPA is the shell that hosts the flow editor. Both
+        # are cloned into fixed local directory names regardless of the source repo
+        # names.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+          SOURCE_OWNER: ${{ vars.SOURCE_REPO_OWNER || github.repository_owner }}
+          ENGINE_REPO: ${{ vars.ENGINE_REPO || 'babelfish' }}
+          STUDIO_REPO: ${{ vars.STUDIO_REPO || 'tai-studio' }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${ENGINE_REPO}.git" engine
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${STUDIO_REPO}.git" studio
+          # The source-clone credential rewrite is global; create-pull-request pushes
+          # to tai-docs with its own TAI_DOCS_PR_TOKEN, which takes precedence.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.26"
+          enable-cache: true
+
+      - run: uv python install 3.13
+
+      - name: Sync the engine env (the studio stack the webServer boots)
+        # The Playwright webServer boots `.venv/bin/tai42-e2e-studio-stack` from the
+        # engine root, so the browser sweep needs the engine's python workspace.
+        working-directory: engine
+        run: uv sync --locked --python 3.13
+
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+
+      - name: Build the Studio SPA
+        # Build all workspace packages so the SPA bundle the stack serves is fresh;
+        # TAI_E2E_STUDIO_DIST_PATH points the stack at that dist.
+        working-directory: studio
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+          echo "TAI_E2E_STUDIO_DIST_PATH=$PWD/apps/studio/dist" >> "$GITHUB_ENV"
+
+      - name: Build the flow-editor bundle
+        # Rebuild rather than trust the committed dist so a stale bundle never slips
+        # through and the sweep captures the freshly built editor.
+        working-directory: engine/packages/flows
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install the browser-suite workspace
+        working-directory: engine/e2e/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Playwright browser
+        working-directory: engine/e2e/ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture the editor docs screenshots
+        # The `@docs`-tagged sweep writes each `<key>-<theme>.png` into SHOTS_OUT, a
+        # clean staging dir outside the docs tree. A shot that does not render fails
+        # the run; one retry (from a cleared dir) absorbs a transient flake, and a
+        # second failure fails the job before any copy, so a partial set is never
+        # published.
+        working-directory: engine/e2e/ui
+        env:
+          SHOTS_OUT: ${{ runner.temp }}/editor-shots
+        run: |
+          set -o pipefail
+          capture() {
+            rm -rf "$RUNNER_TEMP/editor-shots"
+            mkdir -p "$RUNNER_TEMP/editor-shots"
+            pnpm exec playwright test --project=chromium --grep "@docs"
+          }
+          if ! capture; then
+            echo "::warning::first editor screenshot attempt failed -- retrying once"
+            capture
+          fi
+
+      - name: Assert editor-shot parity with the flow-author pages
+        # Bijection between the staged shots and the images the flow-author pages
+        # embed: a page embed with no staged shot, or a staged shot no page embeds,
+        # fails here -- before any copy -- so the copied set equals the embedded set
+        # exactly.
+        run: |
+          python3 tai-docs/scripts/check_editor_shots.py \
+            --shots-dir "$RUNNER_TEMP/editor-shots" \
+            --pages-root tai-docs/babelfish
+
+      - name: Copy the editor screenshots into the docs tree
+        # The parity step has proven the staged set equals the embedded set; the
+        # editor filenames are disjoint from the Studio set, so this never collides.
+        run: |
+          mkdir -p tai-docs/images/studio
+          cp "$RUNNER_TEMP"/editor-shots/*.png tai-docs/images/studio/
+
+      - name: Open an automated PR when a screenshot changed
+        # Never pushes to main; a differing capture lands as a bot PR that
+        # self-merges once the required checks pass (regen-automerge.yml). A no-op
+        # when nothing changed.
+        #
+        # `token` is TAI_DOCS_PR_TOKEN (a PAT), NOT GITHUB_TOKEN: a PR opened with
+        # GITHUB_TOKEN does not trigger further workflows, so the docs `gate` (link
+        # check) would never run on the regen PR.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          token: ${{ secrets.TAI_DOCS_PR_TOKEN }}
+          path: tai-docs
+          branch: docs/regenerate-editor-screenshots
+          commit-message: "docs: regenerate flow-editor screenshots"
+          title: "docs: regenerate flow-editor screenshots"
+          body: |
+            Automated regeneration of the flow-editor docs screenshots
+            (`images/studio/*.png`) from the engine's `main` UI.
+
+            Self-merges once the required checks pass. If the only image diffs
+            are noise (a timestamp or a counter) rather than a real UI change,
+            the demo seed needs further pinning.
           labels: documentation, automated, screenshots
           delete-branch: true

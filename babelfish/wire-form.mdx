@@ -1,0 +1,136 @@
+---
+title: "Wiring an outcome by hand"
+description: "The wire form a wired outcome lowers to, so a hand-authored flow routes an outcome exactly as the editor does and earns the same expiry behaviour."
+icon: "diagram-next"
+---
+
+A node whose held call declares an **outcome** — one result field whose value is
+one of a fixed set — offers one routing choice per value in the editor. Wiring a
+value to a downstream node lowers to a plain routing shape on the wire: the node
+itself, unchanged, **plus one hidden conditional** that reads the held call's result
+at a pinned path and routes each wired value to its target. This page is that wire
+form. Author it by hand and your flow routes an outcome exactly as the editor's flow
+does — and an ask's [expiry](/babelfish#expiry-in-a-flow) is derived the same way.
+
+## The declared outcome
+
+An outcome lives in the held target's **output schema**, on the flow's single
+result surface. The schema wraps the value in the run's result envelope — a
+`status` string and a `result` object keyed by the collector's id — with the
+outcome field carrying an `enum` of its values:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "status": { "type": "string" },
+    "result": {
+      "type": "object",
+      "properties": {
+        "collect": {
+          "type": "object",
+          "properties": {
+            "outcome": { "enum": ["answered", "expired"] }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Here the collector's id is `collect` and the outcome field is `outcome`, with two
+values. A flow that flags exactly one result surface can declare one outcome; a flow
+that flags none, or more than one, declares none.
+
+## The synthesized conditional
+
+Wiring the outcome adds one `conditional` node. Its id is the wired node's id with
+`__outcomes` appended, and it carries one branch per wired value. Each branch's key
+is the conditional's id with `__<value>` appended, its condition reads the wired
+node's result at the pinned path, and its `path` is the target node the value routes
+to:
+
+```json
+{
+  "id": "gate__outcomes",
+  "type": "conditional",
+  "data": {
+    "branches": {
+      "gate__outcomes__answered": {
+        "condition": {
+          "content": ".upstream_outputs.gate.result.collect.outcome == \"answered\""
+        },
+        "path": "routed_answered"
+      },
+      "gate__outcomes__expired": {
+        "condition": {
+          "content": ".upstream_outputs.gate.result.collect.outcome == \"expired\""
+        },
+        "path": "routed_expired"
+      }
+    }
+  },
+  "ui": {
+    "source": "studio:outcome-chips",
+    "node": "gate",
+    "collectorId": "collect",
+    "outcomeField": "outcome"
+  }
+}
+```
+
+The wired node here is `gate`; the conditional is `gate__outcomes`, with a branch
+for each wired value. The graph gains one edge from the wired node into the
+conditional and one edge from the conditional to each branch target:
+
+```json
+{
+  "edges": [
+    ["gate", "gate__outcomes"],
+    ["gate__outcomes", "routed_answered"],
+    ["gate__outcomes", "routed_expired"]
+  ]
+}
+```
+
+## The pinned condition path
+
+Every branch condition reads the wired node's recorded result at one fixed shape:
+
+```
+.upstream_outputs.<node>.result.<collectorId>.<outcomeField> == "<value>"
+```
+
+`<node>` is the wired node's id, `<collectorId>` and `<outcomeField>` are the two
+names from the declared outcome, and `<value>` is the wired value. A branch that
+reads this exact path is a wired outcome; a branch that reads anything else is a
+plain hand-authored decision on the same field, and stays one.
+
+## The `ui` marker is optional
+
+The `ui` marker names the wired node and its outcome so the editor folds the
+conditional back into chips when it loads the flow. The engine ignores it: it reads
+the wire form **structurally** — the conditional's id, its branch keys, and each
+branch's condition path — and drops the marker when it builds the flow. A
+hand-authored flow that follows the id, branch-key, and condition-path shape above
+is read and routed identically **with or without** the marker. Add the marker only
+if you want the editor to render the wiring as chips.
+
+## Expiry follows the wiring
+
+An [ask holder](/babelfish#expiry-in-a-flow) whose held target has an `expired`
+outcome earns its expiry behaviour from the wiring, never from an authored value.
+When the `expired` value is wired downstream — the conditional carries a
+`<node>__outcomes__expired` branch — the ask is started with `on_expiry` set to
+**resume**, so a lapsed deadline resumes the run down the `expired` branch. Leave
+the `expired` value unwired and the ask keeps the door's **kill** default: a lapsed
+deadline ends the held chain. The behaviour is a pure function of whether the
+branch is present, so a hand-authored flow that wires the branch gets the resume
+behaviour with nothing else to set.
+
+## See also
+
+- [Calling another flow: cancel, resume, start](/babelfish#calling-another-flow-cancel-resume-start) — the holder node the outcome sits on.
+- [Expiry in a flow](/babelfish#expiry-in-a-flow) — what the derived `on_expiry` does at run time.
+- [The flows editor](/babelfish/studio) — wiring an outcome as chips instead of by hand.

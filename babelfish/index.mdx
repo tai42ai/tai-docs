@@ -53,14 +53,16 @@ Beyond the built-in steps, you can define your own palette nodes from saved flow
 promote a flow into a reusable node, give it a category and an icon, and it appears
 in the editor's palette alongside the defaults for anyone to drop into a new flow.
 
-Babelfish ships two ready-made interaction nodes to start from — **send** and
-**ask** — one full surface each, covering the common conversation moves out of the
-box. **Send** delivers one-way and **never waits**: a text message, display
+Babelfish ships two ready-made interaction nodes to start from — **`send_node`** and
+**`ask_node`** — one full surface each, covering the common conversation moves out of
+the box. **Send** delivers one-way and **never waits**: a text message, display
 **media** (a list of `{kind: image | link, url, caption?}` items), tappable
 **options**, a pre-approved **template**, or a fillable form **schema** delivering
 a schema-rendered [ask-less form](/concepts/notifications#ask-less-forms) — the
 outcome is `sent` or `failed`, and a form's submission, if it comes, arrives as the
-person's next message on the conversation route. Its face opens on a **kind**
+person's next message on the conversation route. A send form takes the same two
+per-send extras an ask form does — `data` to open it already filled in and `pages`
+to split it into ordered steps — layered over the schema for that one send. Its face opens on a **kind**
 selector — message, media, options, template, or form — that guides the fields
 while the node stays one delivery whatever the face: `kind` is face-only and never
 delivered, every send carries a message or media, and one message carries one
@@ -104,8 +106,8 @@ is the channel name, `event:<kind>`, or `api`. An [event
 turn](/reference/conversation-bridge#the-event-door) additionally carries
 `.flow_graph_kwargs.event` (`{id, kind, payload}`) with `.flow_graph_kwargs.message`
 and `.sender` both `null`. These arrive under `flow_graph_kwargs` because the
-conversation route's default no-`payload_expr` kwargs are `{message, sender, turn}`
-(plus `event` on an event turn); a route with its own `payload_expr` reads `.turn` and
+conversation route's default no-`start_expr` kwargs are `{message, sender, turn}`
+(plus `event` on an event turn); a route with its own `start_expr` reads `.turn` and
 `.event` on the payload and forwards what it wants. A conversation-target flow preset
 must not declare `additionalProperties: false` without admitting `turn` (and `event`)
 in its input schema, or the routing that validates the kwargs against the preset's
@@ -127,7 +129,7 @@ standalone flows.
 The **map** node is a first-class "friendly foreach": it runs one tool over a list.
 Its face is a list `input` (a jq expression producing the items), the mapped tool,
 per-item keyword arguments (jq expressions that may read the current item and its
-zero-based index through `.iterate.item` and `.iterate.iteration`), and the
+zero-based index through `$iterate.item` and `$iterate.iteration`), and the
 producer nodes whose outputs those expressions may read. It runs either
 `sequential` or `parallel`, with an optional concurrency cap on the parallel mode,
 and an optional `collect` expression that shapes the mapped results — left unset,
@@ -145,7 +147,7 @@ which fires **once at loop entry** so every iteration inherits the same fresh vi
 
 **Broadcast** is the map-plus-send recipe for fanning one message out to N
 recipients: make the mapped tool the **send** node, set `input` to the
-recipients list, and read the current recipient from `.iterate.item` in the
+recipients list, and read the current recipient from `$iterate.item` in the
 per-item arguments. The per-item output list is the delivery transcript — one slot
 per recipient, in order — and because send recovers a failed delivery into
 a `failed` outcome in-body, a partial failure simply appears as failed slots in that
@@ -165,26 +167,136 @@ one, and so does an agent a node drives — see [one run, one
 trace](/operate/observe#one-run-one-trace). The join survives parking, including a
 completing child cascading into its parked parent.
 
-Every jq input also carries **`.run`** — the executor's identity for the run the
-expression evaluates in — as `{id, epoch}`. `.run.id` is the run's session id (the
-run registry key), so a flow-as-tool subflow reads a **distinct** `.run.id` from its
-parent — the sub-run's own id. `.run.epoch` is the state-mint epoch, `null` on a
+Every flow jq also binds **`$run`** — the executor's identity for the run the
+expression evaluates in — as `{id, epoch}`. `$run.id` is the run's session id (the
+run registry key), so a flow-as-tool subflow reads a **distinct** `$run.id` from its
+parent — the sub-run's own id. `$run.epoch` is the state-mint epoch, `null` on a
 stateless run and until the run's stateful mint has run. Outside a run — a
-validation-time compile — `.run` is `null`.
+validation-time compile — `$run` is `null`.
 
 <Warning>
 A subflow's state writes are invisible to a later parent node unless that node opts
-in. A run's `.states` view is its snapshot from run start plus its own writes: a
+in. A run's `$states` view is its snapshot from run start plus its own writes: a
 subflow's writes land on the shared record immediately, but a later parent node folds
 them in only if it sets [refresh state](#refresh-opt-in-state-re-read). Without it the
 parent keeps reading its mint-time snapshot — a silent stale read.
 
 A subflow reads only the states **it** is bound to, fresh at its own start; an
-unbound `.states.<name>` reads as **null** — bind it, or the `state_unbound` lint
+unbound `$states.<name>` reads as **null** — bind it, or the `state_unbound` lint
 flags it. The lint runs per subflow against **that subflow's own** bindings — a state
 the parent binds never masks a read the subflow makes unbound — and its findings carry
 the subflow's path into the Studio problems panel like the parent's.
 </Warning>
+
+## Calling another flow: cancel, resume, start
+
+A node that starts, resumes, and cancels a **parkable call** — a **Flow Call**, a
+**custom node** (a saved flow published to the palette), or an **agent** — is a
+**holder**. On the wire its `type` is `"holder"`, it holds a saved flow or an agent
+(the `tool` / `tool_kwargs` pair), and the runtime decides which of the two the call
+is by resolving `tool`, never a second field. A holder has no plain expression input;
+instead it carries jq slots evaluated over the [node
+envelope](/babelfish/jq-editor#what-each-field-seeds) with the held call's parked
+interactions bound as `$parked`:
+
+- **`start_expr`** — shapes the held call's start input. Absent starts the held target
+  on the resolved node input; a jq giving null starts nothing; any other result is the
+  start input.
+- **`cancel_expr`** — null, one parked-ask id, or a list of ids to cancel; a cancel
+  tears the whole held chain down.
+- **`resume_expr`** — a list of rows, one per ask of a step. Each row's `id_expr` names
+  the parked ask to resume and an optional `payload_expr` carries the answer; an absent
+  payload **takes** the ask's own default answer, a payload giving null resumes with
+  null.
+- **`warmstart_expr`** — the [warm-start](#warm-start) rows a Flow Call pre-fills its
+  held flow's nodes with.
+- **`on_ask`** and **`send_up`** — where a caller ask goes (see [the ask
+  exit](#the-ask-exit-and-sending-an-ask-up)).
+
+The [holder panel](/babelfish/studio#the-holder-panel) in the editor authors these
+slots; a [hand-authored outcome](/babelfish/wire-form) routes the held call's result
+the same way the editor's chips do.
+
+{/* screenshot: the holder edit panel — both themes */}
+
+<Frame caption="The holder node's edit panel: the Cancel, Resume and Start expressions and the send-up switch.">
+  <img className="block dark:hidden" src="/images/studio/holder-panel-light.png" alt="The holder node's edit panel: the Cancel, Resume and Start expressions and the send-up switch." />
+  <img className="hidden dark:block" src="/images/studio/holder-panel-dark.png" alt="The holder node's edit panel: the Cancel, Resume and Start expressions and the send-up switch." />
+</Frame>
+
+## The ask exit and sending an ask up
+
+When a holder's held call **can ask its caller**, those asks need somewhere to go, and
+the holder settles that two ways:
+
+- **An ask exit (`on_ask`).** Name a node in the flow as the ask exit and the holder
+  routes to it when the held call settles with asks; its other outcomes take the
+  ordinary edges. The card grows an extra **ask** exit handle, and wiring it is
+  required — an unwired exit is a save error on a holder that can ask. The exit settles
+  the held call's caller asks itself and does not re-park on them.
+- **Send up (`send_up`).** Turn the send-up switch on and the holder parks the ask as a
+  nested park and hands it **up** to this flow's own caller unchanged, for a run
+  further up to answer. With send-up on, there is no ask exit to wire.
+
+A holder that can ask its caller needs one or the other, or a caller ask has nowhere to
+go.
+
+{/* screenshot: a node card with its ask exit wired — both themes */}
+
+<Frame caption="A node card with its ask exit wired.">
+  <img className="block dark:hidden" src="/images/studio/ask-exit-light.png" alt="A node card with its ask exit wired." />
+  <img className="hidden dark:block" src="/images/studio/ask-exit-dark.png" alt="A node card with its ask exit wired." />
+</Frame>
+
+## Asking your caller
+
+A step inside a flow can ask **its caller** instead of a person: an
+[`ask`](/concepts/asking-the-caller) called with `to: "caller"`. It parks the asking
+run on the calling run and is answered only when that run **resumes** it — a person
+never sees or answers a caller ask. A caller ask always runs asynchronously, and it
+carries a `payload` — a structured value handed to the resolving run in place of a
+question. The [holder](#calling-another-flow-cancel-resume-start) above is how a parent
+flow resumes, takes, or cancels the caller asks its held call raised — see [asking the
+caller](/concepts/asking-the-caller) for the model and the door contract behind it.
+
+## Expiry in a flow
+
+An async ask carries a deadline. What a lapsed deadline does is set by wiring, not by
+guesswork:
+
+- **A held ask** — an `ask_node` flow called through a holder — derives its behaviour
+  from its outcome. Wire the holder's **`expired`** outcome downstream and the ask
+  **resumes on expiry**, so that branch runs; leave the `expired` outcome unwired and
+  expiry **kills** the held chain instead (the default). The wiring owns it — see
+  [wiring an outcome by hand](/babelfish/wire-form#expiry-follows-the-wiring) for the
+  exact shape the derivation reads.
+- **A raw `ask` runnable** sets its behaviour on the ask itself: its **On expiry**
+  control is **end the run** (the default) or **resume with the expired marker**.
+
+## Warm start
+
+A run can be started with some of its nodes' outputs **already supplied**, so those
+nodes skip running: a **warm-start** map of node id to fill value. A holder's
+`warmstart_expr` rows author that map for a held flow — each row names a node of the
+held flow and a jq whose value pre-fills that node's output.
+
+- A row whose jq gives **null** runs that node normally instead of pre-filling it.
+- A **filled** node writes the given output and skips its own state writes — it was
+  never called, so it records no call and applies no update.
+- A node **inside a loop** is filled per round: its value is a list, one entry per
+  round, and a null entry or an index past the list's end runs that round normally.
+
+The whole map is checked once at run start — an unknown node, a node whose kind cannot
+be filled, an output that fails the node's declared schema, a per-round shape that does
+not match the node's loop depth, and an answer a static ask format rejects are all loud
+refusals — then consumed per node.
+
+{/* screenshot: the holder panel's warm-start rows — both themes */}
+
+<Frame caption="The holder panel's warm-start rows.">
+  <img className="block dark:hidden" src="/images/studio/warm-start-light.png" alt="The holder panel's warm-start rows." />
+  <img className="hidden dark:block" src="/images/studio/warm-start-dark.png" alt="The holder panel's warm-start rows." />
+</Frame>
 
 ## Portable flow files
 
@@ -288,7 +400,7 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
 | `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"app"` when the flow's own logic raised or `"infrastructure"` when the platform beneath it did, so recovery can gate on which. |
 | `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
-| `.states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
+| `$states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
 An On Error dispatches one of two ways, and they are exclusive — declaring both
 is refused rather than silently preferring one:
@@ -421,7 +533,7 @@ Three kinds of edge leave the card, each drawn distinctly:
 - **Kind** — fires when the classifier produced that kind. An optional jq guard is
   combined with it, so "this kind, but only when…" stays one edge.
 - **Condition** — the branch condition *is* an authored jq expression with full
-  access to the run, `.states` included. It is a condition route, not a disguised
+  access to the run, `$states` included. It is a condition route, not a disguised
   kind, and the canvas says so.
 - **Otherwise** — the default branch, taken when no other branch matched.
 
@@ -516,7 +628,7 @@ stays the one place edges are drawn.
 
 A kind row's guard is AND-composed with the pinned non-empty check for that kind, so the
 route fires only when the kind matched *and* the guard holds. A when row's condition *is*
-its branch condition, reading the classified output, other node outputs, and `.states`.
+its branch condition, reading the classified output, other node outputs, and `$states`.
 
 Under **first match** the table also **orders** the rows — the row number is the
 evaluation priority. Reorder a row two ways: drag it by its grip, or step it with its
@@ -562,10 +674,10 @@ routes:
   condition holds. A looping card grows one **result chip**, the loop-done exit the
   collected output leaves through.
 
-A looping body sees its one item as `.iterate.item`, the run index as
-`.iterate.iteration`, the prior runs as `.iterate.prior_outputs`, and the whole verdict as
+A looping body sees its one item as `$iterate.item`, the run index as
+`$iterate.iteration`, the prior runs as `$iterate.prior_outputs`, and the whole verdict as
 `.outputs.<router>`. A **while** body runs its first round unconditionally, then evaluates
-the condition before every further round — `.iterate.prior_outputs[-1]` is the previous
+the condition before every further round — `$iterate.prior_outputs[-1]` is the previous
 round's result and `.upstream_outputs.<router>` the verdict — bounded by a **max runs** cap
 (the flow's own cap by default) that is a safety backstop, not a stop condition: exceeding
 it stops the flow with an error on the ordinary [`on_error`](#handling-a-nodes-error) path.
@@ -725,7 +837,7 @@ which subject.
   assembled and before it runs, and **updates** applied after the node completes. Its shape and the
   injection and update forms are in
   [Binding a node to a state](#binding-a-node-to-a-state). In a run, every bound state's
-  record is available to jq as `.states.<name>`, seeded once at run start.
+  record is available to jq as `$states.<name>`, seeded once at run start.
 - **Subjects.** A `subject_expr` is **required** on every binding and resolves to either a
   full subject object `{target_kind, target_name, kind, key}` or a bare **key** string —
   for a bare key the `kind` is the state's declared subject kind and the target is the run's
@@ -749,19 +861,19 @@ and run, and emit a state-change event into the run's
 
 ### Reading a state a flow does not bind
 
-The run's `.states` view carries only the states **bound** to the running flow, so a
-`.states.<name>` read of a state the flow does not bind resolves to null at runtime.
+The run's `$states` view carries only the states **bound** to the running flow, so a
+`$states.<name>` read of a state the flow does not bind resolves to null at runtime.
 The engine catches this in two stages — a warning while you author, a loud error when
 it runs:
 
-- **A warning while you author.** Flow validation reports a `.states.<name>` read of a
+- **A warning while you author.** Flow validation reports a `$states.<name>` read of a
   state that is **not declared** (`state_ref`), or is declared but **not bound** to
   this flow (`state_unbound`), or a `refresh_states` naming an unbound state
   (`state_refresh_unbound`), as a **warning** — never a save gate. The fact is
   extra-graph and per-environment: the read is fixed by binding the state at a separate
   door, so a flow authored or imported before its states are bound in this environment
   is not blocked. The message names the read and the fix, for example: *"Node 'n':
-  return_expr reads .states.x, but 'x' is a declared state that is NOT bound to this
+  return_expr reads $states.x, but 'x' is a declared state that is NOT bound to this
   flow, so the read resolves to null at runtime. Bind 'x' to this flow, or read a state
   it binds. States bound to this flow are […]."*
 - **A loud error when it runs.** A `refresh_states` naming a state the node does not
@@ -879,11 +991,11 @@ pre-keyed batch never carries a keyed op, and an unknown op fails loud by design
 
 ### Refresh: opt-in state re-read
 
-Every run seeds its bound records into `.states.<name>` **once, at mint** — so a node
+Every run seeds its bound records into `$states.<name>` **once, at mint** — so a node
 reads whatever was persisted when the run started. A node can opt into a fresher view:
 set **refresh state** on it to re-read the persisted record(s) right after its input
 barrier releases and **before** its jq input is built, folding the freshly committed
-docs into `.states.<name>` for that node's own expressions *and* its binding's input
+docs into `$states.<name>` for that node's own expressions *and* its binding's input
 injections and updates. Refresh re-reads **every** state this node binds, or you narrow
 it to a named subset.
 
@@ -991,14 +1103,15 @@ A node's binding attaches one or more states, each with the templates it uses, a
 `subject_expr` that resolves the record key, and an optional `scope_expr`. It carries two
 lists:
 
-- **input injections** — each evaluates a `purpose: "input"` template jq (or a custom jq over
-  `{record, input}`) and merges the value into the node input under a named field before the
-  node runs;
+- **input injections** — each evaluates a `purpose: "input"` template jq (or a custom jq
+  reading the bound record as `.` with the run input as `$input`) and merges the value into
+  the node input under a named field before the node runs;
 - **updates** — each applies a write after the node completes: a `purpose: "update"` template
   jq (its returned op batch rebased under the attachment path), shaped by an **adapter** that
-  maps the node's `{output, input}` to the program's declared input, or a custom jq over
-  `{record, output, input}` returning the op batch itself. An optional `op_id` makes the write
-  idempotent.
+  reads the node's output as `.` with the run input as `$input` to build the program's declared
+  input, or a custom jq reading the node's output as `.` with the bound record as `$record` and
+  the run input as `$input`, returning the op batch itself. An optional `op_id` — a jq reading
+  the node's output as `.` with `$input` — makes the write idempotent.
 
 A binding always attaches **at least one state**: `PUT /api/babelfish/bindings/{flow}/{node}`
 with zero states (`{"states": []}`) is refused (`422`). "No binding" is spelled by the

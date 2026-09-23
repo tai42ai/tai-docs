@@ -59,6 +59,39 @@ The door is **one-shot and secure by default**: it refuses with `409 Already ini
 
 Once the owner key is in hand, every further key is created through the authenticated surface below.
 
+### Initializing a deployment whose logins are OIDC
+
+When your humans sign in through an external OIDC provider, that provider answers only **who** a caller is — it provisions nothing. An issuer-authenticated subject with no principal resolves to the empty policy, so every protected route denies it, and an OIDC identity provider mints no API keys. A fresh deployment still needs its first principal — the owner — and the setup door is the only way to create one. So the setup token matters even when every human logs in through OIDC: it guards the one door that mints the owner and the owner's first key.
+
+Configure a **key-minting** identity provider beside the OIDC one in `ACCESS_CONTROL_AUTH_PROVIDERS` — the bundled `redis` API-key provider mints the owner's first key. The auto-generated setup token is minted and logged once, at `INFO`, only when the door can serve. No token is logged under four conditions; under the first the door still works — the token is your own value — and under the other three the door itself is unavailable and answers `501`:
+
+- **`TAI_SETUP_TOKEN` is set** — that value is the token, and the door uses it directly.
+- **no configured identity provider can mint API keys** — an OIDC-only chain mints none; add a key-minting provider.
+- **the access-control Redis is unset** — the door needs it for the setup token, the throttle, and the mint lock.
+- **access control is off** — there is no deployment to initialize.
+
+The token is fixed once per deployment, so a restart finds it in place and never re-logs it. Initialize an OIDC deployment in this order:
+
+<Steps>
+  <Step title="Read the setup token">
+    Take it from the server log, or pin it yourself with `TAI_SETUP_TOKEN`.
+  </Step>
+  <Step title="Create the owner and first key">
+    Run [`tai setup`](/reference/cli/setup) — it mints the owner principal and the owner's first `["*"]` key, returned once.
+  </Step>
+  <Step title="Sign in with the key">
+    The owner authenticates with that key while no interactive login exists yet.
+  </Step>
+  <Step title="Provision the OIDC subjects">
+    The owner creates a principal for each OIDC subject through the admin principals door (`POST /api/auth/principals`) and grants it a role.
+  </Step>
+  <Step title="OIDC logins work">
+    Each provisioned subject now signs in through OIDC; the setup door has closed for good.
+  </Step>
+</Steps>
+
+On Kubernetes, pin the token ahead of boot: set `TAI_SETUP_TOKEN` from a Secret so the value is known before the pods start, rather than scraped from a replica's log.
+
 ## Provision an API key
 
 Create a key for a user. The raw `sk-…` value is printed once — capture it then. Grant scopes with the repeatable `--scope`, and attach an inline jq authorization condition with `--condition`.

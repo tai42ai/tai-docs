@@ -139,3 +139,23 @@ Runtime-installed plugins live in the server's plugin prefix, not in the image.
 An image upgrade replaces the core but **does not** update a runtime-installed
 plugin — see [Upgrades](/self-hosted/upgrades#runtime-installed-plugins).
 </Note>
+
+## Reaching a service on the Compose network
+
+A tool that fetches a URL server-side — the toolbox
+[`request`](/guides/standard-toolbox) tool, or any tool you write — passes tai's
+URL guard before it connects. The guard is on by default and refuses private,
+loopback, and link-local addresses. Every service in the Compose bundle rides
+the `default` network, which takes a private Docker subnet, so such a tool
+cannot reach another Compose service until you allow that subnet in.
+
+To let a tool reach a service on the Compose network, set
+[`TAI_URL_GUARD_ALLOW_CIDRS`](/reference/settings#urlguardsettings) to that
+network's CIDR. It is an explicit opt-in — the guard blocks that range until you
+name it, and it bypasses nothing on its own.
+
+A run that only needs to reach the platform itself opens no network at all. The
+built-in door tools
+[`send_conversation_message` and `send_conversation_event`](/reference/conversation-bridge)
+submit a message or event back into a conversation in-process — no key, no HTTP
+request, and no URL guard.

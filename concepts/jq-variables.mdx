@@ -1,0 +1,94 @@
+---
+title: "jq variables"
+description: "The one rule for a jq's input and its named variables, and every variable the platform binds by jq site."
+icon: "dollar-sign"
+---
+
+Many platform surfaces take an author-written **jq** program — a door mapping an
+inbound message to a run's kwargs, a state binding shaping an update, a template
+program. Every one follows a single rule for what the program reads.
+
+## The rule
+
+**The jq input `.` holds only the data the program is about. Everything the platform
+adds beside it arrives as a named jq variable `$name`.** A door's `start_expr` reads
+the inbound payload as `.` and the run's parked interactions as `$parked`; a state
+update reads the tool's output as `.` and the run input as `$input`. A tool's output
+is the update's `.`, never a `$output` variable — the data the program is about is
+always `.`, and the variables are the context around it.
+
+Each site declares exactly which variables it binds. A program that reads an
+**undeclared** `$name` fails to compile at save, so a typo is a loud refusal rather
+than a silent null.
+
+<Note>
+The process environment is sealed out of every expression: the `env` builtin is
+disabled and `$ENV` is an empty object. The binding-mechanism names `__in`, `ENV`,
+and `__loc__` are reserved and cannot be bound as variables. A value a program must
+trust comes from its declared input or variables, never the host environment.
+</Note>
+
+## Doors
+
+Every [door contract](/concepts/asking-the-caller#the-door-contract) expression — a
+conversation route's, a hook's, or a schedule's `cancel_expr`, `resume_expr`,
+`start_expr`, and `extras_expr` — reads the door's own input document as `.` and binds:
+
+| Variable | Value |
+| --- | --- |
+| `$parked` | The run's currently parked interactions on the door's subject — the full entries [`list_parked`](/concepts/asking-the-caller#the-generic-tools) carries. |
+
+## Route reply
+
+A conversation route's [`reply_expr`](/reference/conversation-bridge#route-targets-agent-or-tool)
+reads the started run's result as `.` and binds three variables:
+
+| Variable | Value |
+| --- | --- |
+| `$turn` | The turn ids and subject this reply answers, `{id, inbound, subject}`; `null` when an out-of-band delivery's originating record has aged out. |
+| `$asks` | The run's caller-ask entries when it [asked its caller](/concepts/asking-the-caller) instead of finishing (each a full parked entry); an empty list on a plain result. |
+| `$parked` | As above. |
+
+## State bindings
+
+A [state binding](/concepts/states#a-bindings-subject-and-scope)'s jq slots each read a
+different `.` and bind the run's data as variables:
+
+| Slot | `.` | Variables |
+| --- | --- | --- |
+| `subject_expr` / `scope_expr` | the run input | — |
+| injection `jq` | the attached record's subtree (or `{}` when no record exists yet) | `$input` — the run input |
+| update `jq` (custom) | the run's output | `$input` — the run input; `$record` — the record subtree |
+| update `adapter` | the run's output | `$input` |
+| `op_id` | the run's output | `$input` |
+
+## Template jq
+
+A [template jq](/concepts/states#template-jq) program reads the record's attached
+subtree as `.` and binds the attachment's context:
+
+| Program | `.` | Variables |
+| --- | --- | --- |
+| `input` | the attached record subtree | `$parameters`, `$declarations`, and its declared params as the single object `$params` |
+| `update` | the attached record subtree | `$parameters`, `$declarations`, `$input` (the caller's argument) |
+
+A template's **declarations check** reads the declaration values as `.` with
+`$parameters` bound; its **reconcile** programs read their own data as `.` with, per
+label, `$previous`/`$new` (`orphans`), `$id`/`$resolution` (`close`), or none
+(`resolutions`).
+
+## Flow authoring
+
+A flow node's jq adds more variables on top of these — the state documents in scope,
+the run's own identity, and, inside a loop, the iteration value and index. The flow
+editor binds and documents them; see the
+[flow jq editor](/babelfish/jq-editor) for `$states`, `$run`, `$iteration`, and
+`$iterate`. The rule is the same everywhere: the node's own data is `.`, the context
+around it is named variables.
+
+## See also
+
+- [Asking the caller](/concepts/asking-the-caller) — `$parked` and the door contract.
+- [Conversation bridge](/reference/conversation-bridge) — a route's `start_expr` and `reply_expr`.
+- [States](/concepts/states) — bindings and template jq.
+- [Hooks](/concepts/hooks) — a hook as a door contract.

@@ -5,25 +5,28 @@ icon: "comments"
 ---
 
 An interaction pauses a run to ask a person a question and blocks until they
-answer or the question times out. The `ask_user` tool is the core capability: it
+answer or the question times out. The `ask` tool is the core capability: it
 suspends the caller mid-run, records the question, and wakes the caller with the
 answer.
 
-This page explains the model. To turn interactions on and answer one, follow
+This page explains the model — asking a **person**. An `ask` can also be addressed
+to the **run that called this one** (`to="caller"`), which parks and hands the
+question up rather than out to a human; that variant is [asking the
+caller](/concepts/asking-the-caller). To turn interactions on and answer one, follow
 [Use interactions](/guides/use-interactions).
 
 ## The loop
 
 ```mermaid
 flowchart TD
-    A["a tool or agent calls ask_user"] --> B["record the question,<br/>block the caller"]
+    A["a tool or agent calls ask"] --> B["record the question,<br/>block the caller"]
     B --> C["human sees it on the SSE stream"]
     C --> D["human answers"]
     D --> E["record the answer,<br/>wake the blocked caller"]
     E --> F["the run resumes"]
 ```
 
-`ask_user` is the engine-agnostic author surface behind the contract's `AskUser`
+`ask` is the engine-agnostic author surface behind the contract's `Ask`
 protocol. Loading it is manifest-driven: opt in the interactions tool module and
 the interactions HTTP router, exactly like any other capability.
 
@@ -34,7 +37,7 @@ A question also declares a **wait discipline**, `mode`:
 - **`sync`** (the default) blocks the caller. The loop above is the sync loop: the
   caller waits on the answer or the `timeout`, then the typed answer returns (or the
   call raises).
-- **`async`** parks the caller. `ask_user` records — and, over a channel, delivers —
+- **`async`** parks the caller. `ask` records — and, over a channel, delivers —
   the question exactly as sync does, but returns a **suspension sentinel**
   immediately instead of blocking. A later answer, or the question's expiry, resumes
   the run out of band.
@@ -45,12 +48,22 @@ raises without it — and **mutually exclusive** with a sync `timeout`, which bo
 the same wait the other way. `expiry_at` is valid only with `mode="async"`.
 
 A parked question is answered **out of band** — through the ordinary authenticated
-answer door or the channel callback, exactly as a sync question, never inline. When
-it resolves — a human answers, or `expiry_at` passes with no answer — the run
-resumes on its own: a stored continuation runs under the **asker's** identity (never
-the answerer's), exactly once. On expiry the continuation receives a reserved
-*interaction expired* marker in place of an answer, so the run takes its expiry
-branch rather than a real answer.
+answer door or the channel callback, exactly as a sync question, never inline. When a
+human answers, the run resumes on its own: a stored continuation runs under the
+**asker's** identity (never the answerer's), exactly once.
+
+What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
+
+- **`kill`** (the default) tears the whole run chain down. The parked run — and every
+  run linked above it — is failed, and a door that started it with a receiver is
+  delivered a single failure. An unanswered deadline ends the work rather than
+  resuming it.
+- **`resume`** resumes the continuation with a reserved *interaction expired* marker
+  in place of an answer, so the run takes its **expiry branch** rather than a real
+  answer. Choose it when the run has an expiry path to run.
+
+Either way the expiry is stated once as an `interactions_ask_expired_unanswered`
+platform event a deployment can [hook](/concepts/hooks) on.
 
 Async requires the run to be resumable: it must be raised where a resuming driver
 and a bound execution identity are in scope, or it raises loudly rather than
@@ -64,20 +77,22 @@ park on one raises loudly.
 
 ### Parking several at once
 
-A run can raise more than one async `ask_user` before it suspends — a parallel
+A run can raise more than one async `ask` before it suspends — a parallel
 fan-out that parks on all of them together. Each ask is independent: it carries its
 own `expiry_at`, and its answer or expiry can arrive in any order, from any surface,
 on any worker. The run buffers each resolution durably and resumes **once**, when
 the **last** ask resolves — never once per answer, and never part-way on a partial
-set. A mix of real answers and expiries resolves the same way: an expired ask
-contributes the reserved *interaction expired* marker to its own branch while its
-siblings contribute their answers, and the single resume carries them all together.
-A lone async ask is the one-ask case of this same path.
+set. A mix of real answers and `on_expiry="resume"` expiries resolves the same way: an
+expired ask contributes the reserved *interaction expired* marker to its own branch
+while its siblings contribute their answers, and the single resume carries them all
+together. An `on_expiry="kill"` ask that lapses is different — it tears the whole
+fan-out down rather than resuming it. A lone async ask is the one-ask case of this
+same path.
 
 ### A flow or an agent parks
 
 The resuming driver is engine-agnostic: a flow and an agent run are both drivers.
-An agent whose tool raises an async `ask_user` parks the whole agent run and resumes
+An agent whose tool raises an async `ask` parks the whole agent run and resumes
 it on the answer or expiry exactly as a flow resumes — the same stored continuation,
 the same asker identity, the same once-only resume. Parking an agent run needs the
 same durable, cross-worker checkpointer as any park (`redis` or `postgres`); an agent
@@ -88,7 +103,7 @@ run that parked it, independent of the checkpoint provider; a park-capable run w
 no park index configured refuses the async ask loudly before any state is written.
 
 Parallel subagents each park in one step: when several nested subagents raise an
-async `ask_user` together, all their parks collapse into one suspend, and the run
+async `ask` together, all their parks collapse into one suspend, and the run
 resumes **once** when the last of them resolves — answers and expiries arriving in
 any order, from any surface, on any worker, exactly as parallel asks resolve on a
 flow.
@@ -103,7 +118,7 @@ thread.
 ### Deadlines and retention
 
 An async ask's `expiry_at` is the **deadline** — the moment the question stops
-mattering, which drives its expiry branch. The **checkpoint retention** is a
+mattering, which fires its [`on_expiry`](#sync-and-async) policy. The **checkpoint retention** is a
 different clock: the paused run's checkpoint lives in the checkpointer's own store,
 kept forever unless the deployment bounds it deliberately, after which a sweep
 reclaims the idle thread. The two must agree. If a paused run's checkpointer evicts idle threads at a
@@ -128,7 +143,7 @@ through the answer door:
   what each renders).
 
 The fifth format is **`external`**: the human acts on an outside surface — signs a
-document, approves a request, pays — and the external system delivers the answer
+document, approves a request, confirms an action — and the external system delivers the answer
 back through a public callback door. The asking tool blocks exactly as it does for
 any other format; only the delivery channel differs.
 
@@ -294,7 +309,7 @@ wrapped tool takes a `callback_url` parameter and returns the URL to visit.
 ## Delivering to a channel
 
 By default a pending question surfaces on the authenticated stream — the Studio
-inbox. Passing `channel="<name>"` to `ask_user` hands delivery to a registered
+inbox. Passing `channel="<name>"` to `ask` hands delivery to a registered
 **channel plugin** (Telegram, Slack, SMS/WhatsApp) instead: the question mints a
 public callback ticket exactly like an `external` ask, the plugin pushes it to
 the person on that medium, and the reply comes back through the same callback
@@ -449,7 +464,7 @@ arrive through an unauthenticated door, so every stream consumer must treat them
 as untrusted.
 </Note>
 
-The [use-interactions guide](/guides/use-interactions) walks `ask_user` across the
+The [use-interactions guide](/guides/use-interactions) walks `ask` across the
 answer formats and wires an `ask_external` callback end to end. See
 [notifications](/concepts/notifications#ask-less-forms) for the ask-less form — the
 non-blocking counterpart to a form ask — the

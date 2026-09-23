@@ -34,8 +34,9 @@ tai conversations create chat-line \
 ```
 
 `create` flags: `--door` (`api`|`channel`), `--target-kind` (`agent`|`tool`, default
-`agent`), `--target-name`, `--execution-key`, `--payload-expr` / `--reply-expr` (tool
-targets), `--initial-mode` (`agent`|`manual`, default `agent` — the route's default
+`agent`), `--target-name`, `--execution-key`, the route's jq programs
+`--start-expr` / `--cancel-expr` / `--resume-expr` / `--extras-expr` / `--reply-expr`
+(either target kind carries them), `--initial-mode` (`agent`|`manual`, default `agent` — the route's default
 [control mode](#operator-messages-and-control-mode)), `--channel` / `--identity`
 (channel rows), `--callback-url` (api rows, optional, HTTPS), `--overlap-running` /
 `--overlap-deliver` / `--overlap-settle-seconds` (the [overlap policy](#overlapping-messages)).
@@ -54,28 +55,44 @@ A route's `target_kind` chooses what an inbound turn runs:
   out. It runs under the route's `execution_key`, whose grants authorize the
   dispatch.
 
-A `tool` target shapes the call with two optional jq programs, both compiled at
-create (an `agent` target carries neither):
+**Either** target kind carries the route's jq programs, all compiled at create:
 
-- **`payload_expr`** — jq over the inbound payload `{message, sender, our_identity,
+- **`start_expr`** — jq over the inbound payload `{message, sender, our_identity,
   channel, turn}` — carrying `person_id` and `person_addresses` too when the target's
   multichannel is on, and `event` on an [event turn](#the-event-door) — emitting exactly
-  one JSON object: the tool's kwargs. Omitted, the kwargs are the fixed
-  `{message, sender, turn}` (plus `event` on an event turn). `person_id` is the person the
-  sending address resolves to and `person_addresses` its address rows; `person_id` gives a
-  flow a channel-stable key for a linked person, one and the same across the channels they
-  paired.
-- **`reply_expr`** — jq over the tool's result, emitting exactly one value that is a
-  string or `null`: the reply text. Omitted, the result must itself be a string or
-  `null`.
+  one JSON object: the started run's kwargs (a `tool` dispatch's kwargs, or an `agent`
+  run's `astream` kwargs). Omitted, the kwargs are the fixed `{message, sender, turn}`
+  for a tool (plus `event` on an event turn), or the default `{user_message}` from the
+  rendered turn text for an agent. An `agent` `start_expr` must not set the route-owned
+  run identity (`thread_id` or a checkpoint key), refused at create. `person_id` is the
+  person the sending address resolves to and `person_addresses` its address rows;
+  `person_id` gives a flow a channel-stable key for a linked person, one and the same
+  across the channels they paired.
+- **`reply_expr`** — jq over the run's result (the success shape), emitting the reply:
+  `null` (silent), a string, or a list of answer parts. Omitted, a tool result must
+  itself be a string or `null`, and an agent's structured final is serialized to one
+  string. It binds three [variables](/concepts/jq-variables#route-reply): `$turn` (the
+  turn ids and subject this reply answers), `$asks` (the run's caller-ask entries when
+  it [asked its caller](/concepts/asking-the-caller) instead of finishing — an empty
+  list on a plain result), and `$parked`.
+- **`cancel_expr` / `resume_expr` / `extras_expr`** — the [door
+  contract](/concepts/asking-the-caller#the-door-contract): `cancel_expr` names parked
+  interactions to whole-chain kill, `resume_expr` names an ask to resume with an answer
+  (`{id, payload}`) or a waiting outcome to take (a bare id), and `extras_expr` builds
+  the `extras` mapping handed to the started target.
+
+Every one of these reads the run's currently parked interactions as
+[`$parked`](/concepts/jq-variables#doors) beside its own input.
 
 The payload also carries a **`form`** object when the inbound message brought an
 [ask-less form](/concepts/notifications#ask-less-forms) submission — the structured
 copy of the values whose rendered text is the `message` itself. The key is present
-**only** when the inbound carried one, so a `payload_expr` over a form-less inbound
+**only** when the inbound carried one, so a `start_expr` over a form-less inbound
 sees a byte-identical payload, and the default no-expr kwargs stay the fixed
 `{message, sender}` either way — a route maps the form deliberately or not at all.
-An `agent` target never sees it: an agent reads the rendered text only. The values
+Without a `start_expr` an `agent` target never sees it — it reads the rendered text
+only; an `agent` `start_expr` may map `.form` into the run's kwargs exactly as a tool
+route does. The values
 are bounded as transport (serialized size and nesting) and **never validated against
 the form's schema** — participant-shaped data a tool target checks itself. The record
 publishes the same object as `inbound_form` on both the admin and caller-safe reads.
@@ -90,7 +107,7 @@ each channel forwards is on its [plugin page](/plugins)) — string values reach
 `.params.<name>`. The key is present **only** when the entry carried non-empty params,
 so guard for it (`.params.key // …`). The same enrichment rides an
 [answer's](/concepts/interactions#enrichment-on-the-answer) `params` when the tap
-instead answers a pending `ask_user`. The values
+instead answers a pending `ask`. The values
 are **untrusted transport**: the platform caps and delivers them but attaches no
 signature, expiry, or meaning, so a value a flow must trust is a secret the flow
 checks in its own store. Bounds: at most **16** params, each key
@@ -111,8 +128,8 @@ it entered through:
 is the channel registry name / `event:<kind>` / `api`. On an **event turn** the payload
 also carries an **`event`** block `{id, kind, payload}` (the submitted event) and both
 `message` and `sender` are `null` — an event has no human sender and no text. The
-default no-`payload_expr` kwargs therefore become `{message, sender, turn}` (plus
-`event` on an event turn); a `payload_expr` reads `.turn` and `.event` off the payload
+default no-`start_expr` kwargs therefore become `{message, sender, turn}` (plus
+`event` on an event turn); a `start_expr` reads `.turn` and `.event` off the payload
 and forwards what it needs.
 
 A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
@@ -135,7 +152,7 @@ map the message into them and pull the reply out of the result envelope:
 tai conversations create flow-line \
   --door channel --target-kind tool --target-name my_flow --execution-key svc \
   --channel twilio --identity whatsapp:+14155238886 \
-  --payload-expr '{flow_graph_kwargs: {message: .message, sender: .sender}}' \
+  --start-expr '{flow_graph_kwargs: {message: .message, sender: .sender}}' \
   --reply-expr '.result.answer // null'
 ```
 
@@ -145,7 +162,7 @@ flow or tool turn ends on a non-success terminal status (`aborted`, `stopped`,
 `error`) the turn diverts to the `error` outcome and `reply_expr` never runs.
 
 The whole kwargs object is validated against the preset's `input_schema` and routed
-into the flow's `flow_graph_kwargs` argument, so with no `payload_expr` a flow preset
+into the flow's `flow_graph_kwargs` argument, so with no `start_expr` a flow preset
 reads the default kwargs directly as `.flow_graph_kwargs.message`, `.sender`, and
 `.turn` (plus `.event` on an [event turn](#the-event-door)) — no route jq needed. A
 conversation-target flow preset must therefore admit `turn` (and `event`) in its
@@ -153,7 +170,7 @@ conversation-target flow preset must therefore admit `turn` (and `event`) in its
 the routed kwargs.
 
 Such a flow or tool turn need not answer synchronously: if it raises an async
-`ask_user`, the turn parks and its resumed reply is delivered back into the
+`ask`, the turn parks and its resumed reply is delivered back into the
 originating thread later — mapped through the route's `reply_expr` — the same
 deliver-back documented for an agent target. A **step-mode** interrupt is the
 exception: a conversation turn cannot drive a step-mode run, so its reply would
@@ -184,7 +201,7 @@ every turn for nothing and is refused loudly at create.
 The policy governs **participant message turns only** — records with `origin: client` and an
 `inbound_kind` of `message`. An [event turn](#the-event-door) always runs as its own turn: it
 is never merged, never superseded, and never cancels a message turn. An
-[operator send](#operator-send) runs no turn, and a turn parked on an `ask_user` is not
+[operator send](#operator-send) runs no turn, and a turn parked on an `ask` is not
 "running" — a reply while it is parked resumes through the answer ladder exactly as it does under the default policy.
 
 ### The four combinations
@@ -233,12 +250,12 @@ Under `deliver: one` the tool payload is unchanged from the default. Under `deli
   this turn, in the same shape.
 
 `message` becomes the turn's **whole** text: the superseded texts then the batch texts, in
-acceptance order, joined with a blank line — so a route with no `payload_expr` and an `agent`
+acceptance order, joined with a blank line — so a route with no `start_expr` and an `agent`
 target both see the whole turn with no new seam. A manual-mode thread appends the whole turn
 to its memory — the superseded texts then the batch texts, the same order as the joined
 `message`. The lead's own
 top-level `form` / `attachments` / `location` keys stay the lead's. Map `messages` and
-`superseded` in a `payload_expr` exactly as any other payload key.
+`superseded` in a `start_expr` exactly as any other payload key.
 
 ### The overlap outcomes
 
@@ -306,9 +323,21 @@ both are untrusted transport, never schema-validated. See
 - `200` with the answer inline — a `wait_seconds` turn that finished in time; a route
   with a callback suppresses it so it never double-fires. A turn that finished **silent**
   returns `200` with the silent marker inline (`status: "silent"`, no answer text).
-  `wait_seconds` is clamped to `sync_wait_max_seconds`.
+  `wait_seconds` is clamped to `sync_wait_max_seconds`. The inline answer is returned
+  **only while the caller is still connected**; a caller that hung up is answered by the
+  route's signed callback, or on a poll-only route by the poll door. A hang-up in the
+  instant the response is written still reads `delivered` at the poll door.
 - Refusals are loud: `400` bad body, `401` unauthorized, `404` unknown route, `429`
   address rate cap, `501` no backend, `503` thread queue full.
+
+<Note>
+**In-process face.** A run inside the deployment sends to this door with the builtin
+`send_conversation_message` tool — no HTTP request and no route key handed to the run.
+The turn runs **as** the route's execution key; the run's execution identity is the
+accountable principal the door buckets on, and the **same** authorization the HTTP door
+applies is applied first. The tool returns the accepted receipt at once — its answer is
+delivered by the route's own configured delivery, never inline.
+</Note>
 
 ## The event door
 
@@ -346,7 +375,11 @@ Body (`ConversationEventSubmission`):
 Responses:
 
 - `200` with the answer inline — a `wait_seconds` turn on an **api**-door thread that
-  finished in time; a route with a callback suppresses it so it never double-fires.
+  finished in time; a route with a callback suppresses it so it never double-fires. The
+  inline answer is returned **only while the caller is still connected**; a caller that
+  hung up is answered by the route's signed callback, or on a poll-only route by the
+  poll door. A hang-up in the instant the response is written still reads `delivered` at
+  the poll door.
 - `202 {message_id, thread_id}` — accepted; the answer is delivered later by the target
   route's door (a channel send, an api route's signed callback, or — when the api route
   declares no callback — the poll door, `GET /api/conversations/{route_name}/messages/{message_id}`).
@@ -381,6 +414,15 @@ recorded only when the route has no callback (retrievable through
 `GET /api/conversations/{route_name}/messages/{message_id}`). There is **no** per-request
 callback field: a caller-named sink would make the platform emit a validly signed POST to
 an arbitrary host.
+
+<Note>
+**In-process face.** A run delivers an event to this door with the builtin
+`send_conversation_event` tool — no HTTP request, no route key. It runs the route's
+**tool** target as the route's execution key, applies the same authorization the HTTP
+event door applies, addresses the existing thread by `thread_id` or `address`, and
+returns the accepted receipt; the answer rides the target route's own delivery. Like
+the HTTP door it is idempotent on `event.event_id`.
+</Note>
 
 <Note>
 **The event door is a trusted-integration surface.** Authorization is the conversations
