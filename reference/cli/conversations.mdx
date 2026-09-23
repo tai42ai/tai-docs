@@ -97,9 +97,11 @@ An UPSERT — a name that already exists is REPLACED, rebinding its `execution_k
 along with everything else (`created` is `false` for a replace). A `door=api`
 route's `callback_secret` is minted server-side and shown ONCE in the result; it
 signs the delivery callback and is never re-readable. There is no check that you can
-run the target — the execution key's live grants bound the turn. A `tool` target may
-map the message to the tool kwargs (`--payload-expr`) and the result to the reply
-(`--reply-expr`); a tool reply of null/blank sends nothing.
+run the target — the execution key's live grants bound the turn. Either target kind may map the
+message to the run's kwargs (`--start-expr`), build the extras mapping handed to the started
+target (`--extras-expr`), cancel or resume its parked interactions
+(`--cancel-expr`/`--resume-expr`) and map the result to the reply (`--reply-expr`); a reply
+of null/blank sends nothing.
 
 Example: `tai conversations create chat-line --door channel --target-name relay \\
 --execution-key svc --channel twilio --identity +15550001111`
@@ -118,8 +120,11 @@ $ tai conversations create [OPTIONS] {route_name}
 | `--target-name` `&lt;str&gt;` | The agent or tool the turn runs (must exist). _(required)_ |
 | `--execution-key` `&lt;str&gt;` | The api-key user id the turn runs AS; you must own it (or be admin), tokenless-evaluable. _(required)_ |
 | `--target-kind` `&lt;str&gt;` | What the turn runs: 'agent' or 'tool'. _(default: `agent`)_ |
-| `--payload-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the inbound message to the tool kwargs. |
-| `--reply-expr` `&lt;str&gt;` | target-kind=tool: jq mapping the tool result to the reply. |
+| `--start-expr` `&lt;str&gt;` | jq mapping the inbound turn payload to the started run's kwargs. |
+| `--cancel-expr` `&lt;str&gt;` | jq naming the run's parked interactions to cancel ($parked bound). |
+| `--resume-expr` `&lt;str&gt;` | jq naming the run's parked interactions to resume/take ($parked bound). |
+| `--extras-expr` `&lt;str&gt;` | jq building the extras mapping handed to the started target. |
+| `--reply-expr` `&lt;str&gt;` | jq mapping the run's result to the reply ($turn/$asks/$parked bound). |
 | `--initial-mode` `&lt;str&gt;` | Default control mode when a thread has no override: 'agent' or 'manual'. _(default: `agent`)_ |
 | `--channel` `&lt;str&gt;` | door=channel: the channel registry name (e.g. twilio). |
 | `--identity` `&lt;str&gt;` | door=channel: the medium address we are texted at. |
