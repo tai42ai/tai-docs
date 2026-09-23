@@ -117,12 +117,32 @@ Return the client-facing tool objects, restricted to ``names`` when given.
 `tai42_contract.tools.AppTools.run_tool`
 
 ```python
-async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool = False) -> Any
+async run_tool(
+    self,
+    key: str,
+    arguments: dict[str, Any],
+    *,
+    offload_sync: bool = False,
+    continues_chain: Sequence[str] | None = None,
+    extras: Mapping[str, Any] | None = None,
+) -> Any
 ```
 
 Execute the tool registered under ``key`` with ``arguments`` and return its result.
 
 ``offload_sync`` runs a synchronous tool body off the event loop in a worker thread.
+
+``continues_chain`` is an in-process seam keyword ONLY (no request model, MCP
+argument, or tool argument sets it): when given, the dispatch's call frame SETS
+the ambient call chain to it rather than pushing ``key``, so a continuation
+runner restores a parked run's chain on the one dispatch that resumes it.
+
+``extras`` is likewise an in-process seam keyword ONLY (no request model, MCP
+argument, or tool argument sets it): the mapping a door carries into the run it
+starts. It is set on the dispatch's call frame — ambient and read-only for THAT
+frame, so the started tool reads it through `extras` and every nested frame
+starts empty. A visit checks the keys against the target's declaration before the
+run; ``None`` binds an empty mapping.
 
 **Parameters**
 
@@ -131,6 +151,44 @@ Execute the tool registered under ``key`` with ``arguments`` and return its resu
 | `key` | `str` | — | — |
 | `arguments` | `dict[str, Any]` | — | — |
 | `offload_sync` | `bool` | `False` | — |
+| `continues_chain` | `Sequence[str] \| None` | `None` | — |
+| `extras` | `Mapping[str, Any] \| None` | `None` | — |
+
+
+#### extras
+
+`tai42_contract.tools.AppTools.extras`
+
+```python
+extras(self) -> Mapping[str, Any]
+```
+
+The ambient door ``extras`` mapping the current run was started with (empty when none).
+
+A door carries author-configured ``extras`` into a run; a tool reads the keys it declared
+(``@app.tools.tool(extras_keys=...)``) here. The mapping is read-only and scoped to the
+started target's own frame — every nested dispatch reads an empty mapping, so nothing leaks
+down. No request model, MCP argument, or tool argument can set it.
+
+
+#### declared_extras
+
+`tai42_contract.tools.AppTools.declared_extras`
+
+```python
+async declared_extras(self, name: str) -> frozenset[str]
+```
+
+The door ``extras`` keys tool ``name`` is declared to read (empty when it declares none).
+
+A preset inherits its base tool's declared keys. The visit checks a door's ``extras`` against
+this set before starting the target and refuses an undeclared key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
 
 
 #### remove_tool
@@ -341,6 +399,30 @@ None means no execution fence; authoring keeps the presets' default ``write`` ac
 
 
 
+## RunDelivery
+
+`tai42_contract.tools.call_frame.RunDelivery`
+
+```python
+class RunDelivery
+```
+
+The run's single delivery identity and the starting door's out-of-band address.
+
+``run_delivery_id`` is the ``uuid4`` minted once at the outermost run start,
+shared by every nested dispatch, sibling branch, and re-park of the run so
+its single terminal delivers once. ``delivery`` is the ``(tool, context)``
+the starting door bound as the run's completion address, or ``None`` when the
+door has no receiver.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `run_delivery_id` | `str` |
+| `delivery` | `tuple[str \| None, Mapping[str, Any] \| None] \| None` |
+
+
 ## StateTemplateDetachReferee
 
 `tai42_contract.tools.StateTemplateDetachReferee`
@@ -495,6 +577,28 @@ allowlisted kind is never retried.
 | `idempotent` | `bool` |
 
 
+## current_call_chain
+
+`tai42_contract.tools.call_frame.current_call_chain`
+
+```python
+current_call_chain() -> tuple[str, ...]
+```
+
+The ambient tool/agent call chain, outermost first; empty outside any run.
+
+
+## current_extras
+
+`tai42_contract.tools.call_frame.current_extras`
+
+```python
+current_extras() -> Mapping[str, Any]
+```
+
+The ambient dispatch extras, or an empty mapping when none is bound.
+
+
 ## current_tool_invocation
 
 `tai42_contract.tools.invocation.current_tool_invocation`
@@ -504,6 +608,28 @@ current_tool_invocation() -> ToolInvocation | None
 ```
 
 The tool execution in flight for the current context, or ``None`` when no tool is executing.
+
+
+## get_run_delivery
+
+`tai42_contract.tools.call_frame.get_run_delivery`
+
+```python
+get_run_delivery() -> tuple[str | None, Mapping[str, Any] | None] | None
+```
+
+The current run's out-of-band delivery address, or ``None`` when receiver-less or unbound.
+
+
+## get_run_delivery_id
+
+`tai42_contract.tools.call_frame.get_run_delivery_id`
+
+```python
+get_run_delivery_id() -> str | None
+```
+
+The current run's delivery identity, or ``None`` outside a bound run.
 
 
 ## reset_current_tool_invocation
@@ -525,6 +651,32 @@ Restore the in-flight tool to the value captured in ``token``.
 | `token` | `Token[ToolInvocation \| None]` | — | — |
 
 
+## run_delivery
+
+`tai42_contract.tools.call_frame.run_delivery`
+
+```python
+run_delivery(delivery: RunDelivery | None) -> Generator[None]
+```
+
+Re-establish a stored run-delivery context as the ambient one for the wrapped drive.
+
+A continuation drive of a receiver-less resume (the detached answer/expiry/reaper drive, a
+hook/schedule inline resume) is a fresh outermost run start with NO ambient run-delivery
+context, yet it must keep the RESUMED run's own delivery identity and address so its terminal
+delivers under the same ``completion_id`` and a re-park inside stores the same pair. The
+chokepoint binds the interaction's stored `RunDelivery` here BEFORE the drive, so the
+resume's outermost `tool_call_frame` finds one already ambient and does NOT re-mint.
+``None`` binds nothing (a run that stored no delivery context). ContextVar token discipline:
+reset in the ``finally``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `delivery` | `RunDelivery \| None` | — | — |
+
+
 ## set_current_tool_invocation
 
 `tai42_contract.tools.invocation.set_current_tool_invocation`
@@ -544,4 +696,31 @@ outer value on reset — ContextVar token discipline.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `invocation` | `ToolInvocation` | — | — |
+
+
+## tool_call_frame
+
+`tai42_contract.tools.call_frame.tool_call_frame`
+
+```python
+tool_call_frame(
+    name: str | None = None,
+    extras: Mapping[str, Any] | None = None,
+    *,
+    continues_chain: Sequence[str] | None = None,
+) -> Generator[None]
+```
+
+Open a call frame for a tool/agent dispatch, restoring the prior context on exit.
+
+See the module docstring for the three chain forms and the run-delivery bind.
+ContextVar token discipline: every value set here is reset in the ``finally``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str \| None` | `None` | — |
+| `extras` | `Mapping[str, Any] \| None` | `None` | — |
+| `continues_chain` | `Sequence[str] \| None` | `None` | — |
 

@@ -32,11 +32,13 @@ The rich-send forms are JSON strings validated into their contract models before
 request — a list of `MediaItem` for `--media`, a discriminated `Option` list
 (reply/link) for `--options`, an `OptionSection` list for `--sections`, a
 `ChannelTemplate` for `--template`, a `LocationElement` for `--location`, a
-`MediaItem` for `--header`, a JSON object for `--schema` — so a mis-shaped value
-(including an unknown template/location/header key, which the contract would otherwise
+`MediaItem` for `--header`, a JSON object for `--schema`, a `FormData` for `--data`
+and a `FormPage` list for `--pages` — so a mis-shaped value
+(including an unknown template/location/header/data key, which the contract would otherwise
 silently drop) raises loudly here; the contract's cross-field rules (caps, non-blank,
 the options-XOR-sections choice surface, header/footer requiring a choice surface,
-template exclusivity, the channel-deliverable form subset) are enforced by the server.
+template exclusivity, the channel-deliverable form subset, and the form data/pages
+requiring a schema and matching its properties) are enforced by the server.
 
 Example: `tai notifications notify "Deploy finished" --channel telegram`
 
@@ -60,4 +62,6 @@ $ tai notifications notify [OPTIONS] {message}
 | `--header` `&lt;str&gt;` | JSON object for a single display-media header above an interactive message (requires --options or --sections), e.g. '&#123;"kind":"image","url":"https://…"&#125;'. |
 | `--footer` `&lt;str&gt;` | Short trailing line under an interactive message (requires --options or --sections). |
 | `--schema` `&lt;str&gt;` | JSON object holding an ask-less form's answer schema (channel-only; the message is the form's prompt), e.g. '&#123;"type":"object","properties":&#123;"name":&#123;"type":"string"&#125;&#125;&#125;'. |
+| `--data` `&lt;str&gt;` | JSON object of per-send form data over --schema — `values` prefills properties and `options` supplies a per-send choice list per property, e.g. '&#123;"values":&#123;"name":"Ada"&#125;,"options":&#123;"tier":[&#123;"value":"gold"&#125;]&#125;&#125;'. |
+| `--pages` `&lt;str&gt;` | JSON array of stepped-form pages over --schema, each `&#123;"title":"…","fields":[…]&#125;` naming the properties on one step (every property appears exactly once), e.g. '[&#123;"title":"You","fields":["name"]&#125;]'. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |

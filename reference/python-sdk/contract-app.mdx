@@ -441,7 +441,7 @@ get(self, name: str) -> Channel
 
 Fetch a registered channel by name; raise loudly on an unknown name.
 
-Resolution happens when ``ask_user`` is called with ``channel=name``,
+Resolution happens when ``ask`` is called with ``channel=name``,
 BEFORE any interaction state is written, so an unknown name surfaces as
 a loud failure, never a question silently delivered nowhere.
 
@@ -797,7 +797,7 @@ route reads deliberately; the platform adds no typed field for those.
 
 ``form`` is an optional structured participant submission (an ask-less form's answers)
 riding WITH the required rendered ``text`` — the text stays the whole turn every
-consumer sees, while a tool target's ``payload_expr`` may map the structured copy
+consumer sees, while a tool target's ``start_expr`` may map the structured copy
 from the payload's ``form`` key (present only when the inbound carried one). The
 platform bounds it as pure transport
 (`validate_inbound_form`) and attaches no
@@ -1159,25 +1159,308 @@ operator-authored module — it raises: those modules own no declared mount.
 class AppInteractions(Protocol)
 ```
 
-The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
+The interactions namespace (``app.interactions``) — the ``ask`` facade and answer check.
 
 ### Members
 
-#### ask_user
+#### check_answer
 
-`tai42_contract.app.facets.messaging.AppInteractions.ask_user`
+`tai42_contract.app.facets.messaging.AppInteractions.check_answer`
 
 ```python
-ask_user: AskUser
+check_answer(self, question: QuestionFormat, answer: Any) -> None
 ```
 
-The bound, `AskUser`-typed ``ask_user`` callable.
+Validate ``answer`` against ``question`` — the ONE answer check every door reaches.
+
+``question`` is a `QuestionFormat` (the answer
+format plus its payload — no stored request needed). Returns ``None`` when the answer
+conforms; raises `AnswerMismatchError` (carrying the
+failing field's dotted path when the fault locates to one) otherwise. The answer door,
+the callback door, a resumed run's ``visit`` and plugins all validate through this one
+callable so every surface applies identical rules per format.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `question` | `QuestionFormat` | — | — |
+| `answer` | `Any` | — | — |
+
+
+#### assert_resume_authorized
+
+`tai42_contract.app.facets.messaging.AppInteractions.assert_resume_authorized`
+
+```python
+async assert_resume_authorized(self, interaction_id: str) -> None
+```
+
+Authorise the caller to resume (or deliver an outcome for) ``interaction_id`` — or raise.
+
+A driver's continuation face and cross-driver chain-delivery tool call this with the id
+they are about to resume/deliver-to, BEFORE producing any outcome, because those tools are
+dispatchable by name at the run-tool door and the MCP edge. Authorised only inside the
+platform's own resume of that run: it passes iff the ambient run-authorization context
+names ``interaction_id`` directly (the resume origin) OR the interaction's stored run
+delivery identity matches the ambient one (a cross-driver chain re-entry of the same run).
+Raises `ParkResumeUnauthorizedError` for an external
+caller (no origin) or an id belonging to another run — never a mere presence test.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+
+
+#### assert_delivery_authorized
+
+`tai42_contract.app.facets.messaging.AppInteractions.assert_delivery_authorized`
+
+```python
+assert_delivery_authorized(self, completion_id: str | None) -> None
+```
+
+Authorise a door delivery-address tool to fire for ``completion_id`` — or raise.
+
+A door's out-of-band delivery address is a registered tool the platform's delivery ladder
+fires; the tool calls this at entry with the payload's ``completion_id`` before delivering
+anything. It passes iff the ambient delivery-fire context is set AND equals
+``completion_id`` — a ``None`` id and a call outside any fire never pass. Raises
+`ParkDeliveryUnauthorizedError` otherwise, so a caller
+naming the address tool directly at the run-tool door or the MCP edge delivers nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `completion_id` | `str \| None` | — | — |
+
+
+#### redelivery_horizon_seconds
+
+`tai42_contract.app.facets.messaging.AppInteractions.redelivery_horizon_seconds`
+
+```python
+redelivery_horizon_seconds(self) -> int
+```
+
+The platform's redelivery retention horizon in seconds.
+
+The continuation-due record ages out at it and the reaper caps its redelivery backoff at
+it, so no resume redelivery fires past it. A resuming driver derives its own
+resolution-record retention from this value rather than a hard-coded guess.
+
+
+#### visit
+
+`tai42_contract.app.facets.messaging.AppInteractions.visit`
+
+```python
+visit: Visit
+```
+
+The bound, `Visit`-typed shared-visit callable.
+
+The ONE seam every door drives a parkable run through: it runs the cancel / resume / take /
+start order once for every caller (checks everything before doing anything, cancels,
+resumes or takes at most one action besides cancel, starts the target when nothing was
+resumed, normalises what came back), and returns a
+`VisitOutcome`. A door resolves its own jqs to plain
+values and hands them in; the generic ``list_parked`` / ``resume_parked`` / ``cancel_parked``
+below are thin wrappers over this same seam.
+
+
+#### park_answer
+
+`tai42_contract.app.facets.messaging.AppInteractions.park_answer`
+
+```python
+park_answer(self, outcome: VisitOutcome) -> Any
+```
+
+The ONE park-answer shape a direct door hands back for a `VisitOutcome`.
+
+A plain ``result`` is the tool's own value; an ``asks`` outcome is the caller ask entries
+the run parked (``{"asks": [entry, ...]}``); a ``parked`` outcome is the suspended
+sentinel; ``none`` is ``None``. Both the synchronous run-tool door and the background
+submit's terminal record shape a park through this ONE callable, so a poller of either
+door reads identical bytes and can tell a caller-ask park (answerable through
+``resume_parked``) from a user-ask park. It never reveals a wrapped secret — the sync door
+reveals those on the ``result`` kind itself and every recorder masks its own copy.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `outcome` | `VisitOutcome` | — | — |
+
+
+#### normalise_started
+
+`tai42_contract.app.facets.messaging.AppInteractions.normalise_started`
+
+```python
+async normalise_started(self, value: Any) -> VisitOutcome
+```
+
+Classify a raw start return into a ``started`` `VisitOutcome` over the ambient subject.
+
+The same normalisation `visit` applies to what its ``start`` returned — caller asks,
+a re-park, or a final result — exposed for a door that already ran its start INSIDE its own
+`visit` (a hook fire whose visit owns the run) and only needs the return classified,
+so its record carries the same park answer both direct doors return.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### list_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.list_parked`
+
+```python
+async list_parked(self) -> list[ParkedEntry]
+```
+
+Every parked interaction on the current run's subject — the full parked entries.
+
+Reads the ambient run's subject candidates and returns the union over its subject keys,
+de-duplicated, each a `ParkedEntry` with its id, status
+(``asking``/``running``/``finished``/``failed``) and the question/answer fields a
+state-backed entry carries. The same rows a door-contract jq reads as ``$parked``.
+
+
+#### list_parked_for
+
+`tai42_contract.app.facets.messaging.AppInteractions.list_parked_for`
+
+```python
+async list_parked_for(self, context: StateContext | None) -> list[ParkedEntry]
+```
+
+Every parked interaction on ``context``'s subject — the same entries as `list_parked`.
+
+A parkable-driving door fetches this over its OWN
+`StateContext` once and feeds the list to the door-contract
+evaluator as ``$parked``, keeping the contract evaluation a pure function of an injected
+list rather than an ambient read. A ``None`` context has no subject and returns an empty
+list.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `context` | `StateContext \| None` | — | — |
+
+
+#### current_fire_identity
+
+`tai42_contract.app.facets.messaging.AppInteractions.current_fire_identity`
+
+```python
+current_fire_identity(self) -> tuple[str, str] | None
+```
+
+The ambient execution identity as the ``(user_id, fingerprint)`` pair a fire forwards, or ``None``.
+
+A background task tool dispatched from within a door fire forwards this pair onto its worker
+job so the deferred fire re-binds the SAME authority; ``None`` when no identity (or no
+per-mint fingerprint) is bound, so nothing is forwarded and the deferred fire fails closed on
+any credential seam rather than under a substituted principal.
+
+
+#### bound_execution_identity_for_fire
+
+`tai42_contract.app.facets.messaging.AppInteractions.bound_execution_identity_for_fire`
+
+```python
+bound_execution_identity_for_fire(self, execution_key: str, fingerprint: str) -> AbstractAsyncContextManager[Any]
+```
+
+An ``async with`` binding ``execution_key``'s live-grant identity for a receiver-less door fire.
+
+A scheduled fire has no live caller, so the door stores the firing identity (the execution
+key's ``user_id`` and its per-mint ``fingerprint``) at create and binds it here at fire, so a
+run that async-parks can rebind its continuation and a ``to="caller"`` resume acts under the
+same authority. Homed beside the door's other kit-reachable seams so a backend plugin binds a
+scheduled fire's identity without importing the skeleton. Raises when the key no longer
+carries authority — the fire fails closed, never under a substituted principal.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `execution_key` | `str` | — | — |
+| `fingerprint` | `str` | — | — |
+
+
+#### resume_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.resume_parked`
+
+```python
+async resume_parked(self, interaction_id: str, payload: Any = ...) -> VisitOutcome
+```
+
+Resume a parked caller ask with ``payload``, or TAKE its waiting outcome when omitted.
+
+With ``payload`` given it resumes the ``asking`` caller ask ``interaction_id`` and returns
+the resumed run's normalised outcome; with ``payload`` omitted it TAKES a ``finished``
+entry's waiting outcome (``kind="result"``) or re-raises a ``failed`` one as
+`ParkableRunFailedError`. A live inline receiver, so the
+resumed run's terminal is returned inline rather than delivered out of band.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+| `payload` | `Any` | `...` | — |
+
+
+#### cancel_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.cancel_parked`
+
+```python
+async cancel_parked(self, ids: list[str]) -> VisitOutcome
+```
+
+Whole-chain kill every parked interaction named in ``ids`` on the current run's subject.
+
+Each id is torn down through the one teardown seam (its run and every run it linked above it
+close for good, delivering FAILED once to a door that started it); returns a
+`VisitOutcome` naming the ids cancelled. An id outside
+the run's own parked list raises `ParkedEntryGoneError`
+with nothing cancelled.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ids` | `list[str]` | — | — |
+
+
+#### ask
+
+`tai42_contract.app.facets.messaging.AppInteractions.ask`
+
+```python
+ask: Ask
+```
+
+The bound, `Ask`-typed ``ask`` callable.
 
 An in-process plugin asks a human without importing the skeleton:
-``await tai42_app.interactions.ask_user(question, ..., mode="async",
-expiry_at=...)``. The return shape is the ``AskUser`` contract's:
+``await tai42_app.interactions.ask(question, ..., mode="async",
+expiry_at=...)``. The return shape is the ``Ask`` contract's:
 ``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
-``SuspendedInteraction``. Its full call signature is the ``AskUser``
+``SuspendedInteraction``. Its full call signature is the ``Ask``
 Protocol's, including the per-ask ``on_mismatch`` digression policy and
 ``mismatch_notice`` retry text a channel-delivered ask carries. A facade
 EXPOSURE of the skeleton helper through the already-typed Protocol — no new
@@ -1614,6 +1897,51 @@ When ``None``, authoring keeps the presets' default ``write`` action.
 | `base_tool` | `str` | — | — |
 
 
+#### get_active_versioned_body
+
+`tai42_contract.app.facets.authoring.AppPresets.get_active_versioned_body`
+
+```python
+async get_active_versioned_body(self, name: str) -> tuple[int, PresetBody]
+```
+
+One preset's active ``(version, body)`` read TOGETHER in one query.
+
+The version-aware sibling of ``store.get_active_body``: it captures the active version
+pointer and the body it points at atomically, so a consumer that needs the version beside
+the body never risks a skewed second read across a concurrent activation. Raises
+`PresetNotFoundError` for an unknown preset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### used_by
+
+`tai42_contract.app.facets.authoring.AppPresets.used_by`
+
+```python
+async used_by(self, name: str) -> list[str]
+```
+
+The other presets whose active bodies compose preset ``name`` as a tool, sorted.
+
+Computed over the active preset population (a body's composed tool names intersected with
+the population, self excluded), so it answers "which saved presets depend on this one" for a
+rename/delete dependents pass. Raises
+`PresetNotFoundError` for a name that is not a known
+preset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
 #### register_seed
 
 `tai42_contract.app.facets.authoring.AppPresets.register_seed`
@@ -1716,7 +2044,7 @@ This is the plugin-reachable READ of the SAME policy the skeleton binds to the k
 session-create chokepoint.
 
 Available REGARDLESS of whether a provider is registered (it reads operator
-config, not a provider). Mirrors the ``ask_user`` / ``resolve_connection_auth``
+config, not a provider). Mirrors the ``ask`` / ``resolve_connection_auth``
 facade accessors that let an in-process plugin read a skeleton-resolved value
 without importing the skeleton; a consumer building a policied spec reads the
 network default and ``scrub_transcript`` here. Implemented in the skeleton,
@@ -2153,8 +2481,9 @@ async apply_template_jq(
 
 Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``.
 
-Its jq maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
-path and applied through the same chokepoint as `apply` — so regimes, the
+Its jq maps the record subtree (its ``.``) with ``$input`` bound to a template-relative op
+batch, rebased under the attachment path and applied through the same chokepoint as
+`apply` — so regimes, the
 composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
 resolves as for `eval_template_jq`. An unknown name is a
 `StateNotFoundError`; an ambiguous unqualified name, an
@@ -2649,12 +2978,32 @@ Return the client-facing tool objects, restricted to ``names`` when given.
 `tai42_contract.tools.AppTools.run_tool`
 
 ```python
-async run_tool(self, key: str, arguments: dict[str, Any], *, offload_sync: bool = False) -> Any
+async run_tool(
+    self,
+    key: str,
+    arguments: dict[str, Any],
+    *,
+    offload_sync: bool = False,
+    continues_chain: Sequence[str] | None = None,
+    extras: Mapping[str, Any] | None = None,
+) -> Any
 ```
 
 Execute the tool registered under ``key`` with ``arguments`` and return its result.
 
 ``offload_sync`` runs a synchronous tool body off the event loop in a worker thread.
+
+``continues_chain`` is an in-process seam keyword ONLY (no request model, MCP
+argument, or tool argument sets it): when given, the dispatch's call frame SETS
+the ambient call chain to it rather than pushing ``key``, so a continuation
+runner restores a parked run's chain on the one dispatch that resumes it.
+
+``extras`` is likewise an in-process seam keyword ONLY (no request model, MCP
+argument, or tool argument sets it): the mapping a door carries into the run it
+starts. It is set on the dispatch's call frame — ambient and read-only for THAT
+frame, so the started tool reads it through `extras` and every nested frame
+starts empty. A visit checks the keys against the target's declaration before the
+run; ``None`` binds an empty mapping.
 
 **Parameters**
 
@@ -2663,6 +3012,44 @@ Execute the tool registered under ``key`` with ``arguments`` and return its resu
 | `key` | `str` | — | — |
 | `arguments` | `dict[str, Any]` | — | — |
 | `offload_sync` | `bool` | `False` | — |
+| `continues_chain` | `Sequence[str] \| None` | `None` | — |
+| `extras` | `Mapping[str, Any] \| None` | `None` | — |
+
+
+#### extras
+
+`tai42_contract.tools.AppTools.extras`
+
+```python
+extras(self) -> Mapping[str, Any]
+```
+
+The ambient door ``extras`` mapping the current run was started with (empty when none).
+
+A door carries author-configured ``extras`` into a run; a tool reads the keys it declared
+(``@app.tools.tool(extras_keys=...)``) here. The mapping is read-only and scoped to the
+started target's own frame — every nested dispatch reads an empty mapping, so nothing leaks
+down. No request model, MCP argument, or tool argument can set it.
+
+
+#### declared_extras
+
+`tai42_contract.tools.AppTools.declared_extras`
+
+```python
+async declared_extras(self, name: str) -> frozenset[str]
+```
+
+The door ``extras`` keys tool ``name`` is declared to read (empty when it declares none).
+
+A preset inherits its base tool's declared keys. The visit checks a door's ``extras`` against
+this set before starting the target and refuses an undeclared key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
 
 
 #### remove_tool
@@ -3175,7 +3562,7 @@ Tool-extension factory registration and lookup.
 interactions: AppInteractions
 ```
 
-The ``ask_user`` interactions facade.
+The ``ask`` interactions facade.
 
 
 #### http
@@ -3735,7 +4122,7 @@ get(self, name: str) -> Channel
 
 Fetch a registered channel by name; raise loudly on an unknown name.
 
-Resolution happens when ``ask_user`` is called with ``channel=name``,
+Resolution happens when ``ask`` is called with ``channel=name``,
 BEFORE any interaction state is written, so an unknown name surfaces as
 a loud failure, never a question silently delivered nowhere.
 
@@ -4091,7 +4478,7 @@ route reads deliberately; the platform adds no typed field for those.
 
 ``form`` is an optional structured participant submission (an ask-less form's answers)
 riding WITH the required rendered ``text`` — the text stays the whole turn every
-consumer sees, while a tool target's ``payload_expr`` may map the structured copy
+consumer sees, while a tool target's ``start_expr`` may map the structured copy
 from the payload's ``form`` key (present only when the inbound carried one). The
 platform bounds it as pure transport
 (`validate_inbound_form`) and attaches no
@@ -4453,25 +4840,308 @@ operator-authored module — it raises: those modules own no declared mount.
 class AppInteractions(Protocol)
 ```
 
-The interactions namespace (``app.interactions``) — the ``ask_user`` facade.
+The interactions namespace (``app.interactions``) — the ``ask`` facade and answer check.
 
 ### Members
 
-#### ask_user
+#### check_answer
 
-`tai42_contract.app.facets.messaging.AppInteractions.ask_user`
+`tai42_contract.app.facets.messaging.AppInteractions.check_answer`
 
 ```python
-ask_user: AskUser
+check_answer(self, question: QuestionFormat, answer: Any) -> None
 ```
 
-The bound, `AskUser`-typed ``ask_user`` callable.
+Validate ``answer`` against ``question`` — the ONE answer check every door reaches.
+
+``question`` is a `QuestionFormat` (the answer
+format plus its payload — no stored request needed). Returns ``None`` when the answer
+conforms; raises `AnswerMismatchError` (carrying the
+failing field's dotted path when the fault locates to one) otherwise. The answer door,
+the callback door, a resumed run's ``visit`` and plugins all validate through this one
+callable so every surface applies identical rules per format.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `question` | `QuestionFormat` | — | — |
+| `answer` | `Any` | — | — |
+
+
+#### assert_resume_authorized
+
+`tai42_contract.app.facets.messaging.AppInteractions.assert_resume_authorized`
+
+```python
+async assert_resume_authorized(self, interaction_id: str) -> None
+```
+
+Authorise the caller to resume (or deliver an outcome for) ``interaction_id`` — or raise.
+
+A driver's continuation face and cross-driver chain-delivery tool call this with the id
+they are about to resume/deliver-to, BEFORE producing any outcome, because those tools are
+dispatchable by name at the run-tool door and the MCP edge. Authorised only inside the
+platform's own resume of that run: it passes iff the ambient run-authorization context
+names ``interaction_id`` directly (the resume origin) OR the interaction's stored run
+delivery identity matches the ambient one (a cross-driver chain re-entry of the same run).
+Raises `ParkResumeUnauthorizedError` for an external
+caller (no origin) or an id belonging to another run — never a mere presence test.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+
+
+#### assert_delivery_authorized
+
+`tai42_contract.app.facets.messaging.AppInteractions.assert_delivery_authorized`
+
+```python
+assert_delivery_authorized(self, completion_id: str | None) -> None
+```
+
+Authorise a door delivery-address tool to fire for ``completion_id`` — or raise.
+
+A door's out-of-band delivery address is a registered tool the platform's delivery ladder
+fires; the tool calls this at entry with the payload's ``completion_id`` before delivering
+anything. It passes iff the ambient delivery-fire context is set AND equals
+``completion_id`` — a ``None`` id and a call outside any fire never pass. Raises
+`ParkDeliveryUnauthorizedError` otherwise, so a caller
+naming the address tool directly at the run-tool door or the MCP edge delivers nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `completion_id` | `str \| None` | — | — |
+
+
+#### redelivery_horizon_seconds
+
+`tai42_contract.app.facets.messaging.AppInteractions.redelivery_horizon_seconds`
+
+```python
+redelivery_horizon_seconds(self) -> int
+```
+
+The platform's redelivery retention horizon in seconds.
+
+The continuation-due record ages out at it and the reaper caps its redelivery backoff at
+it, so no resume redelivery fires past it. A resuming driver derives its own
+resolution-record retention from this value rather than a hard-coded guess.
+
+
+#### visit
+
+`tai42_contract.app.facets.messaging.AppInteractions.visit`
+
+```python
+visit: Visit
+```
+
+The bound, `Visit`-typed shared-visit callable.
+
+The ONE seam every door drives a parkable run through: it runs the cancel / resume / take /
+start order once for every caller (checks everything before doing anything, cancels,
+resumes or takes at most one action besides cancel, starts the target when nothing was
+resumed, normalises what came back), and returns a
+`VisitOutcome`. A door resolves its own jqs to plain
+values and hands them in; the generic ``list_parked`` / ``resume_parked`` / ``cancel_parked``
+below are thin wrappers over this same seam.
+
+
+#### park_answer
+
+`tai42_contract.app.facets.messaging.AppInteractions.park_answer`
+
+```python
+park_answer(self, outcome: VisitOutcome) -> Any
+```
+
+The ONE park-answer shape a direct door hands back for a `VisitOutcome`.
+
+A plain ``result`` is the tool's own value; an ``asks`` outcome is the caller ask entries
+the run parked (``{"asks": [entry, ...]}``); a ``parked`` outcome is the suspended
+sentinel; ``none`` is ``None``. Both the synchronous run-tool door and the background
+submit's terminal record shape a park through this ONE callable, so a poller of either
+door reads identical bytes and can tell a caller-ask park (answerable through
+``resume_parked``) from a user-ask park. It never reveals a wrapped secret — the sync door
+reveals those on the ``result`` kind itself and every recorder masks its own copy.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `outcome` | `VisitOutcome` | — | — |
+
+
+#### normalise_started
+
+`tai42_contract.app.facets.messaging.AppInteractions.normalise_started`
+
+```python
+async normalise_started(self, value: Any) -> VisitOutcome
+```
+
+Classify a raw start return into a ``started`` `VisitOutcome` over the ambient subject.
+
+The same normalisation `visit` applies to what its ``start`` returned — caller asks,
+a re-park, or a final result — exposed for a door that already ran its start INSIDE its own
+`visit` (a hook fire whose visit owns the run) and only needs the return classified,
+so its record carries the same park answer both direct doors return.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### list_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.list_parked`
+
+```python
+async list_parked(self) -> list[ParkedEntry]
+```
+
+Every parked interaction on the current run's subject — the full parked entries.
+
+Reads the ambient run's subject candidates and returns the union over its subject keys,
+de-duplicated, each a `ParkedEntry` with its id, status
+(``asking``/``running``/``finished``/``failed``) and the question/answer fields a
+state-backed entry carries. The same rows a door-contract jq reads as ``$parked``.
+
+
+#### list_parked_for
+
+`tai42_contract.app.facets.messaging.AppInteractions.list_parked_for`
+
+```python
+async list_parked_for(self, context: StateContext | None) -> list[ParkedEntry]
+```
+
+Every parked interaction on ``context``'s subject — the same entries as `list_parked`.
+
+A parkable-driving door fetches this over its OWN
+`StateContext` once and feeds the list to the door-contract
+evaluator as ``$parked``, keeping the contract evaluation a pure function of an injected
+list rather than an ambient read. A ``None`` context has no subject and returns an empty
+list.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `context` | `StateContext \| None` | — | — |
+
+
+#### current_fire_identity
+
+`tai42_contract.app.facets.messaging.AppInteractions.current_fire_identity`
+
+```python
+current_fire_identity(self) -> tuple[str, str] | None
+```
+
+The ambient execution identity as the ``(user_id, fingerprint)`` pair a fire forwards, or ``None``.
+
+A background task tool dispatched from within a door fire forwards this pair onto its worker
+job so the deferred fire re-binds the SAME authority; ``None`` when no identity (or no
+per-mint fingerprint) is bound, so nothing is forwarded and the deferred fire fails closed on
+any credential seam rather than under a substituted principal.
+
+
+#### bound_execution_identity_for_fire
+
+`tai42_contract.app.facets.messaging.AppInteractions.bound_execution_identity_for_fire`
+
+```python
+bound_execution_identity_for_fire(self, execution_key: str, fingerprint: str) -> AbstractAsyncContextManager[Any]
+```
+
+An ``async with`` binding ``execution_key``'s live-grant identity for a receiver-less door fire.
+
+A scheduled fire has no live caller, so the door stores the firing identity (the execution
+key's ``user_id`` and its per-mint ``fingerprint``) at create and binds it here at fire, so a
+run that async-parks can rebind its continuation and a ``to="caller"`` resume acts under the
+same authority. Homed beside the door's other kit-reachable seams so a backend plugin binds a
+scheduled fire's identity without importing the skeleton. Raises when the key no longer
+carries authority — the fire fails closed, never under a substituted principal.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `execution_key` | `str` | — | — |
+| `fingerprint` | `str` | — | — |
+
+
+#### resume_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.resume_parked`
+
+```python
+async resume_parked(self, interaction_id: str, payload: Any = ...) -> VisitOutcome
+```
+
+Resume a parked caller ask with ``payload``, or TAKE its waiting outcome when omitted.
+
+With ``payload`` given it resumes the ``asking`` caller ask ``interaction_id`` and returns
+the resumed run's normalised outcome; with ``payload`` omitted it TAKES a ``finished``
+entry's waiting outcome (``kind="result"``) or re-raises a ``failed`` one as
+`ParkableRunFailedError`. A live inline receiver, so the
+resumed run's terminal is returned inline rather than delivered out of band.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+| `payload` | `Any` | `...` | — |
+
+
+#### cancel_parked
+
+`tai42_contract.app.facets.messaging.AppInteractions.cancel_parked`
+
+```python
+async cancel_parked(self, ids: list[str]) -> VisitOutcome
+```
+
+Whole-chain kill every parked interaction named in ``ids`` on the current run's subject.
+
+Each id is torn down through the one teardown seam (its run and every run it linked above it
+close for good, delivering FAILED once to a door that started it); returns a
+`VisitOutcome` naming the ids cancelled. An id outside
+the run's own parked list raises `ParkedEntryGoneError`
+with nothing cancelled.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ids` | `list[str]` | — | — |
+
+
+#### ask
+
+`tai42_contract.app.facets.messaging.AppInteractions.ask`
+
+```python
+ask: Ask
+```
+
+The bound, `Ask`-typed ``ask`` callable.
 
 An in-process plugin asks a human without importing the skeleton:
-``await tai42_app.interactions.ask_user(question, ..., mode="async",
-expiry_at=...)``. The return shape is the ``AskUser`` contract's:
+``await tai42_app.interactions.ask(question, ..., mode="async",
+expiry_at=...)``. The return shape is the ``Ask`` contract's:
 ``mode="sync"`` returns the typed answer, ``mode="async"`` returns a
-``SuspendedInteraction``. Its full call signature is the ``AskUser``
+``SuspendedInteraction``. Its full call signature is the ``Ask``
 Protocol's, including the per-ask ``on_mismatch`` digression policy and
 ``mismatch_notice`` retry text a channel-delivered ask carries. A facade
 EXPOSURE of the skeleton helper through the already-typed Protocol — no new
@@ -4908,6 +5578,51 @@ When ``None``, authoring keeps the presets' default ``write`` action.
 | `base_tool` | `str` | — | — |
 
 
+#### get_active_versioned_body
+
+`tai42_contract.app.facets.authoring.AppPresets.get_active_versioned_body`
+
+```python
+async get_active_versioned_body(self, name: str) -> tuple[int, PresetBody]
+```
+
+One preset's active ``(version, body)`` read TOGETHER in one query.
+
+The version-aware sibling of ``store.get_active_body``: it captures the active version
+pointer and the body it points at atomically, so a consumer that needs the version beside
+the body never risks a skewed second read across a concurrent activation. Raises
+`PresetNotFoundError` for an unknown preset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### used_by
+
+`tai42_contract.app.facets.authoring.AppPresets.used_by`
+
+```python
+async used_by(self, name: str) -> list[str]
+```
+
+The other presets whose active bodies compose preset ``name`` as a tool, sorted.
+
+Computed over the active preset population (a body's composed tool names intersected with
+the population, self excluded), so it answers "which saved presets depend on this one" for a
+rename/delete dependents pass. Raises
+`PresetNotFoundError` for a name that is not a known
+preset.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
 #### register_seed
 
 `tai42_contract.app.facets.authoring.AppPresets.register_seed`
@@ -5010,7 +5725,7 @@ This is the plugin-reachable READ of the SAME policy the skeleton binds to the k
 session-create chokepoint.
 
 Available REGARDLESS of whether a provider is registered (it reads operator
-config, not a provider). Mirrors the ``ask_user`` / ``resolve_connection_auth``
+config, not a provider). Mirrors the ``ask`` / ``resolve_connection_auth``
 facade accessors that let an in-process plugin read a skeleton-resolved value
 without importing the skeleton; a consumer building a policied spec reads the
 network default and ``scrub_transcript`` here. Implemented in the skeleton,
@@ -5447,8 +6162,9 @@ async apply_template_jq(
 
 Apply an ``update``-purpose ``template_jq`` program ``name`` to ``subject``.
 
-Its jq maps ``{record, input}`` to a template-relative op batch, rebased under the attachment
-path and applied through the same chokepoint as `apply` — so regimes, the
+Its jq maps the record subtree (its ``.``) with ``$input`` bound to a template-relative op
+batch, rebased under the attachment path and applied through the same chokepoint as
+`apply` — so regimes, the
 composing-shape guard, trace stamping and ``op_id`` idempotency all hold. ``name``
 resolves as for `eval_template_jq`. An unknown name is a
 `StateNotFoundError`; an ambiguous unqualified name, an

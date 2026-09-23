@@ -7,11 +7,11 @@ icon: "paper-plane"
 
 Channel delivery contracts.
 
-A `Channel` pushes an ``ask_user`` question to a human on a specific
+A `Channel` pushes an ``ask`` question to a human on a specific
 medium (Telegram, Slack, SMS, ...) and bridges the human's reply back into the
 interactions store by forwarding it to the delivery's public ``callback_url``.
 Channels are registered on the app handle (``tai42_app.channels``) by channel
-plugins and looked up by name when ``ask_user`` is called with ``channel=...``.
+plugins and looked up by name when ``ask`` is called with ``channel=...``.
 Delivery either returns ``None`` (success) or raises
 `ChannelDeliveryError` (any failure) — never a bool.
 
@@ -93,7 +93,7 @@ class Channel(Protocol)
 Delivers one question to a human on a specific medium.
 
 A channel plugin registers an instance under a name
-(``tai42_app.channels.register``); ``ask_user`` resolves it by name and calls
+(``tai42_app.channels.register``); ``ask`` resolves it by name and calls
 ``deliver`` after the interaction is persisted and its callback ticket is
 minted. A channel never reaches the interactions store directly: the
 human's reply travels back through the delivery's public ``callback_url``.
@@ -113,7 +113,7 @@ runtime ``isinstance``). The ask/notify helpers read them defensively with
 ``getattr(channel, "<flag>", False)`` and refuse the matching richer send to
 a channel that does not advertise the flag: ``notify_user`` refuses a media,
 template, options, sections, location or schema notification, and the
-``ask_user`` helper
+``ask`` helper
 refuses a ``form`` delivery, to a channel without the flag — so a channel
 that reads only the plain fields can never silently drop the extra content.
 A channel that does not advertise ``supports_form_delivery`` never receives
@@ -123,7 +123,7 @@ a ``form`` delivery, and one that does not advertise
 A form channel MAY also declare one OPTIONAL method, ``validate_form_schema``,
 following the same convention as the capability flags — a documented member,
 NOT a Protocol method, so declaring it never tightens the runtime structural
-check. ``ask_user`` reads it defensively with
+check. ``ask`` reads it defensively with
 ``getattr(channel, "validate_form_schema", None)`` right after the generic
 channel-deliverable subset check and, when present, calls
 ``channel.validate_form_schema(schema, question)`` at ask-time, BEFORE any
@@ -454,7 +454,7 @@ class Correlation(BaseModel)
 
 The per-address record a channel keeps while ONE parked ask awaits a reply.
 
-When ``ask_user`` is delivered on a medium whose reply arrives as a fresh
+When ``ask`` is delivered on a medium whose reply arrives as a fresh
 inbound message (not a tap on a signed link), the channel stores this record
 against a channel-computed correlation key and, when the participant's next reply
 lands on that key, forwards it to ``callback_url`` (the delivery's public
@@ -486,7 +486,7 @@ class CorrelationStore(Protocol)
 
 Storage primitives ONLY for the one-pending-per-address correlation record — no policy.
 
-A channel that delivers ``ask_user`` questions whose replies arrive as fresh
+A channel that delivers ``ask`` questions whose replies arrive as fresh
 inbound messages keeps a `Correlation` per waiting address so the
 participant's next reply resolves the right parked ask. This port is the minimal
 set/get/release surface over that store; the LADDER that interprets a
@@ -774,7 +774,7 @@ renders flat buttons (no descriptions) ignores it.
 ``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel
 sends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed
 id to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);
-when ``None`` the channel mints its own id as today. Bounded by ``OPTION_ID_MAX_CHARS`` and a
+when ``None`` the channel mints its own id. Bounded by ``OPTION_ID_MAX_CHARS`` and a
 single-line non-blank label — the strictest carrier's rule. Frozen.
 
 **Attributes**
