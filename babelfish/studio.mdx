@@ -48,6 +48,87 @@ save (references built dynamically are, honestly, not detected). The State tab i
 node's [state binding](#state-bindings) — the shared binding editor, one per node — and
 its tab label carries a live count of the states the node binds.
 
+## The holder panel
+
+A node that **calls another flow or an agent** — a Flow Call, a custom node, or an
+agent — is a [holder](/babelfish#calling-another-flow-cancel-resume-start): it starts
+that call, and can cancel or resume the call's own [parked
+interactions](/concepts/asking-the-caller). Its Settings form is the holder panel,
+whose controls read top to bottom:
+
+- **Target.** A Flow Call picks its held flow or agent here, from a select scoped to
+  saved flows and agents — never a plain tool. Every load state is drawn: the select
+  disables with a "Loading…" placeholder while the registry is in flight, a load
+  failure shows inline, and an empty target is a loud field error, so a placed-but-
+  unconfigured Flow Call cannot apply. An agent card holds no Target picker — its
+  target is the agent itself.
+- **Cancel.** One jq over the [node envelope with `$parked`](/babelfish/jq-editor#the-variables-beside-the-input)
+  that emits null, one parked-ask id, or a list of ids to cancel — a whole-chain
+  cancel of each named call.
+- **Resume.** One row per ask of the held call, each an id jq naming the parked ask
+  and a payload jq carrying the answer to resume it with. Leave a row's payload empty
+  to **take** the ask's resolved waiting outcome — a finished run's result, while a
+  failed outcome raises; a payload jq giving null resumes with null.
+- **Start.** The `start_expr` jq that shapes the held call's input (a holder has no
+  plain expression input): absent starts the held target on the node input, a jq
+  giving null starts nothing, and any other result is the start input. A Flow Call
+  nests its **warm-start** rows inside Start — each names a node of the held flow and
+  a jq whose value pre-fills that node's output, so the held run skips producing it; a
+  row whose jq gives null runs that node normally. An agent holds no flow graph, so it
+  shows no warm-start rows.
+- **Send the ask up to my caller.** A switch that, instead of routing a caller ask to
+  an ask exit, parks it as a nested park and hands it up to this flow's own caller
+  unchanged.
+
+Every jq slot reads through the same Inline / Template control the other editor jqs
+use, so a stored template id shows and survives an open-edit-save.
+
+**The ask exit.** When the holder's target **can ask its caller** and the send-up
+switch is off, the card grows an extra exit handle labelled **ask** on its outcome
+edge — the node a caller ask routes to. Unwired it renders as a dashed ring and the
+save gate blocks with a "wire the ask exit" message; wired it is a solid ring. A
+holder that can ask its caller needs either this exit or the send-up switch, or a
+caller ask has nowhere to go.
+
+## Ask and expiry controls
+
+A runnable that calls the [`ask`](/concepts/interactions) tool carries a small ask
+face over its own kwargs — the raw JSON stays the single source of truth. **To**
+picks the recipient, **user** or **caller**; **mode** picks sync or async delivery;
+an async ask carries a **deadline**; and **On expiry** says what the run does when
+nobody answers in time — **end the run** (the default) or **resume with the expired
+marker**. A `caller` ask always resumes asynchronously, so its Sync option is hidden
+and it runs async; an async ask requires a deadline, checked on apply.
+
+A **held** ask — an ask flow called through a holder — has no On-expiry control at
+all. Its expiry is derived from the [outcome wiring](/babelfish#expiry-in-a-flow):
+wire the holder's **expired** outcome downstream and the ask resumes on expiry so
+that branch runs; leave it unwired and expiry ends the held chain. The two never
+disagree, because the derivation, not an authored field, owns it.
+
+## The test panel's caller asks
+
+{/* screenshot: the test panel's caller-ask controls — both themes */}
+
+Running a flow in-page against a **subject** surfaces the caller asks waiting on that
+subject. The run controls carry a subject input — a target kind, target name, kind,
+and key — threaded into the run and every interaction call; left empty, no subject is
+sent. While a run sits suspended with caller asks outstanding, the panel lists each
+one — its question, its payload, and who asked it — with a payload editor and three
+actions: **Resume** the ask with the edited payload, **Take** its resolved waiting
+outcome (no payload — a finished run's result, while a failed outcome raises), or
+**Cancel** it. Each action re-reads the run's outcome: a result ends the loop, fresh
+asks re-render the list, a re-park on user asks alone ends it with the parked note,
+and a cancel that started nothing drops only the cancelled ask. A
+node timeline shows what each holder node did — the calls it started, resumed, took,
+or cancelled, and any warm-filled node — so a held run's decisions are readable as it
+progresses.
+
+<Frame caption="The test panel's ask controls: resume, take and cancel.">
+  <img className="block dark:hidden" src="/images/studio/run-panel-ask-light.png" alt="The test panel's caller-ask controls: resume, take and cancel on each waiting ask." />
+  <img className="hidden dark:block" src="/images/studio/run-panel-ask-dark.png" alt="The test panel's caller-ask controls: resume, take and cancel on each waiting ask." />
+</Frame>
+
 ## Schema-aware run results
 
 When you run a flow in-page, the run panel and each node's run popup render results
@@ -99,11 +180,11 @@ one of two ways:
   program's declared write paths show beside it as a `writes:` badge. The run applies its
   returned op batch — [keyed list ops](/babelfish#keyed-state-list-ops) and appends — under
   the attachment path. Because a named update jq never sees a tool's field names, an **adapter**
-  form maps the node's `{output, input}` to the update jq's declared input — one row per
+  form maps the node's output and the run input to the update jq's declared input — one row per
   declared key, each picking a field, a literal, or a jq, with a write-jq escape hatch for
   the whole adapter.
-- a **custom jq** over `{record, output, input}` returning the op batch itself, for a write
-  the templates do not name.
+- a **custom jq** reading the node's output as `.`, with the bound record as `$record` and the
+  run input as `$input`, returning the op batch itself, for a write the templates do not name.
 
 An update may carry an optional **op id** for idempotency. The write-regime check runs at
 save: a landing path outside the update's declared writes, or an adapter whose output misses
@@ -203,7 +284,7 @@ predicate that gates the state for the run —
 [the same on every door and node](/concepts/states#a-bindings-subject-and-scope).
 Below the card, the **Inputs** list injects a value into the node's input before it runs —
 each row a `purpose: "input"` [template jq](/babelfish#state-templates) (or a custom jq
-over `{record, input}`) and the input field it lands in — and the **Updates** list applies
+reading the bound record as `.` with the run input as `$input`) and the input field it lands in — and the **Updates** list applies
 a write after the node runs (the [updates half](#the-updates-half-of-the-binding-editor)
 above). Every jq field autocompletes from the attached templates' template jq.
 
@@ -214,8 +295,6 @@ Every control rebuilds from the stored binding: an update's adapter form recover
 from the stored adapter jq, and a state or template the binding names but the server no
 longer serves shows a **Template not attached.** error with the raw jq, never a blank
 control. A refused save renders the engine's message verbatim.
-
-{/* screenshot: node state binding editor — both themes */}
 
 ## Upload
 

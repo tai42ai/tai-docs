@@ -47,7 +47,7 @@ to what a turn runs — an agent or a tool — and the execution key that turn r
 | `target_name` | The agent or tool the turn runs — it must exist. |
 | `execution_key` | The API-key identity the turn runs **as**. |
 | `initial_mode` | The default [control mode](#control-mode-and-operator-messages): `agent` (run the turn) or `manual` (suppress it for an operator). |
-| `payload_expr` / `reply_expr` | `tool` targets: jq mapping the message to the tool kwargs and the result to the reply. |
+| `start_expr` / `reply_expr` / `cancel_expr` / `resume_expr` / `extras_expr` | Either target kind: jq mapping the message to the run's kwargs, the result to the reply, and driving the run's [parked interactions](/concepts/asking-the-caller). |
 | `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
 | `callback_url` | `api` rows, optional: the HTTPS answer sink; without one, answers are read from the poll door. |
 | `overlap` | The [overlap policy](#when-messages-overlap): how a running turn treats newer messages on the same thread — leave it, cancel it, or carry a burst into one turn. The default leaves each message its own turn. |
@@ -66,14 +66,20 @@ the `tai conversations` CLI, or the `/api/conversations` routes; see the
 A `target_kind` of **`agent`** runs a registered agent as the turn: it streams on the
 route's thread, so the conversation carries memory across messages. A `target_kind`
 of **`tool`** dispatches a registered tool **statelessly** — no conversation memory,
-one message in and one reply out — with two optional jq programs shaping the call:
+one message in and one reply out. **Either** kind carries the route's optional jq
+programs shaping the call:
 
-- **`payload_expr`** maps the inbound payload `{message, sender, our_identity,
-  channel}` to the tool's kwargs; without it the kwargs are `{message, sender}`.
-- **`reply_expr`** maps the tool's result to the reply text; without it the result
+- **`start_expr`** maps the inbound payload `{message, sender, our_identity,
+  channel}` to the run's kwargs — a tool's kwargs, or an agent's `astream` kwargs;
+  without it a tool gets `{message, sender}` and an agent reads the rendered turn text.
+- **`reply_expr`** maps the run's result to the reply text; without it a tool result
   must itself be a string or `null`. It only ever sees a **successful** result: a
   turn that ends on a non-success terminal status (`aborted`, `stopped`, `error`)
-  skips the mapping and resolves as the client-safe `error` outcome instead.
+  skips the mapping and resolves as the client-safe `error` outcome instead. It also
+  binds `$turn`, `$asks`, and `$parked` (see [jq variables](/concepts/jq-variables#route-reply)).
+- **`cancel_expr` / `resume_expr` / `extras_expr`** — the [door
+  contract](/concepts/asking-the-caller#the-door-contract) driving the run's parked
+  interactions, each reading `$parked`.
 
 The payload also carries a **`params`** object when the inbound entry supplied one —
 a web-channel visitor's [link parameters](/plugins/tai42/channel-web#link-parameters),
@@ -88,7 +94,7 @@ a secret the flow checks in its own store.
 
 This is the **bridge-path** counterpart of the enrichment an
 [answer](/concepts/interactions#enrichment-on-the-answer) carries: when a tap
-**answers** a pending `ask_user` its context rides the answer's `params`, and when the
+**answers** a pending `ask` its context rides the answer's `params`, and when the
 same tap is instead **bridged** as a fresh turn (no pending ask, or a `bridge`-policy
 digression) it rides this payload `params` — the same enrichment on either arm, never
 dropped.
@@ -110,9 +116,15 @@ to tool targets (a registered preset or a plain tool). An `agent` target takes n
 route with `target_kind: agent` that carries a `state_binding` is refused at save (`400`).
 
 A tool or flow target need not answer in one synchronous step either. Like an agent
-target, its turn can async-park on an `ask_user` — pausing for a person's answer or
+target, its turn can async-park on an `ask` — pausing for a person's answer or
 its expiry — and deliver its resumed reply back into the originating thread later,
 mapped through the route's reply mapping.
+
+A run may also [ask its caller](/concepts/asking-the-caller) (`to="caller"`) rather
+than a person. When a turn asks its caller instead of finishing, its `reply_expr` sees
+those asks in `$asks` and maps them to the reply, and the route's `resume_expr`
+resolves them on the next visit — the [door
+contract](/concepts/asking-the-caller#the-door-contract) in full.
 
 ### Structured participant messages
 
@@ -122,7 +134,7 @@ submission — the text is a faithful rendering of the submission and stays the 
 turn every consumer sees: an `agent` target reads the text only, the transcript
 records the text, and a form-unaware route behaves exactly as before. The structured
 copy rides **beside** the text: a `tool` target's payload carries it under a `form`
-key, present **only** when the inbound carried one, so an existing `payload_expr`
+key, present **only** when the inbound carried one, so an existing `start_expr`
 sees a byte-identical payload for a form-less inbound — a route maps the form
 deliberately or not at all. The answer record keeps the object as `inbound_form`,
 published on the admin and caller-safe reads alike.

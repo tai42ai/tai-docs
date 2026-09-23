@@ -111,17 +111,17 @@ tai hooks delete-trigger-link daily-digest
 
 Each fired hook runs its tool with a **shallow, top-level merge** of three sources, strongest last:
 
-1. the hook's `expr` output over the scan payload (weakest — the scan influences it),
-2. the hook's static `tool_kwargs`,
-3. the link's `--params` (strongest — the most specific operator intent).
+1. the hook's `start_expr` output over the scan payload (weakest — the scan influences it),
+2. the link's `--params`,
+3. the hook's static `tool_kwargs` (strongest — a pin the link cannot override).
 
-A scan's query string reaches the tool **only** when the hook opts in with an `expr` that maps it. Register a hook whose `expr` lifts `?name=` into the tool input:
+A scan's query string reaches the tool **only** when the hook opts in with a `start_expr` that maps it. Register a hook whose `start_expr` lifts `?name=` into the tool input:
 
 ```bash
-tai hooks register --params '{"name":"greet","topic":"events","tool":"notify","expr":{"content":"{who: .name}"}}'
+tai hooks register --params '{"name":"greet","topic":"events","tool":"notify","start_expr":{"content":"{who: .name}"}}'
 ```
 
-Now `GET /trigger/<token>?name=Ada` fires `notify` with `{"who":"Ada"}` — unless the hook's `tool_kwargs` or the link's `--params` also set `who`, which win over the scanned value.
+Now `GET /trigger/<token>?name=Ada` fires `notify` with `{"who":"Ada"}` — unless the link's `--params` or the hook's static `tool_kwargs` also set `who`, which win over the scanned value.
 
 <Warning>
 **Treat the URL — and its QR — as a capability.** Anyone who holds it fires the topic, for as long as the link lives. Revoke on any leak, and "leak" is broader than a copied link: the token rides the URL **path**, so it lands in reverse-proxy and server **access logs** — a log reader gains fire-capability. Automated URL fetchers leak it by *firing* it: chat and mail **link-preview unfurlers** and security scanners issue exactly the bare `GET` that fires the link, so pasting the URL into a chat can fire the topic before a human ever scans it. Mitigate with short `--ttl` and prompt revocation.

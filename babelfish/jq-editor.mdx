@@ -54,9 +54,13 @@ That fallback lives inside the dialog; it is not a tab. See
 
 ## What each field seeds
 
-Every jq field names what `.` is at its site, so the editor's **Test** panel seeds a
-sample of the right input shape and — where the engine exposes a matching validator —
-the **Validate** action checks the right shape server-side:
+Every jq field follows one rule for what it reads: **`.` holds only the data the
+expression is about, and everything the platform adds beside it — the state
+documents, the run identity, the loop context — arrives as a named jq variable**
+([the platform-wide rule](/concepts/jq-variables)). So each field names what `.` is
+at its site, and the editor's **Test** panel seeds a sample of that shape plus a
+skeleton for each variable the site binds; where the engine exposes a matching
+validator, the **Validate** action checks the same shape server-side:
 
 - a node **expression** and a **conditional** or **branch** condition see the **node
   envelope** — the run's inputs and the upstream nodes' outputs, with this node's
@@ -65,33 +69,59 @@ the **Validate** action checks the right shape server-side:
   node's error on `.upstream_outputs` (`.error`, `.error_type`, `.error_kind`,
   `.additional`);
 - a node's **return expression** sees the narrow **return namespace** — only
-  `.result`, `.outputs`, `.flow_graph_kwargs`, and `.states`; here `.upstream_outputs`
-  is a **hard build error**, not a null;
+  `.result`, `.outputs`, and `.flow_graph_kwargs`; here `.upstream_outputs` is a
+  **hard build error**, not a null;
 - a binding's **input injection** jq runs after the node's input is assembled, before the node runs: a
   template `input` program sees the **record** (`.` is the subject's document at the
   attach path) with its declared `params` bound as the single object `$params`; a
-  **custom** injection sees `{record, input}` — `.record` the bound record, `.input`
-  the node's input so far — and its value is placed into the input at the injection's
-  `into` field;
-- a binding's **update** jq runs after the node completes: a template `update` program
-  sees `{record, input}` — `.record` the bound record, `.input` the adapter's output —
-  and a **custom** update sees `{record, output, input}` (`.output` the node's output,
-  `.input` its input); either returns a template-relative **op batch**
-  (`[{op, path, value}]`), and a per-op compare-and-set guard rides an op as
+  **custom** injection reads the bound **record** as `.` with `$input` the node's
+  input so far, and its value is placed into the input at the injection's `into`
+  field;
+- a binding's **update** jq runs after the node completes and reads the node's
+  **output** as `.`: a template `update` picks a named update program and shapes its
+  declared input through an **adapter** (`.` the node output, `$input` the run input),
+  while a **custom** update reads `.` the node output with `$record` the bound record
+  and `$input` the run input and returns the template-relative **op batch**
+  (`[{op, path, value}]`), where a per-op compare-and-set guard rides an op as
   `{path, expected}`;
-- an update's **adapter** jq sees `{output, input}` — the node's output and input — and
-  returns the named update program's declared input object;
+- an update's **op-id** jq reads the node's **output** as `.` with `$input` the run
+  input, and returns the key the write dedupes on;
 - a binding's **subject** and **scope** expressions see the bare **flow inputs** document
-  (`.` is `flow_graph_kwargs`, with no envelope);
-- a loop's **`while` condition** sees the **node envelope with `.iterate` present** —
-  `.iterate.item` is always null there, while `.iterate.prior_outputs` holds the
+  (`.` is `flow_graph_kwargs`, no envelope; `scope_expr` must return true or false);
+- a **holder** node's **Cancel**, **Resume**, **Start**, and **warm-start** jqs see the
+  **node envelope** with the held target's parked interactions bound as `$parked`;
+- a loop's **`while` condition** sees the **node envelope** with `$iterate` present —
+  `$iterate.item` is always null there, while `$iterate.prior_outputs` holds the
   per-iteration results the condition tests;
 - a loop's **`foreach` expression** and a string loop **`count`** see the **node
-  envelope** — for a `foreach` driver `.iterate` is the *enclosing* loop, not this
+  envelope** — for a `foreach` driver `$iterate` is the *enclosing* loop, not this
   one; a `count` runs jq only when the count is a string (a literal number bypasses
   it);
-- a **map item argument** sees the **loop-body envelope**, where `.iterate.item` is
-  the current item (never null here) and `.iterate.iteration` its zero-based position.
+- a **map item argument** sees the **loop-body envelope**, where `$iterate.item` is
+  the current item (never null here) and `$iterate.iteration` its zero-based position.
+
+## The variables beside the input
+
+Beside `.`, every flow jq binds the run's context as named variables, reachable
+anywhere in the expression — inside a `map(...)` or `select(...)` too, where `.` is
+rebound. The editor lists them on each field and seeds a sample for each in the Test
+panel:
+
+| Variable | What it holds |
+| --- | --- |
+| `$states` | The run's committed state documents, read as `$states.<name>.<field>`; null on a stateless run. |
+| `$run` | The current run's identity — `$run.id` the session id, `$run.epoch` the state-mint epoch (null before one is sealed). |
+| `$iteration` | The enclosing loop's zero-based position (0 outside a loop). |
+| `$iterate` | The enclosing loop context, or null outside a loop; inside a body `$iterate.item` is the current item and `$iterate.iteration` its position. |
+| `$attachments` | The attachment envelope the template `attachment(...)` locator reads. |
+| `$current_user` | The calling user's id, or null for an anonymous caller. |
+
+A **holder** node's own jqs add `$parked` — the parked interactions on the held
+target, a list of `{id, status, …}` (status `asking`, `running`, `finished`, or
+`failed`). A **state-binding** jq adds `$input` (the run input) and, on a custom
+update, `$record` (the subject's committed record). A read of an **undeclared**
+variable is a compile-time refusal at save, never a silent null. The names the
+platform binds cannot be rebound with `... as $name`.
 
 ## Autocomplete from a state's template jq
 
@@ -106,6 +136,7 @@ bound state's templates, so they track whatever the attachment declares.
 
 ## See also
 
+- [jq variables](/concepts/jq-variables) — the one rule for a jq's input and its named variables, across every platform surface.
 - [The jq editor](/studio/jq-editor) — jq-studio, the built-in editor the flow editor renders, and how to embed it in your own app.
 - [The visual jq editor](/babelfish#the-visual-jq-editor) — the editor as it appears in the flow canvas: its node vocabulary, the faithfulness guarantee, and the editor shell.
 - [Babelfish Flows](/babelfish) — the flow engine whose fields author through this editor.

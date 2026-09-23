@@ -1,0 +1,167 @@
+---
+title: "Asking the caller"
+description: "A run that pauses to ask the run that called it, and the door contract that resolves it."
+icon: "reply"
+---
+
+An [interaction](/concepts/interactions) normally asks a **person**. A **caller
+ask** asks the **run that called this one** instead: the asking run pauses and hands
+its question up, and the calling run answers by resuming it. Nothing reaches a human
+inbox and nothing is delivered out of band — the question lives entirely between the
+two runs.
+
+A tool or agent raises one by passing `to="caller"` to [`ask`](/concepts/interactions):
+
+```python
+answer = await ask(
+    "proceed?",
+    answer_format="confirm",
+    to="caller",
+    mode="async",
+    expiry_at=deadline,
+)
+```
+
+`to="caller"` is always `mode="async"` and requires an ambient state context — the
+ask **parks** the asking run and returns a suspension sentinel at once. The answer is
+handed back by whoever resolves the park, never by an answer door. A caller ask may
+carry a structured **`payload`** the resolving run reads in place of (or beside) the
+`question`; `payload` is forbidden on a `to="user"` ask.
+
+## Parks on the subject
+
+A caller ask parks on the asking run's **subject** — the same subject a
+[state binding](/concepts/states#a-bindings-subject-and-scope) resolves. Every park on
+that subject is one **parked entry**, and the run that owns the subject sees the whole
+set. An entry carries its `id` and `status` and, while it is a live ask, its
+addressing and question fields:
+
+```json
+{
+  "id": "i-42",
+  "status": "asking",
+  "to": "caller",
+  "asked_by": ["main"],
+  "question": "proceed?",
+  "answer_format": "confirm",
+  "group_id": "g-1"
+}
+```
+
+A `status` is one of `asking` (a pending ask), `running` (an ask being resumed),
+`finished` (a resolved run's waiting outcome holding a result), or `failed` (a
+resolved run's waiting outcome that raised). An entry's unset optional fields are
+**absent**, never present as null keys.
+
+A tool run through the background **submit** door answers a park exactly as the
+synchronous run-tool door does: its run record ends `status: parked` carrying the
+`asks` entries above when the tool asked its caller — else the suspension sentinel
+when only a `to="user"` ask is open — alongside the `resumed_interactions` it
+resolved on the way.
+
+## The door contract
+
+A **door** that can drive a parkable run — a [conversation
+route](/reference/conversation-bridge), a [hook](/concepts/hooks), or a
+[schedule](/guides/schedule-a-tool) — carries up to four optional jq expressions, the
+**door contract**. Each runs over the door's own input document with the run's parked
+entries bound as the jq variable [`$parked`](/concepts/jq-variables), so an author
+branches on what is already parked:
+
+| Expression | Yields | Effect |
+| --- | --- | --- |
+| `cancel_expr` | `null`, an id, or a list of ids | Cancel each named park (a whole-chain kill). |
+| `resume_expr` | `null`, `{id, payload}`, a bare id, or a list of these | Resume an ask with an answer (`{id, payload}`), or **take** a waiting outcome (a bare id). |
+| `start_expr` | an object, or `null` | The kwargs the started target runs on; `null` starts nothing. No `start_expr` starts the door's own default kwargs. |
+| `extras_expr` | an object, or `null` | The [`extras`](#extras) mapping handed to the started target. |
+
+Each expression yields **one** value; a program that emits more than one, or a result
+outside the shape its column names, is a loud error, never a silent default. An
+undeclared `$name` is refused at save.
+
+```jq
+# cancel_expr — cancel every parked interaction:
+[$parked[].id]
+
+# resume_expr — answer the first pending confirm ask:
+{id: $parked[0].id, payload: {answer: "yes"}}
+
+# start_expr — pass the count of what is already parked to the started run:
+{payload: .msg, waiting: ($parked | length)}
+```
+
+At most **one** non-cancel action runs per visit: a door resumes, or takes, or starts
+— cancels always run first. The order is fixed for every door.
+
+## Resume, take, and cancel
+
+- **Resume** an `asking` caller ask by naming its `id` with a `payload`: the payload
+  is the answer, the parked run resumes under its own identity, and its next outcome —
+  a result, fresh caller asks, or a re-park — comes back.
+- **Take** a `finished` waiting outcome by naming its bare `id`: the resolved run's
+  result is returned. Taking a `failed` outcome **raises**, so the taker fails as the
+  resolved run did.
+- **Cancel** any parked interaction by naming its `id`: it and every run linked above
+  it are torn down for good. A run a door started with a receiver is delivered a single
+  failure.
+
+## Waiting outcomes
+
+When a resumed run finishes but the run that resumed it cannot take the result inline —
+a [hook](/concepts/hooks) or a [schedule](/guides/schedule-a-tool) fire has no
+receiver — the terminal **waits** on the subject as a `finished` (or `failed`) parked
+entry. The subject's next owner **takes** it. A waiting outcome never taken is dropped
+past a retention horizon and the drop is surfaced as a platform event, never lost
+silently.
+
+## Extras
+
+`extras_expr` builds an **extras** mapping handed to the started target beside its
+kwargs. A target declares the extras keys it reads at registration; the visit refuses
+an **undeclared** key before the run starts, so an extras injection never reaches a
+target that never asked for it. `extras` ride only a **start** — never a resume, take,
+or cancel.
+
+## The generic tools
+
+A run inspects and resolves the parks on its own subject with three builtin tools —
+the LLM-facing face of the same door contract:
+
+| Tool | What it does |
+| --- | --- |
+| `list_parked()` | Return every parked interaction on the run's subject — the full entries above. |
+| `resume_parked(interaction_id, payload=…)` | With `payload`, resume that ask with the answer; with `payload` omitted, **take** the named waiting outcome. |
+| `cancel_parked(ids)` | Whole-chain kill each named interaction. |
+
+They read and write the same subject a door contract does, so an agent resolves a
+caller ask by hand exactly as a route resolves one by jq.
+
+## Hidden from the inbox
+
+A caller ask is **not** a human question. Every user-facing read surface hides it and
+every user-facing resolution door refuses it: it never appears in the [interactions
+inbox](/concepts/interactions#the-doors) or its stream, and the human answer door
+rejects it — a caller ask is resolved only by its calling run resuming, never by a
+person.
+
+## The concurrency cap
+
+Caller asks — and the waiting outcomes they leave behind — are bounded by their **own**
+ceiling, `INTERACTIONS_MAX_CONCURRENT_CALLER` (default `10000`), independent of
+`INTERACTIONS_MAX_CONCURRENT`, which bounds `to="user"` asks. A caller ask at the cap
+is refused loudly, exactly as a user ask is at its cap; a finished run's waiting
+outcome is counted here but **never** refused, so a result is never lost.
+
+## Expiry
+
+A caller ask carries a deadline like any async park, and its `on_expiry` decides what
+a lapsed deadline does: **`kill`** (the default) tears the whole run chain down, while
+**`resume`** resumes the parked run with the reserved expiry marker so it takes its
+expiry branch. See [async parks](/concepts/interactions#sync-and-async).
+
+## See also
+
+- [Interactions](/concepts/interactions) — the human ask this parallels.
+- [jq variables](/concepts/jq-variables) — `$parked` and every other variable a door jq binds.
+- [Conversation bridge](/reference/conversation-bridge) — a route as a parkable door.
+- [Hooks](/concepts/hooks) and [scheduling a tool](/guides/schedule-a-tool) — the other parkable doors.

@@ -1,6 +1,6 @@
 ---
 title: "Use interactions"
-description: "Ask a human mid-run with ask_user, and drive external approvals with ask_external."
+description: "Ask a human mid-run with ask, and drive external approvals with ask_external."
 icon: "comments"
 ---
 
@@ -8,13 +8,13 @@ import EnableInteractions from '/snippets/examples/interactions/enable_interacti
 import InteractionsAnswerHelp from '/snippets/examples/interactions/interactions_answer_help.mdx';
 import AttachAskExternal from '/snippets/examples/interactions/attach_ask_external.mdx';
 import AskWithMedia from '/snippets/examples/interactions/ask_with_media.mdx';
-import ChargeThroughStripe from '/snippets/examples/interactions/charge_through_stripe.mdx';
+import ConfirmThroughExternal from '/snippets/examples/interactions/confirm_through_external.mdx';
 
 Pause a run to ask a person a question and block until they answer.
 [Interactions](/concepts/interactions) explains the model this configures.
 
 An interaction suspends the caller mid-run, records the question, and wakes the
-caller with the answer. The `ask_user` tool is the core capability; `ask_external`
+caller with the answer. The `ask` tool is the core capability; `ask_external`
 extends it to human actions that happen on an outside surface. This guide enables
 the feature, asks in each answer format, answers from the CLI, and wires an
 external callback end to end. For the model behind it, see
@@ -22,16 +22,16 @@ external callback end to end. For the model behind it, see
 
 ## Enable interactions
 
-Load the `ask_user` tool module and the interactions HTTP router — the SSE inbox
+Load the `ask` tool module and the interactions HTTP router — the SSE inbox
 stream plus the human answer door.
 
 <EnableInteractions />
 
-An agent or tool that has `ask_user` in scope can now pause and ask.
+An agent or tool that has `ask` in scope can now pause and ask.
 
 ## Ask a question
 
-`ask_user(question, answer_format=...)` is called from inside a tool or agent run.
+`ask(question, answer_format=...)` is called from inside a tool or agent run.
 It records the question, blocks the caller, and returns the typed answer once a
 person responds (or raises on timeout). One question declares one **answer
 format**:
@@ -45,13 +45,13 @@ format**:
 | `external` | an action on an outside surface | callback payload | `link` (required) |
 
 The first four are answered on the authenticated **in-client** surface. Example
-`ask_user` calls (the tool input a caller passes):
+`ask` calls (the tool input a caller passes):
 
 ```json
 {"question": "What should the release title be?", "answer_format": "text"}
 {"question": "Ship the 2.0 release now?", "answer_format": "confirm"}
 {"question": "Pick a target environment", "answer_format": "select", "options": ["staging", "production"]}
-{"question": "Enter the customer contact", "answer_format": "form", "schema": {"type": "object", "properties": {"name": {"type": "string"}, "email": {"type": "string"}}, "required": ["name"]}}
+{"question": "Enter a contact", "answer_format": "form", "schema": {"type": "object", "properties": {"name": {"type": "string"}, "email": {"type": "string"}}, "required": ["name"]}}
 ```
 
 An optional `group_id` threads related questions, and `timeout` (seconds)
@@ -59,7 +59,7 @@ overrides the configured default before the call raises.
 
 ## Block or park: sync and async
 
-By default `ask_user` runs `mode="sync"`: it blocks the caller until a person
+By default `ask` runs `mode="sync"`: it blocks the caller until a person
 answers or the `timeout` elapses, then returns the typed answer (as above).
 
 `mode="async"` instead **parks** the caller. The call records the question — and,
@@ -80,12 +80,20 @@ moment:
 - `expiry_at` and `timeout` are **mutually exclusive** — they bound the same wait
   two ways, and passing both raises. `expiry_at` is valid only with `mode="async"`.
 
-When the answer arrives, or when `expiry_at` passes with no answer, the run resumes
-on its own: a stored continuation runs under the **asker's** identity, exactly
-once. On expiry the continuation receives a reserved *interaction expired* marker in
-place of an answer, so the run takes its expiry branch. Async requires the ask to
-be raised from a resumable run — a resuming driver and an execution identity bound
-in scope; raised without one it fails loudly rather than silently blocking.
+When the answer arrives, the run resumes on its own: a stored continuation runs under
+the **asker's** identity, exactly once. What a lapsed `expiry_at` does is the ask's
+**`on_expiry`** policy: `on_expiry="kill"` (the default) tears the whole run chain
+down, while `on_expiry="resume"` resumes the continuation with a reserved *interaction
+expired* marker in place of an answer, so the run takes its expiry branch — set it when
+the run has an expiry path to run.
+
+```json
+{"question": "Approve the deploy?", "answer_format": "confirm", "mode": "async", "expiry_at": "2026-06-01T12:00:00Z", "on_expiry": "resume"}
+```
+
+Async requires the ask to be raised from a resumable run — a resuming driver and an
+execution identity bound in scope; raised without one it fails loudly rather than
+silently blocking.
 
 An async park also requires the run to sit on a **durable, cross-worker
 checkpointer** — `redis` or `postgres`. The parked run's continuation may resume on
@@ -96,13 +104,14 @@ leaving a run nothing could resume.
 
 ### Park several at once
 
-A run can raise more than one async `ask_user` before it suspends — a parallel
+A run can raise more than one async `ask` before it suspends — a parallel
 fan-out. Each ask is independent: it carries its own `expiry_at`, and its answer or
 expiry can arrive in any order, from any surface, on any worker. The run stays parked
 until the **last** of them resolves, then resumes once with every answer in hand. An
-ask that expires contributes the reserved *interaction expired* marker to its own
-branch; its siblings' answers ride the same resume. Nothing resumes the run part-way
-— a partial set of answers buys no progress.
+`on_expiry="resume"` ask that expires contributes the reserved *interaction expired*
+marker to its own branch and its siblings' answers ride the same resume; an
+`on_expiry="kill"` ask that lapses instead tears the whole fan-out down. Nothing
+resumes the run part-way — a partial set of answers buys no progress.
 
 ### Agents park too
 
@@ -130,6 +139,15 @@ channel delivers its resumed reply back the same way — mapped through the rout
 reply mapping — so a conversation target of any kind lands its late answer in the
 originating thread.
 
+### Ask the caller instead of a person
+
+Pass `to="caller"` to address the ask to the **run that called this one** rather than
+a person: it parks the asking run and hands the question up, and the calling run
+answers by resuming it — no inbox, no channel, no callback. A caller ask is always
+`mode="async"`, may carry a structured `payload` the resolving run reads in place of
+the `question`, and follows the same `on_expiry` policy. See [asking the
+caller](/concepts/asking-the-caller) for the door contract that resolves it.
+
 ### The deadline and the retention window
 
 `expiry_at` is the ask's own deadline. It is independent of the **checkpoint
@@ -150,12 +168,12 @@ See [Interactions](/concepts/interactions#sync-and-async) for the model.
 ## Show images and links with a question
 
 Any question can carry **media** — images and links shown above the answer
-controls in the inbox — by passing `media=[...]` to `ask_user`. Media is
+controls in the inbox — by passing `media=[...]` to `ask`. Media is
 display-only: the person still answers through the `answer_format`. The canonical
 use is a `select` that shows each choice:
 
 ```python
-answer = await ask_user(
+answer = await ask(
     "Which report format do you want?",
     answer_format="select",
     options=["csv", "summary"],
@@ -172,7 +190,7 @@ against the contract before the question is stored:
 
 <AskWithMedia />
 
-An agent asks with the builtin `ask_user` tool using the same shape; `media` is an
+An agent asks with the builtin `ask` tool using the same shape; `media` is an
 array of the same objects:
 
 ```json
@@ -263,93 +281,88 @@ bearer capability — and Redis. Callback payloads arrive through an
 unauthenticated door, so treat every delivered answer as untrusted input.
 </Note>
 
-## Charge through Stripe
+## Confirm through an external system
 
-A payment ask is an `external` question whose outside surface is a Stripe Checkout
-page. The composed `create_stripe_checkout_ask_external` tool opens the ask, the
-payer pays on Stripe's hosted page, Stripe signs a `checkout.session.completed`
-webhook, and a bridge hook answers the blocked caller. Two per-question locks make
-that flow safe to hand an LLM, and a preset makes the money un-forgeable by the
-agent. Everything below is what an operator deploys, in order.
+A confirmation ask is an `external` question whose outside surface is a resource the
+external party acts on. The composed `request_confirmation_ask_external` tool opens
+the ask, the party confirms on that surface, the external system signs a
+confirmation webhook, and a bridge hook answers the blocked caller. Two per-question
+locks make that flow safe to hand an LLM, and a preset makes the confirmation
+un-forgeable by the agent. Everything below is what an operator deploys, in order.
 
 ### The two per-question locks
 
-An ask that merely "waits for a Stripe payment" is not amount-bound. Two locks
-bind it, both declared per question:
+An ask that merely "waits for a confirmation" is not request-bound. Two locks bind
+it, both declared per question:
 
 - **The verifier binding** authenticates the signed callback. Under the composed
   tool it is author-bound extension config (`verifier`), closed over at build time
   and never a call argument, so a calling agent can neither drop nor forge the
   callback authentication.
-- **The const-pinned answer `schema` IS the amount binding.** The callback door
+- **The const-pinned answer `schema` IS the request binding.** The callback door
   validates the delivered payload against it *before* it claims the ticket, and a
-  mismatch returns 400 without consuming the ticket. Pin `amount_total` and
-  `currency` to consts:
+  mismatch returns 400 without consuming the ticket. Pin `reference` and `decision`
+  to consts so a webhook can only confirm the request the ask names:
 
   ```json
   {
     "type": "object",
-    "required": ["amount_total", "currency"],
-    "properties": {"amount_total": {"const": 50000},
-                   "currency": {"const": "usd"}}
+    "required": ["reference", "decision"],
+    "properties": {"reference": {"const": "A-42"},
+                   "decision": {"const": "confirmed"}}
   }
   ```
 
   Under the composed tool this is the `answer_schema` argument; under a direct
-  `ask_user` call it is `schema=`. **An ask without it is not amount-bound.**
+  `ask` call it is `schema=`. **An ask without it is not request-bound** — any
+  signed webhook the door accepts would claim the ticket, whatever request it
+  confirmed.
 
-`status` is deliberately NOT pinned: the answer builder hard-codes `"paid"`, so a
-`status` const would constrain nothing and would read like a control that is not
-really there.
+### The pinning preset is required, not optional
 
-### The money-pinning preset is required, not optional
+Every request-facing parameter — `reference`, `return_url` AND `answer_schema` — is
+an agent-suppliable argument on the composed `request_confirmation_ask_external`
+tool. An agent that reads an injected instruction can therefore point the ask at a
+different `reference`, redirect the external party to an attacker page, or drop the
+pin entirely (`answer_schema` defaults to `None`, leaving the ask claiming whatever
+the bridge posts).
 
-Every money and payer-facing parameter — `amount`, `currency`, `product_name`,
-`success_url`, `cancel_url` AND `answer_schema` — is an agent-suppliable argument
-on the composed `create_stripe_checkout_ask_external` tool. An agent that reads an
-injected instruction can therefore charge what it likes, redirect a backing-out
-payer to an attacker page, or drop the pin entirely (`answer_schema` defaults to
-`None`, leaving the ask claiming whatever the bridge posts).
-
-The fix is a preset that bakes all six as hidden fixed constants — removed from
-the exposed schema, and rejected outright if a caller passes one. `amount_total`'s
-const is written from the SAME literal as `amount`, and `currency`'s const from
-the same literal as `currency`, so the price and the pin cannot disagree (both
-lowercase). **Give agents the preset and never the raw composed tool.**
+The fix is a preset that bakes all three as hidden fixed constants — removed from
+the exposed schema, and rejected outright if a caller passes one. `answer_schema`'s
+`reference` const is written from the SAME literal as `reference`, so the request
+and the pin cannot disagree. **Give agents the preset and never the raw composed
+tool.**
 
 ```json
 {
-  "name": "buy_one_credit",
-  "base_tool": "create_stripe_checkout_ask_external",
-  "description": "Ask the customer to pay for one credit.",
+  "name": "confirm_a42",
+  "base_tool": "request_confirmation_ask_external",
+  "description": "Ask the external party to confirm request A-42.",
   "fixed_kwargs": {
-    "amount": 50000,
-    "currency": "usd",
-    "product_name": "one credit",
-    "success_url": "https://acme.example/thanks",
-    "cancel_url": "https://acme.example/cancelled",
+    "reference": "A-42",
+    "return_url": "https://acme.example/done",
     "answer_schema": {
       "type": "object",
-      "required": ["amount_total", "currency"],
-      "properties": {"amount_total": {"const": 50000},
-                     "currency": {"const": "usd"}}
+      "required": ["reference", "decision"],
+      "properties": {"reference": {"const": "A-42"},
+                     "decision": {"const": "confirmed"}}
     }
   }
 }
 ```
 
 Note what is NOT there: an `extensions` key. An explicit `"extensions": []` is
-rejected with a 400 (omit the field for no extensions). `currency` and its const
-are lowercase — the builder rejects anything else and Stripe answers lowercase, so
-an uppercase pin would 400 every real payment.
+rejected with a 400 (omit the field for no extensions). `decision` is pinned to
+`"confirmed"` so a declined or partial answer cannot claim the ticket as a
+confirmation.
 
 <Warning>
 **This preset JSON is the reviewed artifact.** The platform never validates a
 schema's *shape*, so a human reading this body is where the pin's correctness
 actually lives — and it holds only for as long as nobody rewrites the stored body
 through `POST /api/presets/{name}/versions`, which is a plain `write` door that
-replaces `fixed_kwargs` wholesale. On a deployment that takes payments, `write`
-can rewrite the money pin itself.
+replaces `fixed_kwargs` wholesale. On a deployment that acts on confirmations,
+`write` can rewrite the binding itself.
 </Warning>
 
 ### Manifest wiring
@@ -359,22 +372,26 @@ Three pieces compose the flow: the `stripe` verifier under the canonical
 `shared_secret` verifier under `lifecycle_modules` (it authenticates the *bridge*
 at the callback door, and loads only through the manifest — without it the
 per-question binding fails closed); and `ask_external` under `extensions_modules`,
-ATTACHED to `create_stripe_checkout` through the `extensions` map. The attachment
-map is the piece that actually composes the agent-facing tool — loading the
-extension module without it gives the bare builder and no composed tool at all.
+ATTACHED to `request_confirmation` through the `extensions` map. The attachment map
+is the piece that actually composes the agent-facing tool — loading the extension
+module without it gives the bare builder and no composed tool at all.
 
-<ChargeThroughStripe />
+<ConfirmThroughExternal />
 
-When not on the distribution image (which ships them), install the Stripe
-tools with `pip install tai42-tools-stripe`.
+The `stripe` verifier ships in `tai42-webhook-verifier-stripe` (present on the
+distribution image; elsewhere install it with `pip install
+tai42-webhook-verifier-stripe`). The `request_confirmation`, `confirm_action` and
+`reconcile_confirmations` tools are the deployment's own.
 
 ### Operator prerequisites
 
-Beyond the manifest, a payments deployment needs:
+Beyond the manifest, the deployment needs:
 
-- **`STRIPE_SECRET_KEY`** — a secret key OR a restricted key.
-- **A dashboard webhook endpoint with its API version pinned explicitly**, plus
-  its signing secret in the env var the topic binding names (`secret_env`).
+- **The external system's API credential** — read by the reconcile tool to list
+  recent confirmations from the external system.
+- **A webhook endpoint configured on the external system**, its API version pinned
+  explicitly where the provider versions its payloads, plus its signing secret in
+  the env var the topic binding names (`secret_env`).
 - **`INTERACTIONS_PUBLIC_BASE_URL`** — an `https://` origin. It is both the
   reachability requirement for the minted callback URL and the ground truth the
   bridge's SSRF pin compares against.
@@ -387,14 +404,14 @@ Beyond the manifest, a payments deployment needs:
   whole retry ladder against it — an operator fix (set the secret), not a code
   one.
 - **A configured versioned-document store.** Without it no preset can be created
-  at all — the money pin itself cannot exist.
+  at all — the binding itself cannot exist.
 - **A PUBLIC route row** for `/universal_webhook/*` on an access-control-enabled
-  deployment. That door is unauthenticated by nature (Stripe carries no API key)
-  and is a non-`/api` path the gate's declared-public tier does not reach, so it
-  needs the row. An unconfigured route 403s, and a 403 is on the bridge's
-  fail-fast list — i.e. paid-but-unanswered. The `/api/interactions/callback/*`
-  door needs no row: it registers `authed=False`, so the gate publics it straight
-  from its declaration.
+  deployment. That door is unauthenticated by nature (the external system carries
+  no API key) and is a non-`/api` path the gate's declared-public tier does not
+  reach, so it needs the row. An unconfigured route 403s, and a 403 is on the
+  bridge's fail-fast list — i.e. confirmed-but-unanswered. The
+  `/api/interactions/callback/*` door needs no row: it registers `authed=False`, so
+  the gate publics it straight from its declaration.
 
 ### Bind, register, bake — in this order
 
@@ -404,55 +421,51 @@ bridge — ingress verification runs only when a binding exists. There is a seco
 stronger reason: a `/trigger/{token}` link cannot be minted on a verifier-bound
 topic at all (the mint is refused 400), so binding first shuts that door before it
 can be opened; bind late and any holder of `hooks` write can mint a link on the
-still-unbound payments topic in the gap.
+still-unbound topic in the gap.
 
 ```bash
 # 1. bind the verifier to the topic (admin-fenced route) — ALWAYS FIRST
-curl -X PUT .../api/hooks/topics/payments/verifier \
-  -d '{"verifier": "stripe", "config": {"secret_env": "STRIPE_WEBHOOK_SECRET"}}'
+curl -X PUT .../api/hooks/topics/confirmations/verifier \
+  -d '{"verifier": "stripe", "config": {"secret_env": "WEBHOOK_SIGNING_SECRET"}}'
 
-# 2. register the bridge hook — the expr is REQUIRED, the condition is required too
+# 2. register the bridge hook — the start_expr is REQUIRED, the condition is required too
 curl -X POST .../api/hooks -d '{
-  "name": "stripe-payments",
-  "topic": "payments",
-  "tool": "confirm_stripe_payment",
+  "name": "confirmations-bridge",
+  "topic": "confirmations",
+  "tool": "confirm_action",
   "execution_key": "<key user_id>",
-  "condition": {"content": ".type == \"checkout.session.completed\""},
-  "expr": {"content": "{event: {type: .type, id: .id, session: (.data.object | {id, payment_intent, payment_status, amount_total, currency, livemode, customer_email: (.customer_details.email? // null), metadata})}}"}
+  "condition": {"content": ".type == \"confirmation.completed\""},
+  "start_expr": {"content": "{event: {type: .type, id: .id, reference: .data.object.reference, decision: .data.object.decision, metadata: .data.object.metadata}}"}
 }'
 
-# 3. bake the money-pinning preset over the composed ask tool — the agent-facing
-#    tool. amount and answer_schema.properties.amount_total.const are the SAME
-#    number, written once; same for currency.
+# 3. bake the pinning preset over the composed ask tool — the agent-facing tool.
+#    reference and answer_schema.properties.reference.const are the SAME value,
+#    written once.
 curl -X POST .../api/presets -d '{
-  "name": "buy_one_credit",
-  "base_tool": "create_stripe_checkout_ask_external",
-  "description": "Ask the customer to pay for one credit.",
+  "name": "confirm_a42",
+  "base_tool": "request_confirmation_ask_external",
+  "description": "Ask the external party to confirm request A-42.",
   "fixed_kwargs": {
-    "amount": 50000,
-    "currency": "usd",
-    "product_name": "one credit",
-    "success_url": "https://acme.example/thanks",
-    "cancel_url": "https://acme.example/cancelled",
+    "reference": "A-42",
+    "return_url": "https://acme.example/done",
     "answer_schema": {
       "type": "object",
-      "required": ["amount_total", "currency"],
-      "properties": {"amount_total": {"const": 50000},
-                     "currency": {"const": "usd"}}
+      "required": ["reference", "decision"],
+      "properties": {"reference": {"const": "A-42"},
+                     "decision": {"const": "confirmed"}}
     }
   }
 }'
 ```
 
-The `expr` is not optional: hook dispatch passes the tool NOTHING without one, so
-`confirm_stripe_payment` would be called with no `event` and fail on every
-delivery. It is deliberately narrow to keep the payload small — but it necessarily
-carries `metadata` (holding `tai_callback_url`, a live answer capability) and
-`customer_email`. Treat hook traces on a payments topic as holding a live ticket
-plus a customer address, and restrict read access accordingly. The `condition`
-gates the hook so only `checkout.session.completed` events fire it; without it
-every event on the topic fires the bridge, which raises loudly on the wrong type
-and floods the only failure surface this design has.
+The `start_expr` is not optional: hook dispatch passes the tool NOTHING without one, so
+`confirm_action` would be called with no `event` and fail on every delivery. It is
+deliberately narrow to keep the payload small — but it necessarily carries
+`metadata` (holding `tai_callback_url`, a live answer capability). Treat hook traces
+on a confirmations topic as holding a live ticket, and restrict read access
+accordingly. The `condition` gates the hook so only `confirmation.completed` events
+fire it; without it every event on the topic fires the bridge, which raises loudly
+on the wrong type and floods the only failure surface this design has.
 
 The hook fires under its bound `execution_key`'s identity. That key is identity
 and liveness only — for a capability tool the authorization layer never runs a
@@ -462,40 +475,30 @@ refused before it fires.
 
 ### The channel constraint
 
-A payment ask can never be channel-forwarded — `verifier` is forbidden together
+A confirmation ask can never be channel-forwarded — `verifier` is forbidden together
 with `channel`, because a channel's forward is unsigned and would 401 every reply.
-Payment questions live on the inbox / API surfaces only.
-
-### The livemode rule
-
-The tools reject a session whose `livemode` disagrees with the configured key's
-mode, over four prefixes — `sk_live_`/`rk_live_` and `sk_test_`/`rk_test_`, with
-anything else raising. **A test-mode webhook endpoint must never point at a topic
-carrying the production payments hook.** Test keys are held far more widely than
-live keys, and a test-mode session satisfies a const pin exactly as a real one
-would. This assert catches a deployment mistake, not an attacker — an attacker who
-reaches the bridge authors the event and writes `livemode: true`.
+Confirmation questions live on the inbox / API surfaces only.
 
 ### The reconciliation schedule
 
 The webhook path is **single-delivery**: the ingress ACKs 200 before the hook
-runs, hook failures are only logged, and Stripe never re-delivers. A bare hook is
-therefore not a fulfillment guarantee — deploy the recovery layer as part of
-deploying payments, not as an optional extra. A deployment without it has exactly
-the old single-delivery failure story and nothing more.
+runs, hook failures are only logged, and the external system never re-delivers. A
+bare hook is therefore not a delivery guarantee — deploy the recovery layer as part
+of deploying confirmations, not as an optional extra. A deployment without it has
+exactly the old single-delivery failure story and nothing more.
 
-`reconcile_stripe_payments` lists recent Checkout Sessions from Stripe
-(`created[gte]` plus a server-side `status=complete` narrowing), selects the ones
-that are `paid` AND carry `metadata.tai_callback_url`, and answers each through the
-same pinned bridge path. It reads Stripe rather than platform state, so it recovers
-a crashed hook, an app restart mid-dispatch, and a webhook that never arrived.
-Re-answering an already-answered ask is free.
+`reconcile_confirmations` lists recent confirmations from the external system (a
+time-window query plus a server-side narrowing to completed ones), selects the ones
+that are `confirmed` AND carry `metadata.tai_callback_url`, and answers each through
+the same pinned bridge path. It reads the external system rather than platform
+state, so it recovers a crashed hook, an app restart mid-dispatch, and a webhook
+that never arrived. Re-answering an already-answered ask is free.
 
 Create the schedule through the authed schedules door:
 
 ```bash
 curl -X POST .../api/schedules -d '{
-  "tool_name": "reconcile_stripe_payments",
+  "tool_name": "reconcile_confirmations",
   "tool_kwargs": {},
   "schedule_kwargs": {"<keys the installed backend defines>": "..."}
 }'
@@ -504,50 +507,47 @@ curl -X POST .../api/schedules -d '{
 `schedule_kwargs` is passed through to the installed backend's scheduling tool, so
 its exact keys are the backend's. **When no scheduling backend is installed the
 door 501s** — there is no schedule to create, and reconciliation runs only as a
-manual authed tool call, so the fulfillment story is back to single delivery.
+manual authed tool call, so the delivery story is back to single delivery.
 
 The worker that runs the schedule needs three things the app already has: its own
-manifest must load the stripe tools module (a tool the worker never imported
-cannot run by name); its Python environment must carry `tai42-tools-stripe`
-(free on the distribution image and where app and worker share one venv, a
-separate worker image must add it); and its environment must carry
-`STRIPE_SECRET_KEY`, `TAI_BRIDGE_CALLBACK_SECRET` and `INTERACTIONS_PUBLIC_BASE_URL`
-with the callback door dialable FROM the worker. The worker's key must be the SAME
-MODE as the app's, or the livemode assert makes every run raise.
+manifest must load the confirmation tools module (a tool the worker never imported
+cannot run by name); its Python environment must carry the confirmation tools and
+the external system's client; and its environment must carry the external system's
+API credential, `TAI_BRIDGE_CALLBACK_SECRET` and `INTERACTIONS_PUBLIC_BASE_URL`
+with the callback door dialable FROM the worker.
 
 **Cadence and lookback are a coupled pair — document them together, never one
 alone.** A 15-minute cadence bounds recovery lag to well under any realistic ask
 `timeout`, and overlapping runs stay safe because every answer is idempotent. It is
-not free: at 15 minutes against the default 26-hour lookback each paid session is
-re-scanned and re-POSTed on roughly **104 consecutive runs** — ~104× the door
-traffic, Stripe list calls and log volume of a single delivery. Tightening the
-cadence multiplies the overlap; shortening the lookback shrinks the recovery
-window. Answers are serial and paced (`STRIPE_RECONCILE_ANSWER_INTERVAL_SECONDS`,
-default 1.2s) because a run is one worker address against a door that limits per
-client address; a deployment that lowers the interval to clear a bigger window must
-raise the `interactions_callback` family's budget ([flood control on public
-doors](/concepts/access-control#flood-control-on-public-doors)) in the same change.
+not free: at 15 minutes against a 26-hour lookback each confirmation is re-scanned
+and re-POSTed on roughly **104 consecutive runs** — ~104× the door traffic, external
+list calls and log volume of a single delivery. Tightening the cadence multiplies
+the overlap; shortening the lookback shrinks the recovery window. Answers are serial
+and paced (an answer interval, ~1.2s by default) because a run is one worker address
+against a door that limits per client address; a deployment that lowers the interval
+to clear a bigger window must raise the `interactions_callback` family's budget
+([flood control on public doors](/concepts/access-control#flood-control-on-public-doors))
+in the same change.
 
 **Runbook — an outage longer than the lookback is not recovered automatically.**
-Each run sees only sessions created inside `lookback_hours` of that run, so
-sessions from a longer outage have aged out of every subsequent window. After any
-outage longer than the reconciliation lookback, run `reconcile_stripe_payments`
-once by hand with a `lookback_hours` large enough to cover it (the tool accepts
-1–168 and raises outside that).
+Each run sees only confirmations created inside `lookback_hours` of that run, so
+confirmations from a longer outage have aged out of every subsequent window. After
+any outage longer than the reconciliation lookback, run `reconcile_confirmations`
+once by hand with a `lookback_hours` large enough to cover it.
 
 ### The confused deputy, and the rules that close it
 
-Stripe's signature is verified at the topic ingress. The interaction callback door
-verifies something else entirely — the `X-TAI-Bridge-Secret` header, i.e. "this
-POST came from the bridge". `confirm_stripe_payment` holds that secret and answers
+The external system's signature is verified at the topic ingress. The interaction
+callback door verifies something else entirely — the `X-TAI-Bridge-Secret` header,
+i.e. "this POST came from the bridge". `confirm_action` holds that secret and answers
 with whatever `event` dict it is invoked with. So the real trust boundary is:
-**anything in-process that can call `confirm_stripe_payment` with a crafted event
-and a live ticket can answer a payment ask** — and the blast radius is one notch
-wider still, because neither tool knows which question a callback URL belongs to.
-The capability is "answer ANY live external interaction whose ticket it is handed".
-Payment asks are the protected case precisely because they bind the verifier and
-pin the const schema; an ordinary unbound external ask has nothing that refuses a
-forged answer.
+**anything in-process that can call `confirm_action` with a crafted event and a live
+ticket can answer a confirmation ask** — and the blast radius is one notch wider
+still, because neither tool knows which question a callback URL belongs to. The
+capability is "answer ANY live external interaction whose ticket it is handed".
+Confirmation asks are the protected case precisely because they bind the verifier
+and pin the const schema; an ordinary unbound external ask has nothing that refuses
+a forged answer.
 
 There is no lever that keeps a registered tool off "every surface an LLM or API
 caller can reach": `POST /api/tool-runs`, `POST /api/schedules`,
@@ -556,43 +556,42 @@ doors at `write`, a capability tool carries no per-call authorization decision, 
 the preset version doors are `write` too. The hard requirements, stated to what
 actually enforces them:
 
-1. **Restrict `write`** on any deployment carrying a payments topic — the
+1. **Restrict `write`** on any deployment carrying a confirmations topic — the
    tool-runs, schedules, agent-runs and preset-version doors, and the MCP edge.
    ANY holder of `write` can `POST /api/tool-runs` with a crafted `event` and forge
-   an answer for any ticket they know — no Stripe access, no signing secret, no
-   hook — and can rewrite the money pin through the preset version door. `write`
-   IS the ability to forge a payment answer.
+   an answer for any ticket they know — no external access, no signing secret, no
+   hook — and can rewrite the binding through the preset version door. `write`
+   IS the ability to forge a confirmation answer.
 2. **Restrict `hooks` write** — a separate, equally hard requirement. Hook register
    is an UPSERT by name and `POST /api/hooks` is plain `write`, so a `hooks`-write
    holder can register a hook on a topic they name themselves — which has no
-   verifier bound and so an unauthenticated ingress — set
-   `tool="confirm_stripe_payment"`, bake the forged event into the hook's own
-   `tool_kwargs` (author kwargs merge strongest), bind their OWN execution key, and
-   fire it with one anonymous POST. The same upsert-by-name also lets them rewrite
-   the real payments hook's `expr` in place. Verifier binding fences DELIVERY, never
-   hook authorship; only restricting `hooks` write does that.
+   verifier bound and so an unauthenticated ingress — set `tool="confirm_action"`,
+   bake the forged event into the hook's own `tool_kwargs` (author kwargs merge
+   strongest), bind their OWN execution key, and fire it with one anonymous POST.
+   The same upsert-by-name also lets them rewrite the real bridge hook's `start_expr` in
+   place. Verifier binding fences DELIVERY, never hook authorship; only restricting
+   `hooks` write does that.
 3. **Exclude four names** from `user_tools` and every agent toolset:
-   `confirm_stripe_payment`, `reconcile_stripe_payments`, `create_stripe_checkout`
-   AND the un-preset composed `create_stripe_checkout_ask_external`. Agents are
-   given the money-pinned PRESET and nothing else. This is caller discipline with no
-   enforcing lever — an agent's toolset is what the run request names, not what the
-   manifest says — so its backstop is rule 1 on the agent-runs door.
+   `confirm_action`, `reconcile_confirmations`, `request_confirmation` AND the
+   un-preset composed `request_confirmation_ask_external`. Agents are given the
+   pinned PRESET and nothing else. This is caller discipline with no enforcing
+   lever — an agent's toolset is what the run request names, not what the manifest
+   says — so its backstop is rule 1 on the agent-runs door.
 4. **Treat tickets as secret.** The bridge secret is required in addition to the
    ticket, so a stolen ticket alone forges nothing — but a ticket plus a `write`
-   grant does. Treat hook traces, tool-run records and logs on a payments topic as
-   holding live answer capabilities and restrict read access accordingly.
+   grant does. Treat hook traces, tool-run records and logs on a confirmations topic
+   as holding live answer capabilities and restrict read access accordingly.
 5. **Never unbind the verifier while the topic is live.** The binding is the ONLY
    thing between the registered bridge hook and the open internet; unbinding turns
-   that hook into an anonymous forge endpoint instantly. Retiring a payments topic
-   means deleting the HOOK first.
+   that hook into an anonymous forge endpoint instantly. Retiring a confirmations
+   topic means deleting the HOOK first.
 
 The const-pinned schema is the control that survives a breach of rules 1–4, and its
-limit is worth stating: a forged answer must carry exactly the amount and currency
-the ask declared, or the door 400s it and leaves the ticket unconsumed. That
-defeats an attacker who cannot choose the payload — someone minting a cheap
-self-consistent session with the account's Stripe key. It does NOT defeat an
-attacker who writes the payload directly, because the pinned values are public (the
-amount is on the Stripe page the payer sees and in the session metadata).
+limit is worth stating: a forged answer must carry exactly the `reference` and
+`decision` the ask declared, or the door 400s it and leaves the ticket unconsumed.
+That defeats an attacker who cannot choose the payload. It does NOT defeat an
+attacker who writes the payload directly, because the pinned values are not secret
+(the reference is visible to the external party and in the callback metadata).
 
 ### Failure paths, stated honestly
 
@@ -609,55 +608,54 @@ retry changes. Exhaustion raises.
 **Read the reconcile run summary as five disjoint outcomes:**
 `selected == answered + already_answered + expired + rejected + len(failed)`.
 
-- `answered` is a recovered payment; `already_answered` is the healthy norm.
+- `answered` is a recovered confirmation; `already_answered` is the healthy norm.
 - **`expired`** means the ticket no longer resolves — read it as exactly that,
   nothing narrower: the tool cannot distinguish an ask that DIED from one answered
   long ago whose ticket has since aged out of its `idle_ttl_seconds` (24h default).
 - **`rejected`** is the door's 400 and nothing else — the ask's own schema pin
   refusing THIS payload — reported and never raised, so a permanently unanswerable
-  session does not fail every run. The remedy: an operator inspects the named
-  session; preset drift (a stored `fixed_kwargs` no longer matching the session's
-  amount) is the usual cause.
-- **`failed`** is everything that is not a verdict on one session — transport
-  failures, 5xx exhaustion, and the three refusals that read per-session but are
-  really deployment-wide breakage arriving one session at a time: a **403** (no
-  PUBLIC route row), a **livemode mismatch** (the wrong-mode key on the whole
-  process) and an **SSRF-pin refusal** (`INTERACTIONS_PUBLIC_BASE_URL` disagreeing
-  with every callback URL). All of `failed` is collected and raised at the END of
-  the run.
+  confirmation does not fail every run. The remedy: an operator inspects the named
+  confirmation; preset drift (a stored `fixed_kwargs` no longer matching the
+  confirmation's reference) is the usual cause.
+- **`failed`** is everything that is not a verdict on one confirmation — transport
+  failures, 5xx exhaustion, and the two refusals that read per-confirmation but are
+  really deployment-wide breakage arriving one at a time: a **403** (no PUBLIC route
+  row) and an **SSRF-pin refusal** (`INTERACTIONS_PUBLIC_BASE_URL` disagreeing with
+  every callback URL). All of `failed` is collected and raised at the END of the
+  run.
 
 TTL, lookback and cadence are three coupled numbers. The claimed-ticket TTL
 refreshes to `idle_ttl_seconds` (default **24h**) while the reconciler's default
-lookback is **26h**, so a healthy answered session reports `already_answered` for
-its first 24h in the window and `expired` for at most the last ~2h — a steady
-`expired` count on a healthy deployment is that overhang, not lost money.
+lookback is **26h**, so a healthy answered confirmation reports `already_answered`
+for its first 24h in the window and `expired` for at most the last ~2h — a steady
+`expired` count on a healthy deployment is that overhang, not a lost confirmation.
 
 <Warning>
 **One deployment-wide failure slips into `expired`.** If the callback ROUTE stops
 being served at all — a dropped ingress rule, a proxy pointed at the wrong upstream,
 the door unmounted — the origin still matches `INTERACTIONS_PUBLIC_BASE_URL`, so
-every POST draws a route-level 404, every session lands in `expired`, `failed` stays
-empty, and the run does NOT raise. Nothing in the response distinguishes it from an
-aged-out ticket; what does is the SHAPE of the summary — `expired == selected` on a
-run that should have answered something. Alert on that shape, not just on `failed`.
+every POST draws a route-level 404, every confirmation lands in `expired`, `failed`
+stays empty, and the run does NOT raise. Nothing in the response distinguishes it
+from an aged-out ticket; what does is the SHAPE of the summary — `expired ==
+selected` on a run that should have answered something. Alert on that shape, not
+just on `failed`.
 </Warning>
 
-**Abandoned and expired payments.** A payer who never pays blocks the ask until its
-own `timeout`, then it raises — there is no other end state. A Stripe Checkout link
-expires on Stripe's own schedule (~24h by default), which can outlive or undercut
-the ask's `timeout`; authors must choose the ask `timeout` with the link's lifetime
-in mind. A webhook that lands after the interaction was pruned gets the door's
-uniform 404 and the bridge raises loudly on it (a typed error carrying `.status ==
-404`) — the money is captured at Stripe and the agent never learns of it;
-reconciliation counts it `expired` rather than failing the run. `cancel_url` is
-where a backing-out payer lands and has NO platform effect — it is baked into the
-preset only because it is a payer-facing redirect and an agent-suppliable one is a
-prompt-injection target. `payment_status` has three values — `paid`, `unpaid`, and
-`no_payment_required` (a zero-total session) — and the bridge accepts ONLY `paid`,
-rejecting the other two loudly.
+**Abandoned and expired confirmations.** A party who never acts blocks the ask until
+its own `timeout`, then it raises — there is no other end state. An external
+confirmation link expires on the external system's own schedule, which can outlive
+or undercut the ask's `timeout`; authors must choose the ask `timeout` with the
+link's lifetime in mind. A webhook that lands after the interaction was pruned gets
+the door's uniform 404 and the bridge raises loudly on it (a typed error carrying
+`.status == 404`) — the confirmation is recorded at the external system and the agent
+never learns of it; reconciliation counts it `expired` rather than failing the run.
+`return_url` is where the external party lands after acting and has NO platform
+effect — it is baked into the preset only because it is a party-facing redirect and
+an agent-suppliable one is a prompt-injection target. The bridge accepts ONLY a
+`decision` of `confirmed`, rejecting any other value loudly.
 
 **A captured signed delivery is refused on replay inside the tolerance window.** The
-Stripe verifier claims a seen-set entry keyed on the `event.id`, with a TTL anchored to
+stripe verifier claims a seen-set entry keyed on the `event.id`, with a TTL anchored to
 the signed timestamp that runs until the freshness window ends (`t + tolerance_seconds`),
 so on the webhook ingress a
 replayed signed delivery draws the idempotent `already_seen` 200 — nothing dispatched,
@@ -667,7 +665,7 @@ ticket returns the idempotent `already_answered` 200 — so no double answer on 
 
 ### The callback doors and the ticket-state oracle
 
-For a verifier-bound payment question the doors give a caller without the bridge
+For a verifier-bound confirmation question the doors give a caller without the bridge
 secret nothing to read: **the GET door answers one constant 404** whether the ticket
 is unknown, expired, live or answered, and **the POST door verifies BEFORE it reports
 `already_answered`**, so a caller without the secret sees the same 401 either way. A
@@ -675,7 +673,7 @@ genuine provider retry still passes verification and gets its idempotent 200. On
 residual stays: on the POST door a bound-ticket holder can still tell a resolvable
 ticket (401) from a dead one (404), because the binding lives in the interaction
 state and cannot be read before that state is — "this ticket existed recently", not
-"there is an unanswered payment worth attacking".
+"there is an unanswered confirmation worth attacking".
 
 One behaviour to know: an answered bound question whose verifier cannot RUN — an
 unregistered verifier name, a malformed binding, or a verifier raising something
@@ -687,18 +685,18 @@ built-in, set the `secret_env` it reads).
 
 ### Doctrine and residuals
 
-The signed webhook is the only answer path from OUTSIDE; the author's `success_url`
-page is pure UX; the payer never sees the callback URL; and the callback door
-authenticates the BRIDGE, not Stripe. A payment is lost to the agent only when both
-the webhook and reconciliation fail inside the ask's own `timeout` window — most
-realistically because reconciliation was never scheduled, or the scheduler was down
-longer than both the ask and the lookback. Then the customer paid, the ask dies at
-its `timeout`, and the surface is the hook-failure log line plus its monitoring
-span. The recovery layer is only real once it is installed.
+The signed webhook is the only answer path from OUTSIDE; the author's `return_url`
+page is pure UX; the external party never sees the callback URL; and the callback
+door authenticates the BRIDGE, not the external system. A confirmation is lost to
+the agent only when both the webhook and reconciliation fail inside the ask's own
+`timeout` window — most realistically because reconciliation was never scheduled, or
+the scheduler was down longer than both the ask and the lookback. Then the party
+acted, the ask dies at its `timeout`, and the surface is the hook-failure log line
+plus its monitoring span. The recovery layer is only real once it is installed.
 
 ## Deliver to a channel instead
 
-Passing `channel="<name>"` to `ask_user` hands delivery to a registered
+Passing `channel="<name>"` to `ask` hands delivery to a registered
 channel plugin — Telegram, Slack, SMS/WhatsApp — instead
 of the default inbox: the question mints a public callback ticket exactly like an
 `external` ask, the plugin pushes it to the person, and the reply returns through

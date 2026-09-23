@@ -68,6 +68,12 @@ rows. The shared `interactionId` joins them: the parked row records the
 interaction it parked on, the resume's row records the same id, and
 `--interaction <id>` returns that park's lifecycle pair.
 
+A run that **resumes or takes** parked interactions itself — a door or tool
+resolving [caller asks](/concepts/asking-the-caller) — records each id it acted on in
+its `resumedInteractions` list, across its whole dispatch span, nested inline resumes
+included (an inline resume opens no row of its own). The list is empty when the run
+resumed nothing.
+
 Rows are kept forever by default. Set `TAI_RUNS_INDEX_RETENTION_DAYS` and call
 the prune on a cadence to bound the table:
 
@@ -163,9 +169,9 @@ per-tenant isolation — attribution only. Metrics aggregate over a time range
 alone — `tai obs metrics` takes no identity filter, so slice by identity on the
 trace list and roll the cost up from there.
 
-There is **no billing module**. Billing is a flow or a view built over these
-attributed traces: the platform ships the generic attribution enabler, and
-assembling spend into a cost view is delivery work on top of the trace data.
+There is **no cost-aggregation module**. Cost aggregation is a flow or a view built
+over these attributed traces: the platform ships the generic attribution enabler,
+and assembling spend into a cost view is delivery work on top of the trace data.
 
 ### The identity dimensions
 
