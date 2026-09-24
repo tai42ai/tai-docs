@@ -53,6 +53,13 @@ user-visible stream **only** as the terminal structured final — the stream car
 no synthetic structured-output tool-call/result frame for the internal call that
 produced it.
 
+A structured-output run that never conforms, or one that exhausts its graph step
+limit, ends with a typed non-fatal terminal — `structured_output_unresolved_final`
+(the schema, the attempts, the last validation error) or `recursion_limit_final`
+(the limit) — that a flow or route branches on by `type` rather than receiving a
+generic failure. The re-prompt bound is the server-wide
+`TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` (default 3).
+
 Run an agent and watch its stream from the CLI:
 
 ```bash
@@ -75,6 +82,20 @@ The system prompt is **per-run configuration**, supplied fresh at each model cal
 state. Any system message found in replayed thread history is stripped before the
 model sees it, so the prompt comes only from the run's own configuration; it counts
 against the trimming budget above.
+
+## System-prompt caching
+
+Every agent turn re-sends its whole system prompt. On a provider that takes a
+system-prompt cache breakpoint, marking that stable prefix lets the provider cache
+it and read it back on later turns instead of re-billing it. This marking is **on
+by default** (`TAI_AGENTS_SYSTEM_PROMPT_CACHE_DEFAULT=true`), server-wide; a provider
+that caches without a mark, or supports none, is left unmarked.
+
+A `tools_agent` node overrides the default with `system_content_kwargs`: leave it
+unset to take the default, pass `{}` to opt the node out (no mark), or pass an
+explicit mark of your own. Most agent faces carry the default; the retrieval agent
+and the Claude Code agent are excluded — see [the agents
+plugin](/plugins/tai42/agents) for the per-face detail.
 
 ## Authored agents
 
