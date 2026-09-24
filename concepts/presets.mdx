@@ -4,6 +4,8 @@ description: "Versioned, named wraps of a tool."
 icon: "layer-group"
 ---
 
+import SecretReferencePreset from '/snippets/examples/presets/secret_reference_preset.mdx';
+
 A preset is a base tool with a partial set of keyword arguments baked in, exposed
 as a new named tool. It lets you save a configured variant of a tool once and call
 it by name, and it rides the platform's [versioning spine](/concepts/versioning-spine)
@@ -81,13 +83,42 @@ validation-error messages — so a caller authorized only to run the preset does
 see them through those channels.
 
 <Warning>
-The baked values are present in the running tool's context and may appear in
+A literal baked value is present in the running tool's context and may appear in
 anything the tool or an agent emits — output, tool-call arguments, traces, error
-text — which the framework cannot generically scrub. Bake provider or secret
-**references** (names resolved server-side, such as an `llm_provider` name or a
-connector token injected at runtime), never raw credentials. If the baked config
-is sensitive, treat run authorization as "may run", not "may read the config".
+text — which the framework cannot generically scrub. Never bake a raw credential
+as a literal; bake a [secret reference](#secret-references-in-baked-kwargs)
+instead. If the baked config is sensitive, treat run authorization as "may run",
+not "may read the config".
 </Warning>
+
+## Secret references in baked kwargs
+
+A `fixed_kwargs` string value written `!ENV ${VAR}` is a **secret reference**, not a
+stored credential. It is the same `!ENV` marker a manifest value and a Studio secret
+field carry — [referenced, not embedded](/concepts/config-and-secrets#secrets-are-referenced-not-embedded)
+— sitting at a baked kwarg:
+
+<SecretReferencePreset />
+
+The store keeps the marker verbatim. Every read, list, version, and backup export
+returns the reference string, never a value — the credential was never stored, so
+nothing there needs masking. A caller with "may read the config" sees
+`!ENV ${SERVICE_API_TOKEN}`, not the token.
+
+The bind kernel resolves each reference once, from the server's environment, as it
+builds the live tool: it reads `VAR` and bakes the value wrapped so the framework
+masks it wherever a run is recorded — traces, results, error text. The resolved
+value reaches only the base tool's own call, never a stored surface.
+
+An unset referenced variable never binds silently. A write that references a
+variable the server does not have fails loudly with a `400` naming the variable and
+the kwarg, and a stored preset whose variable is absent at boot is
+[quarantined](#conflicted-records) rather than bound empty, with the missing
+variable named in the boot log.
+
+A reference may carry a default — `!ENV ${VAR:fallback}` — used when the variable is
+absent. A default is opt-in non-secret config: it is stored, versioned, and exported
+in the clear like any other baked value, so never write a credential as a default.
 
 ## Managing presets
 

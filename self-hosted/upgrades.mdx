@@ -98,6 +98,26 @@ rebuild that a reload runs re-imports the plugin package and its route-sibling
 modules and re-registers the declared routes, so an upgraded router or middleware
 is serving once that reload lands.
 
+The image pins its own core versions as a pip/uv constraints file at
+`/opt/tai/constraints.txt` and sets `PIP_CONSTRAINT`/`UV_CONSTRAINT` to it, so any
+install — a marketplace install, `python -m pip install` by hand, or a derived
+image's build step — that would move a core package (`tai42-contract`, `tai42-kit`,
+`tai42-skeleton`, `tai42-cli`, or any other package the image ships) off the image's
+version is refused by the resolver, never silently downgraded or upgraded. An
+incompatible plugin fails loudly at install:
+
+```text
+ERROR: Cannot install tai42-monitoring-langfuse==3.0.3 because these package versions have conflicting dependencies.
+    The user requested (constraint) tai42-contract==14.0.0
+ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
+```
+
+The venv is root-owned, so a direct install into it runs as root — a derived image's
+`USER root` build step, or `docker exec -u 0` into a running container. The
+marketplace installer writes to its own `--prefix` and is unaffected. After a manual
+or derived-image install, run `python -m pip check` to confirm the environment is
+consistent.
+
 <Warning>
 A plugin that is incompatible with the new core — or otherwise stale — is
 **quarantined loudly at boot**: it is not loaded, and the failure is surfaced,
