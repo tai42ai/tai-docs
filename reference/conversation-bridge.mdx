@@ -770,6 +770,13 @@ retention TTL.
 Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
+When a reachable channel terminally refuses a turn's reply — an answer over the
+channel's cap, an unrenderable part, a permanent input refusal, or a non-retryable
+send rejection — the record stays `failed` and the participant is sent the same
+uniform could-not-deliver notice a failed resumed reply gets (the route's configured
+`error_reply_text` when set); a transport exhaustion — retryable failures that spend
+every attempt — stays `failed` with no such notice, the failed-delivery listing being
+the only signal.
 
 Client-facing text on the failure paths is always client-safe — an internal detail
 never crosses to the participant. The turn-error reply is configurable per route; the
