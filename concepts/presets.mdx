@@ -110,6 +110,17 @@ builds the live tool: it reads `VAR` and bakes the value wrapped so the framewor
 masks it wherever a run is recorded — traces, results, error text. The resolved
 value reaches only the base tool's own call, never a stored surface.
 
+A reference may sit anywhere in a baked value — a top-level kwarg, a list element, a
+field of a nested object, or a dictionary value. The bind kernel walks the base
+tool's own input schema alongside the baked kwargs and reveals the resolved value to
+the tool wherever the schema types that position with a concrete leaf type: a `str`
+field, a `list[str]` element, a typed model field, a `dict[str, str]` value. A union counts as
+typed only when *every* branch is typed — `str | None` is revealed, while `str | Any`
+or `str | object` keeps its permissive branch, so the value stays wrapped. Wherever
+the schema leaves a position open — `Any` or `object`, or anything nested beneath such
+a position — the value keeps its wrapper and is masked wherever the run is recorded; a
+container under a permissive branch is left wholly wrapped, never descended into.
+
 An unset referenced variable never binds silently. A write that references a
 variable the server does not have fails loudly with a `400` naming the variable and
 the kwarg, and a stored preset whose variable is absent at boot is
@@ -119,6 +130,10 @@ variable named in the boot log.
 A reference may carry a default — `!ENV ${VAR:fallback}` — used when the variable is
 absent. A default is opt-in non-secret config: it is stored, versioned, and exported
 in the clear like any other baked value, so never write a credential as a default.
+
+In the Studio, the create-preset and save-version dialogs author these references as
+typed rows that pick an existing environment key — see the
+[fixed kwargs editor](/studio/presets#the-fixed-kwargs-editor).
 
 ## Managing presets
 
