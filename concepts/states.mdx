@@ -334,6 +334,37 @@ ids, or null when the writer has none (a hook, a schedule, the API, or a builtin
 — its own identifiers, for instance — stored and shown as is. A flow's binding write
 and a hook's keyed write get the same stamp.
 
+## Unit of work
+
+A consumer that stages several writes and lands them together opens a **unit of
+work** over the states facet, bound to the scope it owns. Every write set staged
+against the unit runs through the same applier the persisted write path runs — the
+guards, the path ops, the composing-shape rule, and the whole-document schema — and
+is projected, not stored: a validation, composing-shape, or schema error raises at
+stage time, exactly as it would on a committed write.
+
+While the unit is open, a read of a subject the unit has staged is served from the
+**projection** — the committed document overlaid with the scope's staged writes in
+order, so a later step reads its own earlier writes — while every other scope still
+sees only the committed document.
+
+`commit` applies every staged batch onto the latest committed documents in one
+transaction, all-or-nothing: any failing write rolls the whole commit back and
+raises loudly, and nothing lands. It reports each op's ledger answer and any
+**divergence** between the staged projection and the answer the commit recorded —
+the guards and `op_id` idempotency are authoritative at commit, so a divergence
+naming each staged-vs-committed mismatch is a visible, logged field, never swallowed.
+`discard` drops the staging. A unit left open when its scope ends is discarded at
+teardown and the discard is logged.
+
+A **savepoint** nests inside a unit: writes staged in the child scope are kept on a
+clean exit and dropped on an exception, rolling back only the child's writes and
+never the parent's. Savepoints nest to any depth, so a nested run rolls back its own
+writes within the enclosing unit.
+
+The unit of work is a programmatic facet API for in-process consumers; it has no HTTP
+route.
+
 ## The HTTP surface
 
 All routes are authed. Templates are a top-level sibling collection and prune is its
