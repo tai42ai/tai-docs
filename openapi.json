@@ -3499,8 +3499,27 @@
         "type": "object"
       },
       "FailedMcp": {
-        "description": "An MCP server skipped by the viability check — its title and a coarse status.",
+        "description": "An MCP server skipped by the viability check — title, coarse status, and credential-free failure detail.\n\n``category`` is the coarse, credential-free cause (``auth`` for a 401/403,\n``unreachable`` for a transport error or timeout, ``error`` otherwise); ``message``\nis the redacted exception message (URL-embedded credentials stripped); ``http_status``\nis the HTTP status the failure carried, or ``null`` for a pure transport failure.",
         "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -3512,7 +3531,10 @@
         },
         "required": [
           "title",
-          "status"
+          "status",
+          "category",
+          "message",
+          "http_status"
         ],
         "title": "FailedMcp",
         "type": "object"
@@ -25225,7 +25247,7 @@
     },
     "/api/mcp-status/failed": {
       "get": {
-        "description": "List MCP servers skipped due to a failed viability check (server down or slow).\n\nSkipped at boot or last reload. Use ``reload_mcp`` to re-attach one once healthy.\n\nEach entry is ``{\"title\": <name>, \"status\": \"unavailable\"}`` — title plus a\ncoarse status only. A query op rides the same fan-out primitive as a mutation:\nevery worker's list arrives as its per-worker ``payload`` in the fleet report\n(this worker's list on its own self entry); ``targets`` optionally restricts the\nquery to specific workers.",
+        "description": "List MCP servers skipped due to a failed viability check (server down or slow).\n\nSkipped at boot or last reload. Use ``reload_mcp`` to re-attach one once healthy.\n\nEach entry is ``{\"title\", \"status\", \"category\", \"message\", \"http_status\"}`` — the\ntitle plus the coarse status and a credential-free failure detail (``category`` one\nof ``auth`` / ``unreachable`` / ``error``, the redacted ``message``, and the\n``http_status`` when the failure carried one). A query op rides the same fan-out primitive as a mutation:\nevery worker's list arrives as its per-worker ``payload`` in the fleet report\n(this worker's list on its own self entry); ``targets`` optionally restricts the\nquery to specific workers.",
         "operationId": "get_api_mcp_status_failed",
         "parameters": [
           {
