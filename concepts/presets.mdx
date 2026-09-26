@@ -82,6 +82,17 @@ They are hidden from framework-manufactured surfaces — the tool input schema a
 validation-error messages — so a caller authorized only to run the preset does not
 see them through those channels.
 
+Every preset read door — get a preset, get a version, list the versions, the MCP
+read tool, and `tai presets show` / `tai presets versions` — masks any value baked
+under a **secret-typed parameter** of the base tool: a leaf the base tool's input
+schema types as a `SecretStr`, a `format: password` string, or a write-only field.
+A literal baked under a **non-secret** parameter is returned as authored, so the
+may-run caveat below still stands for non-secret sensitive config. An `!ENV` marker
+is left verbatim — it is a [reference](#secret-references-in-baked-kwargs), not a
+stored credential — and the backup export stays verbatim. When the base tool cannot
+be resolved (its plugin is absent), the read fails closed and masks every baked
+value.
+
 <Warning>
 A literal baked value is present in the running tool's context and may appear in
 anything the tool or an agent emits — output, tool-call arguments, traces, error

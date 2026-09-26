@@ -41,7 +41,7 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
     tai mcp status
     ```
 
-    The payload carries three blocks: `bound` maps each attached server's title to the tool names it serves, `failed` lists the titles a viability probe skipped with a coarse `status`, and `health` reports each server's most recent tool-dispatch outcome, keyed by title.
+    The payload carries three blocks: `bound` maps each attached server's title to the tool names it serves, `failed` lists the servers a viability probe skipped — each entry carrying the server `title`, a coarse `status`, a `category` (`auth`, `unreachable`, or `error`), a redacted `message`, and the `http_status` the failure carried (`null` for a pure transport failure) — and `health` reports each server's most recent tool-dispatch outcome, keyed by title (a skipped server carries the block at its empty values).
 
     ```json
     {
@@ -49,10 +49,24 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
         "example-http": ["events_get", "events_list"],
         "example-stdio": ["status_check"]
       },
-      "failed": [],
+      "failed": [
+        {
+          "title": "example-sse",
+          "status": "unavailable",
+          "category": "auth",
+          "message": "401 Unauthorized",
+          "http_status": 401
+        }
+      ],
       "health": {
         "example-http": {
           "last_success": "2026-01-04T09:12:03.481221+00:00",
+          "last_error": null,
+          "consecutive_failures": 0,
+          "failing_since": null
+        },
+        "example-sse": {
+          "last_success": null,
           "last_error": null,
           "consecutive_failures": 0,
           "failing_since": null
