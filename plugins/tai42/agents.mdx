@@ -66,10 +66,31 @@ Limits shared by every agent in this package:
 | `TAI_AGENTS_VOTER_CONCURRENCY` | `8` | Voters run concurrently within one voting call; the rest queue behind a semaphore. |
 | `TAI_AGENTS_EMBEDDING_DIMS_CACHE_SIZE` | `64` | Bound on the retrieval agent's embedding-dims probe cache (an LRU). |
 | `TAI_AGENTS_DEFAULT_RECURSION_LIMIT` | `50` | Default LangGraph `recursion_limit` when a run pins none; a caller-supplied limit wins. |
+| `TAI_AGENTS_SYSTEM_PROMPT_CACHE_DEFAULT` | `true` | Mark the per-run system prompt for prompt caching on providers that support it (see [System-prompt caching](#system-prompt-caching)). |
+| `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` | `3` | How many times a run re-prompts a model whose response fails to parse against a requested `response_format` before it ends with a typed outcome (see [Structured-output outcomes](#structured-output-outcomes)). |
+
+### Structured-output outcomes
+
+When a run requests a `response_format`, the model's answer is forced through a
+tool-calling rail that re-prompts the model each time its response fails to parse
+against the schema. Two typed, **non-fatal** terminal outcomes bound that loop, so
+a run that cannot produce a conforming or bounded answer ends readably instead of
+failing generically. Each surfaces exactly like a normal terminal — the streaming
+faces emit it as a terminal event, `run` returns it as the run's value, the agent
+run route emits it as one SSE frame, and a conversation route surfaces it to the
+turn's reply — so a flow or route branches on its `type`:
+
+| Outcome (`type`) | Raised when | Fields |
+| --- | --- | --- |
+| `structured_output_unresolved_final` | The model never produced schema-conforming output within `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` re-prompts. | `schema_name`, `attempts` (non-conforming responses, the cap plus the final rejected attempt), `error` (last validation error, masked) |
+| `recursion_limit_final` | The run hit its graph step ceiling (`recursion_limit`) before finishing. | `limit`, `steps` (known step count, else null) |
+
+Both carry `final: true`. Neither raises — a branch that does not handle them
+reads them as the run's terminal value.
 
 ### Async-park index
 
-A park-capable run whose tool async-parks (`ask_user(mode="async")`) writes a durable
+A park-capable run whose tool async-parks (`ask(mode="async")`) writes a durable
 index that reverses a parked interaction id back to its parked run, so a later worker
 can resume it. This needs the `[park]` extra (`pip install tai42-agents[park]`) and a
 Redis URL:
@@ -80,6 +101,62 @@ Redis URL:
 
 The park index is the agents plugin's own Redis, independent of the checkpoint provider
 and the interactions store.
+
+When the ask is answered (or expires), the platform resumes the parked run and drives it
+to its next outcome. The resumed run's final outcome is delivered by the **platform** to the
+run's own address — the agent never delivers it itself; a caller that needs the answer runs
+the agent through a door that receives it out of band (a conversation route). A whole-chain
+kill (a cancel, a thread delete, a person erase) tears the parked run down and delivers a
+single failed outcome to that address.
+
+An async ask may address the run's own **caller** (`ask(to="caller")`) instead of a human
+(`to="user"`): the run parks the same way and resumes when the caller answers, so an agent
+can hand a question back up to whatever invoked it. When an agent's own tool call drives a
+nested run that async-parks, the agent parks on that **call** rather than blocking; once the
+nested run reaches its terminal the agent's turn resumes with that terminal as the tool's
+result, and a non-success terminal comes back as a model-visible tool error.
+
+### Parking tools
+
+An agent that lists the generic parking tools in its `tool_names` — `list_parked`,
+`resume_parked`, `cancel_parked` — can list, answer, or cancel the caller asks parked on the
+run's subject from inside its own turn. They are platform builtins and need no plugin code.
+
+### Conversation-door tools
+
+`send_conversation_message` and `send_conversation_event` let an agent reach a conversation
+route from inside its own turn, in-process under the run's own execution identity — no route
+key is handed to the agent. `send_conversation_message` posts a message into a route's
+conversation; `send_conversation_event` delivers a structured event onto an existing thread
+of one. Each applies the target door's own authorization before it runs and refuses a run
+with no accountable execution identity loudly; the turn's answer is delivered by the route's
+own configured delivery, never inline to the agent. List either in an agent's `tool_names`
+to include it — they are platform builtins and need no plugin code.
+
+## System-prompt caching
+
+Every agent turn re-sends its whole system prompt. On a provider that takes a
+system-prompt cache breakpoint, marking the prompt lets the provider cache that
+stable prefix and read it back on later turns instead of re-billing it. This is
+**on by default** (`TAI_AGENTS_SYSTEM_PROMPT_CACHE_DEFAULT=true`), server-wide; a
+provider that caches without a mark, or does not support one, is left unmarked —
+the mark form is the provider's own, so it is never named here.
+
+Per node, the `tools_agent`'s `system_content_kwargs` overrides the default:
+leave it unset to take the default, pass `{}` to opt this node out (no mark), or
+pass an explicit mark to set your own. The other faces follow the server-wide
+setting only.
+
+Which faces carry it:
+
+| Face | Marking |
+| --- | --- |
+| `tools_agent` (invoke + stream) | default at the shared build seam; per-node override via `system_content_kwargs` |
+| `voting_agent` | inherits the default — its voters and judge run through the `tools_agent` build seam |
+| `refine_agent` | default at each role's model build |
+| `langchain_deep_agent` | default at the model build (the mark rides the deep agent's per-run system message) |
+| `retrieval_tools_agent` | excluded — its graph prepends the system prompt into the message list it rolls to the newest breakpoint, so a system mark there is stripped by any later turn mark; use `user_content_kwargs` to mark the user turn |
+| `claude_code` | not applicable — the system prompt is handed to the Agent SDK verbatim, never as a content block |
 
 ## Tool-error resilience
 
@@ -96,7 +173,27 @@ a real interrupt is left untouched.
 
 ## langchain_deep_agent
 
-Runs a deep agent with planning, subagents, skills, and a filesystem backend.
+Runs a deep agent with planning, one level of nested subagents, skills,
+human-in-the-loop interrupts (resumed with a LangGraph `Command`), and a per-thread
+scratch filesystem.
+
+### Sandbox requirement
+
+The scratch filesystem **is** a durable [sandbox](/concepts/sandbox) backend over the
+same `SandboxSession` contract, so a run requires a registered sandbox provider — with
+none installed it fails loudly at `require_sandbox()`. Its working files persist and
+reap under the operator's durability settings, so installing a sandbox provider is a
+hard prerequisite, not an optional add-on.
+
+### Structured output
+
+A `response_format` is validated up front: the JSON Schema must carry a top-level
+`title`, and every `oneOf` variant must carry a non-empty `title` of its own — a schema
+missing either raises a `ValueError` before the run starts. When a run requests a
+`response_format` but produces no structured output, **both faces raise rather than
+silently omitting the structured frame**: the JSON `run` face raises on drain, and the
+streaming face raises after the stream drains — unless the run paused on a pending
+interrupt, which takes precedence over the missing-structured raise.
 
 ## claude_code
 
@@ -144,7 +241,7 @@ transcript. The credential scrub removes credential FILES on a terminal exit; wh
 platform `sandbox_scrub_transcript` flag is on, injected credential VALUES are also redacted
 from the kept transcript.
 
-Async `ask_user` parks are supported on threaded (conversation) runs and use the same
+Async `ask` parks are supported on threaded (conversation) runs and use the same
 `[park]` extra + `TAI_AGENTS_REDIS_URL` as the other parking agents (see
 [Async-park index](#async-park-index)); an async ask on a thread-less tool-face run is
 refused loudly (its ephemeral workspace could never be resumed).
@@ -166,7 +263,7 @@ A tools agent that retrieves its tools on demand from a vector store.
 ## tools_agent
 
 Runs a LangGraph tools agent over tools loaded by name (and optional presets). A tool
-that async-parks (`ask_user(mode="async")`) suspends the run instead of blocking; it
+that async-parks (`ask(mode="async")`) suspends the run instead of blocking; it
 resumes on a later worker when the ask is answered or expires. This needs the `[park]`
 extra and `TAI_AGENTS_REDIS_URL` (see [Async-park index](#async-park-index)).
 
