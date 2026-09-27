@@ -1,0 +1,125 @@
+---
+title: "Classifiers"
+description: "The classifier model type: typed questions about JSON state, typed answers with probabilities."
+icon: "scale-balanced"
+---
+
+A **classifier** is a model type that sits beside chat models and embeddings. Where a
+chat model writes text and an embedding model turns text into vectors, a classifier
+*judges*: it reads a JSON-compatible **state**, answers a set of **typed questions**
+about it, and returns one **typed answer per question** carrying a probability. It is
+JSON in, JSON out — no free text, no tool calls, no conversation.
+
+The classifier contract is provider-agnostic. The platform ships the shape of a
+request and a response; a provider adapts that shape to its own wire format behind
+the factory, so a flow or a tool reads and constructs a classification the same way
+whichever provider is configured.
+
+## The three question kinds
+
+Every question is one of three kinds, chosen by its `type`. Each carries free-text
+`instructions` and, optionally, `criteria` that pin down what the outcomes mean.
+
+- **`noul`** — a binary judgment. The classifier returns the **probability, from 0 to
+  1, that the answer is yes**. Optional `criteria` describe what a true and a false
+  answer mean. For example, over an inbound **event**: *"Is this event urgent?"* →
+  `0.82`.
+- **`choice`** — a categorical judgment. `criteria` is a fixed set of labels, each
+  mapped to a description; the classifier picks **one label** and reports a
+  **probability for every label**. For example, over an **account**: *"Which status
+  fits?"* with labels `active`, `dormant`, `closed` → `active` at `0.7`.
+- **`score`** — an ordinal judgment. `criteria` is an **ordered rubric** of two or
+  more levels; the classifier returns the **expected value** over that rubric plus the
+  per-level distribution. For example, over an **alert**: *"Rate the severity"* over
+  `["low", "medium", "high", "critical"]` → an expected score of `2.4`.
+
+## A request and its response
+
+A **request** pairs the state with a named mapping of questions — the name is the
+author's key for that question:
+
+```json
+{
+  "state": { "subject": "quota exceeded", "retries": 5 },
+  "questions": {
+    "urgent": { "type": "noul", "instructions": "Is this event urgent?" },
+    "status": {
+      "type": "choice",
+      "instructions": "Which account status fits?",
+      "criteria": { "active": "in normal use", "dormant": "idle", "closed": "ended" }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "Rate the severity.",
+      "criteria": ["low", "medium", "high", "critical"]
+    }
+  }
+}
+```
+
+The **response** carries one answer per question, keyed by the same name, plus the
+model that answered, token usage, and the provider's request id. Each answer names
+its kind in a `type` discriminator:
+
+```json
+{
+  "model": "jev-latest",
+  "answers": {
+    "urgent": { "type": "noul", "noul": 0.82 },
+    "status": {
+      "type": "choice",
+      "choice": "active",
+      "probabilities": { "active": 0.7, "dormant": 0.2, "closed": 0.1 },
+      "confidence": 0.7
+    },
+    "severity": {
+      "type": "score",
+      "score": 2.4,
+      "legend": { "0": "low", "1": "medium", "2": "high", "3": "critical" },
+      "probabilities": { "0": 0.05, "1": 0.15, "2": 0.4, "3": 0.4 },
+      "confidence": 0.6
+    }
+  },
+  "usage": { "input_tokens": 120, "output_tokens": 30 },
+  "request_id": "…"
+}
+```
+
+A `noul` answer carries just its `noul` probability; a `choice` answer carries the
+chosen `choice`, the per-label `probabilities`, and a `confidence`; a `score` answer
+carries the expected `score`, the level `legend` and `probabilities` keyed by level
+index, and a `confidence`. Either token count may be unreported.
+
+## Configuring a classifier
+
+A deployment picks its classifier provider with the `LLM_PROVIDER_CLASSIFIER`
+selector — the third model-provider selector beside `LLM_PROVIDER_LLM` and
+`LLM_PROVIDER_EMBEDDING` — which defaults to `typesafe`. The provider's connection
+details ride the `CLASSIFIER_*` namespace: `CLASSIFIER_MODEL` (default `jev-latest`),
+`CLASSIFIER_BASE_URL`, `CLASSIFIER_API_KEY`, and `CLASSIFIER_TIMEOUT`. The full field
+table is in the [settings reference](/reference/settings#classifiersettings), and the
+[config and secrets](/concepts/config-and-secrets#model-providers) page covers the
+provider selectors.
+
+The classifier provider ships as an optional dependency. The `classify` tool pulls it
+in through the `classifier` extra — install it with `pip install
+'tai42-toolbox[classifier]'`, which brings the kit's `typesafe` provider along.
+
+## Where classifiers are used
+
+- **The `classify` tool.** The standard toolbox exposes classification as a tool any
+  caller can run — see the [`classify` walk-through](/guides/standard-toolbox#judge-state-with-classify).
+- **The Classifier card in the Studio.** A [Babelfish Flows](/babelfish#judging-with-a-classifier)
+  flow can judge its input with a [Classifier card](/babelfish/studio#the-classifier-card),
+  whose answers feed downstream conditions.
+- **The Router card's classifier backing.** A [Router](/babelfish#decided-by) can be
+  [decided by a classifier model](/babelfish/studio#the-router-card) instead of an LLM
+  agent, asking one yes/no question per kind and routing on the probability.
+- **The kit factory.** In Python, `get_classifier` (and `get_classifier_async`) build
+  a cached, provider-keyed runnable that takes a request and returns a response — see
+  the [Python SDK reference](/reference/python-sdk/kit-llm#get_classifier).
+
+See the [standard toolbox guide](/guides/standard-toolbox) for running `classify`, the
+[Babelfish Flows page](/babelfish#judging-with-a-classifier) for judging inside a flow,
+and the [settings reference](/reference/settings#classifiersettings) for every
+`CLASSIFIER_*` field.

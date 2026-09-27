@@ -22,9 +22,10 @@ good reference with an empty or partial one.
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
+
+from sdk_mdx import frontmatter, mdx_escape_prose, table_code, table_text
 
 try:
     from griffe import Alias, Class, Docstring, Function, GriffeLoader, Object
@@ -182,10 +183,10 @@ PAGES: list[dict] = [
     },
     {
         "slug": "kit-llm",
-        "title": "LLM factories (tai42_kit.llm)",
-        "description": "LLM, embedding, checkpoint, and store factories.",
+        "title": "LLM factories and the classifier contract (tai42_kit.llm)",
+        "description": "LLM, embedding, checkpoint, and store factories, plus the classifier contract models.",
         "icon": "brain",
-        "modules": ["tai42_kit.llm"],
+        "modules": ["tai42_kit.llm", "tai42_kit.llm.classifier"],
     },
     {
         "slug": "kit-settings",
@@ -253,69 +254,6 @@ REQUIRED_SYMBOLS = [
     "fastmcp",
     "fetch_url",
 ]
-
-
-# --------------------------------------------------------------------------- #
-# MDX text helpers
-# --------------------------------------------------------------------------- #
-
-# RST cross-reference roles (``:class:`Foo```) that appear in docstrings; strip
-# the role prefix so the backtick span renders as plain inline code.
-_RST_ROLE = re.compile(r":(?:class|mod|func|meth|obj|attr|data|exc|ref|term):(`)")
-# Sphinx ``~pkg.mod.Name`` shorthand inside a code span -> just ``Name``.
-_RST_TILDE = re.compile(r"`~([A-Za-z0-9_.]+)`")
-_CODE_SPAN = re.compile(r"``[^`]*``|`[^`]*`")
-# Fenced code block (```lang ... ```). Its body must pass through verbatim:
-# escaping it would corrupt code such as ``dict[str, Any]`` displays or
-# comparison operators inside a docstring example.
-_CODE_FENCE = re.compile(r"^```.*?^```[ \t]*$", re.DOTALL | re.MULTILINE)
-
-
-def _tilde_last(match: re.Match) -> str:
-    return "`" + match.group(1).rsplit(".", 1)[-1] + "`"
-
-
-def mdx_escape_prose(text: str) -> str:
-    """Escape MDX-hostile characters in prose while leaving code untouched.
-
-    Fenced blocks (```...```) and inline-code spans (single- or double-backtick)
-    pass through verbatim, so fenced examples and annotations like
-    ``dict[str, Any]`` survive while stray ``{`` / ``<`` in narrative cannot
-    break the MDX parser.
-    """
-    out: list[str] = []
-    last = 0
-    for fence in _CODE_FENCE.finditer(text):
-        out.append(_escape_prose_segment(text[last : fence.start()]))
-        out.append(fence.group(0))  # fenced block: leave verbatim
-        last = fence.end()
-    out.append(_escape_prose_segment(text[last:]))
-    return "".join(out)
-
-
-def _escape_prose_segment(text: str) -> str:
-    """Escape one fence-free stretch, leaving inline-code spans verbatim."""
-    text = _RST_ROLE.sub(r"\1", text)
-    text = _RST_TILDE.sub(_tilde_last, text)
-
-    out: list[str] = []
-    last = 0
-    for match in _CODE_SPAN.finditer(text):
-        out.append(_escape_segment(text[last : match.start()]))
-        out.append(match.group(0))  # code span: leave verbatim
-        last = match.end()
-    out.append(_escape_segment(text[last:]))
-    return "".join(out)
-
-
-def _escape_segment(seg: str) -> str:
-    return seg.replace("{", "&#123;").replace("}", "&#125;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def frontmatter(title: str, description: str, icon: str) -> str:
-    """Return the MDX frontmatter block for a page (title, description, icon)."""
-    # Quote to keep YAML happy regardless of punctuation in the values.
-    return f'---\ntitle: "{title}"\ndescription: "{description}"\nicon: "{icon}"\n---\n'
 
 
 # --------------------------------------------------------------------------- #
@@ -512,29 +450,15 @@ def _first_line(text: str) -> str:
     return mdx_escape_prose(line)
 
 
-def _table_code(value) -> str:
-    """Return a backtick code cell safe inside a Markdown table.
-
-    Literal pipes in the value (e.g. ``list[str] | None``) are escaped so they
-    don't split columns.
-    """
-    return "`" + str(value).replace("|", "\\|") + "`"
-
-
-def _table_text(text: str) -> str:
-    """Prose safe inside a Markdown table cell."""
-    return mdx_escape_prose(text.replace("\n", " ")).replace("|", "\\|")
-
-
 def render_params_table(func: Function, param_docs: dict[str, str]) -> str:
     """Render a function's parameters as a Markdown "Parameters" table, or "" when it has none."""
     rows = []
     for p in func.parameters:
         if p.name in ("self", "cls"):
             continue
-        typ = _table_code(p.annotation) if p.annotation is not None else "—"
-        default = _table_code(p.default) if p.default is not None else "—"
-        desc = _table_text(param_docs.get(p.name, "")) or "—"
+        typ = table_code(p.annotation) if p.annotation is not None else "—"
+        default = table_code(p.default) if p.default is not None else "—"
+        desc = table_text(param_docs.get(p.name, "")) or "—"
         rows.append(f"| `{p.name}` | {typ} | {default} | {desc} |")
     if not rows:
         return ""
@@ -562,7 +486,7 @@ def render_attrs_table(cls: Object) -> str:
         if _has_docstring(member):
             continue
         labels = getattr(member, "labels", set()) or set()
-        typ = _table_code(member.annotation) if getattr(member, "annotation", None) is not None else "—"
+        typ = table_code(member.annotation) if getattr(member, "annotation", None) is not None else "—"
         note = " *(property)*" if "property" in labels else ""
         rows.append(f"| `{name}`{note} | {typ} |")
     if not rows:
@@ -609,27 +533,59 @@ def render_object(obj: Object, level: int = 2) -> str:
     return "\n".join(parts) + "\n"
 
 
+def _module_lead(module: Object) -> str:
+    """The module's first doc section, escaped for MDX and newline-terminated, or ''."""
+    if not module.docstring:
+        return ""
+    lead = _doc_sections(module)[0]
+    return mdx_escape_prose(lead) + "\n" if lead else ""
+
+
+def _coverage_names(obj: Object) -> list[str]:
+    """The object's own name plus, for a class, its public non-alias member names.
+
+    Class members count toward required-symbol coverage too (e.g. the fastmcp
+    escape-hatch property).
+    """
+    names = [obj.name]
+    if obj.kind.value == "class":
+        names.extend(n for n, m in obj.members.items() if not n.startswith("_") and not m.is_alias)
+    return names
+
+
 def render_page(loader: GriffeLoader, spec: dict) -> tuple[str, list[str]]:
     """Render one page; return (mdx_text, list_of_rendered_symbol_names)."""
     body: list[str] = [frontmatter(spec["title"], spec["description"], spec["icon"]), ""]
     rendered: list[str] = []
+    # A symbol reachable from two of the page's modules (an object re-exported by
+    # a package and also defined in a listed submodule) resolves to one object;
+    # dedupe by its resolved path so the page renders it once, under the first
+    # module that reaches it.
+    seen_paths: set[str] = set()
 
-    lead_done = False
-    for module_path in spec["modules"]:
+    for index, module_path in enumerate(spec["modules"]):
         module = loader.modules_collection[module_path]
-        if not lead_done and module.docstring:
-            lead = _doc_sections(module)[0]
+        lead = _module_lead(module)
+        # The first module's doc section is the page lead, emitted at the top of
+        # the page before any symbol. A later module's doc section is held
+        # pending and emitted only before its first not-yet-rendered symbol, so a
+        # module whose every symbol was already rendered under an earlier module
+        # contributes no orphan prose block.
+        if index == 0:
             if lead:
-                body.append(mdx_escape_prose(lead) + "\n")
-            lead_done = True
+                body.append(lead)
+            pending_lead = ""
+        else:
+            pending_lead = lead
         for obj in public_targets(module):
+            if obj.path in seen_paths:
+                continue
+            seen_paths.add(obj.path)
+            if pending_lead:
+                body.append(pending_lead)
+                pending_lead = ""
             body.append(render_object(obj, level=2))
-            rendered.append(obj.name)
-            # class methods count toward coverage too (e.g. fastmcp property)
-            if obj.kind.value == "class":
-                for n, m in obj.members.items():
-                    if not n.startswith("_") and not m.is_alias:
-                        rendered.append(n)
+            rendered.extend(_coverage_names(obj))
 
     if len(rendered) == 0:
         raise RuntimeError(f"page {spec['slug']}: rendered no symbols")

@@ -1,6 +1,6 @@
 ---
-title: "LLM factories (tai42_kit.llm)"
-description: "LLM, embedding, checkpoint, and store factories."
+title: "LLM factories and the classifier contract (tai42_kit.llm)"
+description: "LLM, embedding, checkpoint, and store factories, plus the classifier contract models."
 icon: "brain"
 ---
 
@@ -171,4 +171,244 @@ this module and an unknown provider is refused loudly rather than silently un-ma
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `provider` | `str` | — | — |
+
+
+Classifier model factory and its provider-agnostic contract.
+
+A classifier judges JSON-compatible state against typed questions and returns
+typed answers — JSON in, JSON out. Three question kinds cover the common
+judgments: a binary ``noul`` (the probability that the answer is yes), a
+categorical ``choice`` (one label from a fixed set, with a probability for every
+label), and an ordinal ``score`` (an expected value over an ordered rubric). A
+request pairs the state with a named mapping of questions; the response carries
+one answer per question, token usage, and the provider's request id.
+
+These pydantic models ARE the platform's classifier contract.
+`get_classifier` and `get_classifier_async` build a cached,
+provider-keyed runnable that accepts a `ClassifyRequest` and returns a
+`ClassifyResponse`; each provider adapts this contract to its own wire
+shape behind the factory. The models take no vendor import, so the contract can
+be read and constructed without any provider package installed.
+
+## QuestionContent
+
+`tai42_kit.llm.classifier.QuestionContent`
+
+```python
+QuestionContent = str | dict[str, JsonValue] | list[JsonValue]
+```
+
+Instruction text or structured content the classifier judges against: free text, a JSON object, or a JSON array.
+
+
+## NoulCriteria
+
+`tai42_kit.llm.classifier.NoulCriteria`
+
+```python
+class NoulCriteria(BaseModel)
+```
+
+Optional descriptions of what the yes and no outcomes of a noul question mean.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `true` | `JsonValue` |
+| `false` | `JsonValue` |
+
+
+## NoulQuestion
+
+`tai42_kit.llm.classifier.NoulQuestion`
+
+```python
+class NoulQuestion(BaseModel)
+```
+
+Binary question: judge the state and return the probability that the answer is yes.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['noul']` |
+| `instructions` | `QuestionContent` |
+| `criteria` | `NoulCriteria \| None` |
+
+
+## ChoiceQuestion
+
+`tai42_kit.llm.classifier.ChoiceQuestion`
+
+```python
+class ChoiceQuestion(BaseModel)
+```
+
+Categorical question: pick one label from ``criteria``, keyed by label to its description.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['choice']` |
+| `instructions` | `QuestionContent` |
+| `criteria` | `dict[str, JsonValue]` |
+
+
+## ScoreQuestion
+
+`tai42_kit.llm.classifier.ScoreQuestion`
+
+```python
+class ScoreQuestion(BaseModel)
+```
+
+Ordinal question: rate the state against ``criteria``, an ordered rubric of two or more levels.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['score']` |
+| `instructions` | `QuestionContent` |
+| `criteria` | `list[JsonValue]` |
+
+
+## ClassifyQuestion
+
+`tai42_kit.llm.classifier.ClassifyQuestion`
+
+```python
+ClassifyQuestion = Annotated[NoulQuestion | ChoiceQuestion | ScoreQuestion, Field(discriminator='type')]
+```
+
+A question of one of the three kinds, discriminated on ``type``.
+
+
+## ClassifyRequest
+
+`tai42_kit.llm.classifier.ClassifyRequest`
+
+```python
+class ClassifyRequest(BaseModel)
+```
+
+The state to judge together with the named questions to answer about it.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `state` | `JsonValue` |
+| `questions` | `dict[str, ClassifyQuestion]` |
+
+
+## NoulAnswer
+
+`tai42_kit.llm.classifier.NoulAnswer`
+
+```python
+class NoulAnswer(BaseModel)
+```
+
+The probability, from 0 to 1, that a noul question's answer is yes.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['noul']` |
+| `noul` | `float` |
+
+
+## ChoiceAnswer
+
+`tai42_kit.llm.classifier.ChoiceAnswer`
+
+```python
+class ChoiceAnswer(BaseModel)
+```
+
+The selected label of a choice question, its per-label probabilities, and a confidence.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['choice']` |
+| `choice` | `str` |
+| `probabilities` | `dict[str, float]` |
+| `confidence` | `float` |
+
+
+## ScoreAnswer
+
+`tai42_kit.llm.classifier.ScoreAnswer`
+
+```python
+class ScoreAnswer(BaseModel)
+```
+
+The expected value of a score question, the level legend and distribution, and a confidence.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `Literal['score']` |
+| `score` | `float` |
+| `legend` | `dict[int, JsonValue]` |
+| `probabilities` | `dict[int, float]` |
+| `confidence` | `float` |
+
+
+## ClassifyAnswer
+
+`tai42_kit.llm.classifier.ClassifyAnswer`
+
+```python
+ClassifyAnswer = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, Field(discriminator='type')]
+```
+
+An answer of one of the three kinds, discriminated on ``type``.
+
+
+## ClassifyUsage
+
+`tai42_kit.llm.classifier.ClassifyUsage`
+
+```python
+class ClassifyUsage(BaseModel)
+```
+
+Token usage reported for a classification request; either count may be unreported.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `input_tokens` | `int \| None` |
+| `output_tokens` | `int \| None` |
+
+
+## ClassifyResponse
+
+`tai42_kit.llm.classifier.ClassifyResponse`
+
+```python
+class ClassifyResponse(BaseModel)
+```
+
+One answer per requested question, plus the model, token usage, and provider request id.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model` | `str` |
+| `answers` | `dict[str, ClassifyAnswer]` |
+| `usage` | `ClassifyUsage` |
+| `request_id` | `str \| None` |
 

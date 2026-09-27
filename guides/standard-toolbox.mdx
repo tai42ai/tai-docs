@@ -66,6 +66,55 @@ self-hosted deployment, reaching a service on the Compose network is an explicit
 opt-in: see [Reaching a service on the Compose network](/self-hosted#reaching-a-service-on-the-compose-network).
 </Note>
 
+## Judge state with `classify`
+
+The `classify` tool judges JSON state against typed questions and returns typed
+answers with probabilities — the [classifier](/concepts/classifiers) model type as a
+tool. It needs the `classifier` extra (`pip install 'tai42-toolbox[classifier]'`) and
+a classifier provider configured through `LLM_PROVIDER_CLASSIFIER` and the
+`CLASSIFIER_*` variables.
+
+Call it with a `state` to judge and a named map of `questions`, one of each kind — a
+`noul` (yes/no), a `choice` (pick one), and a `score` (rate over a rubric):
+
+```bash
+tai tools run classify --kwargs '{
+  "state": {"subject": "quota exceeded", "retries": 5},
+  "questions": {
+    "urgent": {"type": "noul", "instructions": "Is this event urgent?"},
+    "status": {"type": "choice", "instructions": "Which account status fits?",
+               "criteria": {"active": "in normal use", "dormant": "idle", "closed": "ended"}},
+    "severity": {"type": "score", "instructions": "Rate the severity.",
+                 "criteria": ["low", "medium", "high", "critical"]}
+  }
+}'
+```
+
+The result carries one answer per question, keyed by the question name, each naming
+its kind in a `type` discriminator — the `noul` probability, the `choice` label with
+its per-label `probabilities`, and the `score` expected value with its per-level
+distribution — alongside the `model`, `usage`, and `request_id`:
+
+```json
+{
+  "model": "jev-latest",
+  "answers": {
+    "urgent": {"type": "noul", "noul": 0.82},
+    "status": {"type": "choice", "choice": "active",
+               "probabilities": {"active": 0.7, "dormant": 0.2, "closed": 0.1}, "confidence": 0.7},
+    "severity": {"type": "score", "score": 2.4,
+                 "legend": {"0": "low", "1": "medium", "2": "high", "3": "critical"},
+                 "probabilities": {"0": 0.05, "1": 0.15, "2": 0.4, "3": 0.4}, "confidence": 0.6}
+  },
+  "usage": {"input_tokens": 120, "output_tokens": 30},
+  "request_id": "…"
+}
+```
+
+Pass `classifier_provider` and `classifier_kwargs` to override the configured provider
+and its options for one call. See the [classifiers concept](/concepts/classifiers) for
+the question kinds and answer shapes in full.
+
 ## The standard set
 
 The tools and extensions the toolbox ships. This table is generated from the plugin registry, so it never drifts from the package.

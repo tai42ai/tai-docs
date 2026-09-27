@@ -157,6 +157,40 @@ or filter clause raises ``MonitoringReadNotSupportedError``.
 
 
 
+The write/emit half of the monitoring contract.
+
+**FAIL-SAFE INVARIANT**
+
+The EMIT methods (``start_span``, ``record_span``, ``create_event``,
+``update_current_span``, ``trace_attributes``) and the
+``Span``-handle methods
+(``Span.update``, ``Span.set_trace_metadata``) catch their own errors and LOG —
+they MUST NOT raise into application code. A monitoring outage cannot be allowed
+to break a flow. So call sites need NO ``try/except`` around them. (The one
+precondition that DOES raise is ``record_span`` with no ``trace_id`` — a caller
+bug, not a backend outage.) The module-level `attribute_run` helper is
+fail-safe by construction: it composes ``writer`` over ``trace_attributes``,
+inheriting that method's catch-and-log guarantee.
+
+The NON-emit methods are NOT fail-safe and propagate errors loudly:
+``flush`` / ``shutdown`` (fork-safety must not be silently skipped),
+``inject_context``, ``get_monitoring_callbacks`` (returning ``[]`` on failure
+would silently drop all tracing), ``scope`` / ``disable`` (a backend may
+legitimately no-op these — doing nothing successfully — but a real FAILURE
+inside them must raise, never be swallowed: a silently-failed ``scope()``
+could cross-project-leak traces).
+
+``current_trace_id()`` is the sole exception: it returns ``None`` and never
+raises, since it is a guard query, not an operation — ``None`` safely means
+"no active trace, skip the emit".
+
+**AMBIENT vs EXPLICIT context**
+
+``trace_context`` is OPTIONAL. ``None`` = emit into the CURRENT (ambient OTel)
+context — what the no-handle sites use (plain functions with no trace handle).
+An explicit ``TraceContext`` is passed only when one is held (e.g. a
+downstream/parent span in flows/agents).
+
 ## RUN_ATTRIBUTION_TRACE_NAME
 
 `tai42_contract.monitoring.writer.RUN_ATTRIBUTION_TRACE_NAME`
