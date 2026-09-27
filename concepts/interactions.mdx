@@ -173,7 +173,7 @@ rather than dropping it silently.
   "schema": {
     "type": "object",
     "properties": {
-      "date": {"type": "string"},
+      "date": {"type": "string", "format": "date"},
       "count": {"type": "integer"},
       "notes": {"type": "string"}
     },
@@ -354,6 +354,28 @@ a missing type — is refused with a `ValueError` naming the property, while an 
 constraint keyword alongside a scalar `type` is not rendered but is enforced when
 the answer is validated. A form on the default inbox surface keeps full
 JSON-schema freedom; the subset binds only a channel-delivered form.
+
+A `string` property may also carry a **`format`** of `date`, `time`, or `date-time`;
+any other `format` value, or a `format` on a non-string property, is refused, naming
+the property. The answer door validates the value's shape: `date` is `YYYY-MM-DD` (a
+real calendar date), `time` is `HH:MM` or `HH:MM:SS`, and `date-time` is an RFC 3339
+timestamp (a mandatory `Z` or `±HH:MM` offset). A `format` alongside an `enum` is
+allowed — the enum's choice control is rendered and the format is still validated on
+the answer.
+
+Each surface renders a `format` string as its medium's native control where one
+exists, and as a plain text input — still validated at the door — where none does:
+
+| `format` | WhatsApp | Slack | Callback page¹ | Web widget | Studio |
+| --- | --- | --- | --- | --- | --- |
+| `date` | native date picker (returns `YYYY-MM-DD`) | `datepicker` | `<input type="date">` | `<input type="date">` | browser date input |
+| `time` | text (validated at the door) | `timepicker` (`HH:mm`, 24-hour, no seconds) | text (validated at the door) | text (validated at the door) | browser time input |
+| `date-time` | text (validated at the door) | text (validated at the door) | text (validated at the door) | text (validated at the door) | text (validated at the door) |
+
+¹ The callback page renders the Telegram web-app button, the external-link door, and
+the web channel — each answers on the same server-rendered form page. A `date` prefill
+must be `YYYY-MM-DD` and a `time` prefill `HH:MM`; a prefill a native control cannot
+display (a `time` carrying seconds on Slack, say) is refused when the form is built.
 
 When you don't need to **wait** for the answer, send the form as a
 [notification](/concepts/notifications#ask-less-forms) instead: `notify_user` with a
