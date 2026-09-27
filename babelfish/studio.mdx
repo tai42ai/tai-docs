@@ -1,6 +1,6 @@
 ---
 title: "Flows editor"
-description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the LLM router and its dispatch modes, the visual jq editor, and per-node state bindings."
+description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the Router card and its dispatch modes, the classifier card, the visual jq editor, and per-node state bindings."
 icon: "pen-ruler"
 ---
 
@@ -146,9 +146,9 @@ rather than a crash. A per-instance **Raw** toggle flips the whole view to the p
 tree, so the underlying data is never more than one click away, and a flow (or node)
 that declares no output shape keeps the plain results tree throughout.
 
-## The LLM router card
+## The Router card
 
-The [**LLM router**](/babelfish#routing-with-an-llm) card carries its own edit surface:
+The [**Router**](/babelfish#routing-on-a-verdict) card carries its own edit surface:
 the **kinds** it classifies into, optional **turn-level output fields** that describe
 the whole classified turn (each a top-level output beside the kinds), the author's
 system prompt, a **routing** mode — every match (the default, firing every matching
@@ -163,10 +163,52 @@ one already covers, without ever blocking the save. Each route's [key](/babelfis
 the saved flow and in traces, and a route's [On Error switch](/babelfish#per-route-on-error)
 gives that route its own On Error, covering a [**runnable**, **agent**, **flow call**, or **custom node**](/babelfish#per-route-on-error) the route leads to.
 
+A segmented **Decided by** control at the top of the form chooses who judges the kinds
+— **LLM agent** (glossed *reads, extracts items, can loop*) or **Classifier model**
+(*fast yes/no per kind, with a probability*), the two backings the [router
+page](/babelfish#decided-by) describes. The Router entry is offered whenever the host
+registers **either** backing tool; on a server with neither it is disabled with the
+reason **Requires the tools_agent or classify tool**. Each option is disabled on its own
+when its tool is missing (**Requires the tools_agent tool** / **Requires the classify
+tool**), and the classifier option is also disabled while Loop, per-kind fields, or
+turn-level fields are set — the control names what to clear first, so switching backing
+is never a silent drop.
+
+Under the **Classifier model** backing the form drops the agent-only controls: the
+**system prompt** is hidden — a classifier reads state and its questions, not a prompt,
+and the prompt draft is kept in the session so switching back to the LLM agent restores
+it — **Loop** is disabled with *Loop needs extracted items. Only the LLM agent extracts
+them.*, and each kind's description field asks *When is this kind a yes?*. In their place
+the card shows a **Yes when the probability is at least** threshold field (0 to 1, step
+0.05, default 0.5) and a classifier **Model** section — a **Provider** and a **Model**
+input, the Provider glossed *Leave empty to use the host's default classifier provider* —
+replacing the LLM provider/model/temperature section. A kind route then fires when its
+yes-probability reaches the threshold.
+
+<Frame caption="The Router form under the Classifier model backing: the Decided by control, the threshold, and the classifier Model section.">
+  <img className="block dark:hidden" src="/images/studio/router-decided-by-form-light.png" alt="The Router Settings form with the Decided by control set to Classifier model, the yes-probability threshold, and the classifier Model section." />
+  <img className="hidden dark:block" src="/images/studio/router-decided-by-form-dark.png" alt="The Router Settings form with the Decided by control set to Classifier model, the yes-probability threshold, and the classifier Model section." />
+</Frame>
+
+On the canvas a classifier-backed router carries a **classifier** face badge in place of
+the loop badge (Loop cannot apply there); an LLM-agent router keeps its loop badge when
+it loops.
+
+<Frame caption="A classifier-backed Router on the canvas with its classifier face badge.">
+  <img className="block dark:hidden" src="/images/studio/router-classifier-canvas-light.png" alt="A classifier-backed Router card on the canvas showing its classifier face badge." />
+  <img className="hidden dark:block" src="/images/studio/router-classifier-canvas-dark.png" alt="A classifier-backed Router card on the canvas showing its classifier face badge." />
+</Frame>
+
+The card's **Output** tab renders the verdict schema: under the classifier, one yes/no
+answer per kind — a `noul` probability keyed by the kind name — and under the LLM agent
+the extracted-item schema with any turn-level fields. As on the [Classifier
+card](#the-classifier-card), the classifier verdict schema is not saved into the flow, so
+downstream reads of its per-kind probability stay untyped.
+
 The **system prompt** is written one of two ways on the card's tabbed control:
 **inline** (the Plain text tab) or pointed at a **stored template** (the Template tab). In
 both modes the platform fills a `router_kinds` render variable with the [generated kinds
-block](/babelfish#routing-with-an-llm) — the classify instruction and the kind descriptions.
+block](/babelfish#routing-on-a-verdict) — the classify instruction and the kind descriptions.
 Inline, the editor appends `{{ router_kinds }}` after your prompt on save; with a stored
 template, the template writes `{{ router_kinds }}` where the block should appear and supplies
 its other variables through its kwargs. A kind's description is never parsed as template
@@ -183,6 +225,88 @@ max-concurrency cap, or repeatedly while an authored jq condition holds under a 
 safety cap). Under Loop the card grows a **result** chip through which the collected output
 of every chip leaves. The chips look and connect the same in both modes; the modes are
 documented on the [router page](/babelfish#dispatch-once-or-loop).
+
+## The classifier card
+
+The **Classifier** card judges its input against typed questions — the
+[classifier](/concepts/classifiers) model type as a flow node (see [Judging with a
+classifier](/babelfish#judging-with-a-classifier)). It sits in the palette's
+**Agentic** group between Sub-flow Start and Router, drawn with the **Scale** icon and
+a **Judge** badge, and glossed "Asks typed questions about its input — yes/no, pick
+one, rate — and returns probabilities." The entry is enabled only when the
+[`classify`](/guides/standard-toolbox#judge-state-with-classify) tool is registered; on
+a server without it, the entry is disabled with the reason **Requires the classify
+tool**.
+
+<Frame caption="The Classifier entry in the palette's Agentic group.">
+  <img className="block dark:hidden" src="/images/studio/classifier-palette-light.png" alt="The palette Agentic group with the Classifier entry, its Judge badge and gloss." />
+  <img className="hidden dark:block" src="/images/studio/classifier-palette-dark.png" alt="The palette Agentic group with the Classifier entry, its Judge badge and gloss." />
+</Frame>
+
+<Frame caption="The Classifier palette entry disabled when the classify tool is not registered.">
+  <img className="block dark:hidden" src="/images/studio/classifier-gate-light.png" alt="The Classifier palette entry disabled with the reason Requires the classify tool." />
+  <img className="hidden dark:block" src="/images/studio/classifier-gate-dark.png" alt="The Classifier palette entry disabled with the reason Requires the classify tool." />
+</Frame>
+
+On the canvas the card carries routing-in, routing-out, and error handles, and a
+compact band of one **chip per question** — a type glyph and the question's key. The
+band shows up to four chips at rest with the rest folded as "+K more" and every chip
+when the card is selected; the chips are display only and draw no handles.
+
+<Frame caption="The Classifier card on the canvas with its per-question chip band.">
+  <img className="block dark:hidden" src="/images/studio/classifier-canvas-light.png" alt="A Classifier card on the canvas showing its per-question chip band." />
+  <img className="hidden dark:block" src="/images/studio/classifier-canvas-dark.png" alt="A Classifier card on the canvas showing its per-question chip band." />
+</Frame>
+
+<Frame caption="A selected Classifier card revealing every question chip.">
+  <img className="block dark:hidden" src="/images/studio/classifier-selected-light.png" alt="A selected Classifier card with all its question chips shown." />
+  <img className="hidden dark:block" src="/images/studio/classifier-selected-dark.png" alt="A selected Classifier card with all its question chips shown." />
+</Frame>
+
+Its Settings form reads top to bottom: **Name**, **Description**, the **Questions**
+table, **Input expression**, **Model**, **Run condition**, and an **Advanced** toggle
+that reveals the standard runnable surface and the read-only round-trip carriers.
+
+Each row of the **Questions** table has a **Key**, a **Type** segmented control —
+**Yes/No · Pick one · Rate** — an **Instructions** textarea, and the type's own
+criteria editor:
+
+- **Yes/No** — two optional one-line inputs, **Means yes when…** and **Means no
+  when…**.
+- **Pick one** — an options list, each option a **label** and a **description**, added
+  and removed in place.
+- **Rate** — an ordered list of **levels** (two or more), added, removed, and moved to
+  set the rubric's order.
+
+Validation is inline per row, and the apply gate blocks Update on any invalid row —
+the card needs at least one question to save.
+
+The **Input expression** field is labelled *Input expression* and helps with "Must
+return an object with a `state` key — what the classifier reads. Empty: the whole
+upstream input is judged." The **Model** section is a **Provider** and a **Model**
+text input; the Provider field's helper reads "Leave empty to use the host's default
+classifier provider" — so an unset pair runs on the host's configured classifier.
+
+<Frame caption="The Classifier form: the questions table with the three editors, the input expression, and the model.">
+  <img className="block dark:hidden" src="/images/studio/classifier-form-light.png" alt="The Classifier Settings form with the questions table, input expression and model fields." />
+  <img className="hidden dark:block" src="/images/studio/classifier-form-dark.png" alt="The Classifier Settings form with the questions table, input expression and model fields." />
+</Frame>
+
+The **Output** tab renders the response schema **generated from the card's
+questions** — one answer per question keyed by its key — so the answer shape is readable
+in build mode and run mode renders the result against it. The schema is not saved into
+the flow: downstream reads of the answers stay untyped, as
+[Judging with a classifier](/babelfish#judging-with-a-classifier) explains.
+
+<Frame caption="The Classifier card's Output tab showing the schema generated from its questions.">
+  <img className="block dark:hidden" src="/images/studio/classifier-output-light.png" alt="The Classifier card's Output tab showing the generated answer schema." />
+  <img className="hidden dark:block" src="/images/studio/classifier-output-dark.png" alt="The Classifier card's Output tab showing the generated answer schema." />
+</Frame>
+
+On save the card lowers to one runnable calling `classify` and folds back into the
+single card on load. A saved runnable marked as a classifier but no longer calling
+`classify` is shown as a **refusal** naming the mismatch rather than folded silently,
+leaving the plain runnable visible.
 
 ## The updates half of the binding editor
 

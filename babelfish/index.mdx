@@ -389,7 +389,7 @@ aborting. A failing node runs its own On Error, else — when it runs a step of 
 **runnable**, an **agent**, a **flow call**, or a **custom node** — the On Error of the route
 (or hand-authored branch) that led to it, else the flow's; a **conditional**, an **iterate**,
 or a **map** takes no route or branch On Error and resolves failures at the nodes inside it.
-In the Studio the same error handle also rides a **Router** card, catching its classifier's
+In the Studio the same error handle also rides a **Router** card, catching its verdict node's
 failure; each **route** on that card, whose On Error covers a **runnable**, **agent**, **flow
 call**, or **custom node** the route leads to; and a **Sub-Flow Start**,
 where it is the sub-flow's own flow-level On Error.
@@ -482,7 +482,7 @@ are for reading the successful iterations' outputs, not the cause.
 ## Run condition
 
 Any scheduled node — a runnable, an agent, a flow call, a map, and a router's
-classifier — can carry an optional **run condition**: a jq predicate authored as an
+verdict node — can carry an optional **run condition**: a jq predicate authored as an
 inline expression or a stored template with kwargs (the same field triple every jq
 site uses), answering one question — *should this node run at all?* Left empty, the
 node is unconditional and runs exactly as it did before the feature existed.
@@ -523,18 +523,22 @@ that can change while the node waits carries the edge, one over the node's settl
 fan-in does not.
 </Note>
 
-## Routing with an LLM
+## Routing on a verdict
 
-A **router** node classifies its input with an LLM and routes on the result — one
-card instead of an agent node wired into a hand-built conditional. You declare the
-**kinds** it may classify into, each with a name and a description, and the node
-generates the structured-output schema and renders the kinds into your prompt through a
-`router_kinds` variable, so the classification and the routing can never drift apart. A kind may carry extra
-per-kind fields, merged into each extracted item beside its text.
+A **router** node judges its input and routes on the result — one card instead of a
+model node wired into a hand-built conditional. You declare the **kinds** it routes on,
+each with a name and a description, and the card generates everything the routing reads
+from that one list, so the judgment and the routing can never drift apart.
+
+Who does the judging is the card's **[Decided by](#decided-by)** choice — an **LLM
+agent** that reads the input and extracts the items of each kind, or a **classifier
+model** that answers one yes/no question per kind and returns a probability. The kinds,
+the routes, and the routing discipline are the same either way; only the judging half
+differs.
 
 Three kinds of edge leave the card, each drawn distinctly:
 
-- **Kind** — fires when the classifier produced that kind. An optional jq guard is
+- **Kind** — fires when the verdict finds that kind. An optional jq guard is
   combined with it, so "this kind, but only when…" stays one edge.
 - **Condition** — the branch condition *is* an authored jq expression with full
   access to the run, `$states` included. It is a condition route, not a disguised
@@ -548,9 +552,37 @@ just routes nowhere.
 Renaming a kind updates its schema property, its prompt bullet, and the condition that
 reads it together, so every wired edge survives the rename untouched; a route's
 [key](#route-keys) is your own word and is left as it is. On save the card lowers
-to ordinary engine parts — one agent call plus one hidden conditional — and folds
+to ordinary engine parts — one verdict node plus one hidden conditional — and folds
 back into the single card on load, the same way a [map](#looping-over-a-list) folds.
 A conditional you author by hand carries no such marker and stays a visible decision.
+A saved router whose stored verdict marker still uses the retired `classifier` key
+cannot be folded: it is shown as a plain conditional, asking you to re-create the routing.
+
+### Decided by
+
+A router's kinds are judged one of two ways, chosen by the card's **Decided by** control
+and offered whenever the host registers either backing tool:
+
+- **LLM agent (the default).** The card lowers to an agent that reads the input, extracts
+  the **items** of each kind into a generated structured-output schema, and renders the
+  kinds into a system prompt through the `router_kinds` variable. A kind route fires when
+  that kind's item array is non-empty; the agent can [loop](#dispatch-once-or-loop) over the
+  extracted items, a kind may carry extra per-kind fields merged into each item beside its
+  text, and the card may declare [turn-level output fields](#turn-level-output-fields).
+- **Classifier model.** The card lowers to a [`classify`](/concepts/classifiers) call that
+  asks **one yes/no question per kind** — the kind's name is the question's key and its
+  description the instruction — and returns a **probability** per kind. A kind route fires
+  when that probability reaches the card's **threshold** (0 to 1, default 0.5), AND-combined
+  with the route's optional guard exactly as the non-empty check is under the agent. The
+  classifier extracts no items, so it declares at least one kind and offers no loop, no
+  per-kind or turn-level fields, and no system prompt; its **provider** and **model** are set
+  on the card (an empty provider uses the host's default classifier provider).
+
+Choose the **LLM agent** when the routing needs the extracted items, a loop over them, or
+extra fields; choose the **classifier model** for a fast yes/no per kind with a probability
+and nothing to extract. Because a classifier declares no output schema, a downstream read of
+its per-kind probability is untyped, exactly as [Judging with a
+classifier](#judging-with-a-classifier) describes for a Classifier card.
 
 ### Route keys
 
@@ -700,7 +732,7 @@ that chip under every-match routing.
 output of every chip leaves through it, keyed by **kind name**. A consumer of the result
 line reads a kind's aggregate as `.upstream_outputs["<router>__result"].<kind>` (the
 bracket form, because the collector's name carries `__`). The aggregate is a list in run
-order — item order for a per-item body, round order for a while body; a kind the classifier
+order — item order for a per-item body, round order for a while body; a kind the verdict
 did not produce reads `null`, and a matched kind with no item reads `[]`. Because the key is
 the kind name the author sees on the card, renaming a kind changes that visible key, and the
 editor's upstream hints route the result line through the collector's shape.
@@ -738,7 +770,7 @@ route's On Error takes one of two exclusive forms — the same two
   that node then holds the handling, its own inline tool or its wired **Recovery**, as any
   On Error node does.
 
-The router card's own On Error is separate: it still catches the **classifier's** failure, so
+The router card's own On Error is separate: it still catches the **verdict node's** failure, so
 a route's On Error and the card's On Error cover different failures. Under **Loop** dispatch a
 kind chip is a loop body, not a branch, so a kind route carries no per-route On Error there;
 **when** and **otherwise** routes carry theirs in both dispatch modes. A switch left on with
@@ -751,6 +783,39 @@ Error on and pick an inline `notify` tool — or, instead, wire the route's erro
 Error node whose Recovery is a runnable `status_update`. Either way, when the node the route
 leads to fails, the On Error's result becomes that node's output and the run continues
 downstream.
+
+## Judging with a classifier
+
+A **Classifier** card judges its input and hands the judgment downstream — one card
+instead of an agent wired into a hand-built conditional. It lowers to a single
+[runnable](#inputs-and-results) that calls the [`classify`](/concepts/classifiers)
+tool: you declare a set of **typed questions** — each a **Yes/No**, a **Pick one**, or
+a **Rate** — and the card returns one answer per question, keyed by the question's
+name, carrying a probability. The card is authored on the
+[Classifier card](/babelfish/studio#the-classifier-card) in the Studio; the three
+question kinds and the answer shapes are covered on the
+[classifiers](/concepts/classifiers) page.
+
+The card's **input expression** is the runnable's input jq: it must return an object
+with a `state` key — what the classifier reads. Left empty, the whole upstream input
+is judged.
+
+A downstream condition reads an answer at `.upstream_outputs.<node>.answers.<key>`,
+where `<node>` is the card's name and `<key>` is the question's name. A Yes/No answer
+carries its probability under `.noul`, so a threshold guard reads, for a card `judge`
+with a question keyed `urgent`:
+
+```
+((.upstream_outputs.judge.answers.urgent.noul) // 0) >= 0.5
+```
+
+A `choice` answer carries `.choice` and per-label `.probabilities`, and a `score`
+answer carries `.score` and a per-level distribution. Unlike an agent's
+[structured output](#structured-agent-output), a classifier node declares no output
+schema the comparison guard can read, so downstream reads of its answers are untyped
+operands: they are never statically type-checked and a numeric guard like the one
+above always passes the studio's static type check — the shape is the classifier's contract, not a
+declared schema.
 
 ## The visual jq editor
 
