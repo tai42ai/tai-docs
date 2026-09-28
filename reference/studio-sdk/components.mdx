@@ -1770,6 +1770,50 @@ Marketplace: a shopping bag.
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
+## MediaImage
+
+```ts
+function MediaImage(props: MediaImageProps): ReactNode
+```
+
+One served/remote image. Its own component (not an inline `.map` body) because the
+load-failure flag is per-image `useState`, which the rules of hooks forbid inside a
+`.map` callback. `referrerPolicy="no-referrer"` is REQUIRED: it stops the Studio URL
+(which can encode the interaction/operator context) from leaking to the image host
+on a remote-image load. `altFallback` supplies the `alt` when the item has no caption;
+a caller overrides it for its own content and can supply `renderNotice` to render the
+blocked/failed states in its own presentation.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `allowDataImage?` | `boolean` | Opt in to inline `data:image/*` sources (default OFF). Set ONLY by a sink that stores media raw; a `data:` of any other type stays blocked. See isRenderableMediaSrc. |
+| `altFallback?` | `string` | The `alt` text when the item carries no caption. |
+| `caption?` | `string` | — |
+| `renderNotice?` | `(state: "failed" \| "blocked", url: string) => ReactNode` | Render the notice shown when no image is displayed: `state` is `'blocked'` when the url fails the src gate and `'failed'` when an admitted url fails to LOAD, and `url` is that url. When omitted, the SDK's own danger-badge notice (with the url) is rendered. |
+| `url` | `string` | — |
+
+**Related:** [MediaImageProps](/reference/studio-sdk/components#mediaimageprops)
+
+
+## MediaImageProps
+
+```ts
+interface MediaImageProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `allowDataImage?` | `boolean` | Opt in to inline `data:image/*` sources (default OFF). Set ONLY by a sink that stores media raw; a `data:` of any other type stays blocked. See isRenderableMediaSrc. |
+| `altFallback?` | `string` | The `alt` text when the item carries no caption. |
+| `caption?` | `string` | — |
+| `renderNotice?` | `(state: "failed" \| "blocked", url: string) => ReactNode` | Render the notice shown when no image is displayed: `state` is `'blocked'` when the url fails the src gate and `'failed'` when an admitted url fails to LOAD, and `url` is that url. When omitted, the SDK's own danger-badge notice (with the url) is rendered. |
+| `url` | `string` | — |
+
+
 ## MenuIcon
 
 ```ts
@@ -3685,6 +3729,34 @@ Resolved, and holding no key at all.
 **Related:** [ExecutionKeyQuery](/reference/studio-sdk/components#executionkeyquery)
 
 
+## isRenderableMediaSrc
+
+```ts
+function isRenderableMediaSrc(url: string, allowDataImage: boolean): boolean
+```
+
+The media src gate: a media element renders ONLY for an `https:` URL, the
+platform's own served-media reference (a relative `MEDIA_ROUTE_PREFIX + <id>`),
+or — when the caller opts in with `allowDataImage` — an inline `data:image/*` URI.
+`isSafeHttpUrl` is TIGHTENED to https-only here (it alone also admits `http:`,
+which the Studio CSP `img-src`/`media-src` blocks and the contract never emits);
+the served-media branch pins a well-formed platform media id (a relative url
+`isSafeHttpUrl` cannot parse). `allowDataImage` defaults OFF: only a sink that
+stores media RAW (never substituted to a served reference) opts in, and even then
+ONLY `data:image/*` is admitted — a `data:` of any other type (`data:text/html`,
+an SVG document, …) is ALWAYS blocked. `http:`, `javascript:`, a non-image
+`data:`, and any other-shaped relative url fail every branch → a loud blocked
+item. The gate keys on the reference form; `resolveMediaSrc` joins an
+admitted reference to the API base for the actual load.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `string` | — | — |
+| `allowDataImage` | `boolean` | `false` | — |
+
+
 ## isSafeHttpUrl
 
 ```ts
@@ -3692,6 +3764,25 @@ function isSafeHttpUrl(url: string): boolean
 ```
 
 True only for an absolute `http://`/`https://` URL. Everything else is unsafe.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `string` | — | — |
+
+
+## isServedMediaUrl
+
+```ts
+function isServedMediaUrl(url: string): boolean
+```
+
+Whether `url` is the platform's own served-media reference: a relative
+`MEDIA_ROUTE_PREFIX + <id>` with a well-formed 43-char urlsafe-base64 id. A served
+reference is same-origin to the API base (`resolveMediaSrc`) and leaks no page
+context on load, so a sink with no per-element referrer control (`<audio>`/`<video>`,
+where `referrerPolicy` is not a valid attribute) admits ONLY this form.
 
 **Parameters**
 
@@ -3820,6 +3911,28 @@ rather than being discarded.
 | `markdown` | `string` | — | — |
 
 **Related:** [MarkdownBlock](/reference/studio-sdk/components#markdownblock)
+
+
+## resolveMediaSrc
+
+```ts
+function resolveMediaSrc(url: string, baseUrl: string): string
+```
+
+The URL an admitted media element actually loads. An `https:` url is already
+absolute and is returned unchanged. A served-media reference is RELATIVE and is
+joined to the API origin (`baseUrl`) — NOT the SPA page origin: in a cross-origin
+deployment the two differ, and a page-relative src would resolve against Studio
+and 404. An empty `baseUrl` (same-origin deployment) leaves the reference
+relative, which is correct; a configured base's trailing slash is stripped so the
+join never double-slashes.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `string` | — | — |
+| `baseUrl` | `string` | — | — |
 
 
 ## safeHttpUrl
