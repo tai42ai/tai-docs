@@ -39,6 +39,36 @@ page:
   </Card>
 </CardGroup>
 
+## Inbound media
+
+When a participant sends a file over the [conversation
+bridge](/reference/conversation-bridge) — a photo, document, voice or audio clip,
+or video — the platform fetches the bytes, verifies them, and stores them by
+reference through the active storage provider, then serves them back from a
+same-origin capability URL that carries an unguessable id. Ingestion therefore
+needs a registered storage provider (any of the three above). The default
+self-hosted image bakes and selects `storage-local`, so inbound media works out
+of the box; register no provider and an inbound file is rejected loudly — the
+sender is told "That attachment could not be received." — rather than dropped in
+silence.
+
+Per-kind size ceilings are `MEDIA_INGEST_*` settings —
+`MEDIA_INGEST_MAX_IMAGE_BYTES` (8 MiB), `MEDIA_INGEST_MAX_AUDIO_BYTES` (16 MiB),
+`MEDIA_INGEST_MAX_VIDEO_BYTES` (25 MiB), and `MEDIA_INGEST_MAX_DOCUMENT_BYTES`
+(25 MiB) by default; the [settings reference](/reference/settings) carries every
+`MEDIA_INGEST_*` variable and its value. Which files are accepted depends on their
+kind: photos, audio, and video are stored only when their bytes carry a recognised
+signature that matches an allowlisted type — a file that merely claims to be an
+image is rejected — while documents of text-like allowlisted types (such as plain
+text or CSV) are accepted by their declared type and are always served as a
+download, never as active content. Active content such as SVG, HTML, or JavaScript
+is on no allowlist and is never accepted.
+
+A stored inbound file is retained for the life of its conversation record (30 days
+by default): the platform records each file's expiry in a durable index and a
+background reaper walks that index to delete past-horizon files, so nothing is
+held forever — a file that outlives its own record is still reaped.
+
 ## See also
 
 - [Storage and resources](/concepts/storage-and-resources) — the ResourceManager contract.

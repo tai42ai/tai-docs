@@ -150,6 +150,8 @@ The server exposes two operational routes for orchestrators and load balancers. 
 
 `/health` stays green as long as the process is up. `/ready` lets an orchestrator hold traffic off a worker whose Redis or Postgres is unreachable — such a worker would 500 every real request but stay live.
 
+**A stalled background task fails readiness.** Beyond the backing-store pings, `/ready` also reports the platform's own long-lived background tasks — the fleet-bus subscription, the failed-MCP re-probe, and the expiry reapers. If one of these stops unexpectedly, `/ready` returns `503` `not_ready` and names the stopped task under `checks` (as `perpetual_task:<name>`), and the process exits so a supervisor that restarts it (`restart: unless-stopped` in the bundled Compose, or an equivalent orchestrator policy) brings it back from a clean boot. `/health` keeps returning `200` until the process actually exits, so a liveness probe alone will not notice the stall — wire the restart policy, and probe `/ready` where your orchestrator supports a readiness gate.
+
 **The probe routes are public by default — no manual step.** With access control enabled, unknown routes are denied, but `/health` and `/ready` are served public by the app's own route-level declaration: they ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so a probe carrying no key reaches them with nothing to configure. Do **not** also list them in `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` — an acknowledged route that overlaps an always-public prefix is rejected at boot.
 
 <Warning>

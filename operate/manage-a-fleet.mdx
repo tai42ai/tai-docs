@@ -81,6 +81,8 @@ The response is the per-worker fleet report — one row per worker with its relo
 
 Fleet reach is not a separate command — it rides every mutating operation. When a tool is reloaded or a capability is removed, the route persists the change, applies it locally, and then broadcasts it on the bus so every worker re-reads the durable state and rebinds; that response embeds the per-worker fleet report, so a propagation that did not converge is visible on the flow that caused it. A [preset](/concepts/presets) mutation broadcasts the same way, but its response is the plain preset record — a preset broadcast that does not converge is surfaced server-side as a loud non-convergence ERROR log rather than embedded in the response, and a fleet `reload_config` reconverges the named workers. See [live operations](/concepts/live-operations) for the mutation surface the bus backs.
 
+**A `200` does not mean every worker converged.** A fleet broadcast applies the change locally first, then asks every reachable worker to confirm. The local apply is committed before the call returns, so the call returns `200` even when a sibling worker did not confirm — read the body: `ok` is `false` when any reachable worker has not converged, `reachable` tells you the bus was reached, and `results[]` carries each worker's `outcome` (`applied` means it converged; anything else — `resyncing`, `recycling`, `stale` — names a worker that did not). A client that only checks the HTTP status will miss an unconverged sibling: check `ok`. A non-2xx is reserved for a local apply that itself failed or a malformed request — a case where the change did NOT land.
+
 ## See also
 
 - [The worker bus](/concepts/worker-bus) — the internal fan-out primitive and its boot rules.

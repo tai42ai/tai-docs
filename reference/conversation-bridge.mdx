@@ -339,6 +339,71 @@ applies is applied first. The tool returns the accepted receipt at once — its 
 delivered by the route's own configured delivery, never inline.
 </Note>
 
+### Inbound media
+
+When a participant sends media (a photo, document, voice or audio clip, video, file, or
+sticker), the channel bridges it as a normal turn: the caption becomes the turn text, or,
+with no caption, a short non-blank placeholder such as `[image]`, `[document: report.pdf]`,
+or `[voice message]`. The media's identity rides the turn's `params` under a generic
+vocabulary — `media_kind`, `media_id`, `media_mime_type`, `media_filename`, `media_sha256`,
+`media_voice`, `sticker_animated`, and, where the channel reports it, `media_size` — where
+`media_id` is the reference the producing channel can later resolve. Each value obeys the
+standard per-value parameter cap; an over-cap value is dropped rather than truncated, and the
+turn still bridges. This vocabulary carries the media's identity only: no bytes are fetched or
+stored for it.
+
+On the channels that **ingest bytes**, the bridged turn additionally carries typed
+`attachments`: the platform has fetched the file, verified it, and stored it by reference, and
+each attachment is a **served reference** — a same-origin capability URL
+(`/api/interactions/media/{media_id}`) a tool, an agent's `start_expr`, or the operator
+console can render or download. The parity `media_*` params still ride the turn, now filled
+from the stored file's real size, hash, and type. If the file cannot be received — it is over
+the per-kind cap, its type is not allowed, the byte source could not be fetched, or no storage
+provider is configured — no attachment is minted; the participant is told and the drop is
+recorded on the [`conversations_inbound_rejected`](#inbound-platform-events) event with a
+`reason` of `too_large`, `unsupported_type`, or `could_not_receive`. See the [operations
+storage page](/operate/storage) for the ingestion requirements and the per-kind caps.
+
+### Inbound platform events
+
+The inbound path emits two platform events a deployment can wire a hook to. Neither is a reply
+and neither returns an error to the provider — the inbound is always acknowledged so a
+provider does not redeliver in a loop; the event makes an otherwise-silent drop visible.
+
+- **`conversations_inbound_rejected`** — emitted when a channel receives content it recognises
+  but cannot bridge as a turn, carrying a `reason`: `unsupported_type` (no mappable content, or
+  the provider signalled a message type it will not deliver — for example a WhatsApp
+  "unsupported message type" notice), `too_large` (a byte-ingested file over its per-kind cap),
+  or `could_not_receive` (the byte source could not be fetched, or no storage provider is
+  configured). The participant receives one fixed generic notice — `"This content type is not
+  supported here."`, `"That file is too large to accept here."`, or `"That attachment could not
+  be received."` — and this event records the drop, so unsupported content is visible rather
+  than silently discarded.
+- **`conversations_inbound_unrouted`** — emitted when a reply arrives for an address with no
+  bound conversation route. It is distinct from a rejection: an unrouted reply and a
+  recognised-but-unbridgeable content are different faults.
+
+### The working-on-it signal
+
+While the platform works on a reply to a bridged inbound message it shows the channel's own
+"working-on-it" indicator — the typing dots on WhatsApp and Telegram — and refreshes it under
+the vendor's short expiry so it does not lapse mid-turn. The indicator stops the instant the
+reply is sent, when the record leaves the in-flight delivery states, or when the turn ends
+with no send; a hard ceiling bounds a turn that never sends. It is best-effort and cosmetic: a
+signal failure never reaches the turn.
+
+Two settings tune it (`CONVERSATIONS_` prefix; see [Settings](#settings) for defaults):
+
+- `CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` — the hard ceiling on one turn's refresh loop;
+  `0` disables the loop entirely (the kill switch).
+- `CONVERSATIONS_WORKING_SIGNAL_REFRESH_MARGIN_SECONDS` — the margin subtracted from the
+  vendor indicator's lifetime to choose the refresh interval, so each refresh lands before it
+  lapses.
+
+Not every channel drives it: Slack and Twilio show none (their API offers no bot typing
+indicator), and the web chat page shows its own client-side typing indicator rather than a
+server-driven refresh.
+
 ## The event door
 
 `POST /api/conversations/{route_name}/events` (authed) delivers a **structured event**
@@ -444,11 +509,11 @@ route. An authorized writer may address **any** existing thread of the route by
 
 The single-record door is a plain authed read gated by the **conversations read
 grant**: a holder reads any record on the route, whichever door it arrived through. An
-admin read returns the full record (including `error`, the turn's internal detail); a
-non-admin read returns a caller-safe projection that withholds `error` and the
-delivery bookkeeping — the turn ran as the **route's** key, not the reader's. A record
-on another route (or missing) is a `404` — a wrong-route or unknown address, never an
-authorization verdict.
+admin read returns the full record (including `error`, the turn's internal detail, and the
+delivery bookkeeping such as `pending_receipt`); a non-admin read returns a caller-safe
+projection that withholds `error` and the delivery bookkeeping — the turn ran as the
+**route's** key, not the reader's. A record on another route (or missing) is a `404` — a
+wrong-route or unknown address, never an authorization verdict.
 
 Every record carries an `origin` — `client` for an inbound message's turn, `operator`
 for a message an operator sent into the thread [by
@@ -457,6 +522,18 @@ caller-safe projections. A record whose inbound message brought an
 [ask-less form](/concepts/notifications#ask-less-forms) submission also publishes the
 structured object as **`inbound_form`**, in both projections, beside the rendered
 `inbound_text` that stays the message every consumer reads.
+
+**Unreadable rows are counted, not hidden.** Every listing — the thread listing, message
+search, the transcript, and the route and config listings — returns an `unreadable` count
+beside its rows. A stored row the platform cannot decode, or whose row has gone from under its
+index, is tallied there and omitted from the returned items, so a shorter-than-expected
+listing carries a nonzero `unreadable` you can act on rather than a silent gap.
+
+**A record whose route was deleted still stands.** A conversation record accepted while its
+route was being removed is kept and delivered, and carries `route_missing: true` in both the
+admin and caller-safe reads. Because its thread indexes were never written, no transcript
+names it — the flag is how you recognise such an orphaned-route record rather than assuming it
+was lost, and the platform logs the orphaned record loudly when it is created.
 
 The failed-delivery listing spans every route and caller, so it is admin-only.
 
@@ -770,6 +847,16 @@ retention TTL.
 Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
+
+**A receipt that arrives before the send finishes is held, not lost.** A channel can deliver a
+delivery receipt (a status callback) for an outbound message before the platform has finished
+recording that send. When it does, the receipt is **parked** on the record — the callback is
+acknowledged normally, so the provider does not redeliver in a loop — and applied the moment
+the send completes, moving the record straight to its `delivered` or `failed` outcome. If the
+send itself reaches a failure terminal first, the sender's verdict wins and the parked receipt
+is dropped with a logged warning. An in-flight record holding a receipt shows it in the admin
+record view under `pending_receipt`.
+
 When a reachable channel terminally refuses a turn's reply — an answer over the
 channel's cap, an unrenderable part, a permanent input refusal, or a non-retryable
 send rejection — the record stays `failed` and the participant is sent the same
@@ -777,6 +864,15 @@ uniform could-not-deliver notice a failed resumed reply gets (the route's config
 `error_reply_text` when set); a transport exhaustion — retryable failures that spend
 every attempt — stays `failed` with no such notice, the failed-delivery listing being
 the only signal.
+
+A pending or provisional delivery row that can never be parsed is moved to the terminal
+`failed` state — it stops being retried on every sweep and appears on the failed-delivery
+listing, where an operator can see and clear it. For those delivery-lifecycle rows the
+`unreadable` count a listing reports and this terminal `failed` state are the same fact seen
+twice: the row a read tallies as `unreadable` is the row the sweep fails, not a second one. A
+corrupt row counted `unreadable` on any other listing (a thread, transcript, route, or config
+listing) has no `failed` twin — the sweep only transitions delivery-lifecycle rows, so those
+counts stand on their own.
 
 Client-facing text on the failure paths is always client-safe — an internal detail
 never crosses to the participant. The turn-error reply is configurable per route; the
@@ -926,6 +1022,8 @@ combination loudly.
 | `thread_lease_poll_seconds` | `0.5` | Seconds a waiter sleeps between thread-lease acquisition attempts. |
 | `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
+| `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one turn's [working-on-it](#the-working-on-it-signal) refresh loop; `0` disables the loop entirely (the kill switch). |
+| `working_signal_refresh_margin_seconds` | `5` | Seconds subtracted from a channel's vendor-indicator lifetime to pick the refresh interval, so each refresh lands before the indicator lapses. |
 
 ### Delivery bounds
 
