@@ -13,11 +13,70 @@ enabled (the default) that download is DNS-rebinding-safe, redirect-safe, and
 size-capped. The guard is reusable on its own by any caller that fetches a
 caller-supplied URL server-side over its own HTTP client.
 
-`fetch_url` is re-exported LAZILY (PEP 562): it pulls in ``httpx``/``httpcore``,
-and a consumer of a lighter ``net`` utility (e.g. `tai42_kit.net.request_body`)
-must not drag that backend into its import graph merely by importing a sibling module.
-This is the same reason `tai42_kit.net.jwt` (which needs ``joserfc``) stays out of
-this re-export.
+`fetch_url` and `fetch_media` are re-exported LAZILY (PEP 562): they pull in
+``httpx``/``httpcore``, and a consumer of a lighter ``net`` utility (e.g.
+`tai42_kit.net.request_body`) must not drag that backend into its import graph merely
+by importing a sibling module. This is the same reason `tai42_kit.net.jwt` (which
+needs ``joserfc``) stays out of this re-export.
+
+## MediaFetchError
+
+`tai42_kit.net.fetch_media.MediaFetchError`
+
+```python
+class MediaFetchError(Exception)
+```
+
+A vendor media fetch failed at the HTTP or transport layer.
+
+The message carries the vendor HOST plus the HTTP status code or the
+transport-exception class ONLY — never the request URL — so a credential riding
+the URL path or query never reaches an error string. ``status_code`` is the HTTP
+status when the fault was an error response (or an unfollowed redirect), else
+``None`` (a transport fault — timeout, connection error, a torn read — or a
+malformed response header). ``transient`` tells the caller whether a redelivery
+could plausibly succeed; it is derived from the status — a 5xx, a 408 (Request
+Timeout) or a 429 (Too Many Requests, a vendor throttle) is transient, and so is a
+transport fault (status ``None``); every other 4xx/3xx is permanent — unless an
+explicit value is given for a fault the status cannot classify (a malformed response
+header is permanent).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `host` | — |
+| `status_code` | — |
+| `cause_class` | — |
+| `transient` | — |
+
+
+## MediaStream
+
+`tai42_kit.net.fetch_media.MediaStream`
+
+```python
+class MediaStream
+```
+
+A vendor media response opened for streaming — the final hop's metadata plus its body.
+
+``content_type`` is the final response's ``Content-Type`` media type with parameters
+stripped and lower-cased (``None`` when the header is absent or empty).
+``content_length`` is the parsed ``Content-Length`` (``None`` when absent). ``host`` is
+the final response's host, for error/log text only — never the URL. ``chunks`` yields
+the body as it arrives; a fault while iterating raises `MediaFetchError`
+(``transient=True``, URL-free).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `content_type` | `str \| None` |
+| `content_length` | `int \| None` |
+| `host` | `str` |
+| `chunks` | `AsyncIterator[bytes]` |
+
 
 ## UrlGuardError
 
@@ -74,6 +133,41 @@ refused loudly.
 | `nbytes` | `int` | — | — |
 
 
+## fetch_media
+
+`tai42_kit.net.fetch_media.fetch_media`
+
+```python
+async fetch_media(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    auth: httpx.Auth | tuple[str, str] | None = None,
+    follow_redirects: bool = False,
+    max_bytes: int,
+) -> tuple[bytes, str | None]
+```
+
+Fetch a vendor media object bounded by ``max_bytes``, SSRF-pinned while the guard is enabled.
+
+Shares the streaming primitive ``_stream_media`` with `open_media_stream` and collects
+its body, raising `RequestBodyTooLargeError` (never
+truncating) the instant the running total crosses ``max_bytes``. Redirect handling, the
+cross-origin credential drop, and the URL-free faults are exactly those of
+``open_media_stream``. Returns ``(bytes, media type)`` where the media type is the response
+``Content-Type`` with parameters stripped and lower-cased (``None`` when absent).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str` | — | — |
+| `headers` | `dict[str, str] \| None` | `None` | — |
+| `auth` | `httpx.Auth \| tuple[str, str] \| None` | `None` | — |
+| `follow_redirects` | `bool` | `False` | — |
+| `max_bytes` | `int` | — | — |
+
+
 ## fetch_url
 
 `tai42_kit.net.fetch_url.fetch_url`
@@ -115,6 +209,50 @@ guard_enabled() -> bool
 ```
 
 Return whether the SSRF guard is enabled (``TAI_URL_GUARD_ENABLED``).
+
+
+## open_media_stream
+
+`tai42_kit.net.fetch_media.open_media_stream`
+
+```python
+async open_media_stream(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+    follow_redirects: bool = False,
+) -> AsyncIterator[MediaStream]
+```
+
+Open a vendor media object for streaming, SSRF-pinned while the guard is enabled.
+
+While `guard_enabled` is set the request runs over the
+`_PinningTransport`; when it is unset a plain transport
+that pins nothing is used instead — the same one operator switch ``fetch_url`` honours.
+When ``follow_redirects`` is set, redirects are followed hop-by-hop up to the guard's
+``max_redirects`` (``follow_redirects`` is never handed to httpx, so the pin re-runs per
+hop while enabled); when it is not, an unfollowed redirect is a fault. ``headers``/``auth``
+carry the vendor credential on the call only — never returned, never logged; ``auth`` is a
+Basic-auth ``(username, password)`` pair only. On a cross-origin hop, and every hop after
+it, the request carries no caller-supplied header and no ``auth`` (only httpx's defaults); a
+same-origin hop keeps them.
+
+Yields a `MediaStream` for the final response; the response is closed when the
+context exits, including on an exception raised while iterating ``chunks``. Faults never
+carry the request URL: an SSRF rejection surfaces as
+`UrlGuardError` (host only); an HTTP-status, transport,
+or malformed-header fault as `MediaFetchError` (vendor host + status/class only) —
+at open, or from the ``chunks`` iterator on a mid-body fault.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str` | — | — |
+| `headers` | `Mapping[str, str] \| None` | `None` | — |
+| `auth` | `tuple[str, str] \| None` | `None` | — |
+| `follow_redirects` | `bool` | `False` | — |
 
 
 ## resolve_and_validate

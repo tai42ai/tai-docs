@@ -251,6 +251,29 @@ before the kill.
 | `stderr_len` | — |
 
 
+## SandboxFileNotFoundError
+
+`tai42_contract.sandbox.errors.SandboxFileNotFoundError`
+
+```python
+class SandboxFileNotFoundError(SandboxError)
+```
+
+No file exists at the requested path in the session's workspace.
+
+Raised by a provider's ``get_file`` ONLY when ``path`` does not exist in the session's
+workspace. Every OTHER read failure (an IO/permission/engine error, an unreadable non-file)
+stays the base `SandboxError` carrying the real message, so a caller can tell a genuine
+miss (report the file absent) from a real fault (surface the error), never masking one as the
+other.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `path` | — |
+
+
 ## SandboxIsolation
 
 `tai42_contract.sandbox.models.SandboxIsolation`
@@ -439,7 +462,8 @@ async get_file(self, path: str) -> bytes
 
 Read ``path`` (WORKSPACE-RELATIVE by default) from the workspace.
 
-Raise a typed `SandboxError` on a miss.
+Raise `SandboxFileNotFoundError` when ``path`` does not
+exist; any other read failure raises the base `SandboxError` with the real message.
 
 **Parameters**
 

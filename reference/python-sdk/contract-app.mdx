@@ -861,6 +861,47 @@ id resolves to no record.
 | `status` | `DeliveryReceipt` | — | — |
 
 
+#### notify_inbound_rejected
+
+`tai42_contract.app.facets.messaging.AppConversations.notify_inbound_rejected`
+
+```python
+async notify_inbound_rejected(
+    self,
+    *,
+    channel_id: str,
+    recipient: str,
+    sender_identity: str | None,
+    kind: str,
+    reason: InboundRejectionReason,
+) -> None
+```
+
+Reply once and record a platform event when an inbound content cannot become a turn.
+
+The ONE shared chokepoint a channel adapter calls instead of silently ack-and-ignoring a
+vendor content it recognises but cannot represent as a turn — an unmappable media kind, a
+file over the platform cap, a byte source it could not fetch, or an unsupported content
+type. Sends a single generic participant notice back over ``channel_id`` to ``recipient``
+(from ``sender_identity`` when the channel fronts several identities, else the channel
+default), and records a platform event naming the generic ``kind`` refused and the
+``reason``, so the drop is operator-visible. ``kind`` is a generic, domain-neutral label
+(e.g. an `InboundMediaKind` value or a channel's neutral
+content word); it names WHAT was refused, never a participant value. ``reason`` selects the
+generic notice the platform sends. A blank or unroutable message is a different fault and
+stays its own handling — this seam is for content the channel recognises but cannot bridge.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channel_id` | `str` | — | — |
+| `recipient` | `str` | — | — |
+| `sender_identity` | `str \| None` | — | — |
+| `kind` | `str` | — | — |
+| `reason` | `InboundRejectionReason` | — | — |
+
+
 #### pending_messages
 
 `tai42_contract.app.facets.messaging.AppConversations.pending_messages`
@@ -1081,7 +1122,11 @@ coverage gate consume, so every registration MUST describe itself:
   declares these (the operations adapter passes its operation's metadata, a
   native handler passes its own); ``None`` (the default) records trivial
   defaults for a route outside the spec surface, whose behavioral metadata
-  is never emitted.
+  is never emitted. A route MAY also declare its own ``max_body_bytes`` (a
+  per-route request body cap the app's request-body limit honours; default
+  ``None`` defers to the app cap) and its own ``rate_limit_family`` (the
+  rate-limit family the door charges; default ``None`` defers to the
+  path-derived family).
 
 The handler's narrative docstring becomes the operation description, and
 the reload-gate ``503`` response is derived from the handler body.
@@ -1593,6 +1638,100 @@ dequeued and forked mid-rebuild would run the job against a half-built
 registry. The latch is one-way — it resolves once and stays resolved, so
 a later bus reconnect (which re-runs the self-resync while the app is
 already live) never un-readies the process.
+
+
+
+## AppMedia
+
+`tai42_contract.app.facets.media.AppMedia`
+
+```python
+class AppMedia(Protocol)
+```
+
+The served-media ingestion namespace (``app.media``).
+
+A channel adapter or the web upload door streams inbound bytes through the ONE
+``ingest_media`` chokepoint; the platform caps, sniffs, stores, and mints a served
+reference, returning the typed `IngestedMedia`. The body is the skeleton's; this facet
+is the contract the doors and the impl agree on.
+
+### Members
+
+#### ingest_media
+
+`tai42_contract.app.facets.media.AppMedia.ingest_media`
+
+```python
+async ingest_media(
+    self,
+    *,
+    source: AsyncIterator[bytes],
+    kind_hint: InboundMediaKind | str | None,
+    declared_mime: str | None,
+    filename: str | None,
+    declared_size: int | None,
+    integrity_sha256: str | None,
+    origin: MediaOrigin,
+) -> IngestedMedia
+```
+
+Ingest one streamed inbound media, returning its served reference and metadata.
+
+Reads ``source`` under the platform's per-kind byte cap (raising loudly on a cap crossing,
+never truncating), sniffs the real type, agrees it against ``declared_mime``, stores the
+bytes by reference, and returns an `IngestedMedia` whose ``item`` carries the served
+``{MEDIA_ROUTE_PREFIX}{media_id}`` url. Raises a
+`MediaIngestError` subclass on an over-cap /
+disallowed-type / unfetchable / store-unavailable outcome — never a silent skip.
+
+Two-phase (upload-then-attach) support rides ``origin.message_id``: when it is ``None`` the
+item is ingested PENDING (retained only for ``MEDIA_INGEST_PENDING_TTL_SECONDS``, owned by
+``(origin.channel_id, origin.participant_identity)``) so a door that receives the bytes
+before the owning message exists (the web upload door) can bind it later with
+`bind_media`; when it is set the item is bound at ingest to the record's retention
+horizon (the vendor channels, which know the message id at fetch time).
+``IngestedMedia.pending`` reports which state resulted.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `source` | `AsyncIterator[bytes]` | — | — |
+| `kind_hint` | `InboundMediaKind \| str \| None` | — | — |
+| `declared_mime` | `str \| None` | — | — |
+| `filename` | `str \| None` | — | — |
+| `declared_size` | `int \| None` | — | — |
+| `integrity_sha256` | `str \| None` | — | — |
+| `origin` | `MediaOrigin` | — | — |
+
+
+#### bind_media
+
+`tai42_contract.app.facets.media.AppMedia.bind_media`
+
+```python
+async bind_media(self, media_id: str, *, origin: MediaOrigin) -> IngestedMedia
+```
+
+Promote a PENDING ingested media to the owning conversation record's retention horizon.
+
+Called when a message finally references a ``media_id`` ingested with no ``origin.message_id``
+(``origin.message_id`` is REQUIRED here). Idempotent when the item is already bound to the
+SAME message. Raises loudly, never silently:
+`MediaNotFoundError` — one uniform error for an unknown,
+an expired-pending, or a ``media_id`` NOT owned by the caller's
+``(origin.channel_id, origin.participant_identity)`` (no ownership oracle — the three cases
+are indistinguishable to the caller);
+`MediaAlreadyBoundError` — the item is already bound to a
+DIFFERENT message. Returns the now-bound `IngestedMedia` (``pending == False``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `media_id` | `str` | — | — |
+| `origin` | `MediaOrigin` | — | — |
 
 
 
@@ -3419,6 +3558,8 @@ besides ``success_status``; each is emitted as its own success response.
 | `error_statuses` | `tuple[int, ...]` |
 | `success_status` | `int` |
 | `additional_success_statuses` | `tuple[int, ...]` |
+| `max_body_bytes` | `int \| None` |
+| `rate_limit_family` | `str \| None` |
 
 
 ## PendingMessage
@@ -3575,6 +3716,17 @@ conversations: AppConversations
 ```
 
 Inbound-message and delivery-status entry surface for medium adapters.
+
+
+#### media
+
+`tai42_contract.app.TaiApp.media`
+
+```python
+media: AppMedia
+```
+
+Served-media ingestion entry surface for channel adapters and the upload door.
 
 
 #### monitoring
