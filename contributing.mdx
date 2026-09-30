@@ -71,6 +71,27 @@ The workspace sources **are** the resolution. `[tool.uv.workspace]` lists `core/
 - **CI resolves the same workspace.** Each member's gate runs `uv sync --locked --package <name>` against the committed root lock, so a repo's gate proves it against exactly the members a contributor develops with. There is no `UV_NO_SOURCES`, no sibling-clone step, and no `uv lock --no-sources`.
 - **The `e2e` suite proves the fleet together.** Cross-member drift surfaces in the integration run, not in each member's own gate.
 
+## End-to-end suites
+
+The `e2e` member boots the real multi-process deployment and drives it over HTTP; its `ui/` workspace drives the Studio in a browser. One setting, `TAI_E2E_TARGET`, selects what every end-to-end suite drives — this one and the browser suites of the Studio and plugin repositories:
+
+- **Unset** — the run builds its own stack and drives it.
+- **Set** — the run builds nothing and drives a running stack: a bare origin (`https://stack.example.com`), or the name of a target file in the suite's `targets/` directory.
+
+A target file is three fields: the stack's `url`, `key_env` — the *name* of the environment variable that holds the login key — and `provides`, the facts the stack cannot report about itself. Everything it can report is read once from its `GET /api/system/kinds`.
+
+Every test declares what it needs from a stack, in one vocabulary:
+
+| Need | Met by |
+|------|--------|
+| `kind:<kind>`, `kind:<kind>:<name>` — e.g. `kind:storage`, `kind:channels:web` | the stack reports that kind on |
+| `probe-tools`, `mutable` | the target file lists it under `provides` |
+| `process`, `store`, `files`, `helper`, `setting`, `topology`, `cli`, `metrics`, `second-stack`, `fixture-page`, `no-stack` | only a stack the run builds |
+
+Against a target, a test whose needs are met runs; every other test is skipped with the unmet need as the reason, and a test that declares nothing is treated as built-stack only. When the run builds its own stack the declarations change nothing.
+
+In CI the jobs read the target from the `e2e_target` input of a manual run, else from the `TAI_E2E_TARGET` repository variable, and the key from the `TAI_E2E_KEY` secret. Every run writes a JUnit XML report (`junit.xml`) in which a skipped test carries its reason; CI uploads it as an artifact and renders it into the job summary. The suite's `README` covers the details.
+
 ## Release
 
 The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member opens a release PR for that package alone. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 32 packages share one repository — and publishes that package to PyPI.
