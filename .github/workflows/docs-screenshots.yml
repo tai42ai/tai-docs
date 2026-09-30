@@ -13,6 +13,14 @@
 #
 # Both jobs write disjoint filenames, so their PRs never collide.
 #
+# Target: with the `e2e_target` input of a manual run, or the TAI_E2E_TARGET
+# repository variable, set, neither job builds or boots a stack -- the
+# stack-building steps (and the editor job's service containers) are skipped and
+# the capture runs against that running stack. The Studio capture takes an
+# origin; the editor sweep takes an origin or the name of a target file in the
+# engine's e2e/targets, and skips any shot whose declared needs the target does
+# not meet. Unset, each job builds its own stack as described above.
+#
 # Triggers: manual (workflow_dispatch, which runs BOTH jobs) and a single
 # repository_dispatch fired by the notify-docs-screenshots hooks in the Studio
 # and engine repos, each ONLY when its UI paths change. The jobs branch on a
@@ -39,6 +47,11 @@ name: docs-screenshots
 
 on:
   workflow_dispatch:
+    inputs:
+      e2e_target:
+        description: Capture from this running stack (an origin, or for the editor sweep the name of a target file) instead of building one
+        type: string
+        default: ""
   repository_dispatch:
     types: [studio-screenshots] # fired by the Studio and engine notify hooks on UI-path pushes to main
 
@@ -63,6 +76,11 @@ jobs:
     permissions:
       contents: write # push the regeneration branch
       pull-requests: write # open the automated PR
+    env:
+      # The capture target: a running stack to capture from instead of building one,
+      # from the dispatch input or the TAI_E2E_TARGET repository variable.
+      TAI_E2E_TARGET: ${{ inputs.e2e_target || vars.TAI_E2E_TARGET }}
+      TAI_E2E_KEY: ${{ secrets.TAI_E2E_KEY }}
     steps:
       - name: Check out tai-docs
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -87,22 +105,29 @@ jobs:
           git config --global \
             url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
             "https://github.com/"
-          git clone --depth 1 --branch "$SOURCE_REF" \
-            "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" tai42
+          # The monorepo is the backend of the stack this job boots; a run against
+          # a running stack needs only the Studio repo, which carries the capture.
+          if [ -z "${TAI_E2E_TARGET}" ]; then
+            git clone --depth 1 --branch "$SOURCE_REF" \
+              "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" tai42
+          fi
           git clone --depth 1 --branch "$SOURCE_REF" \
             "https://github.com/${SOURCE_OWNER}/${STUDIO_REPO}.git" tai-studio
           # The source-clone credential rewrite is global; create-pull-request pushes
           # to tai-docs with its own TAI_DOCS_PR_TOKEN, which takes precedence.
 
       - name: Set up uv
+        if: env.TAI_E2E_TARGET == ''
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.26"
           enable-cache: true
 
       - run: uv python install 3.13
+        if: env.TAI_E2E_TARGET == ''
 
       - name: Sync the skeleton env (the backend the boot recipe runs)
+        if: env.TAI_E2E_TARGET == ''
         working-directory: tai42/core/skeleton
         run: uv sync --locked --python 3.13 --extra dev
 
@@ -127,6 +152,7 @@ jobs:
         # docs-demo reference plugin are (re)built by boot.sh below, from these
         # fresh package dists; SKIP_SPA_BUILD is deliberately NOT set, since it would
         # also skip the reference-plugin build (@tai42/e2e has no plain `build`).
+        if: env.TAI_E2E_TARGET == ''
         working-directory: tai-studio
         run: pnpm -r build
 
@@ -201,14 +227,16 @@ jobs:
     # The flow-editor sweep boots the engine's studio stack; provide the same
     # backend the engine's own browser e2e job provides.
     services:
+      # The services back the stack this job boots; with TAI_E2E_TARGET set no stack is
+      # built, so their images are empty and they do not start.
       redis:
-        image: redis:7-alpine
+        image: ${{ (inputs.e2e_target || vars.TAI_E2E_TARGET) == '' && 'redis:7-alpine' || '' }}
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 2s
           --health-timeout 3s --health-retries 20
       postgres:
-        image: postgres:16-alpine
+        image: ${{ (inputs.e2e_target || vars.TAI_E2E_TARGET) == '' && 'postgres:16-alpine' || '' }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -220,7 +248,7 @@ jobs:
       redis-checkpoint:
         # Module-capable Redis the studio stack the Playwright webServer boots
         # checkpoints against.
-        image: redis:8
+        image: ${{ (inputs.e2e_target || vars.TAI_E2E_TARGET) == '' && 'redis:8' || '' }}
         ports: ['6380:6379']
         options: >-
           --health-cmd "redis-cli ping" --health-interval 2s
@@ -230,6 +258,10 @@ jobs:
       TAI_E2E_PG_HOST: localhost
       TAI_E2E_PG_PASSWORD: postgres
       TAI_E2E_CHECKPOINT_REDIS_URL: redis://localhost:6380
+      # The capture target: a running stack to capture from instead of building one,
+      # from the dispatch input or the TAI_E2E_TARGET repository variable.
+      TAI_E2E_TARGET: ${{ inputs.e2e_target || vars.TAI_E2E_TARGET }}
+      TAI_E2E_KEY: ${{ secrets.TAI_E2E_KEY }}
     steps:
       - name: Check out tai-docs
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -258,16 +290,19 @@ jobs:
           # to tai-docs with its own TAI_DOCS_PR_TOKEN, which takes precedence.
 
       - name: Set up uv
+        if: env.TAI_E2E_TARGET == ''
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.26"
           enable-cache: true
 
       - run: uv python install 3.13
+        if: env.TAI_E2E_TARGET == ''
 
       - name: Sync the engine env (the studio stack the webServer boots)
         # The Playwright webServer boots `.venv/bin/tai42-e2e-studio-stack` from the
         # engine root, so the browser sweep needs the engine's python workspace.
+        if: env.TAI_E2E_TARGET == ''
         working-directory: engine
         run: uv sync --locked --python 3.13
 
@@ -282,6 +317,7 @@ jobs:
       - name: Build the Studio SPA
         # Build all workspace packages so the SPA bundle the stack serves is fresh;
         # TAI_E2E_STUDIO_DIST_PATH points the stack at that dist.
+        if: env.TAI_E2E_TARGET == ''
         working-directory: studio
         run: |
           pnpm install --frozen-lockfile
@@ -291,6 +327,7 @@ jobs:
       - name: Build the flow-editor bundle
         # Rebuild rather than trust the committed dist so a stale bundle never slips
         # through and the sweep captures the freshly built editor.
+        if: env.TAI_E2E_TARGET == ''
         working-directory: engine/packages/flows
         run: |
           pnpm install --frozen-lockfile
@@ -324,6 +361,20 @@ jobs:
             echo "::warning::first editor screenshot attempt failed -- retrying once"
             capture
           fi
+
+      - name: Upload the JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: editor-screenshots-junit
+          path: engine/e2e/ui/junit*.xml
+          if-no-files-found: error
+
+      - name: Summarize the JUnit report
+        if: ${{ !cancelled() }}
+        uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
+        with:
+          paths: engine/e2e/ui/junit*.xml
 
       - name: Assert editor-shot parity with the flow-author pages
         # Bijection between the staged shots and the images the flow-author pages
