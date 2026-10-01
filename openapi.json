@@ -3368,6 +3368,73 @@
         "title": "DisconnectResponse",
         "type": "object"
       },
+      "DisplayBlock": {
+        "description": "One ordered display element shown on a form page beside its input fields. Frozen.\n\n``kind`` chooses the element: ``heading`` and ``body`` carry ``text``; ``image``\ncarries a ``src`` (its reference) and an optional ``alt`` (the text a surface that\ncannot draw the image shows instead). A block is either STATIC — its ``text``/``src``\nis given here — or declares a ``slot``: a name a form reaction's ``display`` update\nfills while the form is open (a computed total is a display slot). A static block\nrequires its content; a slotted block may omit it (the reaction supplies it). A\nblock carries only the content its ``kind`` allows (no ``src``/``alt`` on text, no\n``text`` on an image). Raises ``ValueError`` on any ill-formed combination.",
+        "properties": {
+          "alt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Alt"
+          },
+          "kind": {
+            "enum": [
+              "heading",
+              "body",
+              "image"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Slot"
+          },
+          "src": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Src"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "DisplayBlock",
+        "type": "object"
+      },
       "DocumentVersion": {
         "description": "One immutable version row: the opaque ``body`` plus its version number.\n\nA version is append-only — once written, its ``version``, ``body``, ``tags``,\nand ``created_at`` never change. ``tags`` is a generic per-version label for\ngrouping versions (release/grouping labels); it is kind-agnostic and carries\nno product meaning (distinct from any categorization a ``kind``'s body may\nhold). ``is_current`` is a read-time projection of the owning record's\n``active_version`` — the store sets it ``True`` on the active version when it\nlists/returns versions; it is not stored on the row. ``created_at`` is an\nISO-8601 timestamp string.",
         "properties": {
@@ -4085,14 +4152,31 @@
         "type": "object"
       },
       "FormPage": {
-        "description": "One step of a stepped form. Frozen.\n\n``title`` heads the step and ``fields`` names the top-level properties shown on\nit. Across a form's ``pages`` every property appears exactly once (the\ninteraction request enforces the coverage); absent ``pages`` means one page.",
+        "description": "One step of a stepped form. Frozen.\n\n``title`` heads the step. ``fields`` names the top-level properties collected on an\nINPUT page (``kind == \"input\"``, the default); a REVIEW page (``kind == \"review\"``)\ncarries NO input fields (a terminal/summary step) and so has an empty ``fields``.\n``display`` is the ordered list of :class:`DisplayBlock` shown on the page. Across a\nform's ``pages`` every property appears exactly once on the INPUT pages (the\ninteraction request enforces the coverage); absent ``pages`` means one page.",
         "properties": {
+          "display": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DisplayBlock"
+            },
+            "title": "Display",
+            "type": "array"
+          },
           "fields": {
             "items": {
               "type": "string"
             },
             "title": "Fields",
             "type": "array"
+          },
+          "kind": {
+            "default": "input",
+            "enum": [
+              "input",
+              "review"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "title": {
             "title": "Title",
@@ -5149,6 +5233,62 @@
           "sensitive"
         ],
         "title": "InteractionFrame",
+        "type": "object"
+      },
+      "InteractionReact": {
+        "description": "A mid-form reaction to an OPEN reacting form.\n\n``event`` is the triggering event (``{\"kind\", \"field\"?|\"page\"?}``) and ``values`` the\npartial values filled so far; both are validated at runtime against the stored reacting\nform (its declared triggers and schema).",
+        "properties": {
+          "event": {
+            "additionalProperties": true,
+            "title": "Event",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "event",
+          "values"
+        ],
+        "title": "InteractionReact",
+        "type": "object"
+      },
+      "InteractionReactionAck": {
+        "description": "The reaction door's JSON body: the validated form ``update`` a reaction returned.",
+        "properties": {
+          "update": {
+            "additionalProperties": true,
+            "title": "Update",
+            "type": "object"
+          }
+        },
+        "required": [
+          "update"
+        ],
+        "title": "InteractionReactionAck",
+        "type": "object"
+      },
+      "InteractionReactionResult": {
+        "description": "The in-app reaction door's result: the ``interaction_id`` and the validated form ``update``.",
+        "properties": {
+          "interaction_id": {
+            "title": "Interaction Id",
+            "type": "string"
+          },
+          "update": {
+            "additionalProperties": true,
+            "title": "Update",
+            "type": "object"
+          }
+        },
+        "required": [
+          "interaction_id",
+          "update"
+        ],
+        "title": "InteractionReactionResult",
         "type": "object"
       },
       "InteractionWindow": {
@@ -23435,6 +23575,96 @@
         ]
       }
     },
+    "/api/interactions/callback/{ticket}/react": {
+      "post": {
+        "description": "Serve the unauthenticated mid-form reaction door (POST only), under the ticket capability.",
+        "operationId": "post_api_interactions_callback_ticket_react",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InteractionReactionAck"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request body too large."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "summary": "External interaction mid-form reaction door",
+        "tags": [
+          "interactions"
+        ]
+      }
+    },
     "/api/interactions/media/{media_id}": {
       "get": {
         "description": "Serve stored interaction media by its id: 400 malformed id, 404 miss, 503 blob provider gone.",
@@ -23887,6 +24117,131 @@
           "interactions"
         ],
         "x-destructive": true
+      }
+    },
+    "/api/interactions/{interaction_id}/react": {
+      "post": {
+        "description": "React to an OPEN reacting form through the AUTHENTICATED in-app door — the ``channel=None`` surface.\n\nThe SIBLING of the authenticated answer door, under the SAME authenticated correlation:\nthe same existence/format/status guards and the SAME audience gate (a restricted caller\nmay react only to a form addressed to its identity). It then runs the ONE ``react``\nchokepoint, which asserts the form is open, type-validates the partial values, runs the\nasker's handler under its stored identity with a deadline, validates the returned update,\nand returns it. STATELESS: no answer is recorded, the interaction is never resolved, the\nstored request is never rewritten. A closed form is a ``409``, a malformed request a\n``400``, and a handler that raises or times out a loud ``502`` (never a stale value).",
+        "operationId": "post_api_interactions_interaction_id_react",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interaction_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InteractionReact"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InteractionReactionResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request body too large."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "React to an open form interaction",
+        "tags": [
+          "interactions"
+        ]
       }
     },
     "/api/login/claim": {
