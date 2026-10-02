@@ -199,6 +199,132 @@ The prefilled `count` arrives filled in, `date` offers the two labelled choices 
 send provides, and the form reads as two steps. The same `data` and `pages` carry to
 every surface that renders the form.
 
+### Multiple choice and radio
+
+Besides a scalar, a form property may be an **array of strings** — a
+**multiple-choice** field whose answer is the list of chosen values. Declare it as an
+`array` whose `items` are a `string`, optionally with an `items.enum` (or a per-send
+`data.options` list) for the choices:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "regions": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["emea", "amer", "apac"]}
+    }
+  }
+}
+```
+
+A single-choice field stays a `string` with an `enum`. How a choice list renders is
+the surface's call, decided by the option count against one shared, documented
+threshold — `RADIO_OPTION_THRESHOLD` (**5**): a list **at or under** the threshold
+renders as a radio group (for a single-choice `string`+`enum`) or a checkbox group
+(for an array-of-strings), a longer one as a dropdown or multi-select. Every surface
+draws the same short list the same way. A [per-send `data.options`](#prefilling-per-send-options-and-pages)
+list replaces the choices for one send, for an array-of-strings field exactly as for
+a scalar `enum`.
+
+### Date constraints
+
+A date property — a `string` with `format` `date` or `date-time` — may carry
+platform date-constraint keys, validated when the form is built and **enforced on the
+answer at every door**:
+
+- **`minDate`** / **`maxDate`** — inclusive `YYYY-MM-DD` bounds.
+- **`unavailableDates`** — a list of excluded days, each a `YYYY-MM-DD` date or a
+  lowercase weekday name (`monday` … `sunday`) excluding that weekday.
+
+```json
+{"type": "string", "format": "date", "minDate": "2026-01-01", "maxDate": "2026-12-31", "unavailableDates": ["2026-07-04", "saturday", "sunday"]}
+```
+
+A **date range** is **two ordinary date fields**, never one combined value. The
+**end** field names its start field in `rangeStart` and carries the span bounds
+`minDays` / `maxDays` (inclusive day counts); each field's answer stays the plain date
+string its type declares:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "start": {"type": "string", "format": "date"},
+    "end":   {"type": "string", "format": "date", "rangeStart": "start", "minDays": 1, "maxDays": 14}
+  }
+}
+```
+
+The answer door enforces the ordering (`end` on or after `start`) and the inclusive
+span from the two submitted values — identically whether a surface drew them as two
+inputs or as one native range control mapped to the two fields, so nothing is ever
+recombined. A nonsensical constraint — a date key on a non-date property, `maxDate`
+before `minDate`, a `rangeStart` naming an undeclared or non-date property, `minDays`
+above `maxDays`, or a span key on a field with no `rangeStart` — is refused loudly
+when the form is built, naming the property. Each key renders as the matching native
+control where a surface has one (see the [capability table](#form-capabilities-per-channel));
+where a surface cannot bound its date control, the bound is still enforced on submit.
+
+### Conditional fields
+
+A property may carry a **`visibleWhen`** predicate making its visibility depend on
+another field's value — `{"field": <other property>, "equals"|"in"|"notEmpty": …}`,
+exactly one operator per predicate:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "has_account": {"type": "boolean"},
+    "account_id":  {"type": "string", "visibleWhen": {"field": "has_account", "equals": true}}
+  }
+}
+```
+
+`equals` is visible when the named field equals the value, `in` when it is one of a
+non-empty list, `notEmpty` (which must be `true`) when it is present and not an empty
+string / list / object. The named `field` must be another declared property.
+
+**The effective-answer rule.** Whether a field is part of the answer is decided by its
+predicate **evaluated on the submitted values**, at the single answer facet, so it
+holds on **every** answer door — authenticated, callback, channel-forwarded, and the
+expiry path alike. A field hidden by that evaluation is **removed from the answer**
+the consumer receives: it is not required, not validated, and a value submitted for it
+— filled before it was hidden, or filled on a surface that degraded to drawing every
+field — is **dropped, never an error**.
+
+### Display elements and a review page
+
+A page may carry ordered **display blocks** beside its input fields — a `heading`, a
+`body`, or an `image` — through its optional `display` list, and may be a terminal
+**review** page:
+
+```json
+{
+  "title": "Summary",
+  "fields": [],
+  "kind": "review",
+  "display": [
+    {"kind": "heading", "text": "Review your entry"},
+    {"kind": "image", "src": "https://cdn.example.com/logo.png", "alt": "Acme"},
+    {"kind": "body", "slot": "total"}
+  ]
+}
+```
+
+A `heading`/`body` block carries `text`; an `image` block carries a `src` and an
+optional `alt` (the text a surface that cannot draw the image shows instead). A block
+is either **static** (its `text`/`src` given here) or declares a **`slot`** — a name a
+[reaction](#forms-that-react-while-open)'s `display` update fills while the form is
+open (a computed total is a display slot, nothing special). A slot name is unique
+across the form.
+
+A page is an **input** page (`kind: "input"`, the default) or a **review** page
+(`kind: "review"`): a terminal summary step that carries **no input fields** (an empty
+`fields`). A surface renders a review page as a readback of the entered values
+alongside its display blocks and the confirm/submit control.
+
 ## Media on a question
 
 A question can carry optional **media** — images and links shown WITH it in the
@@ -347,13 +473,18 @@ Because a channel form is answered on the server-rendered callback page, its
 `schema` must fall in a renderable **subset**, checked when the question is asked —
 before anything is stored. The root is `{"type": "object"}` with a non-empty
 `properties` map; every property is a scalar (`string`, `boolean`, `integer`, or
-`number`); an `enum` — a non-empty list of strings — is allowed only on a `string`
-property; and `required`, when present, names only declared properties. A property
-without a scalar `type` — a nested object, an array, a bare `anyOf`/`oneOf`/`$ref`,
-a missing type — is refused with a `ValueError` naming the property, while an extra
-constraint keyword alongside a scalar `type` is not rendered but is enforced when
-the answer is validated. A form on the default inbox surface keeps full
-JSON-schema freedom; the subset binds only a channel-delivered form.
+`number`) **or an array whose `items` are strings** (a
+[multiple-choice](#multiple-choice-and-radio) field); an `enum` — a non-empty list of
+strings — is allowed on a `string` property or on an array's string `items`; and
+`required`, when present, names only declared properties. A property that is neither a
+scalar nor an array-of-strings — a nested object, an array of non-strings, a bare
+`anyOf`/`oneOf`/`$ref`, a missing type — is refused with a `ValueError` naming the
+property, while an extra constraint keyword alongside a renderable `type` is not
+rendered but is enforced when the answer is validated. A date property may also carry
+the [date-constraint keys](#date-constraints), and any property a
+[`visibleWhen`](#conditional-fields) predicate; both are validated here and enforced
+on the answer. A form on the default inbox surface keeps full JSON-schema freedom; the
+subset binds only a channel-delivered form.
 
 A `string` property may also carry a **`format`** of `date`, `time`, or `date-time`;
 any other `format` value, or a `format` on a non-string property, is refused, naming
@@ -383,6 +514,56 @@ When you don't need to **wait** for the answer, send the form as a
 no expiry, no validation loop — and the submission enters the conversation as an
 ordinary message from the person. The ask is for answers the caller blocks on; the
 ask-less form is for submissions that are welcome whenever they arrive.
+
+### Form capabilities per channel
+
+Beyond the scalar fields and `format` controls above, a form's richer capabilities —
+[multiple choice and radio](#multiple-choice-and-radio),
+[date constraints](#date-constraints), [conditional fields](#conditional-fields),
+[display blocks and a review page](#display-elements-and-a-review-page), and
+[reacting while open](#forms-that-react-while-open) — each draw on every surface that
+can render them, and **degrade by a documented rule** (never silently) where a surface
+cannot. A capability a surface cannot draw either renders by the stated degrade or,
+where there is no honest approximation, refuses loudly at the ask door.
+
+| Capability | WhatsApp | Slack | Web chat | Telegram | SMS |
+| --- | --- | --- | --- | --- | --- |
+| date bounds (`minDate`/`maxDate`) | native picker bounds | **degrade**: enforced on submit | native `<input type=date>` min/max | native `<input type=date>` min/max | **refused** |
+| unavailable days (`unavailableDates`) | native picker exclusions | **degrade**: enforced on submit | **degrade**: min/max drawn, the rest on submit | **degrade**: min/max drawn, the rest on submit | **refused** |
+| date range (two date fields) | two date fields (may draw as one range control) | two datepickers | two date inputs | two date inputs | **refused** |
+| multiple choice (array of strings) | checkbox group | multi-select / checkboxes | multi-select | multi-select | **refused** |
+| radio for a short list | radio group (`≤` threshold), else dropdown | radio (`≤` threshold), else select | radio (`≤` threshold), else select | radio (`≤` threshold), else select | **refused** |
+| display block (heading/body/image) | text/image blocks | section/header/image/context | rendered block | rendered block | **refused** |
+| review page | terminal summary screen | final summary group | review step | review step | **refused** |
+| conditional field (`visibleWhen`) | client-side show/hide | reactive show/hide, else **degrade**: show all | client-side show/hide | client-side show/hide | **refused** |
+| [reacts while open](#forms-that-react-while-open) | data endpoint | block actions → view update | session reaction door | ticket-page reaction door | **refused (loud)** |
+
+The documented degrade rules:
+
+- **Slack has no date-control bounds.** `minDate`/`maxDate` and `unavailableDates` are
+  not drawable on its datepicker, so the author's constraint is **enforced on submit**
+  (a per-field error keyed to the field), and re-rendered reactively where the form
+  also [reacts](#forms-that-react-while-open). The author declares the constraint once;
+  the platform guarantees enforcement, even where the control cannot visibly prevent an
+  out-of-range pick.
+- **A native HTML date input cannot disable arbitrary individual days.** It draws the
+  `minDate`/`maxDate` bounds it can and enforces `unavailableDates` on submit; the same
+  enforcement guarantee holds.
+- **Slack has no native conditional field.** The platform re-renders the modal (a view
+  update) to show or hide the field — this uses the channel's reactive **transport**,
+  never the consumer's reaction handler, so it is independent of whether the form
+  [reacts](#forms-that-react-while-open). Where a surface offers neither a client-side
+  conditional nor a reactive transport, the documented degrade **shows every field** and
+  the predicate still gates submit through the [effective-answer rule](#conditional-fields).
+- **A surface that cannot draw an image** degrades a display block to its `alt`/body
+  text, never dropping it.
+- **SMS has no form surface.** A form question (and a reacting form) to an SMS channel
+  is **refused loudly** at the ask door, before anything is sent.
+
+Per the [effective-answer rule](#conditional-fields) and the single answer facet, a
+degraded surface that draws a hidden field changes no outcome: the value is dropped on
+submit. The **web chat** draws every capability above — it is a full form surface, not
+a degraded one.
 
 ### When a channel reply doesn't match
 
@@ -421,9 +602,144 @@ answer-path counterpart of the same enrichment a
 transport, carrying **no trust or meaning** the platform attaches — a plain typed
 answer carries none.
 
+## Forms that react while open
+
+A form can **react while the person is filling it** — recompute a value, replace a
+field's choices, show a per-field error, or fill a display slot — by naming a
+**reaction handler** at ask time. The handler is a registered tool the consumer owns;
+the platform runs it and validates what it returns, naming no consumer concept.
+
+Two fields turn a form into a reacting one, both optional and defaulting to today's
+static form:
+
+- **`reaction_tool`** — the name of a registered tool run whenever a declared trigger
+  fires. It runs through `run_tool` under the park's **rebound identity and state
+  context** (the same the [continuation](#sync-and-async) uses), so a reacting form
+  **must** be `mode="async"` with `answer_format="form"` — the request raises loudly
+  otherwise.
+- **`reactions`** — declares WHEN it reacts, as plain renderer-readable form
+  description. Three event kinds, each absent by default:
+  - **`field_changed`** — the input fields whose change triggers a reaction;
+  - **`page_advanced`** — the page titles whose advance triggers one;
+  - **`submitted`** — whether the submission is checked by a reaction before it is
+    accepted.
+
+```json
+{
+  "schema": {"type": "object", "properties": {"day": {"type": "string", "format": "date"}, "slot": {"type": "string", "enum": ["09:00", "13:00"]}}},
+  "reactions": {"field_changed": ["day"], "choices": ["slot"], "submitted": true}
+}
+```
+
+A `reaction_tool` with no trigger, or a `reactions` block with no handler, is refused
+— the two are halves of one declaration.
+
+### The handler contract
+
+The handler receives exactly three things: the `interaction_id`, the `event` (its
+`kind` and the `field` or `page` it concerns), and the partial `values` filled so far.
+It returns a **form update** — validated against this form's own schema before it
+reaches the surface:
+
+| Key | Fills | Validated |
+| --- | --- | --- |
+| `values` | field values to set | declared fields only |
+| `options` | choice lists to replace | option-bearing fields (string-enum or array-of-strings) only |
+| `errors` | per-field error messages | declared fields only |
+| `display` | display-slot values | declared [display slots](#display-elements-and-a-review-page) only |
+
+A computed total is not a special case — it is a `display` slot the reaction fills.
+
+### Reaction-fed choices
+
+A reaction may **replace a field's choice list** while the form is open (the slots for
+a date just picked, say). Such a field is named in **`reactions.choices`**. Because its
+choices are no longer the ones the form was sent with, the platform's submit check
+validates its **type only**, never membership in the send-time list — membership is the
+consumer's, checked at the `submitted` event. A form declaring any `choices` field
+therefore **must** also set `submitted: true`, or the request is refused loudly: an
+unvetted reaction-fed value always meets a consumer submit check.
+
+### A unique page title
+
+A `page_advanced` trigger keys a page by its **title**, so a title shared by two pages
+names an ambiguous advance. A `page_advanced` trigger on a form whose `pages` repeat a
+title is refused at the ask door — give each page a unique title.
+
+### The deadline, and failing loudly
+
+The handler is bounded by a deadline (`INTERACTIONS_REACTION_DEADLINE_SECONDS`, default
+`10`) at the single reaction chokepoint. A handler that raises, times out, or returns
+an update naming a field or slot the form does not declare **surfaces loudly** — the
+person sees the surface's error and the server logs it — never a stale or silently
+dropped value. A reaction is **stateless for the durable record**: it never records an
+answer, never resolves the interaction, and never rewrites the stored request. The
+half-filled form lives on the surface until submission; the `submitted` event is where
+the consumer accepts or refuses the whole form. The **server** runs the `submitted` check
+on every answer door before it records — the authenticated answer door, the channel
+callback, and a caller resume alike — so a surface that runs it first only shows errors
+early and can never bypass it: the handler's per-field errors keep the form open, and only
+a clean run records the answer.
+
+### How a reaction reaches the handler, per surface
+
+A reaction travels to the one chokepoint by the **same door that answers the form on
+that surface**, by that surface's own correlation — the reaction door inherits the
+answer door's model and adds nothing:
+
+- **Web chat** — the web plugin's own session-authenticated, same-origin door, a
+  sibling of its answer door; the ticket is kept server-side and never reaches the
+  browser, and that door forwards the event server-side to the interaction's react
+  door.
+- **Ticket page** (the external-link page, and the webview a messaging channel opens) —
+  the ticket in the page's address is the capability, so the page posts to the ticket's
+  react door.
+- **In-app** (`channel=None`) — the authenticated react door, a sibling of the
+  authenticated answer door, under the same correlation and audience gate.
+- **A messaging channel** — the vendor request authentication the channel already
+  relies on inbound (WhatsApp's signed, encrypted data-endpoint request and the per-send
+  flow token bound to the one interaction; Slack's signed request and view metadata).
+- **SMS** — cannot react; a reacting form is refused at the ask door.
+
+A surface advertises the reaction capability only when it really routes a reaction
+end-to-end to that one chokepoint.
+
+### Security
+
+The reaction is reachable by whoever may answer the form **on that surface**, by that
+surface's own correlation, and by nothing weaker — it inherits the answer door's model
+of that surface and adds nothing of its own. Only the handler the asker named at ask
+time runs, under the asker's rebound identity; the caller chooses neither the tool nor
+the identity and supplies only this form's field values. A reaction is a
+**read-and-compute** step — what the handler reaches is what that identity reaches,
+exactly as the [continuation](#sync-and-async) does, and **effects belong to the
+continuation after the answer**, not to the reaction. What comes back is only the
+validated form update, bounded by the **same size and depth caps and request limits**
+the answer door has.
+
+### WhatsApp data endpoint (operator setup)
+
+A reacting form on WhatsApp is published as a native Flow with a **data endpoint** Meta
+calls as the person fills it. The endpoint decrypts each request, so before a reacting
+form can be published the operator provisions the vendor's key material (loud failure
+when any is missing — a reacting form never publishes silently inert):
+
+- generate a business **RSA-2048 key pair**;
+- set the **private key** as the secret `CHANNEL_WHATSAPP_FLOW_PRIVATE_KEY` (with
+  `CHANNEL_WHATSAPP_FLOW_PRIVATE_KEY_PASSPHRASE` if the PEM is passphrase-protected) —
+  it is never committed, and a fork configures its own;
+- set `CHANNEL_WHATSAPP_FLOW_ENDPOINT_URI` to the public HTTPS URL of the plugin's data
+  endpoint (`{public base}/api/channels/whatsapp/flow-data`);
+- register the matching **public key** for the sending number — the plugin derives it
+  from the private key and registers it, so the operator copies no key material by hand.
+
+A static (non-reacting) WhatsApp form never touches this key material. See the
+[channel-whatsapp plugin page](/plugins/tai42/channel-whatsapp) for the full operator
+steps.
+
 ## The doors
 
-The interactions surface exposes six HTTP doors. Three are authenticated and three
+The interactions surface exposes nine HTTP doors. Five are authenticated and four
 are public:
 
 | Door | Auth | Purpose |
@@ -431,9 +747,12 @@ are public:
 | `GET /api/interactions` | authenticated | paged list of pending questions (`page`/`pageSize`) |
 | `GET /api/interactions/stream` | authenticated | tail-only SSE feed of live `add`/`answered`/`removed` frames |
 | `POST /api/interactions/{id}/answer` | authenticated | the human answer door (in-client formats) |
+| `POST /api/interactions/{id}/cancel` | authenticated | withdraw a pending ask without answering it (fires no continuation) |
+| `POST /api/interactions/{id}/react` | authenticated | the in-app [mid-form reaction](#forms-that-react-while-open) door (`channel=None`) — runs the reaction, records nothing |
 | `GET /api/interactions/media/{id}` | **public** | serves media stored by reference — the id is the capability |
 | `POST /api/interactions/callback/{ticket}` | **public** | the data door — sensitive answers ride the JSON body |
 | `GET /api/interactions/callback/{ticket}` | **public** | the redirect door — serves a confirm or schema-rendered form page |
+| `POST /api/interactions/callback/{ticket}/react` | **public** | the [mid-form reaction](#forms-that-react-while-open) door for a channel / ticket-page surface — runs the reaction, records nothing |
 
 Publicness is an [access-control](/concepts/access-control) configuration decision,
 not a property of the route code.
