@@ -315,10 +315,13 @@ Registry for named backup sections and the run of one section's export/import.
 
 A plugin (or the host itself, the first consumer) registers a section under
 ``name`` by supplying an ``exporter()`` that returns a JSON-safe payload and
-an ``importer(payload)`` that applies it and returns a section report.
+an ``importer(payload)`` that applies it and returns a `BackupSectionReport`.
 ``sections()`` lists the registered sections for the UI. ``export_section``
 / ``import_section`` run one section's exporter/importer by name and raise
-loudly on an unknown name — never a silent no-op.
+loudly on an unknown name — never a silent no-op. ``import_section`` also
+validates the importer's result against `BackupSectionReport` and raises
+naming the section on a wrong shape, so the platform never reads keys out of an
+opaque object.
 
 ### Members
 
@@ -382,10 +385,13 @@ Run one section's exporter by ``name`` and return its payload.
 `tai42_contract.app.facets.runtime.AppBackup.import_section`
 
 ```python
-import_section(self, name: str, payload: Any) -> Any
+async import_section(self, name: str, payload: Any) -> BackupSectionReport
 ```
 
-Apply ``payload`` via one section's importer by ``name`` and return its report.
+Apply ``payload`` via one section's importer by ``name``, returning the validated report.
+
+Awaits an async importer, validates its result against
+`BackupSectionReport`, and raises naming the section on a wrong shape.
 
 **Parameters**
 
@@ -936,23 +942,32 @@ irreversible step. Outside a turn there is nothing pending by definition. An unk
 `tai42_contract.app.facets.messaging.AppConversations.register_target_validator`
 
 ```python
-register_target_validator(self, target_kind: ConversationTargetKind, validator: TargetBindValidator) -> None
+register_target_validator(
+    self,
+    target_kind: ConversationTargetKind,
+    target_name: str,
+    validator: TargetBindValidator,
+) -> None
 ```
 
-Register a bind validator for routes whose target is of ``target_kind``.
+Register a bind validator for the ``(target_kind, target_name)`` the plugin OWNS.
 
-A plugin calls this through the ``tai42_app`` handle when its module loads.
-Route creation consults every registered validator for the route's target kind
-AFTER the target exists but BEFORE the route is written; a validator returning
-any message lines refuses the creation with them (a 422), so a defect the target
-carries — a flow reading a state no binding supplies — is caught at bind, never
-deferred to run time. Registering two validators for one kind raises loudly.
+A plugin calls this through the ``tai42_app`` handle when its module loads, naming the
+one tool or agent it owns. A conversation route whose target RESOLVES to that owner (an
+agent is its own name; a tool walks its parent-tool chain, so a preset inherits its base
+tool's owner) consults the validator AFTER the target exists but BEFORE the route is
+written; a validator returning any message lines refuses the creation with them (a 422),
+so a defect the target carries is caught at bind, never deferred to run time. The
+validator is passed the route's full create model and the target's candidate body.
+Registering two validators for one ``(target_kind, target_name)`` raises loudly — a name
+has one owner.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `target_kind` | `ConversationTargetKind` | — | — |
+| `target_name` | `str` | — | — |
 | `validator` | `TargetBindValidator` | — | — |
 
 
@@ -1067,6 +1082,7 @@ custom_route(
     authed: bool | None = None,
     destructive: bool = False,
     action: RouteAction | None = None,
+    self_service: bool = False,
     declared: DeclaredRouteMetadata | None = None,
     no_body_reason: str | None = None,
     enveloped: bool = True,
@@ -1116,6 +1132,12 @@ coverage gate consume, so every registration MUST describe itself:
 * ``action`` — the route's authorization character (a `RouteAction`);
   ``None`` (the default) lets the surface derive the grantable class from
   the HTTP methods.
+* ``self_service`` — whether this route is a caller SELF-SERVICE surface
+  (default ``False``). A ``True`` route is carved into the default
+  editor/viewer control-plane reach, so a non-admin role may invoke it even
+  under an otherwise admin-gated prefix (an own-credential change under
+  ``/api/auth``). The seed derives the carve-in from every route declaring
+  this, so the platform names no provider's route.
 * ``declared`` — the route's behavioral OpenAPI properties (a
   `DeclaredRouteMetadata`): its ``reload_gated`` / ``reads_body`` /
   error statuses / success status. A route in the ``/api/*`` spec surface
@@ -1147,6 +1169,7 @@ the reload-gate ``503`` response is derived from the handler body.
 | `authed` | `bool \| None` | `None` | — |
 | `destructive` | `bool` | `False` | — |
 | `action` | `RouteAction \| None` | `None` | — |
+| `self_service` | `bool` | `False` | — |
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
 | `no_body_reason` | `str \| None` | `None` | — |
 | `enveloped` | `bool` | `True` | — |
@@ -1213,17 +1236,20 @@ The interactions namespace (``app.interactions``) — the ``ask`` facade and ans
 `tai42_contract.app.facets.messaging.AppInteractions.check_answer`
 
 ```python
-check_answer(self, question: QuestionFormat, answer: Any) -> None
+check_answer(self, question: QuestionFormat, answer: Any) -> Any
 ```
 
 Validate ``answer`` against ``question`` — the ONE answer check every door reaches.
 
 ``question`` is a `QuestionFormat` (the answer
-format plus its payload — no stored request needed). Returns ``None`` when the answer
-conforms; raises `AnswerMismatchError` (carrying the
-failing field's dotted path when the fault locates to one) otherwise. The answer door,
-the callback door, a resumed run's ``visit`` and plugins all validate through this one
-callable so every surface applies identical rules per format.
+format plus its payload — no stored request needed). RETURNS the answer the consumer
+receives when it conforms — identical to the input for every format but FORM, whose
+fields hidden by their ``visibleWhen`` conditional (evaluated on the submitted values)
+are removed, so every answer door records the same effective answer. Raises
+`AnswerMismatchError` (carrying the failing field's
+dotted path when the fault locates to one) otherwise. The answer door, the callback
+door, a resumed run's ``visit`` and plugins all validate through this one callable so
+every surface applies identical rules per format.
 
 **Parameters**
 
@@ -1231,6 +1257,40 @@ callable so every surface applies identical rules per format.
 |---|---|---|---|
 | `question` | `QuestionFormat` | — | — |
 | `answer` | `Any` | — | — |
+
+
+#### react
+
+`tai42_contract.app.facets.messaging.AppInteractions.react`
+
+```python
+async react(
+    self,
+    interaction_id: str,
+    event: dict[str, Any],
+    partial_values: dict[str, Any],
+) -> dict[str, Any]
+```
+
+Run an OPEN reacting form's handler for ``event`` with the partial values — the ONE reaction seam.
+
+A reacting form names a ``reaction_tool`` and declares its triggers in
+``format_payload["reactions"]``. Every reaction transport (a channel callback, the in-app
+door) routes one event and the values filled so far here: it asserts the interaction is an
+open reacting form, type-validates ``partial_values`` against the stored schema, runs the
+asker's handler through ``run_tool`` under the stored rebound identity with a deadline,
+validates the returned FORM UPDATE (``values``/``errors`` for declared fields,
+``options`` for option-bearing fields, ``display`` for declared slots), and returns it.
+STATELESS: it never records an answer, resolves the interaction, or rewrites the request.
+A handler that raises or misses the deadline surfaces LOUDLY, never a stale/silent value.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+| `event` | `dict[str, Any]` | — | — |
+| `partial_values` | `dict[str, Any]` | — | — |
 
 
 #### assert_resume_authorized
@@ -1671,7 +1731,6 @@ async ingest_media(
     declared_mime: str | None,
     filename: str | None,
     declared_size: int | None,
-    integrity_sha256: str | None,
     origin: MediaOrigin,
 ) -> IngestedMedia
 ```
@@ -1702,7 +1761,6 @@ horizon (the vendor channels, which know the message id at fetch time).
 | `declared_mime` | `str \| None` | — | — |
 | `filename` | `str \| None` | — | — |
 | `declared_size` | `int \| None` | — | — |
-| `integrity_sha256` | `str \| None` | — | — |
 | `origin` | `MediaOrigin` | — | — |
 
 

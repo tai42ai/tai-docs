@@ -137,27 +137,29 @@ _GUARDED_PATH = "/guarded"
 _OPERATOR_ID = "operator"
 
 
-def _seed_ac_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
+def _seed_ac_store() -> tuple[FakeRedis, FakeAccessControlPg]:
     """Seed the fake Redis and fake policy store for the guarded-route example.
 
     Redis gets an allowed and a denied key; the policy store gets the guarded
     route's scope and the two users' policies.
     """
     from tai42_contract.access_control import OWNER_USER_ID_CLAIM
+    from tai42_identity_redis.settings import redis_identity_settings
     from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
         FakeRedis,
     )
 
+    key_prefix = redis_identity_settings().key_prefix
     fake_redis = FakeRedis(
         hashes={
-            f"{settings.key_prefix}{hash_api_key(_ALLOW_KEY)}": {
+            f"{key_prefix}{hash_api_key(_ALLOW_KEY)}": {
                 "user_id": "allowed-user",
                 "description": "allowed",
                 "owner_user_id": _OPERATOR_ID,
             },
-            f"{settings.key_prefix}{hash_api_key(_DENY_KEY)}": {
+            f"{key_prefix}{hash_api_key(_DENY_KEY)}": {
                 "user_id": "denied-user",
                 "description": "denied",
                 "owner_user_id": _OPERATOR_ID,
@@ -230,7 +232,7 @@ def ac_app() -> Iterator[dict[str, str]]:
         tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
-        fake_redis, fake_pg = _seed_ac_store(settings)
+        fake_redis, fake_pg = _seed_ac_store()
         seams = _swap_ac_seams(fake_redis, fake_pg)
 
         async def _guarded(_request):
@@ -271,22 +273,24 @@ _OWNER_KEY = "sk-owner-demo-key"
 _OWNER_ID = "maya"
 
 
-def _seed_owned_keys_store(settings) -> tuple[FakeRedis, FakeAccessControlPg]:
+def _seed_owned_keys_store() -> tuple[FakeRedis, FakeAccessControlPg]:
     """Seed the fake Redis and fake policy store for the owned-key example.
 
     Redis gets the owner key; the policy store gets the routes the owner reaches
     and the owner's non-admin scope set.
     """
+    from tai42_identity_redis.settings import redis_identity_settings
     from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
         FakeRedis,
     )
 
+    key_prefix = redis_identity_settings().key_prefix
     fake_redis = FakeRedis(
         strings={},
         hashes={
-            f"{settings.key_prefix}{hash_api_key(_OWNER_KEY)}": {
+            f"{key_prefix}{hash_api_key(_OWNER_KEY)}": {
                 "user_id": _OWNER_ID,
                 "description": "owner key",
                 "owner_user_id": _OWNER_ID,
@@ -442,7 +446,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         tai42_app.bind(_FakeApp())
 
         settings = AccessControlSettings()
-        fake_redis, fake_pg = _seed_owned_keys_store(settings)
+        fake_redis, fake_pg = _seed_owned_keys_store()
         seams = _swap_owned_keys_seams(fake_redis, fake_pg)
         seams += _pin_projection_seams()
 

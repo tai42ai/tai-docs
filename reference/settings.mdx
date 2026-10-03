@@ -9,7 +9,7 @@ icon: "sliders"
   with `scripts/generate-settings-reference.py`.
 </Note>
 
-Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 511 entries across 87 groups (502 variables and 9 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
+Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 532 entries across 90 groups (521 variables and 11 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
 
 ## AccessControlRedisSettings
 
@@ -32,12 +32,11 @@ Module `tai42_skeleton.access_control.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `ACCESS_CONTROL_ENABLE` | `boolean` | `true` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_AUTH_PROVIDERS` | `array` | `["redis"]` | — | Optional | `hot` | — |
+| `ACCESS_CONTROL_AUTH_PROVIDERS` | `array` | — | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_ADMIN` | `string` | — | — | Optional | `hot` | — |
 | — | `object` | — | — | Optional | — | Grouped settings — see [AccessControlRedisSettings](#accesscontrolredissettings). |
 | `ACCESS_CONTROL_CACHE_SIZE` | `integer` | `5000` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_CACHE_TTL_SECONDS` | `integer` | `60` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_KEY_PREFIX` | `string` | `"ac:key:"` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_CONTEXT_PREFIX` | `string` | `"ac:context:"` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_SETUP_TOKEN_KEY` | `string` | `"ac:setup:token"` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_SETUP_LOCK_KEY` | `string` | `"ac:setup:lock"` | — | Optional | `hot` | — |
@@ -62,12 +61,27 @@ Module `tai42_skeleton.access_control.settings`.
 | `ACCESS_CONTROL_COMPILED_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 
+## AccountsRedisConnectionSettings
+
+Module `tai42_accounts_postgres.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_ACCOUNTS_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_ACCOUNTS_REDIS_MAX_CONNECTIONS` | `integer` | `10` | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_ACCOUNTS_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_SOCKET_TIMEOUT` | `number` | `5` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_SOCKET_CONNECT_TIMEOUT` | `number` | `5` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_RETRY_ON_TIMEOUT` | `boolean` | `true` | — | Optional | `hot` | — |
+| `TAI_ACCOUNTS_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
 ## AccountsSettings
 
 Module `tai42_accounts_postgres.settings`.
 
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
+| — | `object` | — | — | Optional | — | Grouped settings — see [AccountsRedisConnectionSettings](#accountsredisconnectionsettings). |
 | `TAI_ACCOUNTS_SESSION_IDLE_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
 | `TAI_ACCOUNTS_SESSION_ABSOLUTE_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
 | `TAI_ACCOUNTS_INVITE_TTL_SECONDS` | `integer` | `259200` | — | Optional | `hot` | — |
@@ -373,11 +387,12 @@ Module `tai42_skeleton.conversations.settings`.
 | `CONVERSATIONS_DELIVERY_CALLBACK_TIMEOUT_SECONDS` | `number` | `15` | — | Optional | `hot` | — |
 | `CONVERSATIONS_DELIVERY_SWEEP_INTERVAL_SECONDS` | `integer` | `60` | — | Optional | `hot` | — |
 | `CONVERSATIONS_DELIVERY_GRACE_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
-| `CONVERSATIONS_MAX_MESSAGE_CHARS` | `object` | `{"twilio": 1600, "telegram": 4096, "slack": 40000, "whatsapp": 4096, "web": 8000}` | — | Optional | `hot` | — |
+| `CONVERSATIONS_MAX_MESSAGE_CHARS` | `object` | `{}` | — | Optional | `hot` | — |
 | `CONVERSATIONS_MAX_OUTBOUND_CHUNKS` | `integer` | `10` | — | Optional | `hot` | — |
 | `CONVERSATIONS_INBOUND_DEDUPE_TTL_SECONDS` | `integer` | `172800` | — | Optional | `hot` | — |
 | `CONVERSATIONS_ANSWER_RETENTION_TTL_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
 | `CONVERSATIONS_PAIR_CODE_TTL_SECONDS` | `integer` | `900` | — | Optional | `hot` | — |
+| `CONVERSATIONS_OWED_GREETING_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
 | `CONVERSATIONS_REDEEM_BACKOFF_THRESHOLD` | `integer` | `5` | — | Optional | `hot` | — |
 | `CONVERSATIONS_REDEEM_BACKOFF_CAP_SECONDS` | `integer` | `900` | — | Optional | `hot` | — |
 
@@ -557,6 +572,7 @@ Module `tai42_skeleton.interactions.settings`.
 | `INTERACTIONS_DELIVERY_RETRY_BACKOFF_SECONDS` | `number` | `1.0` | — | Optional | `hot` | — |
 | `INTERACTIONS_BLOCKING_GRACE_SECONDS` | `number` | `5` | — | Optional | `hot` | — |
 | `INTERACTIONS_EXPIRY_REAPER_INTERVAL_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
+| `INTERACTIONS_REACTION_DEADLINE_SECONDS` | `number` | `10` | — | Optional | `hot` | — |
 
 ## JqSettings
 
@@ -752,6 +768,29 @@ Module `tai42_skeleton.settings.rate_limit`.
 | `TAI_RATE_LIMIT_DEFAULT_LIMIT` | `integer` | `600` | — | Optional | `hot` | — |
 | `TAI_RATE_LIMIT_DEFAULT_BURST` | `integer` | `120` | — | Optional | `hot` | — |
 | `TAI_RATE_LIMIT_FAMILIES` | `object` | `{}` | — | Optional | `hot` | — |
+
+## RedisIdentityConnectionSettings
+
+Module `tai42_identity_redis.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_IDENTITY_REDIS_URL` | `string` | — | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_IDENTITY_REDIS_MAX_CONNECTIONS` | `integer` | `10` | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
+| `TAI_IDENTITY_DECODE_RESPONSES` | `boolean` | `true` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_SOCKET_TIMEOUT` | `number` | `5` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_SOCKET_CONNECT_TIMEOUT` | `number` | `5` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_RETRY_ON_TIMEOUT` | `boolean` | `true` | — | Optional | `hot` | — |
+| `TAI_IDENTITY_RETRY_ATTEMPTS` | `integer` | `0` | — | Optional | `hot` | — |
+
+## RedisIdentitySettings
+
+Module `tai42_identity_redis.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `TAI_IDENTITY_KEY_PREFIX` | `string` | `"ac:key:"` | — | Optional | `hot` | — |
+| — | `object` | — | — | Optional | — | Grouped settings — see [RedisIdentityConnectionSettings](#redisidentityconnectionsettings). |
 
 ## RqSettings
 
@@ -1117,6 +1156,9 @@ Module `tai42_channel_whatsapp.settings`.
 | `CHANNEL_WHATSAPP_API_BASE_URL` | `string` | `"https://graph.facebook.com/v23.0"` | — | Optional | `hot` | — |
 | `CHANNEL_WHATSAPP_DEFAULT_PHONE_NUMBER_ID` | `string` | — | — | Optional | `hot` | — |
 | `CHANNEL_WHATSAPP_WABA_ID` | `string` | — | — | Optional | `hot` | — |
+| `CHANNEL_WHATSAPP_FLOW_PRIVATE_KEY` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_FLOW_PRIVATE_KEY_PASSPHRASE` | `string` | — | — | Optional | `hot` | Secret. |
+| `CHANNEL_WHATSAPP_FLOW_ENDPOINT_URI` | `string` | — | — | Optional | `hot` | — |
 | `CHANNEL_WHATSAPP_ALLOWED_RECIPIENTS` | `array` | `[]` | — | Optional | `hot` | — |
 | `CHANNEL_WHATSAPP_HTTP_TIMEOUT_SECONDS` | `number` | `30.0` | — | Optional | `hot` | — |
 | `CHANNEL_WHATSAPP_DEDUPE_TTL` | `integer` | `172800` | — | Optional | `hot` | — |

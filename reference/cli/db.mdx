@@ -14,11 +14,15 @@ $ tai db [OPTIONS] COMMAND [ARGS]...
 
 Apply every pending migration across all discovered components.
 
-`--plan` lists what would be applied and changes nothing. Idempotent: with
-nothing pending it reports so and exits 0. Exits non-zero, after reporting what
-ran, when a declared migration chain was skipped (its override binding is unset).
-Loud on a connection failure, an unconfigured connection, or a rewritten
-(checksum-mismatched) chain.
+Discovery covers the skeleton chains plus every plugin that declares one: the plugins
+the deployment LOADS via the manifest, and the marketplace-installed and
+prefix-installed plugins. `--plan` lists what would be applied and changes nothing.
+Idempotent: with nothing pending it reports so and exits 0. Exits non-zero, after
+reporting what ran, when a declared migration chain was skipped (its override binding
+is unset). Manifest-optional: an absent manifest contributes no manifest-loaded chains
+and migrate proceeds on the skeleton, store, and prefix chains. Loud on a connection
+failure, an unconfigured connection, a rewritten (checksum-mismatched) chain, or a
+manifest that exists but is malformed or invalid.
 
 ```console
 $ tai db migrate [OPTIONS]
@@ -33,10 +37,14 @@ $ tai db migrate [OPTIONS]
 
 Report each component's applied / pending / checksum verdict.
 
-Exits non-zero when any component has pending migrations or a checksum
-mismatch, or when a declared migration chain was skipped (its override binding
-is unset), so it doubles as a CI / pre-deploy gate. Loud on a connection failure
-or an unconfigured connection.
+Reports every discovered component: the skeleton chains plus every plugin that declares
+one — the plugins the deployment LOADS via the manifest, and the marketplace-installed
+and prefix-installed plugins. Exits non-zero when any component has pending migrations
+or a checksum mismatch, or when a declared migration chain was skipped (its override
+binding is unset), so it doubles as a CI / pre-deploy gate. Manifest-optional: an absent
+manifest contributes no manifest-loaded chains and status reports the skeleton, store,
+and prefix chains. Loud on a connection failure, an unconfigured connection, or a
+manifest that exists but is malformed or invalid.
 
 ```console
 $ tai db status [OPTIONS]
