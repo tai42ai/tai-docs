@@ -47,24 +47,6 @@ OPTION_ID_MAX_CHARS = 256
 ```
 
 
-## TEMPLATE_BUTTONS_MAX
-
-`tai42_contract.channels.templates.TEMPLATE_BUTTONS_MAX`
-
-```python
-TEMPLATE_BUTTONS_MAX = 10
-```
-
-
-## TEMPLATE_PARAM_MAX_CHARS
-
-`tai42_contract.channels.templates.TEMPLATE_PARAM_MAX_CHARS`
-
-```python
-TEMPLATE_PARAM_MAX_CHARS = 4096
-```
-
-
 ## AnswerForwardError
 
 `tai42_contract.channels.errors.AnswerForwardError`
@@ -148,6 +130,27 @@ refuses an unrenderable question or schema (a permanent
 the notify helper calls ``channel.validate_form_schema(schema, message)`` with
 the notification's ``message`` as the ``question`` argument before the send, so
 one declared method covers both the ask and the notify form surfaces.
+
+A channel that advertises ``supports_template_notifications`` MAY also declare one OPTIONAL
+method, ``validate_template``, following the same documented-member convention (read
+defensively with ``getattr(channel, "validate_template", None)``, NOT a Protocol method, so
+declaring it never tightens the runtime structural check). The send helpers call
+``channel.validate_template(template)`` right after the capability gate, BEFORE the send: it
+parses the template's OPAQUE ``parameters`` against the channel's OWN template-parameter schema
+and raises ``ValueError`` on a shape the channel could never map — so a template the channel
+could never render is refused up front instead of failing at delivery. A channel that omits the
+hook advertises no ask-time parameter check; its ``notify`` still refuses an unmappable template
+at send time (a permanent `ChannelInputError`). The platform never looks inside
+``parameters`` itself; the declaring channel owns the shape end to end.
+
+A channel MAY also declare the OPTIONAL outbound message-length cap it splits a long answer
+against — an OPTIONAL ``ClassVar max_message_chars: int`` giving the medium's own per-message
+character limit, read defensively with ``getattr(channel, "max_message_chars", None)`` (the
+same documented-member convention, NOT a Protocol member). The conversation-delivery machine
+resolves a routed channel's split width as the operator override
+(``CONVERSATIONS_MAX_MESSAGE_CHARS``) when set, else this declared cap; a channel that declares
+neither (and has no override) is a loud config error at send, never a silent unbounded or
+truncated send.
 
 A channel MAY also declare one OPTIONAL method, ``deliver_ordered(notifications)``,
 for a NATIVE in-order batch (a bulk API, a transactional transcript append) — the
@@ -446,22 +449,18 @@ class ChannelTemplate(BaseModel)
 
 A pre-approved, named template a channel sends outside its freeform window.
 
-Some media only accept arbitrary text inside a bounded conversation window (e.g. WhatsApp's
-24-hour customer-service window); outside it, the sole accepted send is an operator-authored
-template referenced by ``name`` in an approved ``language`` — both required and non-blank.
+Some media only accept arbitrary text inside a bounded conversation window (a provider's
+customer-service window); outside it, the sole accepted send is an operator-authored,
+pre-approved template referenced by ``name`` in an approved ``language`` locale — both
+required and non-blank.
 
-The template's runtime arguments are its NAMED components (never one flat positional list):
-
-* ``header_media`` — the media argument for a media HEADER component (a display item:
-  image/document/video/audio, never a ``link``); ``None`` when the template has no media
-  header (or a static/text header needing no argument).
-* ``body_parameters`` — the POSITIONAL body-text values substituted into the body's
-  placeholders in order; empty when the body has no placeholders. Typed values (currency,
-  date-time) ride as their pre-formatted STRING here — the contract does not model the type.
-* ``buttons`` — the POSITIONAL per-button arguments of the buttons component
-  (`TemplateButtonParam`: a `QuickReplyButtonParam` payload or a
-  `UrlButtonParam` url suffix); the i-th entry parameterises the i-th button, at most
-  ``TEMPLATE_BUTTONS_MAX``. Empty when no button needs a runtime argument.
+``parameters`` is the template's runtime arguments as an OPAQUE object: the platform
+threads it UNOPENED (never looking inside it), and the channel that declares the
+``supports_template_notifications`` capability owns its shape — it validates ``parameters``
+against its OWN template-parameter schema through its OPTIONAL ``validate_template`` hook
+(see `Channel`) and maps it to its own send API in its own
+code. A template with no runtime arguments carries no ``parameters``; a present
+``parameters`` is a non-empty dict.
 
 **Attributes**
 
@@ -470,9 +469,7 @@ The template's runtime arguments are its NAMED components (never one flat positi
 | `model_config` | — |
 | `name` | `str` |
 | `language` | `str` |
-| `header_media` | `MediaItem \| None` |
-| `body_parameters` | `list[str]` |
-| `buttons` | `list[TemplateButtonParam]` |
+| `parameters` | `dict[str, Any] \| None` |
 
 
 ## Correlation
@@ -766,27 +763,6 @@ text; a link action is a button, never a list row). A present ``rows`` is non-em
 | `rows` | `list[ReplyOption]` |
 
 
-## QuickReplyButtonParam
-
-`tai42_contract.channels.templates.QuickReplyButtonParam`
-
-```python
-class QuickReplyButtonParam(BaseModel)
-```
-
-The runtime argument for one QUICK-REPLY button of a template's buttons component.
-
-``payload`` is the string the medium returns when the human taps the button. Frozen.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `model_config` | — |
-| `kind` | `Literal['quick_reply']` |
-| `payload` | `str` |
-
-
 ## ReplyOption
 
 `tai42_contract.channels.options.ReplyOption`
@@ -805,8 +781,9 @@ renders flat buttons (no descriptions) ignores it.
 ``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel
 sends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed
 id to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);
-when ``None`` the channel mints its own id. Bounded by ``OPTION_ID_MAX_CHARS`` and a
-single-line non-blank label — the strictest carrier's rule. Frozen.
+when ``None`` the channel mints its own id. Bounded by the platform abuse bound
+``OPTION_ID_MAX_CHARS`` and a single-line non-blank label; a channel with a tighter id cap
+enforces it in its own code. Frozen.
 
 **Attributes**
 
@@ -817,37 +794,6 @@ single-line non-blank label — the strictest carrier's rule. Frozen.
 | `text` | `str` |
 | `description` | `str \| None` |
 | `id` | `str \| None` |
-
-
-## TemplateButtonParam
-
-`tai42_contract.channels.templates.TemplateButtonParam`
-
-```python
-TemplateButtonParam = Annotated[QuickReplyButtonParam | UrlButtonParam, Field(discriminator='kind')]
-```
-
-
-## UrlButtonParam
-
-`tai42_contract.channels.templates.UrlButtonParam`
-
-```python
-class UrlButtonParam(BaseModel)
-```
-
-The runtime argument for one URL button of a template's buttons component.
-
-``url_parameter`` is the dynamic suffix substituted into the button's pre-approved URL.
-Frozen.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `model_config` | — |
-| `kind` | `Literal['url']` |
-| `url_parameter` | `str` |
 
 
 ## check_footer
