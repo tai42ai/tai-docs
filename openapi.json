@@ -776,11 +776,18 @@
         "type": "array"
       },
       "BackupSectionReport": {
-        "description": "One section's per-import counts plus any per-record ``errors``.\n\n``fanout`` is present ONLY for the templates section (a template restore fans\na cache-evict across the fleet); every other section omits it.",
+        "additionalProperties": false,
+        "description": "One section's import outcome — the typed result every importer returns.\n\nThe platform reads ONLY these fields: ``created``/``updated``/``skipped`` are\nthe per-record counts (``skipped`` is the per-record REJECTION count, each also\ncarried in ``errors``), ``errors`` is the per-record failure messages, and\n``fanout`` is the platform's own per-worker report for a section whose restore\nbroadcasts a fleet eviction (``None`` for every section that does not).\n\n``details`` is an OPEN map for an importer's OWN counts and data — a\nper-entity breakdown, a ``skipped_existing`` tally, minted credentials to\nsurface once — so a backend declares its own shape there without the platform\nknowing it. The typed surface is CLOSED (``extra=\"forbid\"``): an importer that\nreturns a stray top-level field is a wrong shape the registry refuses loudly\nrather than silently dropping. ``validate_assignment`` coerces ``fanout`` on\nassignment, so a mutation building the report cannot leave an unvalidated shape.",
         "properties": {
           "created": {
+            "default": 0,
             "title": "Created",
             "type": "integer"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
           },
           "errors": {
             "items": {
@@ -801,25 +808,16 @@
             "default": null
           },
           "skipped": {
+            "default": 0,
             "title": "Skipped",
             "type": "integer"
           },
-          "skipped_existing": {
-            "title": "Skipped Existing",
-            "type": "integer"
-          },
           "updated": {
+            "default": 0,
             "title": "Updated",
             "type": "integer"
           }
         },
-        "required": [
-          "created",
-          "updated",
-          "skipped",
-          "skipped_existing",
-          "errors"
-        ],
         "title": "BackupSectionReport",
         "type": "object"
       },
@@ -906,47 +904,8 @@
         "type": "object"
       },
       "ChannelTemplate": {
-        "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window (e.g. WhatsApp's\n24-hour customer-service window); outside it, the sole accepted send is an operator-authored\ntemplate referenced by ``name`` in an approved ``language`` — both required and non-blank.\n\nThe template's runtime arguments are its NAMED components (never one flat positional list):\n\n* ``header_media`` — the media argument for a media HEADER component (a display item:\n  image/document/video/audio, never a ``link``); ``None`` when the template has no media\n  header (or a static/text header needing no argument).\n* ``body_parameters`` — the POSITIONAL body-text values substituted into the body's\n  placeholders in order; empty when the body has no placeholders. Typed values (currency,\n  date-time) ride as their pre-formatted STRING here — the contract does not model the type.\n* ``buttons`` — the POSITIONAL per-button arguments of the buttons component\n  (:data:`TemplateButtonParam`: a :class:`QuickReplyButtonParam` payload or a\n  :class:`UrlButtonParam` url suffix); the i-th entry parameterises the i-th button, at most\n  ``TEMPLATE_BUTTONS_MAX``. Empty when no button needs a runtime argument.",
+        "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window (a provider's\ncustomer-service window); outside it, the sole accepted send is an operator-authored,\npre-approved template referenced by ``name`` in an approved ``language`` locale — both\nrequired and non-blank.\n\n``parameters`` is the template's runtime arguments as an OPAQUE object: the platform\nthreads it UNOPENED (never looking inside it), and the channel that declares the\n``supports_template_notifications`` capability owns its shape — it validates ``parameters``\nagainst its OWN template-parameter schema through its OPTIONAL ``validate_template`` hook\n(see :class:`~tai42_contract.channels.Channel`) and maps it to its own send API in its own\ncode. A template with no runtime arguments carries no ``parameters``; a present\n``parameters`` is a non-empty dict.",
         "properties": {
-          "body_parameters": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Body Parameters",
-            "type": "array"
-          },
-          "buttons": {
-            "items": {
-              "discriminator": {
-                "mapping": {
-                  "quick_reply": "#/components/schemas/QuickReplyButtonParam",
-                  "url": "#/components/schemas/UrlButtonParam"
-                },
-                "propertyName": "kind"
-              },
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/QuickReplyButtonParam"
-                },
-                {
-                  "$ref": "#/components/schemas/UrlButtonParam"
-                }
-              ]
-            },
-            "title": "Buttons",
-            "type": "array"
-          },
-          "header_media": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MediaItem"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
           "language": {
             "title": "Language",
             "type": "string"
@@ -954,6 +913,19 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parameters"
           }
         },
         "required": [
@@ -5362,6 +5334,107 @@
         "title": "InviteCredential",
         "type": "object"
       },
+      "InviteRow": {
+        "additionalProperties": false,
+        "description": "An invite row in the aggregated directory the Members door returns.\n\nDisplay fields plus the opaque routing tokens. An invitation holds no principal, so it\ncarries no principal state; ``role`` is provider-sourced, correct while no principal\nexists yet.",
+        "properties": {
+          "action_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Action Keys",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "handle": {
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "created_at",
+          "expires_at",
+          "handle"
+        ],
+        "title": "InviteRow",
+        "type": "object"
+      },
+      "InvokeMemberActionRequest": {
+        "description": "The invoke-door envelope: which action, which row, and the per-action input.\n\n``action_key`` is the opaque catalog key; ``target_handle`` is the row handle an\naction acts on (``None`` for a page-scoped action); ``input`` is an open mapping the\noperation hands to the declared ``input_model`` for ordinary validation, so the\nplatform's static envelope never needs to know the per-action fields. Unknown\ntop-level keys are ignored (pydantic's default extra behaviour).",
+        "properties": {
+          "action_key": {
+            "minLength": 1,
+            "title": "Action Key",
+            "type": "string"
+          },
+          "input": {
+            "additionalProperties": true,
+            "title": "Input",
+            "type": "object"
+          },
+          "target_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Handle"
+          }
+        },
+        "required": [
+          "action_key"
+        ],
+        "title": "InvokeMemberActionRequest",
+        "type": "object"
+      },
+      "InvokeMemberActionResult": {
+        "additionalProperties": false,
+        "description": "The invoke-door result: the provider's result-model dump, carried opaquely.\n\n``result`` is the ``model_dump(mode=\"json\")`` of the action's declared\n``result_model`` instance; the platform reads no field of it.",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "InvokeMemberActionResult",
+        "type": "object"
+      },
       "ItemRef": {
         "description": "One item a plugin's stored spec provides.",
         "properties": {
@@ -6135,6 +6208,179 @@
         "title": "MediaKind",
         "type": "string"
       },
+      "MemberActionCatalog": {
+        "additionalProperties": false,
+        "description": "Every declared member action across the registered accounts providers.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/MemberActionDescriptor"
+            },
+            "title": "Actions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "title": "MemberActionCatalog",
+        "type": "object"
+      },
+      "MemberActionDescriptor": {
+        "additionalProperties": false,
+        "description": "One declared member action, serialized for the catalog wire.\n\n``key`` is the opaque catalog key the platform mints for (provider, action) — a caller\njoins and echoes it, never parses it. ``label`` is the resolved wording (the\ndeclaration's :class:`TemplatedText` rendered at the door). ``input_schema`` and\n``result_schema`` are the declared models' ``model_json_schema()`` — a caller renders\na form and a read-only result view from them generically, with no provider field name\nknown to the platform.",
+        "properties": {
+          "destructive": {
+            "title": "Destructive",
+            "type": "boolean"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "title": "Input Schema",
+            "type": "object"
+          },
+          "key": {
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "result_schema": {
+            "additionalProperties": true,
+            "title": "Result Schema",
+            "type": "object"
+          },
+          "scope": {
+            "enum": [
+              "page",
+              "member_row",
+              "invite_row"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "scope",
+          "destructive",
+          "input_schema",
+          "result_schema"
+        ],
+        "title": "MemberActionDescriptor",
+        "type": "object"
+      },
+      "MemberDirectory": {
+        "additionalProperties": false,
+        "description": "The aggregated, platform-joined membership the Members door returns.\n\nThe wire shape of the deployment-wide Members view: every provider's people and\ninvitations as :class:`MemberRow` / :class:`InviteRow`, each carrying opaque routing\ntokens and (for a member) the platform-joined principal state. The provider's raw\naction ids and principal ids never reach this wire.",
+        "properties": {
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/InviteRow"
+            },
+            "title": "Invites",
+            "type": "array"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberRow"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "members",
+          "invites"
+        ],
+        "title": "MemberDirectory",
+        "type": "object"
+      },
+      "MemberPrincipalState": {
+        "additionalProperties": false,
+        "description": "One platform principal a member holds, with its access-control state joined in.\n\n``user_id`` is the platform principal id; ``disabled`` is taken from that principal's\nown record (the store the principals listing reads), never from a provider.",
+        "properties": {
+          "disabled": {
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "user_id": {
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "disabled"
+        ],
+        "title": "MemberPrincipalState",
+        "type": "object"
+      },
+      "MemberRow": {
+        "additionalProperties": false,
+        "description": "A member row in the aggregated directory the Members door returns.\n\nDisplay fields plus the platform-joined principal state and opaque routing tokens.\n``handle`` routes an invoke back to the producing provider and pins this row;\n``action_keys`` are the opaque catalog keys of the actions applicable to it — a caller\njoins and echoes both, never parses them. ``principals`` carries each principal's\njoined state; ``disabled`` is derived True only when EVERY principal is disabled, so a\nperson with any enabled principal still reads active while the per-principal truth\nstays visible. ``role`` is provider-sourced.",
+        "properties": {
+          "action_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Action Keys",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disabled": {
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "email": {
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          },
+          "handle": {
+            "minLength": 1,
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "principals": {
+            "items": {
+              "$ref": "#/components/schemas/MemberPrincipalState"
+            },
+            "title": "Principals",
+            "type": "array"
+          },
+          "role": {
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "created_at",
+          "principals",
+          "disabled",
+          "handle"
+        ],
+        "title": "MemberRow",
+        "type": "object"
+      },
       "MessageSearchEnvelope": {
         "description": "A page of a route's message-search matches (admin-only, so always full records).\n\n``unreadable`` counts the scanned members whose row was gone or unparseable, omitted from the results.",
         "properties": {
@@ -6190,7 +6436,7 @@
         "type": "object"
       },
       "MetricsResult": {
-        "description": "The metrics body.\n\nThe summary tile, the granularity series, the (optional, possibly-empty)\nper-model breakdown, and the resolved ``granularity``. ``byModelAvailable``\nis ``False`` only when the by-model sub-query faulted, so a consumer can tell\nan empty breakdown apart from an unavailable one.",
+        "description": "The metrics body.\n\nThe summary tile, the granularity series, the (optional, possibly-empty)\nper-model breakdown, and the resolved ``granularity``. ``byModelAvailable``\nis ``False`` when the backend does not declare the model dimension, so no\nby-model query is issued; a backend that declares it but cannot serve the\nquery fails loudly, never a false ``byModelAvailable``.",
         "properties": {
           "byModel": {
             "items": {
@@ -9311,26 +9557,6 @@
         "title": "PublicRouteUnpin",
         "type": "object"
       },
-      "QuickReplyButtonParam": {
-        "description": "The runtime argument for one QUICK-REPLY button of a template's buttons component.\n\n``payload`` is the string the medium returns when the human taps the button. Frozen.",
-        "properties": {
-          "kind": {
-            "const": "quick_reply",
-            "default": "quick_reply",
-            "title": "Kind",
-            "type": "string"
-          },
-          "payload": {
-            "title": "Payload",
-            "type": "string"
-          }
-        },
-        "required": [
-          "payload"
-        ],
-        "title": "QuickReplyButtonParam",
-        "type": "object"
-      },
       "RecycleEntry": {
         "description": "One recycled or self-deferred worker line in a profile-apply report.",
         "properties": {
@@ -9474,7 +9700,7 @@
         "type": "object"
       },
       "ReplyOption": {
-        "description": "A tappable suggested reply.\n\nTapping SUBMITS ``text`` as the participant's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id. Bounded by ``OPTION_ID_MAX_CHARS`` and a\nsingle-line non-blank label — the strictest carrier's rule. Frozen.",
+        "description": "A tappable suggested reply.\n\nTapping SUBMITS ``text`` as the participant's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id. Bounded by the platform abuse bound\n``OPTION_ID_MAX_CHARS`` and a single-line non-blank label; a channel with a tighter id cap\nenforces it in its own code. Frozen.",
         "properties": {
           "description": {
             "anyOf": [
@@ -10492,7 +10718,7 @@
         "type": "object"
       },
       "ScheduleCreate": {
-        "description": "Create a schedule that periodically runs ``tool_name`` on the cadence in ``schedule_kwargs``.\n\n``tool_kwargs`` are the arguments each fire passes to the tool.\n``state_binding`` is the OPTIONAL door-layer binding the fire applies. Unlike the per-schedule\n``subject`` (a free key inside ``tool_kwargs`` that legitimately reaches the base tool), it is a\ntop-level field applied around the started tool alone (never the base tool's).\n\nA schedule is a parkable-driving door: it carries the four :class:`ParkableDoorMixin` jqs\n(``start_expr`` builds the fired tool's kwargs; ``cancel_expr`` / ``resume_expr`` act on the run's\nparked interactions; ``extras_expr`` builds the started run's extras), each evaluated over the\nfired tool's arguments with the run's parked interactions bound as ``$parked``. Any contract jq\nneeds an ``execution_key`` (the api-key ``user_id`` the recurring fire runs as, so a park it\nraises can be rebound and resumed under that authority); the create refuses a contract jq with no\nkey.",
+        "description": "Create a schedule that periodically runs ``tool_name`` on the cadence in ``schedule_kwargs``.\n\n``tool_kwargs`` are the arguments each fire passes to the tool, the tool's alone and forwarded\nuntouched — a tool whose OWN argument is named ``subject`` carries it here like any argument.\n``subject`` is the OPTIONAL top-level door field naming the ``schedule``-door state context each\nfire re-establishes: the create door stamps it onto the job, and the fire keys its state writes and\nparks on it (it never reaches the base tool). ``state_binding`` is the OPTIONAL door-layer binding\nthe fire applies around the started tool alone (never the base tool's).\n\nA schedule is a parkable-driving door: it carries the four :class:`ParkableDoorMixin` jqs\n(``start_expr`` builds the fired tool's kwargs; ``cancel_expr`` / ``resume_expr`` act on the run's\nparked interactions; ``extras_expr`` builds the started run's extras), each evaluated over the\nfired tool's arguments with the run's parked interactions bound as ``$parked``. Any contract jq\nneeds an ``execution_key`` (the api-key ``user_id`` the recurring fire runs as, so a park it\nraises can be rebound and resumed under that authority); the create refuses a contract jq with no\nkey.",
         "properties": {
           "cancel_expr": {
             "anyOf": [
@@ -10661,6 +10887,17 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/StateBinding-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateSubject"
               },
               {
                 "type": "null"
@@ -11168,7 +11405,7 @@
         "type": "object"
       },
       "SpanView": {
-        "description": "One span within a run trace.\n\n``input``/``output``/``usage``/``metadata`` are the backend's free-form values\n(open JSON); ``nodeId`` is read from the span's metadata when present.",
+        "description": "One span within a run trace.\n\n``input``/``output``/``usage``/``metadata`` are the backend's free-form values\n(open JSON); ``metadata`` is passed through whole, the platform reading no key\nout of it.",
         "properties": {
           "end": {
             "anyOf": [
@@ -11229,18 +11466,6 @@
             ],
             "default": null,
             "title": "Name"
-          },
-          "nodeId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Nodeid"
           },
           "output": {
             "$ref": "#/components/schemas/JsonValue",
@@ -11676,7 +11901,7 @@
       },
       "StateBinding-Input": {
         "additionalProperties": false,
-        "description": "The optional binding a door carries: one or more :class:`StateAttach` entries. Frozen.\n\nThe same shape is stored on ``PresetBody``/``PresetSeed``, ``TargetConversationConfig``,\n``HookRegister`` and ``ScheduleCreate``, deposited on ``ToolInvocation`` through the\nambient dispatch context, and repeated per node by a flow engine.",
+        "description": "The optional binding a door carries: one or more :class:`StateAttach` entries. Frozen.\n\nThe same shape is stored on ``PresetBody``/``PresetSeed``, ``TargetConversationConfig``,\n``HookRegister`` and ``ScheduleCreate``, deposited on ``ToolInvocation`` through the\nambient dispatch context, and re-applied per binding site by a consumer.",
         "properties": {
           "states": {
             "items": {
@@ -11695,7 +11920,7 @@
       },
       "StateBinding-Output": {
         "additionalProperties": false,
-        "description": "The optional binding a door carries: one or more :class:`StateAttach` entries. Frozen.\n\nThe same shape is stored on ``PresetBody``/``PresetSeed``, ``TargetConversationConfig``,\n``HookRegister`` and ``ScheduleCreate``, deposited on ``ToolInvocation`` through the\nambient dispatch context, and repeated per node by a flow engine.",
+        "description": "The optional binding a door carries: one or more :class:`StateAttach` entries. Frozen.\n\nThe same shape is stored on ``PresetBody``/``PresetSeed``, ``TargetConversationConfig``,\n``HookRegister`` and ``ScheduleCreate``, deposited on ``ToolInvocation`` through the\nambient dispatch context, and re-applied per binding site by a consumer.",
         "properties": {
           "states": {
             "items": {
@@ -14889,26 +15114,6 @@
         "title": "UrlAck",
         "type": "object"
       },
-      "UrlButtonParam": {
-        "description": "The runtime argument for one URL button of a template's buttons component.\n\n``url_parameter`` is the dynamic suffix substituted into the button's pre-approved URL.\nFrozen.",
-        "properties": {
-          "kind": {
-            "const": "url",
-            "default": "url",
-            "title": "Kind",
-            "type": "string"
-          },
-          "url_parameter": {
-            "title": "Url Parameter",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url_parameter"
-        ],
-        "title": "UrlButtonParam",
-        "type": "object"
-      },
       "UserUpdateAck": {
         "description": "Acknowledges an api-key edit.",
         "properties": {
@@ -15155,7 +15360,7 @@
   "info": {
     "description": "The operator HTTP surface served under /api/*.",
     "title": "tai42-skeleton API",
-    "version": "21.5.1"
+    "version": "22.0.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -16518,6 +16723,221 @@
         ]
       }
     },
+    "/api/auth/member-actions": {
+      "get": {
+        "description": "The deployment-wide catalog of declared member actions (admin only).\n\nEach registered accounts provider's :meth:`member_actions` declarations are serialized\ninto opaque-keyed :class:`MemberActionDescriptor` rows, the label resolved through the\nresource manager and the input/result schemas rendered generically. The platform reads\nno action field.",
+        "operationId": "get_api_auth_member_actions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/MemberActionCatalog"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List member actions",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/member-actions/invoke": {
+      "post": {
+        "description": "Invoke one declared member action by its opaque key (admin only).\n\nThe key decodes to ``(provider, action_id)`` and the optional handle to the\n``(provider, target)`` the action acts on; a malformed token or a key/handle naming\ndifferent providers is a loud :class:`BadRequestError`. The per-action ``input`` is\nvalidated by ``input_model.model_validate`` (ordinary pydantic — a declared-field type\nerror is a 422, an unknown key is ignored). The provider's typed failure propagates and\nthe platform reads no field of the opaque result.",
+        "operationId": "post_api_auth_member_actions_invoke",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvokeMemberActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InvokeMemberActionResult"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Invoke a member action",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
+    "/api/auth/members": {
+      "get": {
+        "description": "Aggregate every registered accounts provider's people and invitations (admin only).\n\nEach provider's :meth:`~tai42_contract.accounts.provider.AccountsProvider.list_members`\nsupplies its own members and invites; the aggregate wraps them into wire rows in provider\nname order, minting each row's opaque handle and action keys and joining each member's\nper-principal ``disabled`` state from the platform's own principal store (read once per\ncall). A member row's ``disabled`` is derived True only when EVERY principal is disabled.\nProvider errors propagate (loud, never a silently empty listing).",
+        "operationId": "get_api_auth_members",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/MemberDirectory"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List members and invites",
+        "tags": [
+          "access-control"
+        ]
+      }
+    },
     "/api/auth/principals": {
       "get": {
         "description": "Every principal (admin only).",
@@ -17050,7 +17470,7 @@
     },
     "/api/auth/roles": {
       "get": {
-        "description": "The seeded/operator-authored roles as full ``RoleDefinition``-shaped bodies.\n\nEach body is ``{name, description, scopes, condition, base_tier, allow_all, grants}`` — the\nusers-admin role picker and the Studio Roles page read this. A store-less deployment (no\nversioned store configured) has no roles — the seed step is skipped at boot — so the read is\nskipped and the list is empty.\n\nAdmin-only: a listing exposes every role's raw base-tier jq condition, so a non-admin\ncaller is denied 403. This op-level check is defense in depth behind the ``secret``\nroute action-class that already fences the route.",
+        "description": "The seeded/operator-authored roles as full ``RoleDefinition``-shaped bodies.\n\nEach body is ``{name, description, scopes, condition, base_tier, allow_all, grants}`` — the\nMembers page's role action and the Studio Roles page read this. A store-less deployment (no\nversioned store configured) has no roles — the seed step is skipped at boot — so the read is\nskipped and the list is empty.\n\nAdmin-only: a listing exposes every role's raw base-tier jq condition, so a non-admin\ncaller is denied 403. This op-level check is defense in depth behind the ``secret``\nroute action-class that already fences the route.",
         "operationId": "get_api_auth_roles",
         "responses": {
           "200": {
@@ -21798,7 +22218,7 @@
     },
     "/api/conversations/{route_name}/thread/messages": {
       "post": {
-        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity.\n\nReturns ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?, \"filename\"?}`` display items),\n``location`` (a shared map pin ``{\"latitude\", \"longitude\", \"name\"?, \"address\"?}``),\n``template`` (a pre-approved ``{\"name\", \"language\", \"header_media\"?, \"body_parameters\"?,\n\"buttons\"?}`` out-of-window template), ``options`` (a list of FLAT tappable option objects —\neach a ``{\"kind\": \"reply\", \"text\"}`` reply or a ``{\"kind\": \"link\", \"label\", \"url\"}`` link\naction), ``sections`` (the SECTIONED tappable-options alternative — titled groups of reply\nrows), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the participant's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms — FULL parity with the flow answer path's ``AnswerPart`` vocabulary —\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or a combination the shared\ncomposition matrix refuses — ``options`` XOR ``sections``, ``schema`` excludes both,\n``header``/``footer`` require a choice surface, ``template`` standalone) is a loud 400;\nomit them all for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
+        "description": "Send a message BY HAND into ``thread_id`` on ``route_name`` as the route identity.\n\nReturns ``{\"message_id\", \"thread_id\"}``. No turn runs: the message is stored already\n``answered`` and delivered through the same machine a produced answer takes.\n\n``media`` (a list of ``{\"kind\", \"url\", \"caption\"?, \"filename\"?}`` display items),\n``location`` (a shared map pin ``{\"latitude\", \"longitude\", \"name\"?, \"address\"?}``),\n``template`` (a pre-approved out-of-window template ``{\"name\", \"language\", \"parameters\"?}`` —\n``parameters`` is the channel-owned opaque runtime-argument object), ``options`` (a list of\nFLAT tappable option objects —\neach a ``{\"kind\": \"reply\", \"text\"}`` reply or a ``{\"kind\": \"link\", \"label\", \"url\"}`` link\naction), ``sections`` (the SECTIONED tappable-options alternative — titled groups of reply\nrows), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's\nanswer schema — the channel renders ``text`` as the form's prompt, and the participant's\nsubmission enters the conversation as an ordinary inbound message) are OPTIONAL\nricher-send forms — FULL parity with the flow answer path's ``AnswerPart`` vocabulary —\ndelivered ALONGSIDE ``text`` — the message is then stored and delivered as one rich\npart, exactly as a produced rich answer is, including the delivery machine's capability\ngate (a channel that does not advertise the matching ``supports_*_notifications`` flag\nnever receives the part; the record fails loudly instead of the field dropping). A\ncontract-invalid value (an empty list/dict, an over-cap value, or a combination the shared\ncomposition matrix refuses — ``options`` XOR ``sections``, ``schema`` excludes both,\n``header``/``footer`` require a choice surface, ``template`` standalone) is a loud 400;\nomit them all for a plain text send.\n\nAllowed in either mode and it never flips the mode. Blank ``text`` is a loud 400, and a\npresent-but-blank ``address`` is a 400. The thread-belongs-to-route guard is the thread\ndelete's: a route-keyed id must carry the route's ``bridge:{route_name}:`` prefix (400\notherwise), a person thread must be on the named route (404 otherwise). ``address`` picks\nthe send target on a LINKED person's aggregated thread — it must be one of the person's\naddresses (400 otherwise); with no ``address`` the target is the thread's newest record,\nand an empty person thread with no ``address`` is a 400. For an agent target that holds\nthread memory the message is appended to the thread's checkpoint as an ``assistant`` reply\nBEFORE the record is created; an append that fails is a loud 500 and no record is created.\nThe send takes the thread's per-thread FIFO, so it waits behind an in-flight turn and\nnever interleaves it; a full queue is a loud, retriable 503. As a live-caller sync door the\nwait to acquire the slot is bounded by ``sync_door_wait_seconds``: a wait past it — behind a\nturn possibly HITL-paused on another worker — is the loud, retriable 503 ``ThreadBusyError``\nrather than a block past the proxy timeout.\n\nCaller authority is the door's grantable ``write`` action — the same write grant that\nforgets threads — and the record names the calling operator. An unauthenticated caller\n(access control disabled or unbound) is a loud 501, since an operator action must be\nattributable.",
         "operationId": "post_api_conversations_route_name_thread_messages",
         "parameters": [
           {
@@ -26504,7 +26924,7 @@
     },
     "/api/observability/metrics": {
       "get": {
-        "description": "Aggregate metrics over the time range via the contract's ``query_metrics``.\n\nThree fixed queries: a summary total, a granularity series, and an OPTIONAL\nby-model breakdown. By-model runs through ``_safe_query`` so a backend\nrejecting the extra dimension omits that panel rather than breaking the core\ntiles; the summary and series queries are hard (they may raise).",
+        "description": "Aggregate metrics over the time range via the contract's ``query_metrics``.\n\nThe backend DECLARES what it serves (``metrics_capability``) before any query.\nA backend that does not serve the core measures fails loudly (501). The by-model\npanel's availability is the backend's DECLARATION that it groups by the model\ndimension — not a swallowed query error: when declared, the by-model query runs\nHARD and any failure propagates; when not declared, the panel is reported absent\nand no query is issued.",
         "operationId": "get_api_observability_metrics",
         "parameters": [
           {
@@ -29234,7 +29654,7 @@
     },
     "/api/schedules/server-datetime": {
       "get": {
-        "description": "Return the server's current date and time; raises 501 when the time tool is not available.",
+        "description": "Return the server's current date and time, read from the platform's own clock.",
         "operationId": "get_api_schedules_server_datetime",
         "responses": {
           "200": {
@@ -29264,46 +29684,6 @@
               }
             },
             "description": "Missing or invalid api key."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal server error."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Error."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
