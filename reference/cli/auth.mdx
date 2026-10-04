@@ -34,6 +34,56 @@ $ tai auth claim [OPTIONS] {token}
 | --- | --- |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai auth member-actions`
+
+List and invoke the accounts providers' declared member-admin actions.
+
+```console
+$ tai auth member-actions [OPTIONS] COMMAND [ARGS]...
+```
+
+### `tai auth member-actions invoke`
+
+Invoke one declared member action by its opaque key.
+
+The per-action `input` is handed to the action's declared input model and validated
+server-side (a declared-field type error is rejected; an unknown key is ignored). The
+result is the provider's opaque result — an invite action, say, returns a one-time
+sign-in link shown only once, so capture it now.
+
+Example: `tai auth member-actions invoke --action-key &lt;key&gt; --target-handle &lt;handle&gt; --input '&#123;"role": "editor"&#125;'`
+
+```console
+$ tai auth member-actions invoke [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--action-key` `&lt;str&gt;` | The opaque catalog key of the action to invoke (from `tai auth member-actions list`). _(required)_ |
+| `--target-handle` `&lt;str&gt;` | The opaque row handle the action acts on (from the members listing); omit for a page-scoped action. |
+| `--input` `&lt;str&gt;` | The per-action input as a JSON object. |
+| `--input-file` `&lt;str&gt;` | Read the per-action input JSON object from a file, or '-' for stdin, keeping a secret off the command line (a value on argv leaks via ps and shell history). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai auth member-actions list`
+
+List every declared member action by its opaque key, label, scope, and destructive flag.
+
+Each registered accounts provider declares its own member-admin actions; the catalog
+carries each by an opaque `key` (which `invoke` echoes back), the rendered label, the
+placement `scope`, the `destructive` confirm hint, and the input/result JSON schemas
+a caller renders a form and a result view from.
+
+Example: `tai auth member-actions list`
+
+```console
+$ tai auth member-actions list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai auth whoami`
 
 Print the caller's derived capability projection.
