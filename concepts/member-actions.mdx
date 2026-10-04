@@ -1,0 +1,103 @@
+---
+title: "Member actions"
+description: "Provider-declared member-admin actions the platform renders and routes without knowing what any of them mean."
+icon: "user-gear"
+---
+
+An [accounts provider](/concepts/accounts) declares the member-admin actions it
+supports; the platform renders and routes them without knowing what any action
+means. The Members surface reads that declaration to offer page buttons and
+per-row menus, and a single invoke door performs one on demand. A provider adds,
+renames, or removes an action by changing its declaration alone — no platform
+code and no bespoke route moves with it.
+
+## Declared, not built in
+
+A provider returns its actions as data, each one a small descriptor the platform
+treats generically:
+
+- **id** — the provider's own token for the action. The platform never parses or
+  branches on it; it only carries it back to the provider that declared it.
+- **label** — the wording shown in the UI, resolved to a plain string at the
+  catalog door through the platform's [templated-text](/concepts/storage-and-resources)
+  path, so it localizes like any other wording.
+- **scope** — where the action renders: `page` (acts on no existing row),
+  `member_row` (acts on one member), or `invite_row` (acts on one outstanding
+  invitation). A closed set every member view has a place for.
+- **destructive** — whether the surface asks the caller to confirm first.
+- **input schema** and **result schema** — the JSON Schema of what the action
+  takes and what it returns. The platform renders a form from the input schema
+  and a read-only view from the result schema; it reads no field of either.
+
+Because the platform holds only the descriptor, any accounts provider's actions
+appear on the same Members surface with no platform change — the capability is
+part of the accounts contract, not a feature of one provider.
+
+## Two doors
+
+Both doors live under the reserved `/api/auth` namespace and are **admin-only**:
+
+- `GET /api/auth/member-actions` lists the deployment-wide catalog — every
+  registered provider's declared actions, each as a descriptor with its rendered
+  label, scope, destructive flag, and input and result schemas.
+- `POST /api/auth/member-actions/invoke` performs one action, named by its
+  catalog key, against an optional target row, with an input body.
+
+The catalog is what the Members page renders its buttons and menus from; the
+invoke door is what a button or menu item calls.
+
+## Opaque keys and handles
+
+A caller never names a provider. The catalog gives each action an opaque
+**action key**, and each row in the [Members directory](/concepts/accounts)
+carries an opaque **routing handle**. Both are tokens the platform mints and
+decodes to route a call back to the provider that owns the action and to the row
+it acts on; a caller echoes them, never parses them.
+
+To invoke, a caller sends the action key, the target row's handle (omitted for a
+`page` action), and the input. The platform decodes the key to its provider and
+action, decodes the handle to its target, refuses a malformed token or a key and
+handle that name different providers with a `400`, and hands the call to the
+provider.
+
+## Validation and typed failure
+
+The input is validated against the action's declared input schema before the
+provider runs. A declared field with the wrong type is a `422` that names the
+offending field paths; an unknown key is ignored.
+
+A provider reports a correctable failure as a typed error, which the door maps to
+a status — a conflicting state is a `409`, an unknown target a `404`, a bad
+request a `400` — so a caller can tell a correctable failure from a server fault
+instead of meeting an opaque `500`. On success the platform serializes the
+provider's result generically and reads no field of it: whatever the action
+produces — including a one-time value shown only once, such as a sign-in link —
+surfaces on the invoke response and nowhere else.
+
+## Member state stays platform-owned
+
+A member's **disabled** state is an access-control fact the platform owns, not
+something a provider reports. A provider's member record carries the
+[principal](/concepts/access-control) id (or ids) the person holds; the Members
+operation joins those ids against the platform's own principal records and takes
+`disabled` from there. A row exposes each principal's state and a derived
+`disabled` that is true only when every principal the person holds is disabled,
+so a person with any live principal still reads active. A principal id a provider
+names that the platform does not hold is a loud failure, never a guessed state.
+
+A member's **role** stays provider-sourced: the platform exposes no per-principal
+role to join from, and the only writer of a member's role is the provider's own
+action, so its copy cannot go stale behind a platform door.
+
+## See also
+
+- [Accounts](/concepts/accounts) — the provider kind that declares these actions
+  and the Members directory they render against.
+- [Access control](/concepts/access-control) — the principal records the disabled
+  state is joined from, and the admin fence both doors sit behind.
+- [User types and permissions](/concepts/permissions) — the roles an action
+  assigns and the admin-only route fence.
+- [HTTP API reference](/reference/api/index) — the `/api/auth/member-actions`
+  doors.
+- [Accounts contract reference](/reference/python-sdk/contract-accounts) — the
+  `MemberAction` declaration a provider returns.
