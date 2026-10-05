@@ -58,12 +58,16 @@ The gate has three moving parts, resolved on every request:
    stale cache without waiting out the TTL.
 3. **Route** — a request path maps to a scope id; the guard admits the request
    only if the identity's scopes cover it. A route pinned to the public marker
-   (via `tai scopes public-pin`) is public; `*` is a superuser scope on a key, not
-   a route value. A route with NO mapping fails closed for every ordinary identity
-   — except a condition-free `*` super-admin key, which is admitted (a root can map
-   the route anyway, so blocking it is a footgun, not security). So an
-   access-control-enabled deployment's admin reaches the whole surface out of the
-   box; the route table only ever scopes non-admin identities.
+   (via `tai scopes public-pin`) is public; `*` is a superuser scope on a key, and
+   it is also what a **registered, authenticated route with no mapping** resolves
+   to — so every role-holder (which carries `*`) reaches such a route out of the
+   box, while a scoped key needs an explicit row. Only a path the application does
+   **not serve** fails closed for every ordinary identity — except a condition-free
+   `*` super-admin key, which is admitted (a root can map the route anyway, so
+   blocking it is a footgun, not security). So an access-control-enabled
+   deployment's admin reaches the whole surface out of the box, every role-holder
+   reaches every registered route, and the route table only ever adds scoping for
+   scoped keys.
 
 ## Principals
 
@@ -364,12 +368,21 @@ tai keys create --user alice --description 'CI key' --scope read --condition '.m
 
 ## Route mapping is two-tier
 
-Mapping a route to public or protected is a configuration decision, not a property
-of the route code. It is two-tier: a path pattern maps a URL to a template key,
-and a Postgres record in the access-control policy store maps that template key to
-a scope id (or the public marker).
-This is how the [interactions](/concepts/interactions) callback doors are mapped
-public while the stream and answer doors stay protected.
+Mapping a route to a **named scope** (or pinning it public) is a configuration
+decision, not a property of the route code. It is two-tier: a path pattern maps a
+URL to a template key, and a Postgres record in the access-control policy store
+maps that template key to a scope id (or the public marker). A route's own
+_protection_ — authenticated-or-public, and its action class — is declared in the
+route code; the route table does not decide whether `/api` is private, it **refines
+scope for scoped keys**. A registered authenticated route with no row is reachable
+by every role-holder (it resolves to the universal scope); a row narrows it so a
+key holding only named scopes can reach it too.
+
+The **MCP transports and the sub-MCP mount** are authenticated surfaces the same
+way: a role-holder reaches them out of the box, and a scoped key reaches them where
+the operator maps them. This is how the [interactions](/concepts/interactions)
+callback doors are declared public while the stream and answer doors stay
+protected.
 
 Every management mutation that touches more than one key commits through a single
 WATCH/MULTI/EXEC transaction, so a crash never leaves the store half-written and a

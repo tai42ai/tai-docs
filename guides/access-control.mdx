@@ -36,7 +36,7 @@ The gate is on by default. Before it can admit requests in a real deployment, th
     It registers itself as the `redis` provider at import; `ACCESS_CONTROL_AUTH_PROVIDERS` (an ordered JSON list, default `["redis"]`) names the chain the verifier tries. Swap the module and the provider name to use a different authn backend.
   </Step>
   <Step title="Probe routes are public by default">
-    The guard denies any route it has no mapping for **to ordinary identities** (a condition-free `*` super-admin key is admitted — a root identity is never gated by a missing route row). The liveness and readiness probes carry no key, but they are served public by the app's own route-level declaration: `/health` and `/ready` ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so an orchestrator reaches them with no key and no manual pin.
+    A **registered, authenticated** route the operator mapped to no scope is reached by every role-holder out of the box (it resolves to the universal scope `*`); only a path the app does **not serve** is denied to ordinary identities (a condition-free `*` super-admin key is still admitted — a root is never gated by a missing route). The liveness and readiness probes carry no key, but they are served public by the app's own route-level declaration: `/health` and `/ready` ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so an orchestrator reaches them with no key and no manual pin.
   </Step>
 </Steps>
 
@@ -119,7 +119,7 @@ tai keys create --user ci --description 'CI key' --scope read --for ci-runner
 
 ## Map routes to scopes
 
-A scope maps URLs to a named policy target. Add a URL to a scope, optionally with a dynamic match pattern, and list the current mappings.
+This step is for **scoped keys** — a key minted with named scopes rather than `*`. Role-holders (admin/editor/viewer and any custom role, all carrying `*`) already reach every registered route, so a fresh deployment needs **no** route-mapping step to be usable. Map a route to a named scope only to let a scoped key reach it. A scope maps URLs to a named policy target; add a URL to a scope, optionally with a dynamic match pattern, and list the current mappings.
 
 ```bash
 tai scopes add read /api/tools
