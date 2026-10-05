@@ -65,6 +65,28 @@ What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
 Either way the expiry is stated once as an `interactions_ask_expired_unanswered`
 platform event a deployment can [hook](/concepts/hooks) on.
 
+A resumed run ends in exactly one of **three terminal outcomes**, and the platform
+delivers each differently to the person who was asked:
+
+- **succeeded** — the run finished; its answer is delivered back.
+- **failed** — the run broke, or its `on_expiry="kill"` deadline lapsed; a single
+  uniform failure notice is delivered.
+- **withdrawn** — the platform took the run down **on purpose** (a cancel, or the ask's
+  thread or person was erased). There is no outcome and **nothing is said to the
+  person**: the run is closed quietly.
+
+### Withdrawing a channel-delivered ask
+
+Cancelling a pending ask (`POST /api/interactions/{id}/cancel`, the `cancel_parked`
+tool, a route's cancel expression) — or erasing the thread or person it belongs to —
+**withdraws** it. When the ask was delivered over a channel that holds one pending
+question per address (WhatsApp, Twilio SMS), the withdrawal **releases that
+reservation at once**, so the next ask to the same address is accepted immediately
+rather than refused until the held reservation times out. The person is told nothing
+(the run's terminal is *withdrawn*, not a failure notice); the question already sent
+stays in their chat, and a later reply to it bridges in as a **fresh turn** — the same
+path a reply to an expired ask takes.
+
 Async requires the run to be resumable: it must be raised where a resuming driver
 and a bound execution identity are in scope, or it raises loudly rather than
 silently blocking.
@@ -747,7 +769,7 @@ are public:
 | `GET /api/interactions` | authenticated | paged list of pending questions (`page`/`pageSize`) |
 | `GET /api/interactions/stream` | authenticated | tail-only SSE feed of live `add`/`answered`/`removed` frames |
 | `POST /api/interactions/{id}/answer` | authenticated | the human answer door (in-client formats) |
-| `POST /api/interactions/{id}/cancel` | authenticated | withdraw a pending ask without answering it (fires no continuation) |
+| `POST /api/interactions/{id}/cancel` | authenticated | [withdraw](#withdrawing-a-channel-delivered-ask) a pending ask without answering it — fires no continuation, releases the channel's reservation, and says nothing to the person |
 | `POST /api/interactions/{id}/react` | authenticated | the in-app [mid-form reaction](#forms-that-react-while-open) door (`channel=None`) — runs the reaction, records nothing |
 | `GET /api/interactions/media/{id}` | **public** | serves media stored by reference — the id is the capability |
 | `POST /api/interactions/callback/{ticket}` | **public** | the data door — sensitive answers ride the JSON body |
