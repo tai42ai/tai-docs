@@ -14,6 +14,54 @@ checkpoint/store connection resources. Importing this package pulls
 ``langchain_core`` / ``langgraph`` — that is the opt-in boundary (the
 ``tai42_kit`` top level stays vendor-free).
 
+## RunTrace
+
+`tai42_kit.llm.run_trace.RunTrace`
+
+```python
+class RunTrace
+```
+
+The resolved lineage of one run plus the per-invoke config that records it.
+
+``context`` is the trace/span lineage the run's spans join; ``config`` is the caller's
+LangGraph run config (a ``RunnableConfig``-shaped mapping) copied by value with the
+backend's monitoring callbacks appended after the caller's own.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `context` | `TraceContext` |
+| `config` | `dict[str, Any]` |
+
+
+## bind_run_trace
+
+`tai42_kit.llm.run_trace.bind_run_trace`
+
+```python
+bind_run_trace(config: dict[str, Any] | None = None) -> RunTrace
+```
+
+Resolve the run's lineage and return the per-invoke config carrying its callbacks.
+
+Resolves the lineage with `resolve_trace_context`, asks the active monitoring
+backend (``tai42_app.monitoring.active.writer``) for the callbacks under it, and
+returns a `RunTrace` whose ``config`` is ``config`` copied by value — a fresh
+top-level mapping, a fresh ``configurable``, and a fresh ``callbacks`` list with the
+backend's callbacks appended after the caller's — so one base config can feed many
+parallel invocations without colliding. A backend error from
+``get_monitoring_callbacks`` propagates loudly (dropping all tracing would be a silent
+degrade). No OpenTelemetry side effect.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `dict[str, Any] \| None` | `None` | — |
+
+
 ## checkpoint_registry
 
 `tai42_kit.llm.checkpoint.checkpoint_registry.checkpoint_registry`
@@ -140,6 +188,28 @@ Build the chat model for ``provider`` in a worker thread, off the event loop.
 |---|---|---|---|
 | `provider` | `str` | — | — |
 | `kwargs` | — | `{}` | — |
+
+
+## resolve_trace_context
+
+`tai42_kit.llm.run_trace.resolve_trace_context`
+
+```python
+resolve_trace_context(config: dict[str, Any] | None = None) -> TraceContext
+```
+
+Resolve the one trace lineage for a run from ``config`` and the ambient deposit.
+
+Precedence: an explicit ``configurable['monitoring_trace_id']`` (with its optional
+``monitoring_parent_span_id`` anchor) wins; else the ambient
+`get_ambient_trace_context` deposit; else a fresh
+32-hex root trace with no parent. Pure — reads only, mints no side effect.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `dict[str, Any] \| None` | `None` | — |
 
 
 ## store_registry
