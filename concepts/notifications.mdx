@@ -42,6 +42,7 @@ that is not registered is a loud error, never a silent drop.
 | `header` / `footer` | A single media `header` above, and a short text `footer` below, an interactive message. Each requires `options` or `sections`. |
 | `schema` | An [ask-less form](#ask-less-forms)'s answer schema. The channel renders `message` as the form's prompt and `schema` as the fillable form; the submission enters the conversation as an ordinary message from the person. Requires a named channel that advertises form support. |
 | `data` / `pages` | Per-send [prefill, choice lists, and step layout](/concepts/interactions#prefilling-per-send-options-and-pages) over `schema` for this one send — `data.values` opens the form filled in, `data.options` replaces a string property's choices for this send, and `pages` lays the form out in titled steps. Both ride ONLY a form send (a `schema` present) and are cross-checked against it. |
+| `form_tag` | An optional opaque **correlation tag** for this one form send: the channel carries it with the form and hands it back beside the submission (see [correlating a send](#correlating-a-send-with-its-submission)). Rides ONLY a form send (a `schema` present). |
 
 With a named channel, the richer forms deliver only where the channel advertises the
 matching capability; with no channel, `media`, `location`, `template`, `options`, and
@@ -241,6 +242,20 @@ nothing re-prompts on a bad value, and the platform never checks the submission
 against the schema — the values are **participant-shaped data**, bounded as transport
 (size and nesting) but carrying no more trust than typed participant text. A tool that
 consumes them validates them itself.
+
+### Correlating a send with its submission
+
+A flow may have several ask-less forms of the same kind open at once. Set an optional
+**`form_tag`** on the send to tell their submissions apart: it is a short opaque string
+you choose (non-blank, `^[A-Za-z0-9_.~-]{1,64}$`). The channel carries it with that one
+form and hands it **back unchanged** beside the submission's [`form` and
+`params`](/concepts/client-conversations#structured-participant-messages), so the route
+reading the submission knows which send it answers.
+
+The tag is **per send** and **opaque** — the platform never interprets it, only bounds
+it as transport, and refuses it on a send that carries no `schema`. It is never shown to
+the person, carries no personal data, and never enters the published Flow. It rides the
+tool and the API only, like [`audience`](#audience-versus-recipient).
 
 When to use which: a form **ask** (`ask` with `answer_format="form"`) suspends
 the caller until a validated answer or an expiry — reach for it when the flow cannot
