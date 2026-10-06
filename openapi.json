@@ -170,6 +170,18 @@
             "default": null,
             "title": "Footer"
           },
+          "form_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Form Tag"
+          },
           "header": {
             "anyOf": [
               {
@@ -1920,6 +1932,19 @@
             "description": "A structured participant submission (an ask-less form's answers) riding WITH the text. ``text`` stays required and non-blank — it is the CARRIER every reader consumes: a channel submits a faithful text form of the submission alongside the structured data, so a form-unaware consumer still sees the whole turn, and the ``attachments``/``location`` siblings ride the same pattern. The platform attaches no meaning and NO TRUST to the contents: participant-shaped data, never schema-conformant — a target that reads it validates it itself.",
             "title": "Form"
           },
+          "form_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The caller-set opaque per-send ``form_tag`` the platform handed out with the form this submission answers, echoed back BESIDE ``form``. It rides ONLY a form submission (requires ``form``); the platform never interprets it, only bounds it as transport. The door accepts the echo under the same trust posture as ``form`` — the platform cannot verify the echo corresponds to a send. ``null`` means none.",
+            "title": "Form Tag"
+          },
           "locale": {
             "anyOf": [
               {
@@ -2159,6 +2184,18 @@
             ],
             "default": null,
             "title": "Inbound Form"
+          },
+          "inbound_form_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inbound Form Tag"
           },
           "inbound_kind": {
             "default": "message",
@@ -2640,6 +2677,10 @@
                   "name": "form"
                 },
                 {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
                   "gloss": "inbound media the participant sent, present only when the inbound carried some",
                   "name": "attachments"
                 },
@@ -2648,7 +2689,7 @@
                   "name": "location"
                 },
                 {
-                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/attachments/location when that message carried them)",
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
                   "name": "messages"
                 },
                 {
@@ -3108,6 +3149,10 @@
                   "name": "form"
                 },
                 {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
                   "gloss": "inbound media the participant sent, present only when the inbound carried some",
                   "name": "attachments"
                 },
@@ -3116,7 +3161,7 @@
                   "name": "location"
                 },
                 {
-                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/attachments/location when that message carried them)",
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
                   "name": "messages"
                 },
                 {
@@ -6884,6 +6929,19 @@
             "default": null,
             "description": "Optional short trailing line under an interactive message. Like the header it COMPOSES an interactive message, so it REQUIRES options or sections; it rides the choice surface's own capability (no separate flag) and mutually exclusive with template.",
             "title": "Footer"
+          },
+          "form_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional caller-set opaque per-send form tag the channel carries with the form and hands back on submit. Rides ONLY a form send — present without schema is a 400. Bounded as transport (an out-of-charset or over-length tag is a 400) but never interpreted; not written to the in-app feed record.",
+            "title": "Form Tag"
           },
           "header": {
             "anyOf": [
@@ -26818,7 +26876,7 @@
         ]
       },
       "post": {
-        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message with no media to carry it (the contract admits a blank message\n  only for a media-only send), an unknown channel name, a blank recipient/audience, a\n  caller-supplied ``sender_identity``, a contract-invalid ``media``/``template``/\n  ``options``/``schema`` combination (an empty list/dict, an over-cap value, or a\n  mutually exclusive\n  media+template / options+template / schema+template / schema+options), a ``schema``\n  with no channel (the internal sink has no submission door) or one the channel's form\n  subset/hook refuses, or a channel's permanent refusal of the input's\n  shape (retrying cannot succeed) → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify, or does not advertise the\n  ``media``/``template``/``options``/``schema`` capability the send needs → 501;\n* a transient channel delivery failure (the raised error's ``retryable``) → 503,\n  carrying the medium's ``retry_after`` when it named one;\n* a permanent channel delivery refusal → 502.\n\n``media`` (display media sent with the message), ``location`` (a shared map pin),\n``template`` (a pre-approved out-of-window send), ``options`` (FLAT tappable options a tap\nof which enters the conversation), ``sections`` (the SECTIONED tappable-options\nalternative), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's answer schema — the channel renders the\nmessage as the form's prompt, and a submission enters the conversation as a message from\nthe person) are OPTIONAL richer-send forms — FULL parity with the flow answer path's\n``AnswerPart`` vocabulary. The contract's shared composition matrix is enforced on this\nrequest model identically: ``options`` XOR ``sections`` (one choice surface); ``schema``\nexcludes both; ``header``/``footer`` require a choice surface; ``template`` is the standalone\nout-of-window send exclusive with every other content/interactive field; ``options``/\n``sections`` may each combine with ``media``/``location`` (a contract-invalid combination is\na 400). On a\nnamed channel each needs a channel that advertises the matching capability\n(``media``→media, ``location``→location, ``template``→template, ``options``/``sections``→\ninteractive, ``schema``→form; ``header``/``footer`` ride the choice surface's capability, no\nflag of their own) — otherwise\nthe send is refused as a 501, never downgraded to a silent freeform send. With no\nchannel media/location/template/options/sections/header/footer are stored on the internal\ninbox record and rendered\nthere; ``schema`` alone REQUIRES a channel (a 400 without one) — a stored form nobody\ncould submit would be a dead surface, not a notification.\n\n``data`` (per-send prefill ``values`` and per-send ``options`` lists) and ``pages`` (the\nstepped layout) are the ask-less form's per-send extras — the same ``FormData``/``FormPage``\nan ask carries. They ride ONLY a form send: present without ``schema`` is a 400. When a\n``schema`` is present each is cross-checked against it by the same validator the ask door\nruns — a prefill against an unknown/ill-typed property, a per-send option list on a\nnon-string property, or a page that omits/duplicates/misnames a property is a 400.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
+        "description": "Send a human a one-way notification, fire-and-forget.\n\nNo reply is expected and nothing blocks. With a named channel the message is\nsent and the call returns as soon as the medium ACCEPTED it (not that a human\nsaw it). With ``channel`` omitted the message is recorded to the internal\nnotifications sink the Studio inbox reads. One send attempt, no retry; every\nfailure raises loudly, never a silent no-op:\n\n* a blank message with no media to carry it (the contract admits a blank message\n  only for a media-only send), an unknown channel name, a blank recipient/audience, a\n  caller-supplied ``sender_identity``, a contract-invalid ``media``/``template``/\n  ``options``/``schema`` combination (an empty list/dict, an over-cap value, or a\n  mutually exclusive\n  media+template / options+template / schema+template / schema+options), a ``schema``\n  with no channel (the internal sink has no submission door) or one the channel's form\n  subset/hook refuses, or a channel's permanent refusal of the input's\n  shape (retrying cannot succeed) → 400;\n* a restricted caller addressing another identity (cross-identity denial) → 403;\n* a channel that cannot notify, or does not advertise the\n  ``media``/``template``/``options``/``schema`` capability the send needs → 501;\n* a transient channel delivery failure (the raised error's ``retryable``) → 503,\n  carrying the medium's ``retry_after`` when it named one;\n* a permanent channel delivery refusal → 502.\n\n``media`` (display media sent with the message), ``location`` (a shared map pin),\n``template`` (a pre-approved out-of-window send), ``options`` (FLAT tappable options a tap\nof which enters the conversation), ``sections`` (the SECTIONED tappable-options\nalternative), ``header``/``footer`` (a media header / trailing line composing an interactive\nmessage) and ``schema`` (an ask-less form's answer schema — the channel renders the\nmessage as the form's prompt, and a submission enters the conversation as a message from\nthe person) are OPTIONAL richer-send forms — FULL parity with the flow answer path's\n``AnswerPart`` vocabulary. The contract's shared composition matrix is enforced on this\nrequest model identically: ``options`` XOR ``sections`` (one choice surface); ``schema``\nexcludes both; ``header``/``footer`` require a choice surface; ``template`` is the standalone\nout-of-window send exclusive with every other content/interactive field; ``options``/\n``sections`` may each combine with ``media``/``location`` (a contract-invalid combination is\na 400). On a\nnamed channel each needs a channel that advertises the matching capability\n(``media``→media, ``location``→location, ``template``→template, ``options``/``sections``→\ninteractive, ``schema``→form; ``header``/``footer`` ride the choice surface's capability, no\nflag of their own) — otherwise\nthe send is refused as a 501, never downgraded to a silent freeform send. With no\nchannel media/location/template/options/sections/header/footer are stored on the internal\ninbox record and rendered\nthere; ``schema`` alone REQUIRES a channel (a 400 without one) — a stored form nobody\ncould submit would be a dead surface, not a notification.\n\n``data`` (per-send prefill ``values`` and per-send ``options`` lists) and ``pages`` (the\nstepped layout) are the ask-less form's per-send extras — the same ``FormData``/``FormPage``\nan ask carries. They ride ONLY a form send: present without ``schema`` is a 400. When a\n``schema`` is present each is cross-checked against it by the same validator the ask door\nruns — a prefill against an unknown/ill-typed property, a per-send option list on a\nnon-string property, or a page that omits/duplicates/misnames a property is a 400.\n\n``form_tag`` is the caller-set opaque per-send correlation the channel carries with the form\nand hands back on submit. It rides ONLY a form send: present without ``schema`` is a 400. The\nplatform bounds it (an out-of-charset or over-length tag is a 400) but never interprets it,\nand it is not written to the in-app feed record.\n\n``audience`` addresses the in-app record to an identity's feed; it is honored\neven when a channel also delivers the message (channel push AND in-app record).\n``sender_identity`` is the sending identity a channel message leaves FROM, which the\nconversation bridge sets on the notification it builds to answer a route; a caller may\nnot supply it here and a set value is rejected loudly, never forwarded to the channel.\n\nReturns a short confirmation string — ``\"notification sent via '<channel>'\"``\nfor a channel send, ``\"notification recorded to the internal sink\"`` otherwise.",
         "operationId": "post_api_notifications",
         "requestBody": {
           "content": {
