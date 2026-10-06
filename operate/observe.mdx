@@ -95,6 +95,12 @@ spans nest inside it rather than minting a fresh, orphaned trace — so one part
 interaction reads end to end as one trace. A run that parks on an async question
 and resumes later — days later, on another worker — rejoins its original trace.
 
+One **feature** run is one trace, however many sub-runs it fans into internally.
+An agent that drafts then critiques then finalises, or one that polls several
+voters before a judge, nests every sub-run inside the feature's one trace rather
+than opening a separate root per sub-run — so the whole feature run reads as a
+single tree, with the sub-runs as nested spans.
+
 A run dispatched directly — through the sync run-tool API, a background or
 scheduled tool run, or the MCP `tools/call` edge — opens its own trace root when
 no trace is already open, and nests under the existing root otherwise. That
@@ -102,6 +108,19 @@ decision is made once at the shared run chokepoint where the run record is
 registered, agnostic to what the preset wraps. Every runs-index row therefore
 carries a `traceId` deep link whenever a monitoring backend is active; with the
 no-op default there is no trace to link.
+
+## Every feature's model calls
+
+Every platform feature's model calls are traced. The monitoring callback is
+attached once at a shared seam that every agent kind passes through, so a
+model-usage span lands on the run's trace whatever the kind — a flow-driven
+agent, a multi-phase agent, or a voter-and-judge agent — and a new agent kind
+inherits the coverage without wiring of its own. An agent that runs its model
+calls inside its own sandbox session bypasses that seam and is covered a
+different way, emitting its own usage (see the sandbox note under [Attribute a
+run](#attribute-a-run-and-roll-up-cost) below). Model calls made inside a
+**tool** are not a feature: trace those with the [`monitor`
+extension](#trace-a-standalone-tool-call) instead.
 
 ## Send outcomes and delivery receipts
 
@@ -167,7 +186,10 @@ Metrics and traces are served by a monitoring backend plugin, registered under `
 Every run's trace can be tagged at the shared run chokepoint with the run's own
 identity — the flow kwargs the operator defines per delivery, carried verbatim as
 a `RunAttribution` of tags and metadata, wired once at the shared seam so every
-door attributes. That lets you **group** cost and tokens by identity when you
+door attributes. The attribution is set on the trace from its first span, so it
+covers the whole run — the user, session, tags, and version are on the trace
+before the first model or tool span opens, not attached to the later spans
+alone. That lets you **group** cost and tokens by identity when you
 query traces: per-delivery attribution, with no tenant system and no
 per-tenant isolation — attribution only. Metrics aggregate over a time range
 alone — `tai obs metrics` takes no identity filter, so slice by identity on the
@@ -218,7 +240,10 @@ backend-side duties.
 Because the Claude Agent SDK's model calls run inside the sandbox session and
 bypass the platform LLM seam, the [`claude_code`](/guides/use-the-ready-made-agents)
 adapter emits the SDK-reported usage and cost into the active trace itself — so an
-attributed `claude_code` run's spend rolls up with everything else. The boundary:
+attributed `claude_code` run's spend rolls up with everything else. Run standalone
+with no ambient trace, the adapter mints its own root trace carrying that
+model-usage span, so a standalone sandbox run is observable on its own rather than
+emitting nothing. The boundary:
 the toolbox `prometheus_metrics` extension records latency and count only; it is
 not the cost seam.
 </Note>
