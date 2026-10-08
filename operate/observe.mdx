@@ -255,6 +255,122 @@ the toolbox `prometheus_metrics` extension records latency and count only; it is
 not the cost seam.
 </Note>
 
+## The monitoring pipeline
+
+Every monitoring backend records through one OpenTelemetry writer: each serve and
+backend process exports OTLP over HTTP to an **OpenTelemetry collector** running as
+its own container. The process encodes each recorded value once on the caller's
+thread and hands spans to the SDK's batch processor; the protobuf encoding and the
+network send run on the processor's worker thread, and the collector does the
+batching, retrying, mapping to the backend's vocabulary, and the send. A deployment
+changes backend by changing the collector's exporter and transform; the
+[monitoring-langfuse](/plugins/tai42/monitoring-langfuse) page carries the Langfuse
+mapping.
+
+### Writer settings
+
+The writer reads the OpenTelemetry SDK's own standard environment — no
+platform-specific names.
+
+| Variable | Required | Read by |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (or `OTEL_EXPORTER_OTLP_ENDPOINT`) | yes — boot refuses without it | the OTLP exporter |
+| `OTEL_PYTHON_SDK_INTERNAL_METRICS_ENABLED=true` | yes — boot refuses without it | the batch processor's drop counter |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | no | the record resource |
+| `OTEL_BSP_MAX_QUEUE_SIZE` / `_SCHEDULE_DELAY` / `_MAX_EXPORT_BATCH_SIZE` | no (2048 / 5000 / 512) | the batch processor |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, `…_COMPRESSION`, `…_HEADERS` | no | the OTLP exporter |
+| `OTEL_METRIC_EXPORT_INTERVAL` | no (60000) | the drop-count collection; every flush collects too |
+
+The value-length limits (`OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`,
+`OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT`) have no effect: a recorded value is never
+truncated.
+
+### Each value recorded once
+
+A model call records its input and output messages in full, in the OpenTelemetry
+GenAI message shape, plus the generated message's full record; a tool call records
+its arguments and result in full. A chain record (a graph node, its root) never
+copies the run's data: a value already recorded appears as a **reference** to the
+record that first holds it, the one-key object
+`{"$tai42_ref": {"span_id", "field", "pointer"}}` (with a `trace_id` when the record
+is in another trace). `{"$tai42_unrecorded": true}` marks a value that exists but was
+produced while nothing recorded. A reference resolves through the reader:
+
+```bash
+GET /api/observability/runs/{trace_id}/spans/{span_id}/resolved?field=input&pointer=/messages/0
+GET /api/observability/runs/{trace_id}/trace/export?resolve=true
+```
+
+The first returns one field of one span (`pointer` is an RFC 6901 JSON pointer, empty
+for the whole value) with every reference on the way and inside it resolved; the
+second exports the whole trace resolved. A reference the backend does not yet hold
+(its ingestion is asynchronous) or has lost answers `502` with the reason "not yet
+available or lost" — retry once ingestion catches up. Every `SecretValue` in a
+recorded value is written as `[secret]`.
+
+### Dropped and failed records are counted and alerted
+
+Nothing the writer cannot deliver is silent. Every process counts it, and `/metrics`
+serves the run family's totals:
+
+| Counter | Counts |
+| --- | --- |
+| `tai42_monitoring_spans_dropped_total{reason="queue_full"}` | spans evicted by a full export queue |
+| `tai42_monitoring_spans_failed_total` | spans in an export batch the collector did not accept |
+| `tai42_monitoring_export_failures_total` | export calls that failed |
+| `tai42_monitoring_attributes_dropped_total` | span attributes evicted over the span limit |
+| `tai42_monitoring_records_failed_total` | records, or one field of a record, the writer could not build (an unencodable value is recorded as `{"$tai42_unencodable": "<type>"}`) |
+
+Each growth of those totals raises one **`monitoring_export_failed`** platform event
+within 15 seconds, whichever process of the family notices it first. Its payload is
+the growth since the last alert:
+
+```json
+{"spans_dropped": 0, "spans_failed": 12, "export_failures": 1, "attributes_dropped": 0, "records_failed": 0}
+```
+
+Bind a [hook](/concepts/hooks) on the topic to decide what an operator sees. The
+hook's own run records nothing, so a dead collector never feeds itself. Readiness is
+not tied to monitoring: a monitoring outage never pulls a serving worker.
+
+The collector counts its own side on its telemetry endpoint (port `8888`). Alert on:
+
+- **`otelcol_exporter_queue_size`** against `otelcol_exporter_queue_capacity` — the
+  batches waiting to reach the backend. The collector retries a send it cannot make
+  until it is delivered, so a backend that is down or unreachable (or an unset
+  `LANGFUSE_HOST`) fails no span: the collector stays ready, logs each retry at
+  `INFO`, and only this queue grows. A queue that keeps growing is the signal.
+- **`otelcol_exporter_enqueue_failed_spans`** — spans refused because the queue is
+  full.
+- **`otelcol_exporter_send_failed_spans`** — spans the backend refused for good,
+  logged at `ERROR` and dropped (for example, a missing or wrong
+  `OTEL_COLLECTOR_LANGFUSE_AUTH` answered `401`).
+- **`otelcol_receiver_refused_spans`** and **`otelcol_processor_refused_spans`** —
+  spans the collector refused on intake (for example, over its memory limit).
+
+### Write a monitoring backend
+
+A backend plugin implements a **reader** for its backend and registers the shared
+writer with it:
+
+```python
+from tai42_contract.app import tai42_app
+from tai42_kit.monitoring.otel import OtelWriter
+
+
+@tai42_app.monitoring.register_monitoring
+def my_monitoring():
+    return MyMonitoring(
+        writer=OtelWriter(resource_attributes={"deployment.environment.name": "prod"}),
+        reader=MyReader(),
+    )
+```
+
+The reader implements `MonitoringReader`, including `get_observation(trace_id,
+observation_id)` — the call references resolve through. The backend's attribute
+vocabulary lives in the collector config, never in the process. Registration refuses
+a backend whose writer or reader lacks a member of its protocol, naming the members.
+
 ## See also
 
 - [Live operations](/concepts/live-operations) — status, retry, and runtime state.
