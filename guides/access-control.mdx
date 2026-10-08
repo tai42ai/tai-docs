@@ -126,6 +126,8 @@ tai scopes add read /api/tools
 tai scopes list
 ```
 
+The route table stores every URL in its **canonical** form — each segment percent-decoded once, repeated slashes collapsed, `.` and `..` resolved, no trailing slash — the same form every request is looked up by. `tai scopes add read /api/tools/` stores `/api/tools`, and removing or unpinning either spelling addresses the same row. A URL with no canonical form (a NUL, control or backslash byte after decoding) is refused with a `400`. An `ACCESS_CONTROL_PATH_PATTERNS` template must itself be canonical (`/studio-authed`, never `studio-authed` or `/studio-authed/`); a non-canonical template refuses the settings load, naming the form to supply.
+
 <Warning>
 **Scope a pattern to a surface; never blanket the whole site.** Every API route already declares its own protection — a scope row or pattern *adds* scoping, it is not what keeps `/api` private. Deny wins: a path that matches both a protected pattern and a public mapping resolves protected, so a whole-site pattern like `^/.*$` also matches browser page navigations and blocks the dataless Studio shell — a deep-link refresh then meets a `401` JSON body instead of the app shell and its login flow, and the shell exposes no data anyway. Tighten a real surface with a scoped pattern (`^/api/tools/.*`), never a blanket. The plugin studio-asset door stays public through the `always_public_route_patterns` setting, which resolves it public **alone**, ahead of any route row (a plugin bundle loads as a native ESM import that cannot send an auth header); protect it by editing that setting, not with a scope row.
 </Warning>
@@ -139,6 +141,8 @@ tai keys validate-condition --condition '.method == "GET"'
 ```
 
 Attach the validated condition when you create or edit a key with `--condition`.
+
+A condition that tests the path reads `.request.path`, the canonical request path: a mount prefix the app is served under is removed, segments are decoded once, slashes collapsed, dot segments resolved and a trailing slash dropped. Write path tests against that form — `.request.path | startswith("/api/tools")` — never against a decoded-but-unnormalized or mount-prefixed spelling such as `"/mnt/api/tools"` or `"/api/tools/"`; a condition written against such a spelling never matches and must be rewritten. The validator's sample verdict is the enforcer's own: `validate-condition` with a sample runs the same evaluation the gate runs.
 
 <Steps>
   <Step title="Draft the condition">
