@@ -1016,7 +1016,8 @@ system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
 Every setting reads the `CONVERSATIONS_` env prefix (so `max_concurrent_turns` is
 `CONVERSATIONS_MAX_CONCURRENT_TURNS`). Startup validators reject an invalid
-combination loudly.
+combination loudly. The `CONVERSATIONS_` prefix is owned: an env name under it that names no
+setting below is refused at boot and on every env write.
 
 ### Backend
 
@@ -1040,11 +1041,13 @@ combination loudly.
 | `intake_claim_refresh_seconds` | `30` | Intake-lease refresh interval; must stay **below** the lease. |
 | `thread_lease_seconds` | `120` | Seconds a running turn's cross-worker thread lease stays live; only on expiry (a crashed holder) may another worker take the thread. |
 | `thread_lease_refresh_seconds` | `30` | Thread-lease refresh interval; must stay below the lease. |
-| `thread_lease_poll_seconds` | `0.5` | Seconds a waiter sleeps between thread-lease acquisition attempts. |
 | `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
 | `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one turn's [working-on-it](#the-working-on-it-signal) refresh loop; `0` disables the loop entirely (the kill switch). |
 | `working_signal_refresh_margin_seconds` | `5` | Seconds subtracted from a channel's vendor-indicator lifetime to pick the refresh interval, so each refresh lands before the indicator lapses. |
+
+A turn waiting for a busy thread starts when the running turn releases the thread (a
+notification), or when a crashed holder's lease expires.
 
 ### Delivery bounds
 
