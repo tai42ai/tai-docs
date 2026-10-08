@@ -85,7 +85,7 @@ plugins onto these mounts.
 ## Profiles
 
 The core stack is arq-on-Redis, and the example manifest selects local storage
-(`storage_module: tai42_storage_local`). Three opt-in profiles add
+(`storage_module: tai42_storage_local`). Four opt-in profiles add
 infrastructure for plugins that are **not** in the minimal image — add the plugin
 (a derived image or a marketplace install) before enabling its profile:
 
@@ -94,14 +94,37 @@ infrastructure for plugins that are **not** in the minimal image — add the plu
 | `celery` | a RabbitMQ broker | the celery task backend (`tai42-backend-celery`) |
 | `minio` | MinIO + a bucket-init one-shot | the S3 storage provider (`tai42-storage-s3`) |
 | `agents-redis` | a module-capable Redis | the langgraph Redis checkpoint/store leg |
+| `monitoring` | an OpenTelemetry collector | monitoring with Langfuse (`tai42-monitoring-langfuse`): serve and the worker export their records to it, and it sends them to Langfuse |
 
 ```bash
 docker compose --profile minio up -d
 ```
 
-Langfuse tracing runs as its own stack from `compose/langfuse/` and likewise
-needs the `tai42-monitoring-langfuse` plugin added — see
-[Monitoring with Langfuse](/plugins/tai42/monitoring-langfuse).
+Langfuse itself runs as its own stack from `compose/langfuse/`. Its `langfuse-web`
+joins the core stack's `<project>_monitoring` network (`tai_monitoring` under the
+default project name; `TAI_CORE_PROJECT` in `compose/langfuse/.env` names the core
+project), so bring the core stack up first. The containers then reach it at
+`http://langfuse-web:3000` (inside a container, `localhost` is that container). Set
+that address as `LANGFUSE_HOST` in two places:
+
+- `config/.env`, with `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`: the plugin's reads.
+- `.env`, with `OTEL_COLLECTOR_LANGFUSE_AUTH` (base64 of `<public key>:<secret key>`):
+  the collector's sends.
+
+The network belongs to one core stack, so each core stack on a host sends to its own
+collector and its own Langfuse only. For several core stacks on one host, run one
+Langfuse stack per core stack, each with its own project name (`-p`), its own
+`LANGFUSE_WEB_PORT` and its `TAI_CORE_PROJECT`.
+
+The core stack owns the network. If the core stack is taken `down` and up again while
+`langfuse-web` is stopped, the network it pointed at is gone and it refuses to start
+(`network … not found`). Recreate it:
+
+```bash
+docker compose -f compose/langfuse/docker-compose.yml up -d --force-recreate langfuse-web
+```
+
+See [Monitoring with Langfuse](/plugins/tai42/monitoring-langfuse).
 
 ## Build the image from source (dev only)
 
