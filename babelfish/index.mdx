@@ -912,13 +912,13 @@ which subject.
   injection and update forms are in
   [Binding a node to a state](#binding-a-node-to-a-state). In a run, every bound state's
   record is available to jq as `$states.<name>`, seeded once at run start.
-- **Subjects.** A `subject_expr` is **required** on every binding and resolves to either a
-  full subject object `{target_kind, target_name, kind, key}` or a bare **key** string —
-  for a bare key the `kind` is the state's declared subject kind and the target is the run's
-  ambient target. It means the same on every door and every node; see
+- **Subjects.** A `subject_expr` is **required** on every binding and resolves to a
+  [subject reference](/concepts/states#subject-references) — a full subject object
+  `{target_kind, target_name, kind, key}`, a `{kind, key}` object, or a bare **key** string —
+  which the platform resolves at run start by the same rule as every door; see
   [A binding's subject and scope](/concepts/states#a-bindings-subject-and-scope). A
-  `subject_expr` resolving to `null` or the wrong keys is a loud mint-door error naming
-  the state and the resolved value.
+  `subject_expr` resolving to `null` is a loud mint-door error naming the state and the
+  expression; a reference the platform refuses fails the run with the platform's refusal.
 - **Write through updates.** An update's op batch may carry
   [keyed list ops](#keyed-state-list-ops) and per-op compare-and-set
   [guards](#cross-flow-state-writers) — the coordination primitives for many writers on
@@ -1193,9 +1193,12 @@ with zero states (`{"states": []}`) is refused (`422`). "No binding" is spelled 
 binding, and export carries no empty binding document (a node with no binding contributes
 nothing to the [`state_bindings` sidecar](#portable-flow-files)).
 
-The engine validates the binding at save: every named template jq must exist on an attached
-template with the purpose it is used as (`input` for an injection, `update` for an update; an
-unknown name, an ambiguous unqualified name, or the wrong purpose is refused); an adapter — required
+The engine validates the binding at save: every named template jq resolves through the
+platform's [template jq resolution](/concepts/states#template-jq) — so a name the platform
+would refuse at run time (unknown, declared by two templates attached on the state, or used
+with the wrong purpose: `input` for an injection, `update` for an update) is refused at save
+with the platform's message — and must name a program of a template the binding attaches; an
+adapter — required
 on a named update — and a custom update's jq must **compile**. It does NOT re-check the ops a
 custom update produces: those are constrained at RUN time by the platform's write-regime
 chokepoint (there are no binding-declared paths for a custom update). An adapter's output is

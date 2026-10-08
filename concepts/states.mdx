@@ -156,6 +156,27 @@ a subject's record, each declaring a **`purpose`**:
   **write regime** (that a `writes` path lies under a declared-writable regime) is enforced at
   apply by the store guard.
 
+A program is named by reference, resolved by one rule wherever a reference is used — an
+evaluate or apply call over HTTP, MCP or the CLI, a binding validated or saved on a door or a
+babelfish node, and a binding's run:
+
+- **`<template>.<name>`** names that template's program. The template must be attached on the
+  state and declare the program, else `404`.
+- An **unqualified `<name>`** resolves to the one template attached on the state that declares
+  it. None declaring it is `404`; two or more is `422`, naming them and asking to qualify it as
+  `<template>.<name>`.
+- The program's **purpose** must be the caller's: an evaluation or an input injection needs an
+  `input` program, an apply or an update an `update` program; a mismatch is `422`
+  (`template_jq 'x' on template 't' has purpose 'update', needs 'input'`).
+
+A door binding validated without attaching (a dry run) resolves as though each of its own
+templates not yet attached were attached at `[<template>]`, so the reference it accepts is the
+one its runs resolve. A babelfish node binding resolves through the same rule and also refuses a
+reference to a program of a template the binding does not attach.
+The states facet serves the rule as `resolve_template_jq(state, name, *, purpose, declared=())`,
+returning a `ResolvedTemplateJq` (`template`, `program`, `purpose`, `params`, `path`); `declared`
+names templates a caller is about to attach.
+
 Sibling `input` programs are ordered dependency-first, so one may call another by name. A
 [binding](/babelfish#state-templates) on any door (or a babelfish node) injects an `input`
 program's value into a run's input before the run and applies an `update` program's batch
@@ -260,6 +281,28 @@ A tool run with no ambient context — a sync run-tool call, a background run, t
 MCP edge — is the `api` door and a state tool it calls must carry an explicit
 subject; called with none it raises `no subject in scope`.
 
+### Subject references
+
+A binding's `subject_expr` result and a builtin tool's `subject` argument are both a
+**subject reference**, resolved by one platform rule — the states facet's
+`resolve_subject(state, ref)`:
+
+| Reference | Resolves to |
+|---|---|
+| `{target_kind, target_name, kind, key}` | that subject, validated |
+| `{kind, key}` | the ambient context's target, with that kind and key |
+| a key string | the ambient target, the state's `default_subject_kind`, that key |
+| omitted | the ambient target and the context's candidate for the state's `default_subject_kind` |
+
+A reference that cannot be resolved is refused (`422`, `SubjectRefusedError`) naming the rule
+that fired: a mapping giving only one of `target_kind`/`target_name`, no ambient context where
+the form needs one, a blank key, no ambient candidate for the default kind, a mapping that does
+not validate (naming each failing field), or any other shape. An undeclared state is `404`: a
+key string or an omitted subject reads the declaration's `default_subject_kind` and is refused
+there, while an object form resolves without reading the declaration and the record read or write
+it addresses refuses it. A builtin tool's `subject` argument takes the two object forms or is
+omitted.
+
 ### A binding's subject and scope
 
 A [binding](/babelfish#binding-a-node-to-a-state) — on any door definition (a preset,
@@ -267,10 +310,12 @@ hook, schedule, or channel route) and, in babelfish, per node — resolves its s
 a jq `subject_expr` and gates itself with an optional jq `scope_expr`. Both mean the same
 on every door and every node:
 
-- **`subject_expr`** is **required** and non-empty, and yields either a full subject object
-  `{target_kind, target_name, kind, key}` or a bare **key** string — for a bare key the
-  `kind` is the state's declared subject kind and the target is the run's ambient target.
-  A missing or empty `subject_expr` is refused (`422`).
+- **`subject_expr`** is **required** and non-empty, and yields a
+  [subject reference](#subject-references): a full subject object
+  `{target_kind, target_name, kind, key}`, a `{kind, key}` object, or a bare **key** string —
+  for a bare key the `kind` is the state's declared subject kind; for a key or a `{kind, key}`
+  object the target is the run's ambient target. A `null` result, like a missing or empty
+  `subject_expr`, is refused (`422`), and so is a reference that does not resolve.
 - **`scope_expr`** is an optional **boolean** predicate over the run's inputs, evaluated
   first: `false` skips the state for that run — no input injections and no updates; a
   non-boolean is refused loudly; an absent expression means engaged.
@@ -321,8 +366,9 @@ reference.
 Four LLM-facing tools read and write the calling subject's document. Each resolves
 its subject from the ambient context, or from an explicit `subject` argument
 (`{target_kind, target_name, kind, key}`, or `{kind, key}` with the target taken
-from the context); with neither resolvable it refuses, naming the state, kind, and
-door.
+from the context), by the same rule as a binding (see
+[Subject references](#subject-references)); with neither resolvable it refuses, naming the
+state, kind, and door.
 
 | Tool | Effect |
 |---|---|
