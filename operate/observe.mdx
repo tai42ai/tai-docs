@@ -135,10 +135,18 @@ Every outbound channel send made inside a run's trace — a flow's `notify_user`
 send, a question delivered to a person, an inbound participant notice — records a
 `send:{channel}` span around the provider call. The span carries the recipient
 as its input, and the `notify_user` seam adds the provider's message ids as its
-output; a raised delivery or input error marks it `ERROR` with the typed failure
-detail (`error.kind`, `retryable`, any `retry_after`). A seam that retries emits
-one span per attempt, stamped with `retry.attempt`, so "attempt 1 failed
-retryable, attempt 2 accepted" is visible rather than collapsed.
+output; a raised error marks it `ERROR` with the failure detail: `error.type`,
+`error.kind` (`unknown` for an unclassified exception), `retryable`, and a
+positive `retry_after` the medium asked for, stamped only alongside
+`retryable: true`. A seam that retries emits one span per attempt, stamped with
+`retry.attempt`, and there `retryable` is the seam's own decision: `true`
+exactly when another attempt follows, `false` on the last one (the attempt
+budget is spent, or too little of the ask's window is left for the backoff). So
+"attempt 1 failed retryable, attempt 2 accepted" is visible rather than
+collapsed. On a single send, `retryable` is the error's own classification
+(`false` for an input error). A tool dispatched under a retry policy records the
+same keys on each `tool-attempt:{tool}` span. These keys are ordinary span
+metadata.
 
 Acceptance is not delivery. On channels with a delivery-status webhook (WhatsApp,
 Twilio), the provider's later status closes the loop: the status is resolved back
