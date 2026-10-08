@@ -154,13 +154,33 @@ The server exposes two operational routes for orchestrators and load balancers. 
 
 `/health` stays green as long as the process is up. `/ready` lets an orchestrator hold traffic off a worker whose Redis or Postgres is unreachable — such a worker would 500 every real request but stay live.
 
+Each subsystem declares the stores it uses, and `checks` carries one row per name its targets declare. A row appears only when its store is configured. The platform's own subsystems name their rows after themselves:
+
+| Row | Store pinged |
+| --- | --- |
+| `access_control` | the access-control gate's own Redis (`ACCESS_CONTROL_REDIS_URL`), whenever access control is enabled |
+| `tool_runs` | the background tool-runs Redis |
+| `interactions` | the interactions Redis |
+| `rate_limit` | the rate-limit counter Redis, while any door family is enabled |
+| `hooks` | the hooks Redis, unless hooks run in memory |
+| `sub_mcp` | the sub-MCP registration Redis, unless it runs in memory |
+| `connectors` | the skeleton database, plus the connector-store Redis cache when one is set |
+| `versioning`, `marketplace`, `tool_meta` | the skeleton database |
+| `states` | the state store's bound database (`TAI_DB_BINDING_STATES`; the skeleton database unless bound elsewhere) |
+| `conversations` | the conversation-bridge Redis (`CONVERSATIONS_REDIS_URL`) |
+| `bus` | the worker-bus Redis (`TAI_BUS_REDIS_URL`) |
+
+Each enabled identity provider adds the stores it declares for itself, under the row names it chooses: the [accounts provider](/plugins/tai42/accounts-postgres) reports its Postgres and its Redis as `accounts`, and the [Redis API-key provider](/plugins/tai42/identity-redis) reports its record store as `access_control`. Key a readiness gate or alert on the row names your deployment's `/ready` returns.
+
+Rows that share one connection are pinged once and report that one result. A dead conversation-bridge or worker-bus Redis fails readiness like any other wired store.
+
 **A stalled background task fails readiness.** Beyond the backing-store pings, `/ready` also reports the platform's own long-lived background tasks — the fleet-bus subscription, the failed-MCP re-probe, and the expiry reapers. If one of these stops unexpectedly, `/ready` returns `503` `not_ready` and names the stopped task under `checks` (as `perpetual_task:<name>`), and the process exits so a supervisor that restarts it (`restart: unless-stopped` in the bundled Compose, or an equivalent orchestrator policy) brings it back from a clean boot. `/health` keeps returning `200` until the process actually exits, so a liveness probe alone will not notice the stall — wire the restart policy, and probe `/ready` where your orchestrator supports a readiness gate.
 
 **The probe routes are public by default — no manual step.** With access control enabled, unknown routes are denied, but `/health` and `/ready` are served public by the app's own route-level declaration: they ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so a probe carrying no key reaches them with nothing to configure. Do **not** also list them in `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` — an acknowledged route that overlaps an always-public prefix is rejected at boot.
 
-<Warning>
-When the access-control Redis itself is down, `ResourceGuardMiddleware` **fails closed with `403`** before the `/ready` handler runs. A probe still sees a non-`200` and rotates or drains the worker either way — the readiness signal is preserved even when the gate's own store is unreachable.
-</Warning>
+<Note>
+`/ready` passes the access-control gate without reading the gate's own Redis, because the route is declared public. A dead gate Redis therefore reaches the handler and fails the `access_control` row, so the probe returns `503` while every request to a protected route is refused.
+</Note>
 
 ## Preflight check
 
