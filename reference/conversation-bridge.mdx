@@ -658,7 +658,7 @@ API-door id carries a percent-encoded principal that no path spelling round-trip
 Forgetting is **absolute**. A valid id on its own route always succeeds, and the
 answer's `removed` count is `0` when nothing was left to clear — an aged-out thread
 whose records already expired under `answer_retention_ttl_seconds`, or one never seen
-— never a `404`. The checkpoint is deleted regardless, so keep-forever memory is not
+— never a `404`. The checkpoint is deleted regardless, so retained memory is not
 left behind once the records lapse.
 
 Authority is the door's **write** action — the **same conversations write grant that
@@ -889,26 +889,30 @@ rate-cap notice is fixed:
 
 ## Checkpoint retention
 
-Conversation continuity is the checkpoint store's. Idle-thread expiry is governed by
-the LLM checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*`
-setting:
+Conversation continuity is the checkpoint store's. Thread expiry is governed by the LLM
+checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*` setting:
 
 | Setting | Env | Default |
 | --- | --- | --- |
 | `checkpoint` | `LLM_PROVIDER_CHECKPOINT` | `redis` |
-| `checkpoint_ttl_minutes` | `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` | *(unset — keep forever)* |
+| `checkpoint_retention_waiting_minutes` | `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `10080` (7 days) |
 
-`checkpoint_ttl_minutes` is an **idle** TTL: a thread lives as long as it keeps
-receiving messages and expires only after it sits idle past the lifetime. Unset
-means threads are kept forever.
+A conversation thread is never marked finished — it stays open for its next turn — so it
+lives the waiting retention after its last write: a thread that keeps receiving messages
+keeps living, and one that sits idle past the retention expires. A turn's agent that
+checkpoints on the thread takes it out of the store's finished set when its run starts; an
+agent that keeps no checkpoints touches no checkpoint store. How the window is enforced
+depends on the provider:
 
-How the idle window is enforced depends on the provider:
-
-- `redis` carries a native per-key TTL, refreshed on each checkpoint write — idle
-  expiry is automatic.
-- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes
-  every thread whose newest checkpoint is older than the cutoff.
+- `redis` stamps every key a checkpoint write stores with the retention as its TTL, and a
+  read never extends it — expiry is automatic.
+- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes every thread
+  whose newest checkpoint is older than the cutoff.
 - `memory` is process-lifetime.
+
+See [Checkpoints and retention](/operate/checkpoints) for both horizons, the threads other
+owners mark finished, and the live-thread filters that spare a thread a parked run still
+needs.
 
 <Note>
 The `postgres` checkpoint and store tables are **self-managed by LangGraph**: the
@@ -922,9 +926,11 @@ first use.
 ### The sweep operation
 
 `sweep_checkpoints` (`POST /api/checkpoints/sweep`, `tai checkpoints sweep`) is
-**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes
-stale threads on a DB-backed provider and is a reported no-op on `redis`/`memory`
-or with the TTL unset. It runs on either recurrence path:
+**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes finished
+threads past the finished retention on every provider and, on a DB-backed provider, every
+thread past the waiting retention; a thread a live-thread filter claims (a live park) is
+spared and listed. See [the checkpoint sweep](/operate/checkpoints#the-checkpoint-sweep) for
+its result. It runs on either recurrence path:
 
 - **Native schedules** — recurrence needs the tool branched with the backend's
   `schedule_task` extension: wrap the sweep in a small manifest tool carrying
