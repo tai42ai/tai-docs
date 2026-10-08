@@ -1225,20 +1225,33 @@ def tjq_<name>($params): <the program body, with $params, $declarations and $par
 so an expression calls it as `tjq_<name>({…})` — always exactly one object argument (`{}` when
 the program declares no params), for example `tjq_due_set({run: .turn.run})` or `tjq_x({})`.
 Inside the body `.` is the attached record subtree, and `$declarations`/`$parameters` are the
-attachment's declarations and parameters. Sibling input programs are emitted dependency-first,
-so one may call another by its `tjq_<name>({…})` handle.
+attachment's declarations and parameters. The engine reads each template already
+[rendered by the platform](/concepts/states#rendered-templates) — every body as jq text, the
+input programs in the platform's dependency order — so one program may call a sibling by its
+`tjq_<name>({…})` handle; the engine parses no template document of its own.
 
 The prelude also emits a generic `attachment($state; $template)` locator: it yields the
 attachment envelope, and `attachment($state; $template).data` the record subtree an `input`
 program reads — so `attachment($state; $template).data | tjq_<name>({…})` is the explicit form
 of a call whose `.` is that subtree.
 
-When a program name is unique across the state's attachments the engine emits both the short
-`tjq_<name>` and the qualified `tjq_<template>__<name>` — the template name slug-encoded
-`-`→`_`, so `my-tally` gives `tjq_my_tally__<name>`; when it is shared it emits only the
-qualified form (never a silent pick). An unknown name raises loudly. There is no update/write
-callable in an expression — updates happen only through a binding's `updates`
+When a program name is unique across the attachments in scope the engine emits the qualified
+`tjq_<template>__<name>` — the template name slug-encoded `-`→`_`, so `my-tally` gives
+`tjq_my_tally__<name>` — and the short `tjq_<name>` as an alias of it; when the name is shared
+it emits only the qualified form (never a silent pick). An unknown name raises loudly. There is
+no update/write callable in an expression — updates happen only through a binding's `updates`
 ([above](#binding-a-node-to-a-state)).
+
+Two different programs never share a handle: a short handle can spell another template's
+qualified one (template `t`'s program `a__x` and template `a`'s program `x` both give
+`tjq_a__x`), and every such pair is refused loudly, naming both programs, wherever the prelude is
+built — at a binding save (over every state the flow binds), at flow validation and route
+binding, in `validate_jq`, at a run's start, and at an attach, declarations edit, or template
+replace on a state a flow binds. Rename one program or template to resolve it.
+
+A run builds its prelude once per distinct set of rendered attachment versions and every later
+run on the same versions reuses it; an attachment change or a re-rendered template builds it
+anew. A run also reads its flow's bindings once.
 
 ### Trace, declarations, and the effective schema
 
