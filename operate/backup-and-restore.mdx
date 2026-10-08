@@ -55,6 +55,14 @@ A few sections do not key per record, so mode does not apply:
 - **`env`** **merges**: every key in the backup is applied, updating a key that exists and adding one that does not. It never removes a live key the backup omits.
 - **API-key tokens** (inside `access_control`) are **never overwritten**, under either mode. A restore mints brand-new keys for absent user ids and surfaces each plaintext in `new_api_keys` to redistribute; a user id already provisioned keeps its live key and is reported as skipped. To replace one, revoke that user id's key first, then re-import — the mint refuses to overwrite an existing identity.
 
+### Access-control routes are canonical
+
+The route table holds every url in its canonical form (each segment decoded once, slashes collapsed, dot segments resolved, no trailing slash), and an `access_control` import matches an archive url against the live table by that form. Two archive urls that reduce to one canonical route (`/api/x` and `/api//x/`) would overwrite each other, so the whole section is **refused before its first write**, the collision named in the section's `errors`; an archive url with no canonical form is refused the same way. Correct the archive and import again.
+
+A deployment refuses to **boot** while its route table holds a row that is not in canonical form, naming every such row: reset the access-control store and restore it from an export, which writes every route canonically.
+
+An `access_control` import invalidates every worker's cached policy decisions once when it ends, and a `sub_mcp` import invalidates them after each restored app, so a restored route, policy or mount is enforced on the next request.
+
 ### API keys and the identity store
 
 An api key spans two stores: its policy — scopes, condition, fingerprint, and owner — lives in Postgres, while the secret exists only as a hash on the key's identity record, which the [identity provider](/concepts/access-control) keeps in Redis. An export carries the policy alone and never any key material, which is why a restore re-mints keys and returns each new plaintext once in `new_api_keys`.
