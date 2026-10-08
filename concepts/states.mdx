@@ -109,10 +109,29 @@ owns:
 A state template is data and the store is generic: nothing in a template is a use-case
 feature — it is a mechanism any state can reuse. A `name` is a **slug** —
 `^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,62}$`, so no leading, trailing, or consecutive hyphens —
-because the jq prelude maps `-`→`_` to build the `tjq_<template>__<name>` handle, and only a
-slug makes that encoding unambiguous. A document that carries keys outside its own schema is
-refused, so an operator who pastes a whole consumer document is told exactly where those
-belong.
+because a template name is a URL path segment (`/api/state-templates/{name}`). A document that
+carries keys outside its own schema is refused, so an operator who pastes a whole consumer
+document is told exactly where those belong.
+
+Every section is typed:
+
+| Section | Shape |
+|---|---|
+| `parameters` | `{name: {schema, default?}}` — `default` is absent when the parameter has none (an explicit `null` is a default) |
+| `regimes` | `[{path, regime}]` — `path` is a list of non-empty keys or `"*"` (`[]` is the root); `regime` is `single`, `composing`, or `free` |
+| `trace` | `{enabled}` — a boolean, `false` when the template declares no switch |
+
+A shipped default template (a seed) is validated exactly like an upload; a seed that does not
+validate stops the boot, naming it.
+
+### Rendered templates
+
+The platform also serves a template **rendered**: every program body (inline or a stored `id`)
+as jq text, a stored fragment as its schema, and the input programs in dependency order
+(`input_order`). The states facet serves it three ways — `get_rendered_template(name)`,
+`rendered_attachments(state)` (every attachment on a state with its rendered template), and
+`render_template(document)` for a candidate not yet stored. Each carries an opaque `version`
+that changes whenever anything the rendering read changes; compare it for equality only.
 
 ### Template jq
 
@@ -161,9 +180,10 @@ The effective schema is the base schema with every attached fragment composed in
 two fragments at overlapping paths, attaching a second template at an already-occupied path,
 or attaching where the base schema already carries the property is a conflict (`409`) naming
 the colliding path. A consumer may register an **attach validator** on the states facet with
-`register_attach_validator`: given the template document, the attachment's declaration values,
-and the state's effective schema, it raises loudly to refuse an attach or a declarations
-write — it is consulted before every attach and every declarations write.
+`register_attach_validator`: given the state name, the template document, the attachment's
+declaration values, and the state's effective schema, it raises loudly to refuse an attach or a
+declarations write — it is consulted before every attach, every declarations write, and every
+template replace (once per live attachment).
 
 ### Attach reconciliation
 
@@ -365,23 +385,33 @@ and a hook's keyed write get the same stamp.
 A consumer that stages several writes and lands them together opens a **unit of
 work** over the states facet, bound to the scope it owns. Every write set staged
 against the unit runs through the same applier the persisted write path runs — the
-guards, the path ops, the composing-shape rule, and the whole-document schema — and
-is projected, not stored: a validation, composing-shape, or schema error raises at
-stage time, exactly as it would on a committed write.
+guards, the path ops, the composing-shape rule — and is projected, not stored. The
+whole-document schema is checked **once per touched subject per staged batch**, on the
+document the batch leaves: a batch is accepted or refused exactly as one multi-op apply
+would be (an intermediate document between two of its writes is never checked on its
+own). A validation, composing-shape, or schema error raises at stage time and leaves
+nothing of the refused batch staged.
 
 While the unit is open, a read of a subject the unit has staged is served from the
 **projection** — the committed document overlaid with the scope's staged writes in
 order, so a later step reads its own earlier writes — while every other scope still
 sees only the committed document.
 
-`commit` applies every staged batch onto the latest committed documents in one
-transaction, all-or-nothing: any failing write rolls the whole commit back and
-raises loudly, and nothing lands. It reports each op's ledger answer and any
+`commit` lands every staged subject in one transaction, all-or-nothing: any failing
+write rolls the whole commit back and raises loudly, and nothing lands. A subject whose
+committed record and declaration are unchanged since it was staged gets its already
+validated projected document written as it stands; a subject whose record, declaration,
+or `op_id` ledger moved in the meantime has its writes replayed onto the latest committed
+document instead, under the declaration as it stands at commit: a subject kind it no longer
+declares is refused, and the schema is checked once per staged batch. It reports each op's ledger answer and any
 **divergence** between the staged projection and the answer the commit recorded —
 the guards and `op_id` idempotency are authoritative at commit, so a divergence
 naming each staged-vs-committed mismatch is a visible, logged field, never swallowed.
 `discard` drops the staging. A unit left open when its scope ends is discarded at
 teardown and the discard is logged.
+
+A committed or discarded unit refuses any further stage, savepoint, commit, or discard
+with `StateUnitClosedError` (a `RuntimeError`).
 
 A **savepoint** nests inside a unit: writes staged in the child scope are kept on a
 clean exit and dropped on an exception, rolling back only the child's writes and
@@ -390,6 +420,19 @@ writes within the enclosing unit.
 
 The unit of work is a programmatic facet API for in-process consumers; it has no HTTP
 route.
+
+### Caches and consistency
+
+Each process keeps derived artifacts of the catalog — a declaration's effective schema and its
+document validator, its composed regime paths, a template's validated form, and its rendered
+programs. Every declaration and template row carries a `version` drawn from one database sequence
+on each write to it (an attachment write and an attached template's replace included), so a
+version never repeats for a name, even when the row is deleted and re-created. Each artifact is
+served only for the version read inside the statement that serves it, so a change made through
+any process is seen by every other on its next read. A rendered program also keys on the resource
+manager that rendered it, so a stored-resource upload, a cache eviction, or a reload re-renders;
+a rendered template's `version` also changes whenever a re-render (after the template cache's
+TTL, or on every read while that cache is off) produces different text.
 
 ## The HTTP surface
 
