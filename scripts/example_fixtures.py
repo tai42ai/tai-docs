@@ -77,10 +77,10 @@ def _register_default_identity_provider() -> None:
     The skeleton ships no concrete provider; a deployment lists one in its
     manifest, so each fixture installs it before serving.
     """
-    from tai42_contract.access_control import registry
     from tai42_identity_redis.redis_api_key_provider import RedisApiKeyProvider
+    from tai42_kit.access_control import registry
 
-    registry._REGISTRY.clear()
+    registry.reset_registry()
     registry.register_identity_provider("redis", RedisApiKeyProvider)
 
 
