@@ -20,12 +20,27 @@ Every routing operation requires the Redis conversations backend
 | `POST /api/conversations/{route_name}` | `tai conversations create <name> …` | Create **or replace** a route (an upsert). |
 | `DELETE /api/conversations/{route_name}` | `tai conversations delete <name>` | Delete a route; unknown name → `404`. |
 
-`create` is an authority-changing, admin-adjacent operation: it **binds** the
-route's `execution_key` (a pass-role decision) before any write, so a refused bind
-leaves an existing row untouched. The `target_name` — the agent or tool the turn
-runs — must merely exist. A `channel` row's `(channel, our_identity)` pair must be
-unclaimed. An `api` row that declares a `callback_url` mints a `callback_secret`
-returned **once** in the create result and never re-readable.
+`create` is an authority-changing, admin-adjacent operation. It checks, in order, and a
+refusal at any step leaves an existing row untouched:
+
+1. The `target_name` — the agent or tool the turn runs — must merely exist (`404`
+   otherwise).
+2. The caller must be allowed to **bind** the route's `execution_key` (a pass-role
+   decision).
+3. The route write: the target's bind check (a refusal is a `422` carrying the refusal
+   lines), then the route's jq programs compile, then a `channel` row's
+   `(channel, our_identity)` pair is stored canonical and must be unclaimed. The expression,
+   identity and claim refusals are a `400` prefixed `invalid conversation route:` — for example
+   `invalid conversation route: invalid start_expr: …` or
+   `invalid conversation route: channel 'twilio' identity '+14155238886' is already routed by 'chat-line'`.
+   Last, a change of `door` on a route that holds threads is refused with a `400` of its own
+   text, for example
+   `conversation route 'chat-line' holds 2 thread(s) opened on its 'api' door and cannot be changed to 'channel': delete the route …`.
+
+An `api` row that declares a `callback_url` mints a `callback_secret` returned **once** in
+the create result and never re-readable. A [backup restore](/operate/backup-and-restore#restoring-stored-definitions)
+runs the same route write (step 3) per row; the target's existence is checked only at this
+door.
 
 ```bash
 tai conversations create chat-line \
