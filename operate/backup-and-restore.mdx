@@ -75,6 +75,49 @@ Restoring the `manifest` or `env` section applies **live and fleet-wide**: the i
 
 A restore that writes the `templates` section clears the compiled-template cache **fleet-wide** over the same bus and cycles the prefork pool once, so no worker — and no forked pool child — keeps serving a template compiled from the pre-restore content.
 
+### Restore order
+
+An import replays the selected sections in their **registration order**, never in the order
+you name them: `manifest`, `env`, `access_control`, `sub_mcp`, `templates`, `states`,
+`webhooks`, `conversations`, `conversation_target_config`, `schedules`,
+`connector_categories`, `connector_connections`, `versioned_documents`, `tool_meta`, then the
+sections plugins register. A section that decides its records against state another section
+restores replays after it: `states` replays right after `templates`, and before every section
+that restores a state binding.
+
+### Restoring stored definitions
+
+Hooks, schedules, presets, per-target conversation configs, and conversation routes restore
+through the **same write service** their HTTP door runs, so a restored definition passes the
+same save rules a new one does:
+
+- A state binding is validated and its named templates are **attached** — see [saving a
+  binding](/concepts/states#saving-a-binding).
+- A route's target bind check runs, its jq programs compile, and a `channel` row's
+  `our_identity` is stored canonical and must be unclaimed.
+- A preset is judged by its **document's** rules only: its name, its `output_schema` and
+  `input_schema` bodies, and its binding.
+
+A record that fails a rule is **refused per record** — named in `errors` with its reason and
+counted in `skipped` — and the rest of the section still restores. A store or transport
+failure is never a per-record refusal: it fails the whole section, whose report carries the
+failure's message and makes `ok` false.
+
+Two kinds of check stay at the HTTP door and do not run on a restore, because their verdict
+depends on what the running server has registered rather than on the backup itself:
+
+- **Target existence.** A restored conversation config or route may name a target the backup
+  restores later (a preset in `versioned_documents`) or a plugin registers later. The door
+  still refuses a target that does not exist.
+- **A preset's live-registry rules** — its base tool, agent, extension, and write-validator
+  checks. A restored preset whose base cannot bind is stored as a row; when the server next
+  loads its presets (a reload or a restart) it is quarantined and listed as `conflicted`, with
+  the reason logged at error level.
+
+A `versioned_documents` restore holds one connection of the skeleton database while its preset
+checks read the template and states stores, so it needs **two** connections of that
+database's pool at once (the default pool holds ten).
+
 ## Recovering from a bad migration
 
 The backup document above captures **platform state** — policies, presets, and the
