@@ -44,6 +44,102 @@ version.
 tai traces list --user person_7f3a --from 7d
 ```
 
+## Reading traces
+
+A trace is a tree of spans. Every span carries a neutral **kind** the monitoring
+backend maps its own observation types onto:
+
+| Kind | What it is | Studio body |
+| --- | --- | --- |
+| `LLM` | a model call | the messages, one bubble per message |
+| `TOOL` | a tool call | Arguments / Result |
+| `CHAIN` | a step that runs other work: a graph node, a run's root | Input / Output |
+| `EVENT` | a point-in-time marker | Input / Output |
+
+A span reports its token counts as `inputTokens`, `outputTokens` and `totalTokens`,
+each `null` when the producer reported none. A model call's input and output are
+recorded in the OpenTelemetry GenAI message shape — a list of `{role, parts}`
+messages, each part a `text`, a `tool_call`, a `tool_call_response` or another typed
+part, and an output message's `finish_reason` — and the Studio renders each part by
+its type. A value that is not in that shape shows as a JSON tree, so every value
+stays visible.
+
+<Frame caption="A model call's span detail: the input and output messages rendered part by part, the output with its finish reason.">
+  <img className="block dark:hidden" src="/images/studio/trace-llm-parts-light.png" alt="The trace view with a model-call span selected, its user prompt and its output message shown as text, the output with a 'finish: stop' footer." />
+  <img className="hidden dark:block" src="/images/studio/trace-llm-parts-dark.png" alt="The trace view with a model-call span selected, its user prompt and its output message shown as text, the output with a 'finish: stop' footer." />
+</Frame>
+
+A step's input or output may hold **references** to values other steps recorded
+first (see [Each value recorded once](#each-value-recorded-once)). The Studio's span
+detail says how many references a value holds and offers **As recorded** (the tree
+opens to every reference, however deep it sits in the value, and shows it as it is
+stored: the span id, the field and the pointer it names) or
+**Resolved** (the full value, assembled by the server). A referenced value the
+backend does not hold yet, or has lost, says so and offers the recorded view back.
+**Download resolved** in the trace view exports the whole trace with every reference
+resolved. A value marked `{"$tai42_unrecorded": true}` was produced while monitoring
+was off; the Studio notes it under the tree.
+
+<Frame caption="A step's input as recorded: one reference to another step's output, shown with its span id and pointer.">
+  <img className="block dark:hidden" src="/images/studio/trace-references-recorded-light.png" alt="A span detail reading 'Recorded with 1 reference to other steps.' with the As recorded view selected and the reference, its span id and its pointer visible in the tree." />
+  <img className="hidden dark:block" src="/images/studio/trace-references-recorded-dark.png" alt="A span detail reading 'Recorded with 1 reference to other steps.' with the As recorded view selected and the reference, its span id and its pointer visible in the tree." />
+</Frame>
+
+<Frame caption="The same input resolved: the server assembles the full value from the referenced record.">
+  <img className="block dark:hidden" src="/images/studio/trace-references-resolved-light.png" alt="The same span detail with the Resolved view selected, showing the assembled value and 'Full value assembled from 1 reference.'" />
+  <img className="hidden dark:block" src="/images/studio/trace-references-resolved-dark.png" alt="The same span detail with the Resolved view selected, showing the assembled value and 'Full value assembled from 1 reference.'" />
+</Frame>
+
+<Frame caption="A reference to a record the backend does not hold: the Resolved view says so and offers the recorded view back.">
+  <img className="block dark:hidden" src="/images/studio/trace-reference-missing-light.png" alt="A span detail showing the panel 'A referenced value is missing from the monitoring backend' with a Show as recorded button." />
+  <img className="hidden dark:block" src="/images/studio/trace-reference-missing-dark.png" alt="A span detail showing the panel 'A referenced value is missing from the monitoring backend' with a Show as recorded button." />
+</Frame>
+
+Read the span tree without the span inputs and outputs — the light read for walking
+a run's steps by `parentId` before opening a value:
+
+```bash
+tai traces outline <trace-id>
+```
+
+```bash
+GET /api/observability/runs/{trace_id}/trace/outline
+```
+
+It serves every span of the trace with its parent, kind, status, timing, token
+counts and producer metadata. It costs the backend what the full trace read costs;
+only the response is smaller.
+
+### What the backend serves
+
+Each monitoring backend declares the largest run-list page it serves, the run-list
+sorts it serves, and the filters each sort cannot be combined with. The run list
+caps `pageSize` to that page maximum (never refusing a larger one), the export
+drains pages of that size, and the Studio offers only the served sorts and disables
+a filter the active sort cannot carry — a shared link that combines them drops the
+sort.
+
+```bash
+tai traces capabilities
+```
+
+```json
+{
+  "pageSizeMax": 100,
+  "sortKeys": ["createdAt", "cost", "latencyMs", "totalTokens"],
+  "incompatibleFilters": {"cost": ["maxCost", "minCost", "status", "version"]},
+  "metrics": {"measures": ["cost", "count", "latency", "tokens"], "dimensions": ["model"]}
+}
+```
+
+(`GET /api/observability/capabilities`; the example is shortened.) A sort or
+combination outside the declaration is refused by the backend with `501`.
+
+<Frame caption="The Tracing tab sorted by cost against a backend whose cost sort cannot carry the cost, latency, token, status and version filters: those filters are disabled.">
+  <img className="block dark:hidden" src="/images/studio/tracing-sort-guard-light.png" alt="The Tracing tab under a cost sort with the Min cost, Max latency and the other filters that sort cannot carry disabled." />
+  <img className="hidden dark:block" src="/images/studio/tracing-sort-guard-dark.png" alt="The Tracing tab under a cost sort with the Min cost, Max latency and the other filters that sort cannot carry disabled." />
+</Frame>
+
 ## List runs without the vendor
 
 The platform keeps its own **runs index**: one row per registered-preset run,
@@ -366,10 +462,28 @@ def my_monitoring():
     )
 ```
 
-The reader implements `MonitoringReader`, including `get_observation(trace_id,
-observation_id)` — the call references resolve through. The backend's attribute
-vocabulary lives in the collector config, never in the process. Registration refuses
-a backend whose writer or reader lacks a member of its protocol, naming the members.
+The reader implements `MonitoringReader`. Beside the reads, it declares what it
+serves and maps its own vocabulary onto the neutral one:
+
+- `get_observation(trace_id, observation_id)` returns one observation with its full
+  input and output — the call references resolve through.
+- `list_capability()` returns a `ListCapability`: the `OrderBy.field` values
+  `list_traces` serves, and for each sort the `MonitoringFilter` field names it cannot
+  combine with. `list_traces` raises `MonitoringReadNotSupportedError` outside it.
+- `max_page_size()` returns the largest `limit` one `list_traces` call accepts; a
+  larger `limit` raises `ValueError`.
+- Each `MonitoringObservation` carries a `kind` (`LLM`, `TOOL`, `CHAIN` or `EVENT`)
+  mapped from the backend's own observation type, and the `input_tokens`,
+  `output_tokens` and `total_tokens` the producer reported.
+- Each `MonitoringTraceSummary` carries the trace's own `input` and `output`; the
+  platform bounds them for the run list.
+- `list_spans_in_window` selects steps by the producers' marker, never by span
+  names: a record whose metadata `tai42.step_role` is `grouping` or `sub_step` is
+  never an item, and neither is a model call nor an event.
+
+The backend's attribute vocabulary lives in the collector config, never in the
+process. Registration refuses a backend whose writer or reader lacks a member of its
+protocol, naming the members.
 
 ## See also
 
