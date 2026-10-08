@@ -264,6 +264,32 @@ A binding fires on every door it reaches through, the MCP edge included: an MCP 
 that omits `arguments` still receives the binding's input injections — absent arguments are
 treated as an empty argument object, never a skipped injection.
 
+### Saving a binding
+
+A binding is checked when the definition carrying it is **written** — a hook registered, a
+schedule created, a preset created, saved as a version, or rolled back, a per-target
+conversation config set. Each of these has one write service that the HTTP door and the
+[backup restore](/operate/backup-and-restore#restoring-stored-definitions) both run: it compiles
+the binding's jq slots, resolves each named template jq, and **attaches** every named template
+(attach-on-use, idempotent) before the definition is stored. A refusal stores nothing.
+
+At a door, the refusal maps by its exact error type:
+
+| Refusal | Status |
+| --- | --- |
+| The binding names an undeclared state, a template that does not exist, or an unknown template jq | `404` |
+| A named template's attach path is already occupied | `409` |
+| A jq slot that does not compile, or binding content the store refuses | `400` |
+| The states store is unbound or fails | `500` — a store failure is never reported as a bad binding |
+
+The preset [validate](/concepts/presets) dry run runs the same checks **without attaching**,
+and reports a refused binding as an invalid verdict; a store failure there is a `500` too,
+never an invalid verdict.
+
+In a backup restore the `states` section replays right after `templates` and before every
+section that restores a binding, so the states and templates a restored binding names exist
+by the time its definition is written.
+
 ### The turn subject block
 
 Every tool turn's payload carries a generic `turn` block so a flow's
