@@ -122,23 +122,51 @@ the claim-link channels, and which scopes are safe to grant live on
 [Owned keys](/concepts/owned-keys).
 </Note>
 
-## The login namespace is public; `/api/auth` stays reserved
+## The login routes are public; `/api/auth` stays reserved
 
 Human [login](/studio/login) flows live under the `/api/login` namespace — the
 methods listing, the credential-submit routes, the setup door and invite flows.
-That namespace is **public by default**: a browser must reach it *before* it has
-any credential, so its public-ness is a code-side default, not a route mapping an
-operator has to remember to add. The `/api/auth` provisioning and policy routes
-stay **reserved** behind the gate — minting keys, editing policies, and managing
-principals all require an authenticated, authorized caller. Sign-in is open;
-administration is not.
+Each login route is **public by its own declaration**: a browser must reach it
+*before* it has any credential, so the route says so where it is registered, not in
+a route mapping an operator has to remember to add. The `/api/auth` provisioning and
+policy routes stay **reserved** behind the gate — minting keys, editing policies,
+and managing principals all require an authenticated, authorized caller. Sign-in is
+open; administration is not.
 
-Two reserved routes carry a carve-in so a scoped identity can still onboard and
-introspect: `GET /api/auth/me` (the [capability projection](/concepts/owned-keys))
-is authenticated-implies-allowed — any authenticated caller reaches it regardless
-of the route table — and `POST /api/auth/claim-links` is carved into the seeded
-`editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
-the gate; neither is public.
+## Routes declare their reach
+
+Beside its public-ness, a route declares the reach the gate gives it, with three
+flags on its registration (`custom_route`, or the plugin route module's own call):
+
+- **`pre_auth`** — a pre-authentication route (login, recovery, claim exchange). A
+  credential presented on it is **never verified**, so a stale session or key the
+  browser still sends cannot lock a caller out of the door that replaces it; the route
+  is public and no policy layer runs, at the HTTP edge and when it is reached as a
+  tool alike. Only a public route may declare it. Every login route the platform and
+  its accounts plugins ship declares it. Any other public route still verifies a
+  presented credential, so it keeps the caller's identity when one is sent.
+- **`any_authenticated`** — reachable by **any** authenticated identity, whatever
+  its scopes and whatever the route table maps: `GET /api/auth/me` (the
+  [capability projection](/concepts/owned-keys)) declares it, so a scoped key that
+  holds no `"*"` can still introspect. The base-tier role condition still applies,
+  and an unauthenticated caller is refused `401`. Only an authenticated route may
+  declare it.
+- **`self_service`** — a caller self-service surface under the reserved `/api/auth`
+  area: own keys, the tokens payload, claim-link creation, the read-only scopes
+  listing, logout, and a provider's own-credential routes. The seeded `editor` and
+  `viewer` role conditions are **built from these declarations** on the methods each
+  route serves, so a plugin that ships such a route is carved in without the platform
+  naming it. A `viewer` reaches only the state-changing ones among them; an
+  admin-only action class (the policy history and rollback) still fences a route
+  whatever it declares.
+
+A flag that contradicts the route's public-ness — `pre_auth` on an authenticated
+route, `any_authenticated` on a public one — is a registration error. The boot also
+refuses a registry holding an authenticated route that declares `pre_auth`, the flag
+that skips credential verification. None of these is a setting: an operator's own
+always-public prefixes (`ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES`) still feed the
+same credential skip, for a login page the deployment serves outside the registered
+routes, and default to none.
 
 ## The Studio SPA shell is public; its data is not
 
@@ -151,8 +179,10 @@ visitor sees only the login page. Deep links therefore work with **no manual
 public pin** for `/` or any SPA path. Because the guard resolves deny-wins, an
 over-broad protected mapping that also covers SPA paths suppresses this fallback, so
 the refresh meets a `401` rather than the shell — scope a protected pattern to a real
-surface, never the whole site. The fallback is GET-only and never touches
-`/api` or `/mcp`, so it can never open the control plane; a headless deployment
+surface, never the whole site. The fallback is GET-only and never touches the
+**control plane** — `/api` plus the path the streamable-http MCP transport is mounted
+at (`/mcp` by default, the configured path otherwise; an SSE-only deployment has
+`/api` alone) — so it can never open it; a headless deployment
 turns it off by setting `spa_shell_public` to `false`. See
 [deploying the Studio](/operate/studio#deep-links-under-access-control).
 
