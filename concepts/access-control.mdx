@@ -108,6 +108,12 @@ path may set the owner claim; the gate strips any owner claim a non-minting
 provider returns, so an external issuer can never assert ownership it did not
 earn.
 
+The owner every door reads is the one recorded on the key's **stored policy** at
+mint. Where a credential is verified, the owner it carries must equal that stored
+owner: a credential whose owner claim differs is denied (a `403` at the request
+gate; a `400` where a key is named as input, as at claim-link creation) and the
+mismatch is logged as an error, never resolved silently in favour of either copy.
+
 <Note>
 A key that carries an owner claim is an **owned key** — a capped, isolated
 sub-identity you can hand to a teammate, a device, or a machine. The delegation
@@ -354,6 +360,15 @@ and request attributes without any custom code. The condition is compiled and
 evaluated by the policy enforcer; a backend error while reading the policy version
 **fails closed** by raising, which surfaces as a clean deny rather than a silent
 default.
+
+The condition reads the request as `.request.method` and `.request.path`. The path is
+the **canonical** request path, the same on every door that evaluates a condition (the
+HTTP gate, a tool call, a background fire): any mount prefix the app is served under
+(its ASGI `root_path`) is removed, each segment is percent-decoded once, repeated
+slashes are collapsed, `.` and `..` segments are resolved, and a trailing slash is
+dropped. A condition written as `.request.path | startswith("/api/auth")` therefore
+holds on a deployment mounted at `/mnt` exactly as at the root, and `/api/auth/me/`
+reads as `/api/auth/me`.
 
 A denied request never leaks internal detail: an authentication failure returns a
 fixed `401` and an authenticated-but-forbidden request a fixed `403`, with the full
