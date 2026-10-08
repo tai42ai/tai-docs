@@ -138,12 +138,11 @@ PAGES: list[dict] = [
     {
         "slug": "contract-accounts",
         "title": "Accounts (tai42_contract.accounts)",
-        "description": "The AccountsProvider contract, its registry, and the login-method metadata models.",
+        "description": "The AccountsProvider contract and the login-method metadata models.",
         "icon": "user-lock",
         "modules": [
             "tai42_contract.accounts.provider",
             "tai42_contract.accounts.models",
-            "tai42_contract.accounts.registry",
         ],
     },
     {
@@ -173,6 +172,13 @@ PAGES: list[dict] = [
         "description": "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires.",
         "icon": "store",
         "modules": ["tai42_kit.plugins"],
+    },
+    {
+        "slug": "kit-registration",
+        "title": "Provider registration (tai42_kit.access_control, tai42_kit.accounts)",
+        "description": "The identity-provider and accounts-provider registries a plugin registers into at import.",
+        "icon": "id-card",
+        "modules": ["tai42_kit.access_control.registry", "tai42_kit.accounts.registry"],
     },
     {
         "slug": "kit-clients",
