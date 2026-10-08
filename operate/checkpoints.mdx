@@ -1,0 +1,183 @@
+---
+title: "Checkpoints and retention"
+description: "Where agent and flow runs keep their memory, how long it lives, and the one sweep that removes it."
+icon: "clock-rotate-left"
+---
+
+Every agent run, flow run and conversation turn that remembers anything keeps it in the
+**checkpoint store**: LangGraph checkpoints, one thread per conversation, run or agent session.
+The store is chosen once per deployment:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `LLM_PROVIDER_CHECKPOINT` | `redis` | The provider: `redis`, `postgres`, `sqlite` (development) or `memory` (development). |
+| `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | unset | Its connection string; unset uses the shared Redis URL (`redis`) or the base Postgres DSN (`postgres`). `sqlite` needs a path. |
+
+A run may name another provider for itself (an agent's `checkpoint_provider`, a flow's
+`checkpoint_provider`); see [What a per-run provider means](#what-a-per-run-provider-means).
+
+## Providers
+
+| Provider | Survives a restart | How expired threads leave | Codec |
+| --- | --- | --- | --- |
+| `redis` | yes | the key TTL every write sets | the faithful JSON codec, large values compressed |
+| `postgres` | yes | the checkpoint sweep | the library's msgpack, large blobs compressed |
+| `sqlite` | no | the checkpoint sweep | the library's msgpack |
+| `memory` | no | the end of the process | — |
+
+Only `redis` and `postgres` can hold a **parked** run (one waiting on an async `ask`): a
+paused run must be readable by whichever worker later resumes it.
+
+## Retention: two horizons
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `10080` (7 days) | How long a thread its owner may still continue lives after its last write. |
+| `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` | `1440` (1 day) | How long a thread its owner marked finished lives after the mark. Must not exceed the waiting value. |
+| `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES` | `65536` | A checkpoint value whose encoding is larger is stored compressed; `null` turns compression off. |
+
+A **waiting** thread is one its owner may still continue: a parked run, an open conversation,
+any thread nobody marked finished. A **finished** thread is one its owner marked finished.
+
+- On `redis` every key a write stores carries the waiting retention as its TTL. A read never
+  extends it, so a thread lives the waiting retention after its **last write**. A parked run's
+  last write is its park checkpoint.
+- On `postgres` and `sqlite` the checkpoint sweep deletes a thread whose newest checkpoint is
+  older than the waiting retention.
+- A finished thread goes the finished retention after its mark, on every provider, through
+  the checkpoint sweep.
+
+An async `ask` must therefore carry a deadline within the waiting retention: a park with no
+deadline, or one past the horizon, is refused loudly before anything is parked.
+
+<Note>
+`LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` is gone: its place is taken by the two retention values
+above. The flows engine's `FLOW_CHECKPOINT_RETENTION_DAYS` and its
+`POST /api/babelfish/checkpoints/prune` route are gone too: the same two values and the
+platform's `sweep_checkpoints` operation replace them. A deployment that still sets one of
+the removed variables is refused at boot and on every settings write, naming it.
+</Note>
+
+## Who marks a thread finished
+
+The code that minted a thread id owns the thread and marks it finished at its end; every
+consumer that **starts** a run on a thread takes it out of the finished set first, so a thread
+used again never sits there while it is live.
+
+- **A flow run** marks its own session thread (in its checkpoint provider's ledger) and every
+  agent session thread it owns — a node whose `session_thread` template contains
+  `{flow_run_id}` — finished at its terminal: success, error, stop or abort, never at a pause.
+  It takes all of them out of the finished set when a run (fresh, restart, resume or step)
+  starts on the session. The owned session threads are marked in the **deployment's** ledger
+  (the configured provider and connection): the flow cannot know which provider each agent run
+  on such a thread used.
+- **An agent run** with no `thread_id` mints its thread and marks it finished when it ends
+  without a park, in its own checkpoint provider's ledger. A caller-supplied `thread_id` is the
+  caller's: the run takes it out of the finished set when it starts and never marks it. A run
+  that parks leaves its thread to the waiting horizon.
+- **A conversation** has no finished moment: a thread stays open for its next turn, so it
+  leaves on the waiting horizon, or at once when an operator deletes it
+  (`tai conversations delete-thread`). A turn's agent receives the conversation's thread as a
+  caller-supplied `thread_id`: an agent that checkpoints on it takes it out of the finished set
+  when its run starts (the agent-run rule above); an agent that keeps no checkpoints touches no
+  checkpoint store.
+
+## The checkpoint sweep
+
+`sweep_checkpoints` (`POST /api/checkpoints/sweep`, `tai checkpoints sweep`) is the one
+operation that deletes checkpoint threads. It is admin-only and destructive; drive it on a
+cadence with a schedule or external cron — nothing runs it in the background.
+
+1. Every thread marked finished more than the finished retention ago is deleted, on every
+   provider, `memory` included.
+2. On `postgres` and `sqlite`, every thread whose newest checkpoint is older than the waiting
+   retention is deleted. On `redis` the key TTL does this; on `memory` the thread lives with
+   the process — both reported in `skipped`.
+
+Before any delete, every **live-thread filter** a consumer registered is asked whether the
+thread is still live; a thread one claims is **spared**: logged at WARNING, counted on
+`tai42_checkpoint_sweep_spared_total{horizon,owner}` (served on `GET /metrics`), listed in the
+result, and — for a finished thread — kept in the finished set so the next sweep checks it
+again. The shipped filters claim:
+
+| Owner | Claims a thread that |
+| --- | --- |
+| `interactions` | backs a live async park in the interactions store. |
+| `agents` | has a live park barrier in the agents park index. |
+| `flows-engine` | has a pending interrupt on its latest checkpoint (a parked flow session). |
+
+A filter that fails fails the sweep. Deleting a thread removes every checkpoint and pending
+write it holds, however many. A checkpoint a run writes while the thread is being deleted is
+deleted again, up to 100 rounds, and then fails the sweep loudly.
+
+The result:
+
+| Field | Meaning |
+| --- | --- |
+| `provider` | The deployment's checkpoint provider. |
+| `waiting_minutes`, `finished_minutes` | The two retention values in force. |
+| `swept_count` | Threads deleted in this sweep. |
+| `finished_swept` | Threads deleted past the finished horizon. |
+| `waiting_swept` | Threads deleted past the waiting horizon. |
+| `spared` | Threads past a horizon a live-thread filter reported live. |
+| `skipped` | Why the waiting horizon was not swept (`redis`, `memory`), else `null`. |
+
+### Scope: the deployment's store
+
+The sweep covers the configured provider and connection string only — the one store every
+process shares.
+
+### What a per-run provider means
+
+- A thread on a per-run `redis` store leaves on its key TTL (the waiting retention), marked or
+  not.
+- A thread on a per-run `memory` store lives with its process.
+- A thread on a per-run `postgres` or `sqlite` store is not swept; its marks land in that
+  store's own ledger, so a deployment whose configured provider is that store sweeps them.
+- A flow-owned session thread whose agent ran on a per-run provider is marked in the
+  deployment's ledger; the sweep's delete there finds nothing, and the thread leaves on its
+  own store's waiting horizon.
+
+## The store format
+
+The kit records a **format generation** in each `redis`, `postgres` and `sqlite` store the
+first time a saver is built on it. A store that already holds checkpoints written in another
+format — or with no recorded generation — is refused at that first use with
+`CheckpointStoreFormatError` ("reset the checkpoint store before starting this version"): every
+run, query or sweep that needs it fails loudly until the store is reset. A deployment that
+uses no checkpoint store never builds a saver and never runs the check.
+
+## What the Redis store keeps
+
+JSON has no form for most Python values a run's state holds, so the Redis codec stores each
+such value in a typed envelope and reads it back as the same type: `datetime`, `date`, `time`,
+`timedelta`, `timezone`, `Decimal`, `UUID`, tuples, sets and frozensets, dictionaries with
+non-string keys, bytes nested inside a value, enum members, pydantic models and dataclasses
+(their classes importable by module path), the LangChain objects LangChain's own loader
+revives (its messages, documents and prompts) and LangGraph's own types. A value of any other
+type is refused at write, naming its path: so is a `NaN` or infinite float, which JSON cannot
+hold, and a LangChain object its loader will not revive, such as a subclass of a message
+class. A stored envelope that cannot be read back fails the read.
+
+An **exception** is stored as a readable record and comes back as a `CheckpointedException`
+carrying it:
+
+```json
+{
+  "id": ["myapp", "errors", "StepFailed"],
+  "message": "step fetch failed",
+  "kwargs": {"step": "fetch", "attempts": 3},
+  "repr_kwargs": [],
+  "cause": {
+    "id": ["builtins", "TimeoutError"],
+    "message": "upstream timed out",
+    "kwargs": {},
+    "repr_kwargs": [],
+    "cause": null
+  }
+}
+```
+
+`kwargs` holds the exception's attributes; an attribute JSON cannot hold is stored as its
+`repr()` and named in `repr_kwargs`, and an attribute holding another exception becomes its own record.
+`cause` is the record of the exception it was raised from.

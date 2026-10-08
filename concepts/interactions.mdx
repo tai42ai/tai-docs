@@ -119,13 +119,12 @@ thread.
 
 An async ask's `expiry_at` is the **deadline** — the moment the question stops
 mattering, which fires its [`on_expiry`](#sync-and-async) policy. The **checkpoint retention** is a
-different clock: the paused run's checkpoint lives in the checkpointer's own store,
-kept forever unless the deployment bounds it deliberately, after which a sweep
-reclaims the idle thread. The two must agree. If a paused run's checkpointer evicts idle threads at a
-bounded retention horizon, an async ask whose `expiry_at` lies beyond that horizon
-would lose its paused graph before the answer or expiry ever arrives — so the park
-is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
-the horizon it exceeded. A keep-forever retention has no horizon and never refuses.
+different clock: the paused run's checkpoint lives in the checkpointer's own store for the
+[waiting retention](/operate/checkpoints#retention-two-horizons) after its last write (7 days by
+default), after which it is reclaimed. The two must agree: an async ask whose `expiry_at` lies
+beyond that horizon would lose its paused graph before the answer or expiry ever arrives — so
+the park is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
+the horizon it exceeded.
 
 ## Answer formats
 

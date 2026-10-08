@@ -1300,48 +1300,35 @@ server calling its own HTTP. The document is the source of truth, and a default 
 operator edit by a content hash. A state-template document a resource ships is registered as a
 platform state-template seed on the [state store](/concepts/states#templates-and-attachments).
 
-## Checkpoint retention
+## Checkpoint retention and durability
 
-A run's pause/resume memory lives in its durable checkpointer, and on the
-`postgres` provider that history is kept until a thread is explicitly deleted —
-so completed and abandoned runs accumulate. An opt-in retention window bounds
-them, mirroring the states record-retention idiom: configure the window, then
-drive an explicit prune on a cadence (a schedule or your own cron) — never a
-silent background loop.
+A run's pause/resume memory lives in its checkpointer, and the platform owns how long it
+lives — see [Checkpoints and retention](/operate/checkpoints). A flow run marks its own
+session thread finished at its terminal (success, error, stop or abort — never at a pause),
+together with every [agent session thread](#agent-session-continuity) it owns (a
+`session_thread` template that contains `{flow_run_id}`), and takes them out of the finished
+set when a run, a restart, a resume or a step starts on the session. The platform's
+`sweep_checkpoints` removes a finished thread after
+`LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` and any other one after
+`LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, and spares a session whose latest
+checkpoint still holds a pending interrupt — a parked run, whatever its age. An async ask
+must carry a deadline within the waiting retention; one without a deadline, or past it, is
+refused loudly at suspend.
 
-```bash
-FLOW_CHECKPOINT_RETENTION_DAYS=90
-```
-
-`POST /api/babelfish/checkpoints/prune` reaps every thread whose newest
-checkpoint is older than the window and answers `{pruned, provider}` — plus a
-`reason` whenever it did nothing. A **live async park is always spared**, whatever
-its age; on this provider the window also doubles as the park-admission horizon, so
-an async ask whose deadline lies beyond it is refused loudly at suspend rather than
-parking a run whose checkpoints could be reaped before the answer arrives. Under a
-bounded window an ask carrying **no** deadline is refused too — a park that cannot
-be proven durable is never admitted.
+<Note>
+`FLOW_CHECKPOINT_RETENTION_DAYS` and `POST /api/babelfish/checkpoints/prune` are gone: the
+platform's two retention values and its `sweep_checkpoints` operation replace them.
+</Note>
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `FLOW_CHECKPOINT_RETENTION_DAYS` | unset | Day window the checkpoint prune reaps past, and the park-admission horizon on `postgres`; unset = keep forever, prune is a no-op. |
+| `FLOW_CHECKPOINT_DURABILITY` | unset | LangGraph's durability mode for every graph invoke: `sync`, `async` or `exit`. Unset leaves LangGraph's default (`async`). |
 
-A non-positive value, or one past the integer ceiling, is a loud configuration
-error rather than a silently ignored setting.
-
-<Note>
-The sweep covers the `postgres` checkpoint provider only. On **any** other provider
-it reports a benign no-op naming that reason — `redis` bounds itself with its native
-idle TTL (`LLM_PROVIDER_CHECKPOINT_TTL_MINUTES`), and `memory`/`sqlite` are dev-only
-and never durable enough to park on at all.
-</Note>
-
-<Warning>
-The prune sweeps the checkpoint tables, which the `postgres` provider shares with
-every other graph pointed at the same connection — conversation and agent threads
-included. It reaps any aged, unparked thread it finds there, not only a flow's. Point
-the flow checkpointer at its own database if that blast radius is not what you want.
-</Warning>
+`sync` writes a step's checkpoint before the next step runs; `async` writes it while the
+next step runs. `exit` writes only when the graph stops — at a pause (a tool call, a tool
+that parks, a holder hand-over) or at the run's end. Under `exit` every step since the last
+pause is persisted only at the next pause or the end, so a crash in between re-runs all of
+those steps on recovery.
 
 ## Agent session continuity
 
