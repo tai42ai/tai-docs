@@ -23,7 +23,11 @@ Babelfish Flows ships as one installable plugin carrying two halves:
   [tools](/concepts/tools-and-extensions) through the public contract — run a
   flow, step it, read its state, and abort it. Because they are tools, everything
   the platform already does to a tool applies: access control, backends,
-  schedules, and tracing.
+  schedules, and tracing. Aborting a flow parked on an async ask while an answer to
+  it is being driven does not cut that drive short: the abort is **requested** of it
+  (`flow_abort` reports `found: true` with `mode: "requested"`) and the drive honours it.
+  Only such a requested abort waits for the live drive; an abort reported
+  `found: false` lapses within 60 seconds and never aborts a later resume.
 - **A flow editor in the Studio.** A front-end bundle the runtime serves to the
   [Studio](/studio) through its integrity-pinned import map, contributing a
   top-level **Babelfish Flows** page and its sidebar entry; the states a flow binds
@@ -216,6 +220,11 @@ interactions bound as `$parked`:
 
 When none of a holder's expressions reference `$parked`, the engine does not fetch
 the held call's parked list before running them.
+
+A held call that **fails** — an agent whose resumed run raised (a model or provider error,
+say), or one whose resume the platform gave up on — reaches the holder as a failure, never
+as a result: the holder fails, so its [On Error](#handling-a-nodes-error) runs, or the flow
+fails when none is set.
 
 The [holder panel](/babelfish/studio#the-holder-panel) in the editor authors these
 slots; a [hand-authored outcome](/babelfish/wire-form) routes the held call's result
@@ -1332,7 +1341,10 @@ the same bound applies to it.
 
 <Note>
 `FLOW_CHECKPOINT_RETENTION_DAYS` and `POST /api/babelfish/checkpoints/prune` are gone: the
-platform's two retention values and its `sweep_checkpoints` operation replace them.
+platform's two retention values and its `sweep_checkpoints` operation replace them. The engine
+owns the `FLOW_` prefix, so a deployment that still sets `FLOW_CHECKPOINT_RETENTION_DAYS`, or
+any other name under `FLOW_` the engine does not read, is refused at boot and on every settings
+write, naming it.
 </Note>
 
 | Variable | Default | Effect |

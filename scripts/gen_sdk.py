@@ -167,6 +167,13 @@ PAGES: list[dict] = [
         "modules": ["tai42_contract.plugins"],
     },
     {
+        "slug": "contract-interactions",
+        "title": "Interaction outcomes (tai42_contract.interactions)",
+        "description": "The typed outcomes a resumed run returns: suspended, buffered, and failed.",
+        "icon": "comments",
+        "modules": ["tai42_contract.interactions.models.response"],
+    },
+    {
         "slug": "kit-plugins",
         "title": "Plugin I/O and env (tai42_kit.plugins)",
         "description": "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires.",
@@ -216,6 +223,20 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.net"],
     },
     {
+        "slug": "kit-interactions",
+        "title": "Park index and park seams (tai42_kit.interactions)",
+        "description": (
+            "The shared park index, the terminal chain notice, and the give-up handler seam a driver "
+            "that parks registers so an abandoned park's waiter is told."
+        ),
+        "icon": "square-parking",
+        "modules": [
+            "tai42_kit.interactions.park_index",
+            "tai42_kit.interactions.park_adoption",
+            "tai42_kit.interactions.park_giveup",
+        ],
+    },
+    {
         "slug": "kit-logging",
         "title": "Logging (tai42_kit.logging)",
         "description": "Structured logging settings and setup.",
@@ -259,6 +280,12 @@ REQUIRED_SYMBOLS = [
     "PluginSpec",
     "fastmcp",
     "fetch_url",
+    "RunFailed",
+    "ParkIndex",
+    "terminal_chain_notice",
+    "ParkGiveUpOutcome",
+    "register_park_giveup_handler",
+    "fire_park_giveup",
 ]
 
 
