@@ -156,11 +156,20 @@ every consumer and channel:
   properties with known answers (keyed by property name), so the person confirms or
   edits rather than typing from scratch. `data.options` supplies per-send choice
   lists (keyed by property name) that replace a string property's `enum` for this one
-  send — each option a `value` (what the answer carries) and an optional `label` (the
-  text shown in its place) — so a variant needs no republished form.
+  send — each option a `value` (what the answer carries), an optional `label` (the
+  text shown in its place), and an optional `description` (a second line shown under
+  the label) — so a variant needs no republished form.
 - **`pages`** — an ordered list of pages, each a `title` and the property names it
   groups, splitting a longer form into steps. Every top-level property appears
   exactly once across the pages; an absent `pages` is a single page.
+
+A **field** can carry a second line of its own: the standard JSON-Schema `description`
+on the property draws as a hint under the field's `title` label, so a short label keeps
+the rest of the text (a time, a price, a note) on a second line. A field `description`
+and an option `description` are optional and carry content, so a surface whose control
+has no native second-line slot draws the text in the nearest text affordance by that
+surface's documented rule — never silently dropped. The platform sets no length bound;
+each channel enforces its own medium's limit in its own code.
 
 Both are validated against the schema before the ask is sent: an unknown property, a
 value that fails its property's schema, options on a non-string property, or a page
@@ -174,7 +183,7 @@ rather than dropping it silently.
     "type": "object",
     "properties": {
       "date": {"type": "string", "format": "date"},
-      "count": {"type": "integer"},
+      "count": {"type": "integer", "description": "How many to include"},
       "notes": {"type": "string"}
     },
     "required": ["date", "count"]
@@ -183,8 +192,8 @@ rather than dropping it silently.
     "values": {"count": 2},
     "options": {
       "date": [
-        {"value": "a", "label": "Option A"},
-        {"value": "b", "label": "Option B"}
+        {"value": "a", "label": "Option A", "description": "Morning slot"},
+        {"value": "b", "label": "Option B", "description": "Evening slot"}
       ]
     }
   },
@@ -195,9 +204,10 @@ rather than dropping it silently.
 }
 ```
 
-The prefilled `count` arrives filled in, `date` offers the two labelled choices this
-send provides, and the form reads as two steps. The same `data` and `pages` carry to
-every surface that renders the form.
+The prefilled `count` arrives filled in under a `count` field that shows its
+`description` as a hint, `date` offers the two labelled choices this send provides —
+each with its own second line — and the form reads as two steps. The same `data` and
+`pages` carry to every surface that renders the form.
 
 ### Multiple choice and radio
 
