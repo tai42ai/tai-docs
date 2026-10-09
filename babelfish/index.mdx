@@ -1277,7 +1277,8 @@ validated against the update jq's declared input at APPLY time — a missing or 
 refused.
 
 The **single-writer** check runs at save over the REAL write paths. A `single`-regime path
-admits at most one writer, and a second is refused naming both. A template update is one writer
+of any template attached on the state (one the save itself attaches on use included) admits at
+most one writer, and a second is refused naming both. A template update is one writer
 identified by `(template, attachment, program)` on its declared `writes` rebased under the
 attachment path — so the same template update applied from any node or door on one state is ONE
 writer — while a custom update is the node's own writer, `(flow, node)`, counted as a writer of
@@ -1285,6 +1286,11 @@ the **whole attached subtree** (its attachment's path). A `composing` path admit
 [keyed ops](#keyed-state-list-ops) or an append `set` (a path ending `'-'`); a whole-path write
 is refused, and the platform store additionally refuses a `composing`-shape violation at write
 time, so the rule holds even for a write that never passed the bind door.
+
+The save resolves every named template jq it checks — its own and those of the stored bindings
+on the same states — in one call to the platform's batch resolver, under the same per-state lock
+the single-writer check reads the stored bindings with. A stored binding whose reference no longer
+resolves (its template was detached) contributes no writer and never fails the save.
 
 ### The template-jq prelude
 
