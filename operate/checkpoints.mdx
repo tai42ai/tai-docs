@@ -154,13 +154,22 @@ uses no checkpoint store never builds a saver and never runs the check.
 
 JSON has no form for most Python values a run's state holds, so the Redis codec stores each
 such value in a typed envelope and reads it back as the same type: `datetime`, `date`, `time`,
-`timedelta`, `timezone`, `Decimal`, `UUID`, tuples, sets and frozensets, dictionaries with
-non-string keys, bytes nested inside a value, enum members, pydantic models and dataclasses
-(their classes importable by module path), the LangChain objects LangChain's own loader
-revives (its messages, documents and prompts) and LangGraph's own types. A value of any other
-type is refused at write, naming its path: so is a `NaN` or infinite float, which JSON cannot
-hold, and a LangChain object its loader will not revive, such as a subclass of a message
-class. A stored envelope that cannot be read back fails the read.
+`timedelta`, `timezone` (a `datetime.timezone`, or the fixed offset pydantic attaches to a value it
+parses from text, bare or on a value), `zoneinfo.ZoneInfo`, `Decimal`, `UUID`, tuples, sets and frozensets,
+dictionaries with non-string keys, bytes nested inside a value, enum members, pydantic models
+and dataclasses (their classes importable by module path), the LangChain objects LangChain's
+own loader revives (its messages, documents and prompts) and LangGraph's own types. A value of
+any other type is refused at write, naming its path: so is a `NaN` or infinite float, which
+JSON cannot hold, and a LangChain object its loader will not revive, such as a subclass of a
+message class. A stored envelope that cannot be read back fails the read.
+
+A `datetime` or `time` keeps its wall-clock value, its `fold` and its `tzinfo` when that is a
+fixed offset (`datetime.timezone`, its name kept; the fixed offset pydantic attaches to a value
+it parses from text is read back as a `datetime.timezone` with the same offset and name) or an
+IANA zone (`zoneinfo.ZoneInfo`, kept by its key), so a value read back still follows its zone's
+daylight-saving rules. One carrying any other kind of `tzinfo`, or a zone read from a file
+(which has no key), is refused at write, naming its path; a stored zone key the reading host's
+zone database lacks fails the read.
 
 An **exception** is stored as a readable record and comes back as a `CheckpointedException`
 carrying it:
