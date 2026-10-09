@@ -175,7 +175,12 @@ one its runs resolve. A babelfish node binding resolves through the same rule an
 reference to a program of a template the binding does not attach.
 The states facet serves the rule as `resolve_template_jq(state, name, *, purpose, declared=())`,
 returning a `ResolvedTemplateJq` (`template`, `program`, `purpose`, `params`, `path`); `declared`
-names templates a caller is about to attach.
+names templates a caller is about to attach. `resolve_template_jq_batch(refs)` resolves a list of
+`TemplateJqReference`s (`state`, `name`, `purpose`, `declared`) in one call, every reference on one
+state against one read of that state's catalog. Its answer holds one item per reference, in order:
+the `ResolvedTemplateJq`, or the `StateNotFoundError` / `ValueValidationError` that
+`resolve_template_jq` raises for that reference, with the same message, so one refused reference
+never hides the others' verdicts.
 
 Sibling `input` programs are ordered dependency-first, so one may call another by name. A
 [binding](/babelfish#state-templates) on any door (or a babelfish node) injects an `input`
@@ -335,8 +340,9 @@ A binding is checked when the definition carrying it is **written** — a hook r
 schedule created, a preset created, saved as a version, or rolled back, a per-target
 conversation config set. Each of these has one write service that the HTTP door and the
 [backup restore](/operate/backup-and-restore#restoring-stored-definitions) both run: it compiles
-the binding's jq slots, resolves each named template jq, and **attaches** every named template
-(attach-on-use, idempotent) before the definition is stored. A refusal stores nothing.
+the binding's jq slots, resolves each state's named template jqs in one `resolve_template_jq_batch`
+call, and **attaches** every named template (attach-on-use, idempotent) before the definition is
+stored. A refusal stores nothing.
 
 At a door, the refusal maps by its exact error type:
 
