@@ -38,6 +38,18 @@ NEVER_RETRYABLE_KINDS: frozenset[ErrorKind] = frozenset({ErrorKind.UNKNOWN, Erro
 ```
 
 
+## TOOL_META_PAUSES
+
+`tai42_contract.tools.meta.TOOL_META_PAUSES`
+
+```python
+TOOL_META_PAUSES: Final = 'tai42/pauses'
+```
+
+Value ``True``: this tool can pause — it can return a park signal (``SuspendedInteraction`` or
+``ResumeBuffered``) because it parks, asks, or waits on a participant out of band. A tool without it never pauses.
+
+
 ## AppTools
 
 `tai42_contract.tools.AppTools`
@@ -189,6 +201,30 @@ this set before starting the target and refuses an undeclared key.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
+
+
+#### pauses
+
+`tai42_contract.tools.AppTools.pauses`
+
+```python
+async pauses(self, key: str) -> bool
+```
+
+Whether a dispatch of ``key`` can return a park signal.
+
+The tool registered under ``key`` declares ``TOOL_META_PAUSES``, or it is an extension
+branch whose base declares it or whose extension stack holds an extension registered
+with ``pauses=True``, or it is a preset (transformed tool) whose ``parent_tool`` chain
+reaches such a tool. An unknown name answers ``False`` (its own dispatch surfaces the
+not-found). A dispatch of a tool that answers ``False`` and returns a park signal is
+refused with `UndeclaredPauseError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `str` | — | — |
 
 
 #### remove_tool
@@ -607,6 +643,26 @@ allowlisted kind is never retried.
 | `backoff` | `ToolRetryBackoff` |
 | `retryable` | `bool \| tuple[ErrorKind, ...]` |
 | `idempotent` | `bool` |
+
+
+## UndeclaredPauseError
+
+`tai42_contract.tools.meta.UndeclaredPauseError`
+
+```python
+class UndeclaredPauseError(RuntimeError)
+```
+
+A tool that does not declare ``TOOL_META_PAUSES`` returned a park signal.
+
+Stamped ``unknown``: no member of the taxonomy names a registration fault, and ``unknown``
+is never retryable, so no retry policy re-fires the tool body whose park already happened.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tool` | — |
 
 
 ## current_call_chain
