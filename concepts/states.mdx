@@ -443,21 +443,32 @@ While the unit is open, a read of a subject the unit has staged is served from t
 order, so a later step reads its own earlier writes — while every other scope still
 sees only the committed document.
 
-`commit` lands every staged subject in one transaction, all-or-nothing: any failing
-write rolls the whole commit back and raises loudly, and nothing lands. A subject whose
-committed record and declaration are unchanged since it was staged gets its already
-validated projected document written as it stands; a subject whose record, declaration,
-or `op_id` ledger moved in the meantime has its writes replayed onto the latest committed
-document instead, under the declaration as it stands at commit: a subject kind it no longer
-declares is refused, and the schema is checked once per staged batch. It reports each op's ledger answer and any
-**divergence** between the staged projection and the answer the commit recorded —
-the guards and `op_id` idempotency are authoritative at commit, so a divergence
-naming each staged-vs-committed mismatch is a visible, logged field, never swallowed.
+`commit` writes the unit's validated intent — every staged batch, plus any calls deferred
+with `defer_call` — as one **pending save** in one small transaction. On the serving loop `commit` returns before
+the records are applied, so the run's reply never waits on the record writes; the save is applied
+after the reply (see [Pending saves](#pending-saves)): every staged subject lands in one
+transaction, all-or-nothing, and the save is removed in that same transaction. A subject whose
+committed record and declaration are unchanged since it was staged gets its already validated
+projected document written as it stands; a subject whose record, declaration, or `op_id` ledger
+moved in the meantime has its writes replayed onto the latest committed document instead, under
+the declaration as it stands at apply: a subject kind it no longer declares is refused, and the
+schema is checked once per staged batch. The guards and `op_id` idempotency are authoritative at
+apply; a replay whose answer differs from the staged projection is logged and counted. `commit`
+returns the staged answers, the pending save's id, and the number of deferred calls. A unit that
+staged nothing and deferred nothing writes no save.
 `discard` drops the staging. A unit left open when its scope ends is discarded at
 teardown and the discard is logged.
 
-A committed or discarded unit refuses any further stage, savepoint, commit, or discard
-with `StateUnitClosedError` (a `RuntimeError`).
+A committed or discarded unit refuses any further stage, savepoint, commit, discard, or
+deferred call with `StateUnitClosedError` (a `RuntimeError`).
+
+`defer_call(tool, arguments, *, run_id=None)` queues a tool call to run after the save's
+records apply. The arguments must be plain JSON and the tool must exist, or the call is refused
+at once with `DeferredCallRefusedError`. The call runs later under the identity, run attribution,
+state context, and trace the caller had when it deferred it, as an outermost tool dispatch (so
+authorization, retry policy, run recording, and tracing all apply), with the idempotency key
+`<save id>:<index>` in its extras under `tai42/idempotency_key`. A discarded unit, or a
+savepoint rolled back, drops the calls it deferred.
 
 A **savepoint** nests inside a unit: writes staged in the child scope are kept on a
 clean exit and dropped on an exception, rolling back only the child's writes and
@@ -480,6 +491,83 @@ manager that rendered it, so a stored-resource upload, a cache eviction, or a re
 a rendered template's `version` also changes whenever a re-render (after the template cache's
 TTL, or on every read while that cache is off) produces different text.
 
+## Pending saves
+
+A **pending save** is the durable intent a unit commit writes before the reply: the staged
+writes of every subject the run touched, and the calls it deferred. It is applied after the
+reply, and every reader of its subjects waits for it, so a participant's next message reads its
+own previous turn.
+
+**Who writes one.** A flow run's unit commit, a door binding's updates on a tool call, and a
+parked run's deferred binding updates each write one pending save.
+
+**Applying.** On the serving loop the save is applied in its own task right after the commit
+returns. Off it — a backend whose jobs run on their own loop, such as Celery — the records are
+applied inline and the deferred calls are left to the next sweep pass; a backend whose jobs run
+on the process's serving loop, such as ARQ, runs them in the worker right after the job. A
+**sweep** runs in every serve process and backend worker every `STATES_OUTBOX_SWEEP_SECONDS`,
+and applies any save left behind (a crash, a lost task, a retry that is due).
+
+**Per-subject order.** Saves that share a subject apply their records in the order they were
+written. A save applies its records and removes itself in one transaction; when it carries
+deferred calls it moves on to them after the records land, and its calls start only once every
+older save on its subjects is gone, so deferred calls on a subject run in order too. The records part is applied exactly once. A deferred call runs at least once: a
+call interrupted by a process exit is re-run only when its tool declares `tai42/crash_resume`,
+and otherwise the save fails.
+
+**Readers wait.** A read, write, fold, erase, template-jq call, or write-history read of a
+subject first applies the subject's pending save (or waits for the one being applied), bounded by
+`STATES_OUTBOX_DRAIN_TIMEOUT_SECONDS`. When nothing is pending this costs no extra round trip:
+the check rides on the subject lookup the read already makes. A subject's write history includes
+its pending save. A tool call, a hook or schedule fire, a parked run's continuation, and a turn
+also apply their subjects' pending saves when they start, and wait for those saves' deferred
+calls to finish, so a run never starts behind its subject's earlier save.
+
+**Failures.** A transient failure (a lost connection, a timeout, an unavailable dependency) is
+retried with an exponential backoff from `STATES_OUTBOX_RETRY_BASE_SECONDS`, capped at
+`STATES_OUTBOX_RETRY_CAP_SECONDS`, up to `STATES_OUTBOX_MAX_ATTEMPTS` attempts. Any other
+failure, or the last attempt, marks the save **failed**, and the failure is loud: an ERROR log,
+an entry in the operator notifications inbox, the `states_outbox_save_failed` platform event (see
+[Hooks](/concepts/hooks)), and the `tai42_state_outbox_*` metrics (see
+[Observe](/operate/observe)).
+
+### Held subjects
+
+A failed save **holds** its subjects until an operator retries or discards it. A newer save that
+shares a subject with it is held behind it. A read or write of a held subject raises
+`StatePendingSaveFailedError` (`409`, naming the save) rather than serve a record that silently
+lacks the save; a wait that runs out raises `StatePendingSaveTimeoutError` (`503`). The run-tool
+door answers the same `409` / `503`, and a turn that meets a held subject fails through the
+route's ordinary error reply. On the agents stream the `stream.error` frame names the held subject.
+
+The scans over a whole state treat a held save in one of two ways:
+
+| Scan | Held save |
+|---|---|
+| backup export and restore of the state, `fold`, `erase`, deleting the declaration | refused, naming the save |
+| `list_subjects`, `search`, `stats`, retention prune, attach, updating an attachment's declarations | skipped: the scan serves the committed records, logs a WARNING, and names the held saves in its `held` field |
+| re-declare (`PUT /api/states/{name}`) | counted: the held saves' records count as present, so a re-declare that would invalidate one, or remove a subject kind one writes, is refused (`409`, naming the saves); any other re-declare is accepted and names the held saves in `held` |
+
+A widening re-declare followed by a retry therefore repairs a save that failed on the
+declaration. A tool rename waits for a pending save under the tool, and is refused while a held
+save, or a save still running its deferred calls, writes under it.
+
+### Retry and discard
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/state-pending-saves` | list outstanding saves, newest first (`?status=` `outstanding` or `failed`, `?limit=`, `?cursor=`), with the totals of outstanding and failed saves |
+| `POST /api/state-pending-saves/{id}/retry` | retry a failed save: its attempts reset and its records apply at once; answers its status after the records phase |
+| `DELETE /api/state-pending-saves/{id}` | discard a failed save: its writes and calls are never applied and its subjects are released |
+
+Only a failed save can be retried or discarded (`409` otherwise). A listed save carries its
+status (`pending`, `calls`, `running`, or `failed`), run, states, subjects, the calls it runs
+(kind and target), attempts, last error, failed phase, and times — never its record data or
+call arguments. A discard is logged at WARNING with the principal who made it and writes an
+operator notification. The same three operations are MCP tools, and `tai states pending-saves
+list|retry|discard` on the command line (`discard` requires `--yes`). The
+[Studio's States screen](/studio/screens#states) shows them in its Pending saves card.
+
 ## The HTTP surface
 
 All routes are authed. Templates are a top-level sibling collection and prune is its
@@ -495,7 +583,7 @@ state literally named `templates` stays reachable at `GET /api/states/templates`
 | `GET /api/states/{name}` | declaration, effective schema, attachments, regimes |
 | `PUT /api/states/{name}` | declare (`?replace=`) |
 | `DELETE /api/states/{name}` | delete a declaration |
-| `GET /api/states/{name}/stats` | record and subject counts |
+| `GET /api/states/{name}/stats` | record and subject counts, and the held saves |
 | `GET /api/states/{name}/attachments` | list attachments |
 | `GET /api/states/{name}/attachments/{template}` | read an attachment (404 if not attached) |
 | `PUT /api/states/{name}/attachments/{template}` | attach a template |
@@ -545,8 +633,9 @@ refuses loudly.
 | `POST /api/state-retention/prune` | prune expired records |
 
 Errors map to status: `501` when the store's database is unbound (a stable code
-`states-not-configured`), `404` not found, `409` exists / in use / conflict, and
-`422` validation (schema, subject, regime, path, value).
+`states-not-configured`), `404` not found, `409` exists / in use / conflict / a subject held by
+a failed pending save, `422` validation (schema, subject, regime, path, value), and `503` when a
+subject's pending save is still not applied after `STATES_OUTBOX_DRAIN_TIMEOUT_SECONDS`.
 
 ## The command line
 
@@ -556,7 +645,8 @@ attachments, subjects, records, and the audit trail — `list`, `get`, `put`, `d
 carrying the per-operation reconcile directives),
 `detach`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `template-jq`
 (`eval` an input program, `apply` an update program), `erase`,
-`fold`, `writes`, `consumers`, and `prune`. `tai state-templates` manages template
+`fold`, `writes`, `consumers`, `prune`, and `pending-saves` (`list`, `retry`,
+`discard`). `tai state-templates` manages template
 documents — `list`, `get`, `put`, `delete`. Record commands take
 `--target-kind`, `--target-name`, `--kind`, and `--key`; `apply`, `replace`, and
 `merge` read their JSON from `--data` or a `--file`. See the

@@ -537,6 +537,37 @@ that can change while the node waits carries the edge, one over the node's settl
 fan-in does not.
 </Note>
 
+## Run after the reply
+
+A runnable node can call its tool **after the run has answered** instead of during the run:
+set `after_reply: true` on the node. Use it for a call the reply does not depend on — saving a
+transcript, notifying a team — so the participant never waits on it.
+
+When the node is reached and its run condition holds, the engine does not call the tool. It
+queues the call, with its resolved inputs, on the run's states unit of work, and the node settles
+at once with a `null` output and the status `deferred` (shown in Run mode as **Node call runs
+after the reply**). When the run ends cleanly the call is written with the run's
+[pending state save](/concepts/states#pending-saves) and runs after the save's records apply, in
+order with every other save on the same subjects — so the call sees the state the run saved. It
+runs under the identity, attribution, state context, and trace the run had, with the
+idempotency key `<save id>:<index>`. A run that ends any other way (an error, an abort) drops the
+call, and a resume never queues it twice.
+
+The node has no output and no place in the rest of the flow, so the engine refuses:
+
+- an `after_reply` node with no `tool`, with `return_result` or `return_expr`, with its own
+  `on_error`, or with a `session_thread`;
+- an edge out of it, a node naming it in `inputs`, or the node inside an iterate body;
+- a state binding with updates on it.
+
+A failed call is not reported to the flow — the run has already answered. A transient failure
+is retried; any other failure marks the save failed and holds its subjects, loudly, until an
+operator retries or discards it (see [failures](/concepts/states#pending-saves)). Delivery is at
+least once: a call interrupted by a process exit runs again only when its tool declares
+`tai42/crash_resume`, and otherwise the save fails. A call that parks for an answer fails the
+save, since nothing waits for it after the reply. The node needs the
+[state store](#enable-the-state-store).
+
 ## Routing on a verdict
 
 A **router** node judges its input and routes on the result — one card instead of a
