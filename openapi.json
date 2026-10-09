@@ -561,11 +561,14 @@
         "type": "object"
       },
       "AttachAck": {
-        "description": "A template-attach confirmation — the ``state`` and ``template`` attached.",
+        "description": "A template-attach confirmation — the ``state`` and ``template`` attached.\n\n``held`` names the saves held by a failed pending save whose subjects were read over their committed records.",
         "properties": {
           "attached": {
             "title": "Attached",
             "type": "boolean"
+          },
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList"
           },
           "state": {
             "title": "State",
@@ -585,7 +588,7 @@
         "type": "object"
       },
       "AttachUpdateAck": {
-        "description": "An attachment-declarations update confirmation — the ``state`` and ``template`` updated.",
+        "description": "An attachment-declarations update confirmation — the ``state`` and ``template`` updated.\n\n``held`` names the saves held by a failed pending save whose subjects were read over their committed records.",
         "properties": {
           "state": {
             "title": "State",
@@ -4269,6 +4272,41 @@
         ],
         "title": "FreshLife",
         "type": "object"
+      },
+      "HeldPendingSave": {
+        "additionalProperties": false,
+        "description": "One outstanding save whose subjects are held by a failed save.\n\n``save_id`` names the held save, ``held_by`` the failed save holding it (equal to ``save_id``\nfor the failed save itself), and ``subjects`` the subjects it writes. Frozen.",
+        "properties": {
+          "held_by": {
+            "title": "Held By",
+            "type": "string"
+          },
+          "save_id": {
+            "title": "Save Id",
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/StateSubject"
+            },
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "save_id",
+          "held_by"
+        ],
+        "title": "HeldPendingSave",
+        "type": "object"
+      },
+      "HeldPendingSaveList": {
+        "description": "The saves held by a failed pending save that a door read past or was accepted beside.\n\nEach names the held save, the failed save holding it, and the subjects it writes.",
+        "items": {
+          "$ref": "#/components/schemas/HeldPendingSave"
+        },
+        "title": "HeldPendingSaveList",
+        "type": "array"
       },
       "HookListView": {
         "description": "The registered hooks plus the live per-topic verifier bindings and derived trigger-auth axis.\n\n``topic_verifiers`` values are dumped binding metadata (an open,\nsecret-adjacent map, kept opaque so a bound config is not widened onto the wire);\n``trigger_auth`` maps each visible topic to how its webhook ingress door\nauthenticates, derived live, never stored.",
@@ -9644,8 +9682,11 @@
         "type": "object"
       },
       "PruneResult": {
-        "description": "The ``prune_state_retention`` report.\n\n``pruned`` maps each state whose records were swept to the number deleted (empty when nothing was past its horizon).",
+        "description": "The ``prune_state_retention`` report.\n\n``pruned`` maps each state whose records were swept to the number deleted (empty when nothing was past its\nhorizon); ``held`` names the saves held by a failed pending save whose subjects kept their records.",
         "properties": {
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList"
+          },
           "pruned": {
             "additionalProperties": {
               "type": "integer"
@@ -12467,6 +12508,110 @@
         "title": "StateDeclarationList",
         "type": "array"
       },
+      "StateDeclarationPutResponse": {
+        "additionalProperties": false,
+        "description": "The stored declaration a create or re-declare answers, with the held saves it was accepted beside.",
+        "properties": {
+          "default_subject_kind": {
+            "title": "Default Subject Kind",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "effective_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Effective Schema"
+          },
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "regimes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StateRegimeRule"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Regimes"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retention Days"
+          },
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Schema"
+          },
+          "subject_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Subject Kinds",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "name",
+          "subject_kinds",
+          "default_subject_kind"
+        ],
+        "title": "StateDeclarationPutResponse",
+        "type": "object"
+      },
       "StateDeleteResult": {
         "description": "A state (or state-template) delete confirmation — ``deleted`` and the ``name`` removed.",
         "properties": {
@@ -12600,6 +12745,247 @@
         "title": "StateInjection",
         "type": "object"
       },
+      "StatePendingSave": {
+        "description": "One outstanding pending state save, without its record data or call arguments.\n\n``status`` is ``pending`` (records not yet applied), ``calls`` (records applied, calls queued),\n``running`` (a call is running) or ``failed`` (held until an operator retries or discards it;\n``failed_phase`` says which part failed).",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/StatePendingSaveCall"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed At"
+          },
+          "failed_phase": {
+            "anyOf": [
+              {
+                "enum": [
+                  "records",
+                  "calls"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Phase"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "states": {
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "calls",
+              "running",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/StatePendingSaveSubject"
+            },
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "run_id",
+          "states",
+          "subjects",
+          "calls",
+          "attempts",
+          "last_error",
+          "failed_phase",
+          "created_at",
+          "failed_at"
+        ],
+        "title": "StatePendingSave",
+        "type": "object"
+      },
+      "StatePendingSaveCall": {
+        "description": "One call a pending save runs after its records apply: its call ``kind`` and what it calls.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "target"
+        ],
+        "title": "StatePendingSaveCall",
+        "type": "object"
+      },
+      "StatePendingSaveDiscarded": {
+        "description": "A discarded pending save's id.",
+        "properties": {
+          "discarded": {
+            "title": "Discarded",
+            "type": "string"
+          }
+        },
+        "required": [
+          "discarded"
+        ],
+        "title": "StatePendingSaveDiscarded",
+        "type": "object"
+      },
+      "StatePendingSaveRetried": {
+        "description": "A retried pending save's state after its records phase.\n\n``applied`` — it landed whole and is gone; ``pending`` — it waits behind an older save or a\ncontended subject; ``calls`` / ``running`` — its records applied and its calls are queued or\nrunning; ``failed`` — it failed again (``last_error`` says why).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "status": {
+            "enum": [
+              "applied",
+              "pending",
+              "calls",
+              "running",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "last_error"
+        ],
+        "title": "StatePendingSaveRetried",
+        "type": "object"
+      },
+      "StatePendingSaveSubject": {
+        "description": "One subject a pending save writes, under its ``state``.",
+        "properties": {
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/StateSubject"
+          }
+        },
+        "required": [
+          "state",
+          "subject"
+        ],
+        "title": "StatePendingSaveSubject",
+        "type": "object"
+      },
+      "StatePendingSavesPage": {
+        "description": "One page of pending saves, newest first, with the totals of every outstanding and every failed save.\n\n``next_cursor`` is the cursor the next page reads from, ``null`` on the last page.",
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StatePendingSave"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "outstanding": {
+            "title": "Outstanding",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "outstanding",
+          "failed"
+        ],
+        "title": "StatePendingSavesPage",
+        "type": "object"
+      },
       "StateRecord": {
         "additionalProperties": false,
         "description": "A read record: a subject's ``data`` document with its sequence and fold provenance.\n\nCarries the ``state``, its ``subject``, the ``data`` document and its monotonic ``seq``, plus\nthe ``canonical_subject`` a fold resolved the subject to and every subject ``folded_from`` into\nit. Frozen.",
@@ -12684,6 +13070,10 @@
       "StateSearchPage": {
         "description": "One keyset page of a state's containment-matched records (``search_state_records``) — the matching subjects.\n\n``next_cursor`` is ``null`` on the last page.",
         "properties": {
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList",
+            "description": "Saves held by a failed pending save: their subjects are matched on their last applied data."
+          },
           "matches": {
             "items": {
               "$ref": "#/components/schemas/StateSubjectEntry"
@@ -12716,6 +13106,10 @@
           "consumers": {
             "title": "Consumers",
             "type": "integer"
+          },
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList",
+            "description": "Saves held by a failed pending save; the counts are over committed records and exclude them."
           },
           "per_field": {
             "additionalProperties": {
@@ -12801,6 +13195,10 @@
       "StateSubjectsPage": {
         "description": "One keyset page of a state's subjects (``list_state_subjects``).\n\n``next_cursor`` is the cursor the next page reads from, ``null`` on the last page.",
         "properties": {
+          "held": {
+            "$ref": "#/components/schemas/HeldPendingSaveList",
+            "description": "Saves held by a failed pending save: their subjects show their last applied data."
+          },
           "next_cursor": {
             "anyOf": [
               {
@@ -29914,6 +30312,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -29938,14 +30346,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReloadingError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ReloadingError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    }
+                  ]
                 }
               }
             },
-            "description": "The server is applying a config reload; retry shortly.",
+            "description": "The server is applying a config reload, or a dependency this route needs is temporarily unavailable; retry shortly.",
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying; carried by the reloading answer.",
                 "schema": {
                   "type": "integer"
                 }
@@ -30695,9 +31110,265 @@
         ]
       }
     },
+    "/api/state-pending-saves": {
+      "get": {
+        "description": "Outstanding pending state saves newest first, with the outstanding and failed totals.\n\n``status`` ``failed`` lists the failed saves only; ``outstanding`` (or none) lists every save\nstill outstanding. A page holds at most ``limit`` saves; ``cursor`` continues from a page's\n``next_cursor``.",
+        "operationId": "get_api_state_pending_saves",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StatePendingSavesPage"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List pending state saves",
+        "tags": [
+          "states"
+        ]
+      }
+    },
+    "/api/state-pending-saves/{id}": {
+      "delete": {
+        "description": "Drop a failed pending save for good: its record writes and deferred calls are never applied.",
+        "operationId": "delete_api_state_pending_saves_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StatePendingSaveDiscarded"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Discard a failed pending state save",
+        "tags": [
+          "states"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/state-pending-saves/{id}/retry": {
+      "post": {
+        "description": "Requeue a failed pending save and apply its records now; answer its status after that.\n\n``applied`` when the save landed whole and is gone; ``calls`` or ``running`` while its calls\nare queued or running; ``failed`` (with ``last_error``) when it failed again.",
+        "operationId": "post_api_state_pending_saves_id_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StatePendingSaveRetried"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Retry a failed pending state save",
+        "tags": [
+          "states"
+        ]
+      }
+    },
     "/api/state-retention/prune": {
       "post": {
-        "description": "Delete every record past its state's ``retention_days`` horizon.\n\nReturns the per-state deleted counts.",
+        "description": "Delete every record past its state's ``retention_days`` horizon.\n\nReturns the per-state deleted counts and the saves held by a failed save whose records it kept.",
         "operationId": "post_api_state_retention_prune",
         "responses": {
           "200": {
@@ -30737,6 +31408,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -31176,6 +31857,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -31263,7 +31954,7 @@
         ]
       },
       "put": {
-        "description": "Upsert a state declaration; the ``name`` is taken from the path.\n\nWith records present only additive schema changes are accepted — a narrowing is refused\nwhile records exist.",
+        "description": "Upsert a state declaration; the ``name`` is taken from the path.\n\nWith records present only additive schema changes are accepted — a narrowing is refused\nwhile records exist. The state's pending saves are applied first; a save held by a failed\nsave counts as records present and an accepted re-declare names it in ``held``.",
         "operationId": "put_api_states_name",
         "parameters": [
           {
@@ -31282,7 +31973,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/StateDeclaration"
+                      "$ref": "#/components/schemas/StateDeclarationPutResponse"
                     }
                   },
                   "required": [
@@ -31343,6 +32034,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -31695,6 +32396,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -31797,6 +32508,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -31948,6 +32669,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32046,6 +32777,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32065,6 +32806,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32162,6 +32913,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32181,6 +32942,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32277,6 +33048,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32296,6 +33077,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32393,6 +33184,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32412,6 +33213,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32511,6 +33322,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32530,6 +33351,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32658,6 +33489,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32765,6 +33606,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32784,6 +33635,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -32888,6 +33749,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -32907,6 +33778,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -33006,6 +33887,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -33025,6 +33916,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -33100,6 +34001,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
@@ -33175,6 +34086,16 @@
               }
             },
             "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A dependency this route needs is temporarily unavailable; retry shortly."
           }
         },
         "security": [
