@@ -59,7 +59,7 @@ A few sections do not key per record, so mode does not apply:
 
 The route table holds every url in its canonical form (each segment decoded once, slashes collapsed, dot segments resolved, no trailing slash), and an `access_control` import matches an archive url against the live table by that form. Two archive urls that reduce to one canonical route (`/api/x` and `/api//x/`) would overwrite each other, so the whole section is **refused before its first write**, the collision named in the section's `errors`; an archive url with no canonical form is refused the same way. Correct the archive and import again.
 
-A deployment refuses to **boot** while its route table holds a row that is not in canonical form, naming every such row: reset the access-control store and restore it from an export, which writes every route canonically.
+A deployment refuses to **boot** while its route table holds a row that is not in canonical form, naming every such row. Every route door and the import write the canonical form, so such a row comes from a write made directly to the database, and no door can reach it while the boot refuses. Correct it there: in the skeleton database's `access_control_routes` table, set each named row's `url` to its canonical form — or delete the row when its canonical url is already in the table — then start the deployment again.
 
 An `access_control` import invalidates every worker's cached policy decisions once when it ends, and a `sub_mcp` import invalidates them after each restored app, so a restored route, policy or mount is enforced on the next request.
 
@@ -120,8 +120,10 @@ same save rules a new one does:
 
 A record that fails a rule is **refused per record** — named in `errors` with its reason and
 counted in `skipped` — and the rest of the section still restores. A store or transport
-failure is never a per-record refusal: it fails the whole section, whose report carries the
-failure's message and makes `ok` false.
+failure is never a per-record refusal: it stops the section there, and the section's report
+carries the failure's message with zero counts and makes `ok` false. A record the section
+committed before the failure stays written although the report counts none, so once the store
+is reachable import the section again — under `skip` those records count as `skipped_existing`.
 
 Two kinds of check stay at the HTTP door and do not run on a restore, because their verdict
 depends on what the running server has registered rather than on the backup itself:

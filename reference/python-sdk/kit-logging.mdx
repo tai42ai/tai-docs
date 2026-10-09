@@ -5,10 +5,38 @@ icon: "file-lines"
 ---
 
 
-Logging settings + setup, co-located with the logging util.
+Logging settings, setup and the process log-redaction registries.
 
-Side-effect-free on import: the consumer calls ``setup_logging(...)`` explicitly
-(e.g. at app startup) — importing this package configures nothing on its own.
+Side-effect-free on import: the consumer calls ``setup_logging(...)`` and
+``install_record_redaction(...)`` explicitly (e.g. at app startup), and a feature
+registers its own redaction patterns — importing this package configures nothing.
+
+## REDACTOR_FAILED
+
+`tai42_kit.logging.redaction.REDACTOR_FAILED`
+
+```python
+REDACTOR_FAILED: Final = '[log redactor error: record suppressed]'
+```
+
+
+## TRANSPORT_LOGGERS
+
+`tai42_kit.logging.redaction.TRANSPORT_LOGGERS`
+
+```python
+TRANSPORT_LOGGERS: Final = ('httpx', 'httpcore')
+```
+
+
+## URL_REDACTION
+
+`tai42_kit.logging.redaction.URL_REDACTION`
+
+```python
+URL_REDACTION: Final = '***'
+```
+
 
 ## AccessLogQueryMaskingFilter
 
@@ -100,6 +128,38 @@ Whether the configured level would emit a record logged at ``level_name``.
 
 
 
+## RecordScope
+
+`tai42_kit.logging.redaction.RecordScope`
+
+```python
+RecordScope = Literal['tai', 'process']
+```
+
+
+## install_record_redaction
+
+`tai42_kit.logging.redaction.install_record_redaction`
+
+```python
+install_record_redaction(scope: RecordScope = 'tai') -> None
+```
+
+Chain one redacting wrapper over ``logging.getLogRecordFactory()``.
+
+``"tai"`` scrubs the tai logger family (``tai``, ``mcp``, ``fastmcp`` and names
+starting ``tai42_``, ``tai42.``, ``tai.``, ``mcp.``, ``fastmcp.``), so an embedding
+host's own records pass untouched; ``"process"`` scrubs every record. The scope
+only widens: a later ``"tai"`` install never narrows ``"process"``. Idempotent:
+the wrapper is tagged and a repeat install chains nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `scope` | `RecordScope` | `'tai'` | — |
+
+
 ## logging_settings
 
 `tai42_kit.logging.settings.logging_settings`
@@ -109,6 +169,92 @@ logging_settings() -> LoggingSettings
 ```
 
 Return the cached `LoggingSettings` instance.
+
+
+## redact_url_userinfo
+
+`tai42_kit.logging.redaction.redact_url_userinfo`
+
+```python
+redact_url_userinfo(url: str) -> str
+```
+
+``scheme://user:pass@host/…`` -&gt; ``scheme://***@host/…``.
+
+The authority ends at the first ``/``, ``?`` or ``#``; the userinfo runs to its
+last ``@``, so an ``@`` inside a password cannot leak. A string with no ``://``
+or no ``@`` in its authority is returned unchanged.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str` | — | — |
+
+
+## redact_urls_in_text
+
+`tai42_kit.logging.redaction.redact_urls_in_text`
+
+```python
+redact_urls_in_text(text: str) -> str
+```
+
+Mask every URL in free text: its userinfo and every query-string value become ``***``.
+
+Non-URL text is left untouched.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `text` | `str` | — | — |
+
+
+## register_record_redactor
+
+`tai42_kit.logging.redaction.register_record_redactor`
+
+```python
+register_record_redactor(name: str, *, markers: tuple[str, ...], redact: Callable[[str], str]) -> None
+```
+
+Register (or replace, by ``name``) a redactor the record factory applies to in-scope records.
+
+Registration alone installs nothing; `install_record_redaction` chains the
+factory. Raises ``ValueError`` when ``markers`` is empty or holds anything but a
+non-empty string.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `markers` | `tuple[str, ...]` | — | — |
+| `redact` | `Callable[[str], str]` | — | — |
+
+
+## register_transport_redaction
+
+`tai42_kit.logging.redaction.register_transport_redaction`
+
+```python
+register_transport_redaction(name: str, *, markers: tuple[str, ...], redact: Callable[[str], str]) -> None
+```
+
+Register (or replace, by ``name``) a redactor for the `TRANSPORT_LOGGERS` records.
+
+Installs, once, one filter on each transport logger that applies every
+registered transport redactor. Raises ``ValueError`` when ``markers`` is empty or
+holds anything but a non-empty string.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `markers` | `tuple[str, ...]` | — | — |
+| `redact` | `Callable[[str], str]` | — | — |
 
 
 ## setup_logging

@@ -5458,7 +5458,7 @@
       },
       "InviteRow": {
         "additionalProperties": false,
-        "description": "An invite row in the aggregated directory the Members door returns.\n\nDisplay fields plus the opaque routing tokens. An invitation holds no principal, so it\ncarries no principal state; ``role`` is provider-sourced, correct while no principal\nexists yet.",
+        "description": "An invite row in the aggregated directory the Members door returns.\n\nDisplay fields plus the opaque routing tokens. An invitation holds no principal, so it\ncarries no principal state; ``role`` is provider-sourced; ``None`` — the principal's\npolicy was not written from a role template.",
         "properties": {
           "action_keys": {
             "items": {
@@ -5493,9 +5493,16 @@
             "type": "string"
           },
           "role": {
-            "minLength": 1,
-            "title": "Role",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
           }
         },
         "required": [
@@ -6445,7 +6452,7 @@
       },
       "MemberRow": {
         "additionalProperties": false,
-        "description": "A member row in the aggregated directory the Members door returns.\n\nDisplay fields plus the platform-joined principal state and opaque routing tokens.\n``handle`` routes an invoke back to the producing provider and pins this row;\n``action_keys`` are the opaque catalog keys of the actions applicable to it — a caller\njoins and echoes both, never parses them. ``principals`` carries each principal's\njoined state; ``disabled`` is derived True only when EVERY principal is disabled, so a\nperson with any enabled principal still reads active while the per-principal truth\nstays visible. ``role`` is provider-sourced.",
+        "description": "A member row in the aggregated directory the Members door returns.\n\nDisplay fields plus the platform-joined principal state and opaque routing tokens.\n``handle`` routes an invoke back to the producing provider and pins this row;\n``action_keys`` are the opaque catalog keys of the actions applicable to it — a caller\njoins and echoes both, never parses them. ``principals`` carries each principal's\njoined state; ``disabled`` is derived True only when EVERY principal is disabled, so a\nperson with any enabled principal still reads active while the per-principal truth\nstays visible. ``role`` is provider-sourced; ``None`` — the principal's policy was not\nwritten from a role template.",
         "properties": {
           "action_keys": {
             "items": {
@@ -6486,9 +6493,16 @@
             "type": "array"
           },
           "role": {
-            "minLength": 1,
-            "title": "Role",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
           }
         },
         "required": [
@@ -17077,6 +17091,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "501": {
             "content": {
               "application/json": {
@@ -17182,6 +17206,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
           },
           "501": {
             "content": {
@@ -17363,6 +17397,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
           },
           "501": {
             "content": {
@@ -17974,7 +18018,7 @@
     },
     "/api/auth/principals/{user_id}": {
       "delete": {
-        "description": "Delete a principal, revoking every key it owns plus its policy row (admin only).\n\nRefused (409) when a login-attaching accounts provider owns the principal's login — that\nprovider's users door deletes it and cleans the login row. A principal no attaching\nprovider claims (service, OIDC-provisioned human, keys-only owner) is deleted here;\ndeleting the last enabled admin principal is refused (409) behind the store's\nadvisory-locked guard. A missing principal is a 404.",
+        "description": "Delete a principal, revoking every key it owns plus its policy row (admin only).\n\nRefused (409) when a login-attaching accounts provider owns the principal's login — that\nprovider's users door deletes it and cleans the login row. A principal no attaching\nprovider claims (service, OIDC-provisioned human, keys-only owner) is deleted here;\ndeleting the last enabled admin principal is refused (409) by the last-admin guard. A\nmissing principal is a 404.",
         "operationId": "delete_api_auth_principals_user_id",
         "parameters": [
           {
@@ -18058,7 +18102,7 @@
         "x-destructive": true
       },
       "put": {
-        "description": "Update a principal's display name and/or disabled state (admin only).\n\nBoth fields are omit-means-keep. A ``disabled`` change is refused (409) when a\nlogin-attaching accounts provider owns the principal's login — its disabled state lives\nat that provider's users door — and otherwise flips both homes through the single\ndisabled writer. Disabling the last enabled admin principal is refused (409) behind the\nstore's advisory-locked guard. A display-name edit is accepted for any kind. Returns the\nupdated principal; a missing principal is a 404.",
+        "description": "Update a principal's display name and/or disabled state (admin only).\n\nBoth fields are omit-means-keep. A ``disabled`` change is refused (409) when a\nlogin-attaching accounts provider owns the principal's login — its disabled state lives\nat that provider's users door — and otherwise flips both homes through the guarded\ndisabled writer. Disabling the last enabled admin principal is refused (409) by the\nlast-admin guard. A display-name edit is accepted for any kind. Returns the\nupdated principal; a missing principal is a 404.",
         "operationId": "put_api_auth_principals_user_id",
         "parameters": [
           {
@@ -26247,7 +26291,7 @@
     },
     "/api/marketplace/installed": {
       "get": {
-        "description": "The installed inventory.\n\nShaped ``{\"installed\": [...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (an unparsable stored version) as a 500 — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\nEach row also carries ``route_mounts`` — the persisted ``{item_name: base}``\nmount the row is installed at (empty means every item at its declared base),\nso Studio seeds its update flow and renders routes at the ACTUAL mounted base.\n\nEach row also carries ``delivery`` — ``package`` for a pip-installed plugin,\n``descriptor`` for a descriptor-only plugin whose stored spec names no package.",
+        "description": "The installed inventory.\n\nShaped ``{\"installed\": [...]}``.\n\nEach installed row carries the update picture computed from the registry's\nversion rows against the RUNNING contract: ``latest`` (newest published\nversion, or ``null`` with none), ``update_available`` (a newer COMPATIBLE\nversion exists — an incompatible newer version never advertises as an\nupdate), ``incompatible_newer`` (the newest such blocked version, so \"an\nupdate exists but needs a newer core\" is visible, or ``null``), and\n``compat`` — the live ``{status, reason}`` verdict of the row's installed\ndistribution against the running contract. A per-row not-found — the\nupstream listing vanished or was suspended — is row STATE, not a route\nfailure: that row answers ``latest: null``, ``update_available: false``,\n``missing_upstream: true``, so one dead listing never fails the whole\ninventory. A transport/garbled-upstream failure still surfaces as a 502,\nand a garbled LOCAL row (a stored spec that no longer validates, a malformed\nstored ref, an unparsable stored version) as a 500 naming the row — serving\nrows without their update picture would be a silent degrade of the spec'd\nshape.\n\nEach row also carries ``items`` — the ``{kind, name}`` of every item its\nstored spec provides (from LOCAL truth, never the registry). Studio joins\nthese against the manifest's ``mcp`` entry titles to render an\ninstaller-written entry read-only.\n\nEach row also carries ``route_mounts`` — the persisted ``{item_name: base}``\nmount the row is installed at (empty means every item at its declared base),\nso Studio seeds its update flow and renders routes at the ACTUAL mounted base.\n\nEach row also carries ``delivery`` — ``package`` for a pip-installed plugin,\n``descriptor`` for a descriptor-only plugin whose stored spec names no package.",
         "operationId": "get_api_marketplace_installed",
         "responses": {
           "200": {

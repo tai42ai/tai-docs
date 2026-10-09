@@ -543,6 +543,49 @@ reset_all_settings() -> None
 Drop every registered settings cache, then run the reset hooks.
 
 
+## restamp_settings_born_after
+
+`tai42_kit.settings.cache_registry.restamp_settings_born_after`
+
+```python
+restamp_settings_born_after(mark: int) -> None
+```
+
+Stamp every live settings instance constructed after ``mark`` with the current epoch.
+
+A serving generation built off to the side reads its settings while the epoch it
+will serve under is not yet current, so those instances carry the epoch it
+replaces. Once its epoch is current, the builder re-stamps everything constructed
+since the mark it took when the build began: a sweep of the replaced epoch then
+judges only the instances read before the build, and the new generation's own
+instances are judged when its epoch retires.
+
+An instance constructed by a superseded accessor (one whose name a module
+re-import has registered again) is not re-stamped: only the code of the replaced
+generation still calls that accessor, so the instance keeps that generation's epoch.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `mark` | `int` | — | — |
+
+
+## settings_birth_mark
+
+`tai42_kit.settings.cache_registry.settings_birth_mark`
+
+```python
+settings_birth_mark() -> int
+```
+
+The birth number of the most recently stamped settings instance (0 before any).
+
+Every instance stamped after this call has a larger birth number, so the mark
+separates what was constructed before it from what is constructed after it
+(see `restamp_settings_born_after`).
+
+
 ## settings_cache
 
 `tai42_kit.settings.cache_registry.settings_cache`
@@ -573,13 +616,16 @@ under the then-current epoch.
 sweep_stale_settings(retired_epoch: int) -> list[StaleHolder]
 ```
 
-Report every live cached settings instance still stamped with ``retired_epoch``.
+Report every settings instance stamped with ``retired_epoch`` that something still holds.
 
 Walks the roster for instances whose stamp is the retired epoch and are still
-alive (a holder is keeping them past the cache clear), summarising each via
-``gc.get_referrers``. Logs ERROR naming the holders — a retired-epoch instance
-still reachable is a stale-config leak, never dropped silently — and returns
-the findings so a probe/e2e can assert zero.
+alive. When any is found, cyclic garbage is collected first, so an instance
+that only unreachable objects keep (the finished frame of a cancelled task
+awaiting collection) is freed rather than reported. Each instance still alive
+after that is reachable, which is a stale-config leak: it is logged at ERROR
+naming its holders (a referrer's type, or the function and ``file:line`` of a
+frame or coroutine that keeps it) and returned, so a probe/e2e can assert zero.
+Nothing is dropped.
 
 **Parameters**
 
