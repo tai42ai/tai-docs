@@ -272,9 +272,40 @@ and every edit is **live**: it changes every current holder's authorization on
 their next request, with no reassignment. Editing a role also re-attenuates every
 key its holders own, since an owned key follows its owner's live role. The
 reserved `admin` role is permanent — undeletable, unrenamable, always full
-control — and **multiple admins are allowed**; the last admin can never be
-removed. See [accounts](/concepts/accounts#roles) for the editing surface and the
-assignment flow.
+control — and **multiple admins are allowed**. See [accounts](/concepts/accounts#roles)
+for the editing surface and the assignment flow.
+
+## The last enabled admin stays
+
+An **admin** is every enabled principal whose own policy is admin-shaped — an
+account on the `admin` role, the owner the setup door creates, a service principal
+on the `admin` role — whichever provider or door created it. The platform refuses
+any change that would leave none (`409`, nothing written), on every door that can
+change a principal's standing:
+
+- a member action that changes a role, disables, or removes an account;
+- disabling or deleting a principal through the principals routes;
+- editing a principal's own policy through the API-key routes — its scopes or its
+  condition — or rolling that policy back to an earlier version.
+
+A principal's `disabled` state lives on its principal record and is mirrored into
+its policy data (`"disabled": true`) for enforcement. Only the principals routes and
+the member actions change it: a policy edit or rollback never does. An edit whose
+policy data carries a `disabled` value other than the principal's current state
+(`true` while disabled, `false` while enabled) is refused (`400`, nothing written);
+any other edit, and every rollback, keeps the principal's current state. Minting an
+API key whose policy data carries `disabled` is refused the same way: an API key is
+switched off by revoking it.
+
+Deleting a scope or a route never reaches an admin's grant: the universal scope
+`*` names no route, so mapping a route to it (`POST /api/auth/scopes` with
+`"scope_id": "*"`) and deleting it (`DELETE /api/auth/scopes/*`) are both refused
+(`400`, nothing written).
+
+Because every admin counts, demoting the last admin **account** is allowed while
+another admin principal — the owner, say — is still enabled. Promoting someone
+never needs the check, and an API key's own policy row is not a principal and
+never counts.
 
 ## An account is not an API key
 

@@ -63,6 +63,16 @@ A deployment refuses to **boot** while its route table holds a row that is not i
 
 An `access_control` import invalidates every worker's cached policy decisions once when it ends, and a `sub_mcp` import invalidates them after each restored app, so a restored route, policy or mount is enforced on the next request.
 
+### The accounts archive
+
+The Postgres accounts provider registers its own `accounts` section: the account
+roster (email, password hash, disabled flag, creation time), never sessions or
+pending invites. Its archive format is **version 2**, which carries no role — a
+member's role lives in their access-control policy, restored by the
+`access_control` section. An archive of **version 1** is refused before anything is
+written, and the section's report names the version: recreate the archive from a
+deployment on the current baseline, then import it.
+
 ### API keys and the identity store
 
 An api key spans two stores: its policy — scopes, condition, fingerprint, and owner — lives in Postgres, while the secret exists only as a hash on the key's identity record, which the [identity provider](/concepts/access-control) keeps in Redis. An export carries the policy alone and never any key material, which is why a restore re-mints keys and returns each new plaintext once in `new_api_keys`.
@@ -77,7 +87,7 @@ Restore the two stores together: bring Redis and Postgres back from snapshots of
 
 ### The import report
 
-Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized — each named in the report so one bad record never silently drops or aborts the rest.
+Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized, a token whose policy data carries `disabled` (a key has no disabled state; it is revoked) — each named in the report so one bad record never silently drops or aborts the rest.
 
 Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
 
