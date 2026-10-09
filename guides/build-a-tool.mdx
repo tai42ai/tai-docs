@@ -95,6 +95,28 @@ detached door), never silently dropped. The built-in `sandbox_exec` tool declare
 With access control off every caller resolves as an administrator, so the fence
 bites only where the platform fences at all.
 
+## Tools that can pause
+
+A tool that can pause — it parks, asks with `mode="async"`, or waits on a participant
+out of band — declares `meta={"tai42/pauses": True}` (`TOOL_META_PAUSES` from
+`tai42_contract.tools`):
+
+```python
+from tai42_contract.tools import TOOL_META_PAUSES
+
+
+@tai42_app.tools.tool(meta={TOOL_META_PAUSES: True})
+async def request_approval(question: str) -> object:
+    """Ask a person and pause until they answer."""
+    ...
+```
+
+A tool that returns a park signal without it fails with `UndeclaredPauseError` naming it.
+The refusal holds on every door that recognises a park: the HTTP run-tool route answers
+`501`, the MCP edge answers a tool error, and an agent run that called the tool ends failed
+rather than handing its model a tool error to retry around. A flow node awaits an undeclared
+tool inside the node; a declared one pauses the run.
+
 ## See also
 
 - [Tools and extensions](/concepts/tools-and-extensions) — what a tool is and how an extension wraps one.

@@ -100,6 +100,17 @@ validator, the **Validate** action checks the same shape server-side:
 - a **map item argument** sees the **loop-body envelope**, where `$iterate.item` is
   the current item (never null here) and `$iterate.iteration` its zero-based position.
 
+In every envelope, `.outputs.<node>` and `.inputs.<node>` hold a node's results in order,
+newest last, for each node some expression of the flow names there; the run state keeps no
+history of a node no expression reads that way (see [Run state](/babelfish#run-state)). An
+expression that reads `.outputs` or `.inputs` as a whole — `.outputs | keys`, `getpath(...)`,
+`..`, a function over the channel — or uses a construct the engine does not analyse (an inline
+`def`, an assignment, `label`, destructuring) makes the flow keep every node's full history;
+**Validate** reports it as a `state_read_unbounded` warning naming the expression, and the
+flow still saves and runs. At run time each expression receives only the `.outputs` /
+`.inputs` entries it names (a channel it reads as a whole, it receives whole), so its result
+is the same, and its evaluation's trace record shows just those entries.
+
 ## The variables beside the input
 
 Beside `.`, every flow jq binds the run's context as named variables, reachable
