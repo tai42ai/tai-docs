@@ -255,6 +255,26 @@ the toolbox `prometheus_metrics` extension records latency and count only; it is
 not the cost seam.
 </Note>
 
+## Pending state saves
+
+The [state store's pending saves](/concepts/states#pending-saves) publish Prometheus metrics on
+the server's `/metrics` (the multiprocess-aware registry). Counters:
+`tai42_state_outbox_enqueued_total`, `tai42_state_outbox_applied_total{phase}`,
+`tai42_state_outbox_attempt_failures_total{phase,kind}`, `tai42_state_outbox_failed_total{phase}`,
+`tai42_state_outbox_divergences_total` (an apply whose answer differed from the run's
+projection), `tai42_state_outbox_discarded_total`, `tai42_state_outbox_retried_total`,
+`tai42_state_outbox_lock_waits_total`, `tai42_state_outbox_notify_failures_total`,
+`tai42_state_outbox_sweep_errors_total`, and `tai42_state_outbox_drain_waits_total{door}`
+(`door` is `read` or `run_entry`). Histograms: `tai42_state_outbox_drain_wait_seconds{door}` and
+`tai42_state_outbox_apply_latency_seconds` (enqueue to records applied). Gauges, set by each
+sweep pass: `tai42_state_outbox_rows{status}` and `tai42_state_outbox_oldest_age_seconds`.
+
+Set alert rules on three of them: any increase of `tai42_state_outbox_failed_total` (a save
+failed and holds its subjects), `tai42_state_outbox_rows{status="failed"}` above zero (a held
+save still waits for an operator), and `tai42_state_outbox_oldest_age_seconds` above a few sweep
+intervals (saves are not being applied). The failed save itself is listed under
+`tai states pending-saves list --status failed`.
+
 ## See also
 
 - [Live operations](/concepts/live-operations) — status, retry, and runtime state.

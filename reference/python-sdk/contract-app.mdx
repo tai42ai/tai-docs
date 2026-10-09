@@ -2312,16 +2312,20 @@ The declaration named ``name``, or ``None`` when none is declared.
 `tai42_contract.app.facets.states.AppStates.put_declaration`
 
 ```python
-async put_declaration(self, decl: StateDeclaration) -> StateDeclaration
+async put_declaration(self, decl: StateDeclaration) -> StateDeclarationSaved
 ```
 
-Declare or re-declare a state and return the stored declaration.
+Declare or re-declare a state and return the stored declaration with the held saves it was accepted beside.
 
 An additive re-declare (new optional fields, new subject kinds) is applied in
 place; a change that would remove or narrow a field while records exist raises
 `NonAdditiveRedeclareError` (erase the records
 first), and removing a subject kind still present in records raises
 `DeclarationInUseError`. Never a silent overwrite.
+The state's pending saves are applied first; a save held by a failed save counts as
+records present, so a re-declare that would refuse its document or remove a kind it
+writes raises `DeclarationInUseError`, and an accepted one
+names it in ``held``.
 
 **Parameters**
 
@@ -2358,6 +2362,9 @@ async stats(self, name: str) -> dict[str, Any]
 ```
 
 Counts for a state — records, subjects by kind, consumers — for the listing.
+
+Counted over committed records; ``held`` lists the saves held by a failed save that the
+counts do not include (each a `HeldPendingSave` dump).
 
 **Parameters**
 
@@ -2438,6 +2445,65 @@ Raises `TemplateInUseError` while it is still attached.
 | `name` | `str` | — | — |
 
 
+#### get_rendered_template
+
+`tai42_contract.app.facets.states.AppStates.get_rendered_template`
+
+```python
+async get_rendered_template(self, name: str) -> RenderedStateTemplate | None
+```
+
+The stored template ``name`` rendered — every body as jq text, the input programs ordered.
+
+``None`` when no such template is stored. A body that cannot be rendered raises
+`TemplateValidationError` naming the template.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### rendered_attachments
+
+`tai42_contract.app.facets.states.AppStates.rendered_attachments`
+
+```python
+async rendered_attachments(self, state: str) -> list[RenderedAttachment]
+```
+
+Every attachment on ``state`` with its rendered template, ordered by template name.
+
+Raises `StateNotFoundError` for an undeclared state.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+
+
+#### render_template
+
+`tai42_contract.app.facets.states.AppStates.render_template`
+
+```python
+async render_template(self, doc: StateTemplateDocument) -> RenderedStateTemplate
+```
+
+Render a candidate template document that is not stored (its ``version`` is ``"candidate"``).
+
+Validates the document as a store would; a refusal raises
+`TemplateValidationError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateTemplateDocument` | — | — |
+
+
 #### list_attachments
 
 `tai42_contract.app.facets.states.AppStates.list_attachments`
@@ -2464,14 +2530,15 @@ What the attachments listing and the Consumers tab read. Each row carries ``stat
 `tai42_contract.app.facets.states.AppStates.attach`
 
 ```python
-async attach(self, state: str, template: str, body: AttachBody) -> None
+async attach(self, state: str, template: str, body: AttachBody) -> list[HeldPendingSave]
 ```
 
 Attach ``template`` on ``state`` at ``body.path``, recomposing the effective schema in one transaction.
 
 Stores the resolved parameters and declarations. Runs every registered attach validator before the write; a
 raise refuses the door with the validator's message. Overlapping fragments raise
-`AttachConflictError`.
+`AttachConflictError`. Returns the saves held by a failed save
+whose subjects the validators and reconcilers read over their committed records.
 
 **Parameters**
 
@@ -2494,14 +2561,15 @@ async update_attachment_declarations(
     declarations: dict[str, Any],
     *,
     options: dict[str, Any] | None = None,
-) -> None
+) -> list[HeldPendingSave]
 ```
 
 Replace an attachment's declaration values, recomposing the effective schema before the write.
 
 Re-runs every registered attach validator and reconciler before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
-operation only, never stored or served back (``None`` is an empty bag).
+operation only, never stored or served back (``None`` is an empty bag). Returns the saves
+held by a failed save whose subjects were read over their committed records.
 
 **Parameters**
 
@@ -2822,7 +2890,9 @@ async list_subjects(
 
 A keyset page of subjects for ``state`` (optionally one ``kind``).
 
-``{"subjects": [...], "next_cursor": <cursor|None>}``.
+``{"subjects": [...], "next_cursor": <cursor|None>, "held": [...]}`` — served over committed
+records; ``held`` lists the saves held by a failed save whose subjects show their last
+applied data (each a `HeldPendingSave` dump).
 
 **Parameters**
 
@@ -2851,7 +2921,8 @@ async search(
 
 A keyset page of records whose document contains ``filters``.
 
-``{"matches": [...], "next_cursor": <cursor|None>}``.
+``{"matches": [...], "next_cursor": <cursor|None>, "held": [...]}`` — ``held`` as for
+`list_subjects`.
 
 **Parameters**
 
@@ -2899,10 +2970,13 @@ theirs (the last row's id when the page is full, else ``None``).
 `tai42_contract.app.facets.states.AppStates.prune_expired`
 
 ```python
-async prune_expired(self) -> dict[str, int]
+async prune_expired(self) -> PruneResult
 ```
 
 Delete records past their state's ``retention_days`` and return the per-state deletion counts.
+
+A subject held by a failed pending save keeps its record; the held saves are named in
+``held``.
 
 
 #### context
@@ -2989,8 +3063,8 @@ register_attach_validator(self, validator: AttachValidator) -> None
 Register a data-dependent attach validator.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-validator receives the template document, an attachment's declaration values, and the
-state's effective schema, and RAISES to refuse; it runs before every ``attach``,
+validator receives the state name, the template document, an attachment's declaration
+values, and the state's effective schema, and RAISES to refuse; it runs before every ``attach``,
 ``update_attachment_declarations`` and ``put_template(replace=True)`` write, so a
 consumer's checks fire at the platform's declarations doors, the States page
 included.
