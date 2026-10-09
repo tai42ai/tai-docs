@@ -419,6 +419,15 @@ outcome does not carry, on a completed run and on a paused one alike. A paused o
 carries no `missing_results` at all means the list could not be computed and is unknown —
 never that nothing was missing.
 
+A run whose result cannot be built fails. When a node's return expression raises, the
+caller receives the run's error (`Flow run failed (app/<type>): …`) whether the run
+completed or was cut short by a stop or an abort. When a run that must return a result has
+none, a completed or stopped run fails the same way; an aborted run was cut short on
+purpose, so it returns the `aborted` status with the missing results listed in
+`missing_results`. The error is an *application* error, since the expression and the check
+are the flow's own logic: the flow-level On Error sees it, and it is not retried as an
+infrastructure fault.
+
 ## Handling a node's error
 
 A node — a **runnable**, an **agent**, a conditional's **branch**, or the flow itself
@@ -1428,9 +1437,11 @@ flow keep every node's full history. Validating or saving such a flow reports a
 `state_read_unbounded` **warning** naming the expression; the flow still saves and runs.
 
 The state also holds `node_visits`: per node visit, the step a monitoring plugin recorded it
-as, and for a holder what the visit did. An On Error entry keeps the error and its context,
-not copies of the run's channels; a loop's per-iteration results leave the state once its
-output is published.
+as, for a holder what the visit did, and where in that step's record the node's result and
+its evaluated inputs sit. A value one step writes for another node — a branch handing its
+target an input, a loop publishing its output — is listed under that node too, naming the
+step that wrote it. An On Error entry keeps the error and its context, not copies of the
+run's channels; a loop's per-iteration results leave the state once its output is published.
 
 A run records the stored format it was written in and what it keeps. A resume is refused —
 the waiting caller receives FAILED with the reason — when the state was written in another
@@ -1442,6 +1453,27 @@ release that changes the stored format.
 Large node values ride the checkpoint like any other value; the platform compresses them
 above `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES`. `FLOW_REDIS_URL` serves the engine's run
 markers and park index.
+
+## Monitoring a flow
+
+With a [monitoring plugin](/operate/observe), a flow run records each value once, in the
+record of the step that produced it, and every other record holds a
+[reference](/operate/observe#each-value-recorded-once) to it — the Resolved view assembles
+the full value:
+
+| Record | What it holds |
+|---|---|
+| `flow:input` | A fresh run's input: its arguments, its state documents and its warm-start fills. |
+| `LangGraph` (graph root) | The state a run segment, or one loop iteration, started from and ended with. A resumed segment's root holds the answer the run resumed with. |
+| A node's step | The state the node received and what it wrote. Inside a loop, the step also names its node and its iteration path (`loop[1]/inner[0]`) and points at the values it wrote. |
+| A router (`decided_route:`, `branch_route:`, `iterate_route:`) | The state it read and the route it chose. |
+| A tool call | The call's arguments and result in full, over the call's window. |
+| An expression (`expr:<node>`, `foreach_expr:<node>`, …) | A sub-step of its node: the data and variables the expression read, and its result. |
+| `flow:result` | The run's final state and the result it returns, under the run's own trace. On a failed run the step carries the failure (level ERROR, the error text the caller receives) and the error envelope; the flow-level `on_error` handler's expressions are its sub-steps and the handler's tool call is a tool call of the run. A run has one `flow:result`: when shaping or checking the result fails, that same step ends at ERROR. |
+
+A run's node popup reads a node's result and inputs through these records. Without a
+monitoring plugin nothing is recorded, and the [run state](#run-state) keeps only what a later
+step reads.
 
 ## Checkpoint retention and durability
 
