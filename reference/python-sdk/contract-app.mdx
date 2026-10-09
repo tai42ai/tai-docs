@@ -1035,6 +1035,7 @@ extension(
     kind: ExtensionKind,
     name: str | None = None,
     requires_body_locality: bool = False,
+    pauses: bool = False,
 ) -> Callable[..., Any]
 ```
 
@@ -1050,6 +1051,10 @@ extension must bind INSIDE any execution-relocating extension
 body to the worker. Bound outside a relocating layer, the wrapper stays
 behind in the submitting process and silently does not apply.
 
+``pauses`` marks an extension every branch of which can pause, whatever its base
+declares (an extension that re-dispatches other tools and passes their park
+through); see ``AppTools.pauses``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -1058,6 +1063,7 @@ behind in the submitting process and silently does not apply.
 | `kind` | `ExtensionKind` | — | — |
 | `name` | `str \| None` | `None` | — |
 | `requires_body_locality` | `bool` | `False` | — |
+| `pauses` | `bool` | `False` | — |
 
 
 #### available_extensions
@@ -2590,6 +2596,30 @@ evaluates and applies by, so a reference accepted here resolves the same way at 
 | `declared` | `Collection[str]` | `()` | — |
 
 
+#### resolve_template_jq_batch
+
+`tai42_contract.app.facets.states.AppStates.resolve_template_jq_batch`
+
+```python
+async resolve_template_jq_batch(self, refs: Sequence[TemplateJqReference]) -> list[ResolvedTemplateJq | StateNotFoundError | ValueValidationError]
+```
+
+Resolve every reference in ``refs`` in one call, each by `resolve_template_jq`'s rules.
+
+Returns one item per reference, in order: its resolution, or the
+`StateNotFoundError` /
+`ValueValidationError` `resolve_template_jq` raises for
+it, with the same message, so one refused reference never hides the others' verdicts. Every
+reference on one state resolves against one read of that state's catalog. Any other failure
+raises for the whole call.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `refs` | `Sequence[TemplateJqReference]` | — | — |
+
+
 #### resolve_subject
 
 `tai42_contract.app.facets.states.AppStates.resolve_subject`
@@ -3250,6 +3280,41 @@ resource_manager: Any
 The active resource manager (impl type; loads/renders content over storage).
 
 
+#### on_template_evicted
+
+`tai42_contract.app.facets.execution.AppStorage.on_template_evicted`
+
+```python
+on_template_evicted(self, func: Callable[[TemplateEviction], Any]) -> Callable[[TemplateEviction], Any]
+```
+
+Register a handler called, synchronously and in this process, after the template store drops cached content.
+
+Called on the process that wrote or deleted a template, on every bus member applying
+the fleet's template eviction, and on a whole-cache clear. A handler that raises
+propagates to the dropping call. A decorator: returns ``func``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `func` | `Callable[[TemplateEviction], Any]` | — | — |
+
+
+#### template_reads
+
+`tai42_contract.app.facets.execution.AppStorage.template_reads`
+
+```python
+template_reads(self) -> AbstractContextManager[set[str]]
+```
+
+Record, into the yielded set, the id of every stored template a render inside the block resolves or probes.
+
+A by-id render's whole locale fallback chain and every ``{% include %}`` /
+``{% extends %}`` / ``{% import %}`` target, at any depth. Blocks nest; each records.
+
+
 
 ## AppSubApp
 
@@ -3488,6 +3553,30 @@ this set before starting the target and refuses an undeclared key.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
+
+
+#### pauses
+
+`tai42_contract.tools.AppTools.pauses`
+
+```python
+async pauses(self, key: str) -> bool
+```
+
+Whether a dispatch of ``key`` can return a park signal.
+
+The tool registered under ``key`` declares ``TOOL_META_PAUSES``, or it is an extension
+branch whose base declares it or whose extension stack holds an extension registered
+with ``pauses=True``, or it is a preset (transformed tool) whose ``parent_tool`` chain
+reaches such a tool. An unknown name answers ``False`` (its own dispatch surfaces the
+not-found). A dispatch of a tool that answers ``False`` and returns a park signal is
+refused with `UndeclaredPauseError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `str` | — | — |
 
 
 #### remove_tool
