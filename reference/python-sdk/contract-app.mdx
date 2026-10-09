@@ -15,15 +15,6 @@ sub-protocols — each lives in exactly one, save the shared leaf names
 (``webhook_verifiers`` + ``channels``). The runtime forwarding handle is
 ``tai42_app`` (see `tai42_contract.app.handle`).
 
-## DEFAULT_LOCAL_PORT
-
-`tai42_contract.app.DEFAULT_LOCAL_PORT`
-
-```python
-DEFAULT_LOCAL_PORT: Final = 8000
-```
-
-
 ## AppAccounts
 
 `tai42_contract.app.facets.integrations.AppAccounts`
@@ -61,27 +52,6 @@ active under that name — the name is not configured, or a build is mid-flight.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
-
-
-#### authenticated_credential
-
-`tai42_contract.app.facets.integrations.AppAccounts.authenticated_credential`
-
-```python
-authenticated_credential(self, request: Request) -> str | None
-```
-
-The raw credential the access-control gate authenticated ``request`` with.
-
-When a request presents several credentials, this is the one that verified, not
-merely the first presented. ``None`` when the request is unauthenticated or access
-control is off.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `request` | `Request` | — | — |
 
 
 
@@ -189,23 +159,6 @@ reload_failed_mcps(self) -> list[dict[str, Any]]
 Retry every MCP that failed to bind and return their statuses.
 
 
-#### reprobe_failed_mcps
-
-`tai42_contract.app.facets.runtime.AppAdmin.reprobe_failed_mcps`
-
-```python
-async reprobe_failed_mcps(self, titles: list[str]) -> list[dict[str, Any]]
-```
-
-Re-probe those of ``titles`` that failed to bind, bind the recovered ones, and return their statuses.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `titles` | `list[str]` | — | — |
-
-
 #### list_failed_mcps
 
 `tai42_contract.app.facets.runtime.AppAdmin.list_failed_mcps`
@@ -269,9 +222,8 @@ Register an `Agent` subclass under ``name`` and auto-register its JSON ``run`` t
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
 ``meta`` is generic registration metadata threaded onto the same constructed
-run-tool object (naming no consumer concept — a registrant attaches any key of
-`tai42_contract.tools.meta`, e.g. ``TOOL_META_CRASH_RESUME``, which the
-run-dispatch seam reads). The
+run-tool object (naming no consumer concept — a registrant attaches any generic
+``tai42/*`` key, e.g. a crash-resume flag the run-dispatch seam reads). The
 decorator returns the class unchanged, so the decorated symbol keeps its
 concrete subclass type.
 
@@ -1053,8 +1005,6 @@ extension(
     kind: ExtensionKind,
     name: str | None = None,
     requires_body_locality: bool = False,
-    pauses: bool = False,
-    declares_output_schema: bool = False,
 ) -> Callable[..., Any]
 ```
 
@@ -1070,13 +1020,6 @@ extension must bind INSIDE any execution-relocating extension
 body to the worker. Bound outside a relocating layer, the wrapper stays
 behind in the submitting process and silently does not apply.
 
-``pauses`` marks an extension every branch of which can pause, whatever its base
-declares (an extension that re-dispatches other tools and passes their park
-through); see ``AppTools.pauses``.
-
-``declares_output_schema``: this extension declares the wrapped tool's output shape (its
-JSON Schema), so a preset over a tool carrying it may not also set ``output_schema``.
-
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -1085,8 +1028,6 @@ JSON Schema), so a preset over a tool carrying it may not also set ``output_sche
 | `kind` | `ExtensionKind` | — | — |
 | `name` | `str \| None` | `None` | — |
 | `requires_body_locality` | `bool` | `False` | — |
-| `pauses` | `bool` | `False` | — |
-| `declares_output_schema` | `bool` | `False` | — |
 
 
 #### available_extensions
@@ -1094,12 +1035,10 @@ JSON Schema), so a preset over a tool carrying it may not also set ``output_sche
 `tai42_contract.app.facets.execution.AppExtensions.available_extensions`
 
 ```python
-available_extensions(self) -> list[dict[str, str | bool]]
+available_extensions(self) -> list[dict[str, str]]
 ```
 
-List registered extensions as ``[{"name", "kind", "multiple"}]``.
-
-``multiple`` says whether one tool may stack several extensions of that kind.
+List registered extension modules as ``[{"name", "kind"}]``.
 
 
 
@@ -1158,7 +1097,6 @@ custom_route(
     declared: DeclaredRouteMetadata | None = None,
     no_body_reason: str | None = None,
     enveloped: bool = True,
-    success_media_types: Mapping[str, tuple[str, ...]] | None = None,
 ) -> Callable[[Callable[[Request], Awaitable[Response]]], Callable[[Request], Awaitable[Response]]]
 ```
 
@@ -1187,11 +1125,6 @@ coverage gate consume, so every registration MUST describe itself:
   raw non-enveloped body the envelope emitter cannot describe). Passing it
   alongside a ``response_model``, or omitting it when ``response_model`` is
   ``None``, is a registration error.
-* ``success_media_types`` — the media types each method's success body is
-  published under, keyed by the route's upper-cased methods; each value is a
-  non-empty tuple. A method left out (or ``None``, the default) publishes
-  ``application/json``. A key outside the route's methods, an empty tuple, or
-  a non-JSON type on an ``enveloped=False`` route is a registration error.
 * ``request_model`` — the pydantic model of the request body; required for
   any route that reads a body, omitted (``None``) otherwise.
 * ``query_model`` — the pydantic model whose fields are published as ``in:
@@ -1234,14 +1167,12 @@ coverage gate consume, so every registration MUST describe itself:
   defaults for a route outside the spec surface, whose behavioral metadata
   is never emitted. A route MAY also declare its own ``max_body_bytes`` (a
   per-route request body cap the app's request-body limit honours; default
-  ``None`` defers to the app cap), its own ``rate_limit_family`` (the
+  ``None`` defers to the app cap) and its own ``rate_limit_family`` (the
   rate-limit family the door charges; default ``None`` defers to the
-  path-derived family) and its family's ``rate_limit_budget`` (a
-  `RateLimitBudget`; default ``None`` defers to the app-wide default).
-  A ``reload_gated`` route answers the retriable reload ``503`` while a config
-  reload holds the gate; the surface enforces it around the handler.
+  path-derived family).
 
-The handler's narrative docstring becomes the operation description.
+The handler's narrative docstring becomes the operation description, and
+the reload-gate ``503`` response is derived from the handler body.
 
 **Parameters**
 
@@ -1265,7 +1196,6 @@ The handler's narrative docstring becomes the operation description.
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
 | `no_body_reason` | `str \| None` | `None` | — |
 | `enveloped` | `bool` | `True` | — |
-| `success_media_types` | `Mapping[str, tuple[str, ...]] \| None` | `None` | — |
 
 
 #### use_raw_path_key
@@ -1311,17 +1241,6 @@ hardcoded default. Called with no binding present — a core or
 operator-authored module — it raises: those modules own no declared mount.
 
 
-#### hosted_ui
-
-`tai42_contract.app.facets.routing.AppHttp.hosted_ui`
-
-```python
-hosted_ui(self) -> HostedUiPaths
-```
-
-The page addresses of the hosted UI, as the deployment declares them.
-
-
 
 ## AppInteractions
 
@@ -1363,41 +1282,6 @@ every surface applies identical rules per format.
 | `answer` | `Any` | — | — |
 
 
-#### question_format
-
-`tai42_contract.app.facets.messaging.AppInteractions.question_format`
-
-```python
-question_format(
-    self,
-    answer_format: str,
-    *,
-    options: list[str] | None = None,
-    schema: dict[str, Any] | None = None,
-    data: dict[str, Any] | None = None,
-    pages: list[dict[str, Any]] | None = None,
-    reactions: dict[str, Any] | None = None,
-) -> QuestionFormat
-```
-
-The answer-check view of an ask with these arguments (the parameter names are the ``ask`` tool's own).
-
-The stored ``format_payload`` minus EXTERNAL's delivery keys (``url``, ``verifier``), ready
-for `check_answer`. Raises ``ValueError`` for an unknown format, an argument not valid
-for the format, or a value of the wrong shape.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `answer_format` | `str` | — | — |
-| `options` | `list[str] \| None` | `None` | — |
-| `schema` | `dict[str, Any] \| None` | `None` | — |
-| `data` | `dict[str, Any] \| None` | `None` | — |
-| `pages` | `list[dict[str, Any]] \| None` | `None` | — |
-| `reactions` | `dict[str, Any] \| None` | `None` | — |
-
-
 #### react
 
 `tai42_contract.app.facets.messaging.AppInteractions.react`
@@ -1406,7 +1290,7 @@ for the format, or a value of the wrong shape.
 async react(
     self,
     interaction_id: str,
-    event: FormReactionEvent,
+    event: dict[str, Any],
     partial_values: dict[str, Any],
 ) -> dict[str, Any]
 ```
@@ -1428,7 +1312,7 @@ A handler that raises or misses the deadline surfaces LOUDLY, never a stale/sile
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `interaction_id` | `str` | — | — |
-| `event` | `FormReactionEvent` | — | — |
+| `event` | `dict[str, Any]` | — | — |
 | `partial_values` | `dict[str, Any]` | — | — |
 
 
@@ -1500,21 +1384,6 @@ it, so no resume redelivery fires past it. A resuming driver derives its own
 resolution-record retention from this value rather than a hard-coded guess.
 
 
-#### callback_url_prefix
-
-`tai42_contract.app.facets.messaging.AppInteractions.callback_url_prefix`
-
-```python
-callback_url_prefix(self) -> str | None
-```
-
-The absolute URL prefix every callback URL this platform mints starts with.
-
-``{public base}/api/interactions/callback/``; ``None`` when the deployment configures no
-public base. A component that POSTs an answer to a stored callback URL pins it against this
-prefix first.
-
-
 #### visit
 
 `tai42_contract.app.facets.messaging.AppInteractions.visit`
@@ -1534,23 +1403,23 @@ values and hands them in; the generic ``list_parked`` / ``resume_parked`` / ``ca
 below are thin wrappers over this same seam.
 
 
-#### run_answer
+#### park_answer
 
-`tai42_contract.app.facets.messaging.AppInteractions.run_answer`
+`tai42_contract.app.facets.messaging.AppInteractions.park_answer`
 
 ```python
-run_answer(self, outcome: VisitOutcome) -> RunAnswer
+park_answer(self, outcome: VisitOutcome) -> Any
 ```
 
-The ONE `RunAnswer` a run door hands back for a `VisitOutcome`.
+The ONE park-answer shape a direct door hands back for a `VisitOutcome`.
 
-Discriminated on ``kind``: ``result`` carries the run's own value, ``asks`` the caller ask
-entries the run parked with its re-park sentinel, ``parked`` the sentinel alone, ``none``
-nothing. Both the synchronous run-tool door and the background submit's parked record
-shape a run through this ONE callable, so a poller of either door reads identical bytes.
-It never reveals a wrapped secret — the sync door reveals those on its own ``result`` and
-every recorder masks its own copy. An ``asks``/``parked`` outcome carrying no sentinel
-raises ``RuntimeError``.
+A plain ``result`` is the tool's own value; an ``asks`` outcome is the caller ask entries
+the run parked (``{"asks": [entry, ...]}``); a ``parked`` outcome is the suspended
+sentinel; ``none`` is ``None``. Both the synchronous run-tool door and the background
+submit's terminal record shape a park through this ONE callable, so a poller of either
+door reads identical bytes and can tell a caller-ask park (answerable through
+``resume_parked``) from a user-ask park. It never reveals a wrapped secret — the sync door
+reveals those on the ``result`` kind itself and every recorder masks its own copy.
 
 **Parameters**
 
@@ -1821,22 +1690,23 @@ it spawns attaches to the serving loop and retires with its generation.
 `tai42_contract.app.facets.runtime.AppLifecycle.on_fleet_op_applied`
 
 ```python
-on_fleet_op_applied(self, func: Callable[[FleetOpApplied], Any]) -> Callable[[FleetOpApplied], Any]
+on_fleet_op_applied(self, func: Callable[[str, float], Any]) -> Callable[[str, float], Any]
 ```
 
 Register a handler fired after any worker-bus op applies in this process.
 
-Also fired after the reconnect self-resync reload. The handler takes ONE argument — the
-applied op with its declared effects (`FleetOpApplied`);
-decide on ``effects``, never on ``op`` (a query op declares none). Its ``budget`` is the
-seconds remaining before the publisher's report cut, measured from this process's
-receipt of the op; a post-apply obligation that cannot finish within it must raise.
+Also fired after the reconnect self-resync reload. The handler is called
+``handler(op_name, budget)``: ``op_name`` lets it act on some ops and skip others
+(a query op carries no state change to react to); ``budget`` — seconds remaining
+before the publisher's report cut, measured from this process's receipt of the op
+(the bus transit before receipt is not subtracted); a post-apply obligation that
+cannot finish within it must raise.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `func` | `Callable[[FleetOpApplied], Any]` | — | — |
+| `func` | `Callable[[str, float], Any]` | — | — |
 
 
 #### wait_until_ready
@@ -2462,20 +2332,16 @@ The declaration named ``name``, or ``None`` when none is declared.
 `tai42_contract.app.facets.states.AppStates.put_declaration`
 
 ```python
-async put_declaration(self, decl: StateDeclaration) -> StateDeclarationSaved
+async put_declaration(self, decl: StateDeclaration) -> StateDeclaration
 ```
 
-Declare or re-declare a state and return the stored declaration with the held saves it was accepted beside.
+Declare or re-declare a state and return the stored declaration.
 
 An additive re-declare (new optional fields, new subject kinds) is applied in
 place; a change that would remove or narrow a field while records exist raises
 `NonAdditiveRedeclareError` (erase the records
 first), and removing a subject kind still present in records raises
 `DeclarationInUseError`. Never a silent overwrite.
-The state's pending saves are applied first; a save held by a failed save counts as
-records present, so a re-declare that would refuse its document or remove a kind it
-writes raises `DeclarationInUseError`, and an accepted one
-names it in ``held``.
 
 **Parameters**
 
@@ -2512,9 +2378,6 @@ async stats(self, name: str) -> dict[str, Any]
 ```
 
 Counts for a state — records, subjects by kind, consumers — for the listing.
-
-Counted over committed records; ``held`` lists the saves held by a failed save that the
-counts do not include (each a `HeldPendingSave` dump).
 
 **Parameters**
 
@@ -2690,32 +2553,6 @@ evaluates and applies by, so a reference accepted here resolves the same way at 
 | `declared` | `Collection[str]` | `()` | — |
 
 
-#### resolve_template_jq_batch
-
-`tai42_contract.app.facets.states.AppStates.resolve_template_jq_batch`
-
-```python
-async resolve_template_jq_batch(self, refs: Sequence[TemplateJqReference]) -> list[ResolvedTemplateJq | StateNotFoundError | ValueValidationError]
-```
-
-Resolve every reference in ``refs`` in one call, each by `resolve_template_jq`'s rules.
-
-Returns one item per reference, in order: its resolution, or the
-`StateNotFoundError` /
-`ValueValidationError` `resolve_template_jq` raises for
-it, with the same message, so one refused reference never hides the others' verdicts. One
-statement reads every named state's declaration version, and each reference resolves against
-its state's catalog at that version; a write that lands on a state during the call can make
-any reference on that state read the catalog's current rows and resolve against the newer
-version. Any other failure raises for the whole call.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `refs` | `Sequence[TemplateJqReference]` | — | — |
-
-
 #### resolve_subject
 
 `tai42_contract.app.facets.states.AppStates.resolve_subject`
@@ -2769,15 +2606,14 @@ What the attachments listing and the Consumers tab read. Each row carries ``stat
 `tai42_contract.app.facets.states.AppStates.attach`
 
 ```python
-async attach(self, state: str, template: str, body: AttachBody) -> list[HeldPendingSave]
+async attach(self, state: str, template: str, body: AttachBody) -> None
 ```
 
 Attach ``template`` on ``state`` at ``body.path``, recomposing the effective schema in one transaction.
 
 Stores the resolved parameters and declarations. Runs every registered attach validator before the write; a
 raise refuses the door with the validator's message. Overlapping fragments raise
-`AttachConflictError`. Returns the saves held by a failed save
-whose subjects the validators and reconcilers read over their committed records.
+`AttachConflictError`.
 
 **Parameters**
 
@@ -2800,15 +2636,14 @@ async update_attachment_declarations(
     declarations: dict[str, Any],
     *,
     options: dict[str, Any] | None = None,
-) -> list[HeldPendingSave]
+) -> None
 ```
 
 Replace an attachment's declaration values, recomposing the effective schema before the write.
 
 Re-runs every registered attach validator and reconciler before the write.
 ``options`` is a per-operation directive bag passed to the reconcilers for THIS
-operation only, never stored or served back (``None`` is an empty bag). Returns the saves
-held by a failed save whose subjects were read over their committed records.
+operation only, never stored or served back (``None`` is an empty bag).
 
 **Parameters**
 
@@ -3129,9 +2964,7 @@ async list_subjects(
 
 A keyset page of subjects for ``state`` (optionally one ``kind``).
 
-``{"subjects": [...], "next_cursor": <cursor|None>, "held": [...]}`` — served over committed
-records; ``held`` lists the saves held by a failed save whose subjects show their last
-applied data (each a `HeldPendingSave` dump).
+``{"subjects": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
 
@@ -3160,8 +2993,7 @@ async search(
 
 A keyset page of records whose document contains ``filters``.
 
-``{"matches": [...], "next_cursor": <cursor|None>, "held": [...]}`` — ``held`` as for
-`list_subjects`.
+``{"matches": [...], "next_cursor": <cursor|None>}``.
 
 **Parameters**
 
@@ -3209,13 +3041,10 @@ theirs (the last row's id when the page is full, else ``None``).
 `tai42_contract.app.facets.states.AppStates.prune_expired`
 
 ```python
-async prune_expired(self) -> PruneResult
+async prune_expired(self) -> dict[str, int]
 ```
 
 Delete records past their state's ``retention_days`` and return the per-state deletion counts.
-
-A subject held by a failed pending save keeps its record; the held saves are named in
-``held``.
 
 
 #### context
@@ -3376,60 +3205,6 @@ resource_manager: Any
 The active resource manager (impl type; loads/renders content over storage).
 
 
-#### resolve_image
-
-`tai42_contract.app.facets.execution.AppStorage.resolve_image`
-
-```python
-async resolve_image(self, source: str | bytes) -> ImageReference
-```
-
-Resolve a stored id, a data URI, raw bytes or a public URL to an addressable image with its asserted mime.
-
-A non-image or a path outside the store raises ``ValueError``.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `source` | `str \| bytes` | — | — |
-
-
-#### on_template_evicted
-
-`tai42_contract.app.facets.execution.AppStorage.on_template_evicted`
-
-```python
-on_template_evicted(self, func: Callable[[TemplateEviction], Any]) -> Callable[[TemplateEviction], Any]
-```
-
-Register a handler called, synchronously and in this process, after the template store drops cached content.
-
-Called on the process that wrote or deleted a template, on every bus member applying
-the fleet's template eviction, and on a whole-cache clear. A handler that raises
-propagates to the dropping call. A decorator: returns ``func``.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `func` | `Callable[[TemplateEviction], Any]` | — | — |
-
-
-#### template_reads
-
-`tai42_contract.app.facets.execution.AppStorage.template_reads`
-
-```python
-template_reads(self) -> AbstractContextManager[set[str]]
-```
-
-Record, into the yielded set, the id of every stored template a render inside the block resolves or probes.
-
-A by-id render's whole locale fallback chain and every ``{% include %}`` /
-``{% extends %}`` / ``{% import %}`` target, at any depth. Blocks nest; each records.
-
-
 
 ## AppSubApp
 
@@ -3579,10 +3354,10 @@ Return every assembled tool keyed by name.
 `tai42_contract.tools.AppTools.get_client_tools`
 
 ```python
-async get_client_tools(self, names: list[str] | None = None) -> list[ClientTool]
+async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
 ```
 
-The tools named in ``names`` (all when ``None``) as framework-neutral handles; an unknown name raises.
+Return the client-facing tool objects, restricted to ``names`` when given.
 
 **Parameters**
 
@@ -3668,30 +3443,6 @@ this set before starting the target and refuses an undeclared key.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
-
-
-#### pauses
-
-`tai42_contract.tools.AppTools.pauses`
-
-```python
-async pauses(self, key: str) -> bool
-```
-
-Whether a dispatch of ``key`` can return a park signal.
-
-The tool registered under ``key`` declares ``TOOL_META_PAUSES``, or it is an extension
-branch whose base declares it or whose extension stack holds an extension registered
-with ``pauses=True``, or it is a preset (transformed tool) whose ``parent_tool`` chain
-reaches such a tool. An unknown name answers ``False`` (its own dispatch surfaces the
-not-found). A dispatch of a tool that answers ``False`` and returns a park signal is
-refused with `UndeclaredPauseError`.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `key` | `str` | — | — |
 
 
 #### remove_tool
@@ -4032,32 +3783,6 @@ besides ``success_status``; each is emitted as its own success response.
 | `additional_success_statuses` | `tuple[int, ...]` |
 | `max_body_bytes` | `int \| None` |
 | `rate_limit_family` | `str \| None` |
-| `rate_limit_budget` | `RateLimitBudget \| None` |
-
-
-## HostedUiPaths
-
-`tai42_contract.app.facets.routing.HostedUiPaths`
-
-```python
-class HostedUiPaths
-```
-
-The page addresses of the hosted UI, as the deployment declares them.
-
-``login_path``, ``oauth_callback_path`` and ``connectors_path`` are same-origin paths; a
-claim link carries its token in the login page's ``#<claim_fragment_key>=`` fragment and an
-invite link in its ``?<invite_query_key>=`` query.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `login_path` | `str` |
-| `claim_fragment_key` | `str` |
-| `invite_query_key` | `str` |
-| `oauth_callback_path` | `str` |
-| `connectors_path` | `str` |
 
 
 ## PendingMessage
@@ -4083,24 +3808,6 @@ seconds it was accepted at (the thread index's own score). Frozen.
 | `message_id` | `str` |
 | `text` | `str` |
 | `accepted_at` | `float` |
-
-
-## RateLimitBudget
-
-`tai42_contract.app.facets.routing.RateLimitBudget`
-
-```python
-class RateLimitBudget
-```
-
-A route family's default flood-control budget: requests per 60 s window and per 10 s burst window.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `limit` | `int` |
-| `burst` | `int` |
 
 
 ## RouteAction

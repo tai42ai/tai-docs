@@ -1,0 +1,1027 @@
+---
+title: "Park index and park seams (tai42_kit.interactions)"
+description: "The shared park index, the terminal chain notice, and the give-up handler seam a driver that parks registers so an abandoned park's waiter is told."
+icon: "square-parking"
+---
+
+
+The durable park index a driver keeps for the runs it parks on an async ``ask``.
+
+When a driver parks a run, the platform keeps only the interaction id; the driver reverses it
+to its own run through this index. One consumer namespace holds, on one Redis:
+
+* an ENTRY per resume key (an interaction id, or any key the consumer resumes by), carrying the
+  consumer's own opaque rebuild payload;
+* a BARRIER per parked super-step (a thread's set of asks resolved together): the consumer's
+  opaque ``expected`` map, keyed by member id, the answers buffered so far, and any opaque
+  consumer fields;
+* a DRIVE LEASE per super-step, so exactly one worker drives a completed barrier, with a
+  heartbeat and a token-checked release;
+* a RESOLUTION RECORD per resolved super-step and a TOMBSTONE in place of every member entry,
+  so a lapped redelivery replays what the first drive returned;
+* a RUN-RESOLUTION INDEX per thread (every resolved super-step and its members), so a kill can
+  reach every stored outcome of a run;
+* a LIVE SET per thread (its super-steps whose barrier is live), so a checkpoint sweep can tell
+  a parked thread from an abandoned one.
+
+The module imports no Redis client at import time: the client is reached lazily, so a consumer
+whose import graph excludes Redis may import this module. Every Redis error propagates.
+
+## BARRIER_TTL_MARGIN_SECONDS
+
+`tai42_kit.interactions.park_index.BARRIER_TTL_MARGIN_SECONDS`
+
+```python
+BARRIER_TTL_MARGIN_SECONDS: Final[int] = 3600
+```
+
+
+## DRIVE_LEASE_HEARTBEAT_SECONDS
+
+`tai42_kit.interactions.park_index.DRIVE_LEASE_HEARTBEAT_SECONDS`
+
+```python
+DRIVE_LEASE_HEARTBEAT_SECONDS: Final[float] = 20.0
+```
+
+
+## DRIVE_LEASE_SECONDS
+
+`tai42_kit.interactions.park_index.DRIVE_LEASE_SECONDS`
+
+```python
+DRIVE_LEASE_SECONDS: Final[int] = 60
+```
+
+
+## ENTRY_TTL_FLOOR_SECONDS
+
+`tai42_kit.interactions.park_index.ENTRY_TTL_FLOOR_SECONDS`
+
+```python
+ENTRY_TTL_FLOOR_SECONDS: Final[int] = 30 * 24 * 3600
+```
+
+
+## RESOLVED_FIELD
+
+`tai42_kit.interactions.park_index.RESOLVED_FIELD`
+
+```python
+RESOLVED_FIELD: Final[str] = '__park_resolved__'
+```
+
+
+## Barrier
+
+`tai42_kit.interactions._park_types.Barrier`
+
+```python
+class Barrier
+```
+
+A super-step barrier: the consumer's ``expected`` map, the answers buffered so far, its own fields.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `expected` | `dict[str, Any]` |
+| `outputs` | `dict[str, Any]` |
+| `fields` | `dict[str, str]` |
+
+
+## BarrierNotFoundError
+
+`tai42_kit.interactions._park_types.BarrierNotFoundError`
+
+```python
+class BarrierNotFoundError(ParkIndexError)
+```
+
+The super-step barrier an answer converges on is gone (expired or never written).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `thread_id` | — |
+| `superstep` | — |
+
+
+## BufferResult
+
+`tai42_kit.interactions._park_types.BufferResult`
+
+```python
+class BufferResult
+```
+
+Progress after an answer was buffered: answered members, all members, the still-open members in order.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `present` | `int` |
+| `total` | `int` |
+| `remaining` | `list[str]` |
+
+
+## DriveInProgressError
+
+`tai42_kit.interactions._park_types.DriveInProgressError`
+
+```python
+class DriveInProgressError(ParkIndexError)
+```
+
+Another worker holds the super-step's drive lease.
+
+Raised (never a benign return) so the platform keeps the caller's durable retry ticket and
+redelivers until the live drive completes or its lease expires.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `thread_id` | — |
+| `superstep` | — |
+
+
+## DriveLease
+
+`tai42_kit.interactions.park_index.DriveLease`
+
+```python
+class DriveLease
+```
+
+A super-step's drive lease: ``SET NX EX`` to win it, a heartbeat while held, a token-checked release.
+
+Win it by entering (``async with``) or `acquire`; leave it by exiting or `close`,
+which stops the heartbeat and releases it unless `ParkIndex.finalize` consumed it.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `index` | — |
+| `thread_id` | — |
+| `superstep` | — |
+| `token` | — |
+| `acquired` | — |
+| `consumed` | — |
+| `lost` | — |
+| `closed` | — |
+
+### Members
+
+#### acquire
+
+`tai42_kit.interactions.park_index.DriveLease.acquire`
+
+```python
+async acquire(self) -> DriveLease
+```
+
+Win the lease and start its heartbeat.
+
+
+#### holds
+
+`tai42_kit.interactions.park_index.DriveLease.holds`
+
+```python
+async holds(self) -> bool
+```
+
+Whether this lease's token still holds the super-step right now.
+
+
+#### release
+
+`tai42_kit.interactions.park_index.DriveLease.release`
+
+```python
+async release(self) -> None
+```
+
+Drop the lease if this token still holds it (a reclaimer's lease is never dropped).
+
+
+#### close
+
+`tai42_kit.interactions.park_index.DriveLease.close`
+
+```python
+async close(self) -> None
+```
+
+Stop the heartbeat and release the lease once; a consumed lease is left as finalize left it.
+
+A cancel of the calling task delivered while the heartbeat stops propagates, after the release.
+
+
+#### mark_consumed
+
+`tai42_kit.interactions.park_index.DriveLease.mark_consumed`
+
+```python
+async mark_consumed(self) -> None
+```
+
+Record that a finalize dropped the lease key; stops the heartbeat so no renew reports it lost.
+
+
+
+## LeaseLostError
+
+`tai42_kit.interactions._park_types.LeaseLostError`
+
+```python
+class LeaseLostError(ParkIndexError)
+```
+
+The caller no longer holds the drive lease its write is guarded by; another writer owns the super-step.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `thread_id` | — |
+| `superstep` | — |
+
+
+## ParkIndex
+
+`tai42_kit.interactions.park_index.ParkIndex`
+
+```python
+class ParkIndex
+```
+
+One consumer's park index under its own key namespace on its own Redis.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `namespace` | — |
+
+### Members
+
+#### entry_key
+
+`tai42_kit.interactions.park_index.ParkIndex.entry_key`
+
+```python
+entry_key(self, entry_id: str) -> str
+```
+
+The key of the entry stored for ``entry_id``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry_id` | `str` | — | — |
+
+
+#### barrier_key
+
+`tai42_kit.interactions.park_index.ParkIndex.barrier_key`
+
+```python
+barrier_key(self, thread_id: str, superstep: str) -> str
+```
+
+The key of a super-step's barrier hash.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### lease_key
+
+`tai42_kit.interactions.park_index.ParkIndex.lease_key`
+
+```python
+lease_key(self, thread_id: str, superstep: str) -> str
+```
+
+The key of a super-step's drive lease.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### resolution_key
+
+`tai42_kit.interactions.park_index.ParkIndex.resolution_key`
+
+```python
+resolution_key(self, thread_id: str, superstep: str) -> str
+```
+
+The key of a resolved super-step's resolution record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### run_resolutions_key
+
+`tai42_kit.interactions.park_index.ParkIndex.run_resolutions_key`
+
+```python
+run_resolutions_key(self, thread_id: str) -> str
+```
+
+The key of a thread's run-resolution index.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+
+
+#### live_set_key
+
+`tai42_kit.interactions.park_index.ParkIndex.live_set_key`
+
+```python
+live_set_key(self, thread_id: str) -> str
+```
+
+The key of a thread's set of super-steps whose barrier is live.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+
+
+#### persist
+
+`tai42_kit.interactions.park_index.ParkIndex.persist`
+
+```python
+async persist(
+    self,
+    *,
+    thread_id: str,
+    superstep: str,
+    entries: Mapping[str, Mapping[str, Any]],
+    expected: Mapping[str, Any],
+    barrier_fields: Mapping[str, str] | None = None,
+    entry_ttl: Mapping[str, int],
+    barrier_ttl: int,
+) -> None
+```
+
+Write a parked super-step's entries, its barrier and its live-set membership, all or nothing.
+
+Each entry is written whole under its own TTL; the barrier holds ``expected`` (keyed by
+member id) and ``barrier_fields``; the thread's live set lasts as long as its longest-lived
+barrier.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+| `entries` | `Mapping[str, Mapping[str, Any]]` | — | — |
+| `expected` | `Mapping[str, Any]` | — | — |
+| `barrier_fields` | `Mapping[str, str] \| None` | `None` | — |
+| `entry_ttl` | `Mapping[str, int]` | — | — |
+| `barrier_ttl` | `int` | — | — |
+
+
+#### threads_with_live_barriers
+
+`tai42_kit.interactions.park_index.ParkIndex.threads_with_live_barriers`
+
+```python
+async threads_with_live_barriers(self, thread_ids: Sequence[str]) -> set[str]
+```
+
+The subset of ``thread_ids`` with at least one live barrier.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+#### read_entry
+
+`tai42_kit.interactions.park_index.ParkIndex.read_entry`
+
+```python
+async read_entry(self, entry_id: str) -> dict[str, Any] | None
+```
+
+The entry or tombstone stored for ``entry_id``, or ``None`` when there is none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry_id` | `str` | — | — |
+
+
+#### tombstone_kind
+
+`tai42_kit.interactions.park_index.ParkIndex.tombstone_kind`
+
+```python
+tombstone_kind(entry: Mapping[str, Any]) -> TombstoneKind
+```
+
+Whether a read entry is a live entry, a resolved tombstone, or a detached tombstone.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry` | `Mapping[str, Any]` | — | — |
+
+
+#### tombstone_coordinates
+
+`tai42_kit.interactions.park_index.ParkIndex.tombstone_coordinates`
+
+```python
+tombstone_coordinates(entry: Mapping[str, Any]) -> tuple[str, str]
+```
+
+The ``(thread_id, superstep)`` a resolved tombstone points at.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry` | `Mapping[str, Any]` | — | — |
+
+
+#### read_tombstone_resolution
+
+`tai42_kit.interactions.park_index.ParkIndex.read_tombstone_resolution`
+
+```python
+async read_tombstone_resolution(self, entry: Mapping[str, Any]) -> ResolutionRecord | None
+```
+
+The record a tombstone resolves to: the stored record of a resolved one, ``None`` for a detached one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry` | `Mapping[str, Any]` | — | — |
+
+
+#### read_barrier
+
+`tai42_kit.interactions.park_index.ParkIndex.read_barrier`
+
+```python
+async read_barrier(self, thread_id: str, superstep: str) -> Barrier | None
+```
+
+A super-step's barrier, or ``None`` when it is gone; buffered answers are decoded.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### set_barrier_fields
+
+`tai42_kit.interactions.park_index.ParkIndex.set_barrier_fields`
+
+```python
+async set_barrier_fields(self, thread_id: str, superstep: str, fields: Mapping[str, str]) -> bool
+```
+
+Write consumer fields onto a live barrier; ``False`` (nothing written) when the barrier is gone.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+| `fields` | `Mapping[str, str]` | — | — |
+
+
+#### buffer
+
+`tai42_kit.interactions.park_index.ParkIndex.buffer`
+
+```python
+async buffer(self, thread_id: str, superstep: str, member_id: str, answer: Any) -> BufferResult
+```
+
+Buffer one member's answer into its barrier, idempotently, and report progress.
+
+A redelivered answer for a member already answered keeps the first one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+| `member_id` | `str` | — | — |
+| `answer` | `Any` | — | — |
+
+
+#### claim
+
+`tai42_kit.interactions.park_index.ParkIndex.claim`
+
+```python
+claim(self, thread_id: str, superstep: str) -> DriveLease
+```
+
+A drive lease on a super-step, won by entering it (``async with`` or `DriveLease.acquire`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### finalize
+
+`tai42_kit.interactions.park_index.ParkIndex.finalize`
+
+```python
+async finalize(
+    self,
+    lease: DriveLease,
+    *,
+    member_ids: Sequence[str],
+    resolution: Resolution,
+    value: Any,
+) -> None
+```
+
+Resolve a super-step under ``lease``: tombstone its members, store its record, drop its barrier and lease.
+
+One guarded step: it lands only while ``lease`` still holds the super-step, and it also
+records the super-step in its thread's run-resolution index and leaves the thread's live
+set. On success the lease is consumed and its heartbeat stopped.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `lease` | `DriveLease` | — | — |
+| `member_ids` | `Sequence[str]` | — | — |
+| `resolution` | `Resolution` | — | — |
+| `value` | `Any` | — | — |
+
+
+#### read_resolution
+
+`tai42_kit.interactions.park_index.ParkIndex.read_resolution`
+
+```python
+async read_resolution(self, thread_id: str, superstep: str) -> ResolutionRecord | None
+```
+
+A resolved super-step's record, or ``None`` when it has none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+
+
+#### run_resolutions
+
+`tai42_kit.interactions.park_index.ParkIndex.run_resolutions`
+
+```python
+async run_resolutions(self, thread_id: str) -> dict[str, list[str]]
+```
+
+Every resolved super-step of a thread with its members, ``{}`` when none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+
+
+#### drop_run_resolutions
+
+`tai42_kit.interactions.park_index.ParkIndex.drop_run_resolutions`
+
+```python
+async drop_run_resolutions(self, thread_id: str, *, keep: str | None = None) -> None
+```
+
+Drop every resolved super-step of a thread but ``keep`` (member tombstones and record), then its index.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `keep` | `str \| None` | `None` | — |
+
+
+#### drop_resolution
+
+`tai42_kit.interactions.park_index.ParkIndex.drop_resolution`
+
+```python
+async drop_resolution(self, thread_id: str, superstep: str, *, member_ids: Iterable[str] = ()) -> None
+```
+
+Drop one resolved super-step: its record, its members' tombstones (and ``member_ids``), its index member.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `superstep` | `str` | — | — |
+| `member_ids` | `Iterable[str]` | `()` | — |
+
+
+#### detach
+
+`tai42_kit.interactions.park_index.ParkIndex.detach`
+
+```python
+async detach(self, entry_ids: Sequence[str]) -> None
+```
+
+Tombstone keys that were claimed but never parked on, never overwriting an existing key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry_ids` | `Sequence[str]` | — | — |
+
+
+#### extend_horizon
+
+`tai42_kit.interactions.park_index.ParkIndex.extend_horizon`
+
+```python
+async extend_horizon(self, entry_id: str, expiry_at: datetime | None) -> bool
+```
+
+Grow a live entry's, its barrier's and its live set's TTLs to outlast ``expiry_at``; never shrink one.
+
+Returns ``False`` when no live entry backs ``entry_id`` (absent or a tombstone).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `entry_id` | `str` | — | — |
+| `expiry_at` | `datetime \| None` | — | — |
+
+
+
+## ParkIndexCorruptError
+
+`tai42_kit.interactions._park_types.ParkIndexCorruptError`
+
+```python
+class ParkIndexCorruptError(ParkIndexError)
+```
+
+A stored park index value does not have the shape the index writes.
+
+
+## ParkIndexError
+
+`tai42_kit.interactions._park_types.ParkIndexError`
+
+```python
+class ParkIndexError(RuntimeError)
+```
+
+Base of every park index failure.
+
+
+## ParkValueCodecError
+
+`tai42_kit.interactions._park_types.ParkValueCodecError`
+
+```python
+class ParkValueCodecError(ParkIndexError)
+```
+
+A value cannot be stored in, or read back from, the park index.
+
+
+## Resolution
+
+`tai42_kit.interactions._park_types.Resolution`
+
+```python
+Resolution = Literal['terminal', 'suspended', 'aborted']
+```
+
+
+## ResolutionMissingError
+
+`tai42_kit.interactions._park_types.ResolutionMissingError`
+
+```python
+class ResolutionMissingError(ParkIndexError)
+```
+
+A resolved tombstone points at a resolution record that is gone.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `thread_id` | — |
+| `superstep` | — |
+
+
+## ResolutionRecord
+
+`tai42_kit.interactions._park_types.ResolutionRecord`
+
+```python
+class ResolutionRecord
+```
+
+What a resolved super-step stored: how it resolved and the value a redelivery replays.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `resolution` | `Resolution` |
+| `value` | `Any` |
+
+
+## SuperstepAlreadyResolvedError
+
+`tai42_kit.interactions._park_types.SuperstepAlreadyResolvedError`
+
+```python
+class SuperstepAlreadyResolvedError(ParkIndexError)
+```
+
+The barrier was finalized while an answer was being buffered into it; the super-step already resolved.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `thread_id` | — |
+| `superstep` | — |
+
+
+## TombstoneKind
+
+`tai42_kit.interactions.park_index.TombstoneKind`
+
+```python
+TombstoneKind = Literal['live', 'resolved', 'detached']
+```
+
+
+## barrier_ttl_seconds
+
+`tai42_kit.interactions.park_index.barrier_ttl_seconds`
+
+```python
+barrier_ttl_seconds(expiries: Iterable[datetime | None]) -> int
+```
+
+A barrier's TTL: the entry floor, extended to outlast the LATEST deadline it coordinates plus the margin.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `expiries` | `Iterable[datetime \| None]` | — | — |
+
+
+## decode_value
+
+`tai42_kit.interactions._park_types.decode_value`
+
+```python
+decode_value(encoded: Any) -> Any
+```
+
+Rebuild a value from its tagged mapping (`encode_value`'s inverse).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `encoded` | `Any` | — | — |
+
+
+## encode_value
+
+`tai42_kit.interactions._park_types.encode_value`
+
+```python
+encode_value(value: Any) -> dict[str, Any]
+```
+
+Encode a resolution value or a buffered answer as a tagged JSON mapping.
+
+A contract outcome type keeps its type across the store; any other pydantic model is refused,
+and a plain value must be JSON-serializable.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+## entry_ttl_seconds
+
+`tai42_kit.interactions.park_index.entry_ttl_seconds`
+
+```python
+entry_ttl_seconds(expiry_at: datetime | None) -> int
+```
+
+An entry's TTL: the floor, extended to outlast its ask's deadline plus the margin.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `expiry_at` | `datetime \| None` | — | — |
+
+
+## resolution_ttl_seconds
+
+`tai42_kit.interactions.park_index.resolution_ttl_seconds`
+
+```python
+resolution_ttl_seconds() -> int
+```
+
+The TTL of a resolution record and its tombstones: twice the platform's redelivery horizon.
+
+They must outlive the last redelivery the reaper can fire, plus reaper-cycle and clock-skew
+margin, and no longer (they hold a run's outcome).
+
+
+## superstep_id
+
+`tai42_kit.interactions.park_index.superstep_id`
+
+```python
+superstep_id(member_ids: Iterable[str]) -> str
+```
+
+A deterministic super-step id: a sha256 over the sorted member ids, insensitive to their order.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `member_ids` | `Iterable[str]` | — | — |
+
+
+The chain-fire notice a driver sends when a run that ran nested under another driver reaches its terminal.
+
+A run started inside another driver's chained call re-enters that waiting run at its own
+terminal by firing the chain-delivery tool the platform bound around the call
+(`ChainedResume`). Every driver builds the fire here, so the
+payload has one shape: the chain key, the result, and the status word of the contract.
+
+## terminal_chain_notice
+
+`tai42_kit.interactions.park_adoption.terminal_chain_notice`
+
+```python
+terminal_chain_notice(routing: ChainedResume, result: Any) -> tuple[str, dict[str, Any]]
+```
+
+The ``(delivery tool, payload)`` a run's terminal fires along its captured chain routing.
+
+A `RunFailed` result is a failed terminal: its opaque
+``outcome`` rides as the ``result`` under the ``failed`` status. Any other result is a
+success, carried whole. The payload keys are exactly the chain key, ``result`` and
+``status``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `routing` | `ChainedResume` | — | — |
+| `result` | `Any` | — | — |
+
+
+The give-up handler seam: the driver that parked a run tells its waiter when the platform abandons the park.
+
+When the platform gives up redelivering an answered park (its continuation-due record outlived
+the redelivery horizon), the waiter to tell is the one the parking DRIVER captured for that
+park. The platform names the interaction only; each driver that parks registers one handler,
+reads its own record of that interaction, runs its own failed-terminal epilogue and returns the
+outermost outcome for the platform to deliver to the run's address. A handler returns ``None``
+for an interaction that is not its park.
+
+## ParkGiveUpHandler
+
+`tai42_kit.interactions.park_giveup.ParkGiveUpHandler`
+
+```python
+ParkGiveUpHandler: TypeAlias = Callable[[str, Mapping[str, Any]], Awaitable[ParkGiveUpOutcome | None]]
+```
+
+
+## ParkGiveUpOutcome
+
+`tai42_kit.interactions.park_giveup.ParkGiveUpOutcome`
+
+```python
+class ParkGiveUpOutcome(NamedTuple)
+```
+
+The outermost outcome of a run whose abandoned park its driver gave up, for the platform to deliver.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `result` | `Any` |
+
+
+## fire_park_giveup
+
+`tai42_kit.interactions.park_giveup.fire_park_giveup`
+
+```python
+async fire_park_giveup(interaction_id: str, failed_outcome: Mapping[str, Any]) -> ParkGiveUpOutcome | None
+```
+
+Ask each registered handler in turn to give up ``interaction_id``'s park; return the first one's outcome.
+
+A handler that owns the park returns its outcome and later handlers are not called; ``None``
+when no handler owns it. A handler's raise propagates.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interaction_id` | `str` | — | — |
+| `failed_outcome` | `Mapping[str, Any]` | — | — |
+
+
+## register_park_giveup_handler
+
+`tai42_kit.interactions.park_giveup.register_park_giveup_handler`
+
+```python
+register_park_giveup_handler(handler: ParkGiveUpHandler) -> None
+```
+
+Register a driver's give-up handler; handlers run in registration order. A driver registers once at import.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `handler` | `ParkGiveUpHandler` | — | — |
+
