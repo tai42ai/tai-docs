@@ -158,6 +158,37 @@ a `failed` outcome in-body, a partial failure simply appears as failed slots in 
 transcript rather than aborting the whole map. Scale a large list with the parallel
 mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 
+## How a run runs: tool calls, loops and abort
+
+In autopilot a node awaits a tool that does not declare `tai42/pauses` inside the node;
+the run pauses only at a declared pausing tool or a holder. A node keeps the pause — its
+tool call becomes a pause the run resumes from — when its own tool can pause (a flow call,
+an async ask, any [tool that can pause](/guides/build-a-tool#tools-that-can-pause)), when
+its On Error handler tool can pause, or, inside a loop body, when any tool of the body (its
+On Error handlers and nested bodies included) can pause or the body holds a holder. A
+stepped run (`flow_step`) pauses at every tool call, since its caller runs the tools.
+
+`config.max_iterations` (default 100) is the ceiling on the loop rounds a flow may run:
+the items or rounds an iterate may plan, a `while` loop's default cap, and the bound a
+node's own cap or a router's `maxRuns` must stay under. The engine bounds the graph steps
+one run segment may take from these caps; a flow within its caps never meets that bound.
+There is no setting for it.
+
+A loop is an iterate node: a cycle of edges, conditional branch paths, holder ask exits
+(`on_ask`) or the route from a holder with an ask exit to a conditional that lists it in
+`inputs` is refused at validation.
+
+A cooperative `flow_abort` stops the run before or after a node's tool call, or between
+graph invocations; a running tool call finishes first (`hard=True` cancels it). The abort
+reaches every worker by event, and a worker that misses the event still sees the request
+within 20 seconds.
+
+A tool that returns a park signal without declaring `tai42/pauses` fails its node: a node
+failure of source `app` the node's On Error sees, with `.upstream_outputs.error_type`
+`UndeclaredPauseError`, `.upstream_outputs.error_kind` `unknown`, and the tool named in
+the message. Inside a loop body it is a failed iteration like any body node failure, and a
+run it fails runs the flow-level On Error.
+
 ## Inputs and results
 
 Each flow declares its own inputs and results — the values it expects when it starts
@@ -417,7 +448,7 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
 | `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"app"` when the flow's own logic raised or `"infrastructure"` when the platform beneath it did, so recovery can gate on which. |
-| `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
+| `.inputs` / `.outputs` | The run's inputs and outputs channels at failure — what the [run state](#run-state) keeps. |
 | `$states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
 An On Error dispatches one of two ways, and they are exclusive — declaring both
@@ -1355,6 +1386,40 @@ document. A loader reads the folder at import and turns `node`/`flow` files into
 server calling its own HTTP. The document is the source of truth, and a default is told from an
 operator edit by a content hash. A state-template document a resource ships is registered as a
 platform state-template seed on the [state store](/concepts/states#templates-and-attachments).
+
+## Run state
+
+A run's state keeps of each node's inputs and outputs only what a later step reads, worked
+out once per flow version over every scope — the top-level graph and every loop body:
+
+- **Every value, in order** of `.outputs.<node>` / `.inputs.<node>` when an expression of the
+  flow reads that node by name — a node's expression, run condition or result shaping, a
+  holder's expressions, a conditional's and its branches', a loop's drivers, any On Error.
+- **The newest value** when only the engine reads it: a node's inputs, a flagged result, a
+  loop's output, branch routing.
+- **Nothing** otherwise. A monitoring plugin still records every step's input and output.
+
+An expression the engine cannot bound — one that reads `.outputs` or `.inputs` as a whole
+(`.outputs | keys`, `getpath(...)`, `..`, a function over the channel) or uses a construct the
+analysis does not cover (an inline `def`, an assignment, `label`, destructuring) — makes the
+flow keep every node's full history. Validating or saving such a flow reports a
+`state_read_unbounded` **warning** naming the expression; the flow still saves and runs.
+
+The state also holds `node_visits`: per node visit, the step a monitoring plugin recorded it
+as, and for a holder what the visit did. An On Error entry keeps the error and its context,
+not copies of the run's channels; a loop's per-iteration results leave the state once its
+output is published.
+
+A run records the stored format it was written in and what it keeps. A resume is refused —
+the waiting caller receives FAILED with the reason — when the state was written in another
+format, or when the flow was edited since to read something that run did not keep (the
+message names it, for example `outputs.x (history)`). An edit that only removes reads, or
+reads what the run already kept, resumes. Drain in-flight runs before upgrading to an engine
+release that changes the stored format.
+
+Large node values ride the checkpoint like any other value; the platform compresses them
+above `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES`. `FLOW_REDIS_URL` serves the engine's run
+markers and park index.
 
 ## Checkpoint retention and durability
 

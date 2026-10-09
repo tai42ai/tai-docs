@@ -46,6 +46,18 @@ over the [worker bus](/concepts/worker-bus), not only on the process that made t
 change — so no worker keeps serving a template compiled from stale content, or keeps
 treating a just-created template (or locale variant) as missing.
 
+A plugin that caches something built from rendered templates follows the same eviction.
+`tai42_app.storage.template_reads()` is a context manager that records, into the set it
+yields, every template id a render inside the block reads — a by-id render's whole locale
+fallback chain and every `{% include %}`, `{% extends %}` and `{% import %}` target. A
+handler registered with `@tai42_app.storage.on_template_evicted` is called with a
+`TemplateEviction` (one template id, a directory prefix, or every template; its `covers(id)`
+answers whether an id is dropped) on every process that drops template content, the one
+that made the write included. Keeping the recorded ids beside a cached entry and dropping
+the entries the eviction covers refreshes exactly what read the changed content. The
+babelfish flows engine caches its flows this way: a template write refreshes exactly the
+cached flows that read it, on every worker.
+
 ### Locale variants
 
 A template renders against the [subject's `locale`](/concepts/client-conversations#the-persons-locale)
