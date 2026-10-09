@@ -195,6 +195,13 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.clients"],
     },
     {
+        "slug": "kit-postgres",
+        "title": "Postgres client (tai42_kit.clients.impl.postgres)",
+        "description": "The pooled Postgres client, autocommit reads, pinned and dedicated connections.",
+        "icon": "database",
+        "modules": ["tai42_kit.clients.impl.postgres"],
+    },
+    {
         "slug": "kit-llm",
         "title": "LLM factories and the classifier contract (tai42_kit.llm)",
         "description": "LLM, embedding, checkpoint, and store factories, plus the classifier contract models.",
@@ -260,7 +267,8 @@ PAGES: list[dict] = [
 ]
 
 # The public Protocols/ABCs a plugin author implements, the escape-hatch
-# accessor, and the guarded fetch helper. Every one MUST appear as a rendered
+# accessor, the guarded fetch helper, and the Postgres client's connection
+# helpers. Every one MUST appear as a rendered
 # heading or the run fails.
 REQUIRED_SYMBOLS = [
     "Agent",
@@ -286,6 +294,9 @@ REQUIRED_SYMBOLS = [
     "ParkGiveUpOutcome",
     "register_park_giveup_handler",
     "fire_park_giveup",
+    "PostgresClient",
+    "read_connection",
+    "pinned_connection",
 ]
 
 

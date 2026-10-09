@@ -1,0 +1,141 @@
+---
+title: "Postgres client (tai42_kit.clients.impl.postgres)"
+description: "The pooled Postgres client, autocommit reads, pinned and dedicated connections."
+icon: "database"
+---
+
+
+Pooled Postgres client built on ``psycopg_pool.AsyncConnectionPool``.
+
+## EXPLICIT_DSN_POOL_MAX_SIZE
+
+`tai42_kit.clients.impl.postgres.EXPLICIT_DSN_POOL_MAX_SIZE`
+
+```python
+EXPLICIT_DSN_POOL_MAX_SIZE: Final = 20
+```
+
+
+## EXPLICIT_DSN_POOL_MIN_SIZE
+
+`tai42_kit.clients.impl.postgres.EXPLICIT_DSN_POOL_MIN_SIZE`
+
+```python
+EXPLICIT_DSN_POOL_MIN_SIZE: Final = 1
+```
+
+
+## PostgresClient
+
+`tai42_kit.clients.impl.postgres.PostgresClient`
+
+```python
+class PostgresClient(PooledClient[_Pool])
+```
+
+Pooled ``psycopg_pool.AsyncConnectionPool``, one pool per DSN per loop.
+
+The pool is named ``<owner>@<host>/<db>``; ``min_size``/``max_size`` are this
+database's deployment settings read when the pool is built; a second settings
+prefix resolving to the same DSN with different sizes raises. Compose
+``PostgresConnectionSettings`` for the connection kwargs.
+
+
+## open_dedicated_pool
+
+`tai42_kit.clients.impl.postgres.open_dedicated_pool`
+
+```python
+async open_dedicated_pool(
+    target: PostgresConnectionSettings | str,
+    *,
+    role: str,
+    connection_kwargs: dict[str, Any] | None = None,
+) -> _Pool
+```
+
+Open a dedicated (not shared) named pool for ``role``, its first connection proven and its fill awaited.
+
+A settings object supplies the DSN and the deployment's pool sizes; a DSN string gets
+`EXPLICIT_DSN_POOL_MIN_SIZE` / `EXPLICIT_DSN_POOL_MAX_SIZE`. The pool is named
+``postgres@<host>/<db>:<role>``; ``connection_kwargs`` apply to every connection it opens. The
+caller owns the pool and closes it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `target` | `PostgresConnectionSettings \| str` | — | — |
+| `role` | `str` | — | — |
+| `connection_kwargs` | `dict[str, Any] \| None` | `None` | — |
+
+
+## pinned_connection
+
+`tai42_kit.clients.impl.postgres.pinned_connection`
+
+```python
+async pinned_connection(settings: PostgresConnectionSettings) -> AsyncIterator[AsyncConnection]
+```
+
+Yield one dedicated connection held for the whole context.
+
+A one-connection pool (``min_size == max_size == 1``) built outside the shared
+cache, named ``<owner>@<host>/<db>:pinned``, opened through the same probe and
+bounded fill as the pooled path. The caller holds exactly one connection, so a
+session-scoped advisory lock taken on it covers every statement in the body, and
+a driver error on it never touches the shared pool. The pool and its connection
+close on any exit — normal return, exception, or cancellation.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `settings` | `PostgresConnectionSettings` | — | — |
+
+
+## postgres_pool_name
+
+`tai42_kit.clients.impl.postgres.postgres_pool_name`
+
+```python
+postgres_pool_name(dsn: str, owner: str, role: str = '') -> str
+```
+
+The psycopg_pool ``name`` for a database pool: ``<owner>@<host>/<db>``.
+
+Host and database come from the DSN via ``conninfo_to_dict`` — never the user
+or password, which must not reach a pool name that surfaces in log lines. A
+non-empty ``role`` appends a ``:<role>`` suffix so a dedicated pool (a pinned
+connection, a langgraph store/checkpoint pool) is distinguishable in the logs.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dsn` | `str` | — | — |
+| `owner` | `str` | — | — |
+| `role` | `str` | `''` | — |
+
+
+## read_connection
+
+`tai42_kit.clients.impl.postgres.read_connection`
+
+```python
+async read_connection(pool: AsyncConnectionPool[Any]) -> AsyncIterator[AsyncConnection[Any]]
+```
+
+A pooled connection in autocommit mode for stand-alone reads: each statement runs on its own, no BEGIN/COMMIT.
+
+Plain SELECTs only. A locking read (FOR UPDATE / FOR SHARE), a write, or statements
+that must be atomic together run on ``pool.connection()`` inside
+``conn.transaction()``. The pool must be a `PostgresClient` pool, whose reset
+callback returns the connection to transactional mode when it comes back.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `pool` | `AsyncConnectionPool[Any]` | — | — |
+

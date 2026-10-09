@@ -1049,6 +1049,14 @@ setting below is refused at boot and on every env write.
 A turn waiting for a busy thread starts when the running turn releases the thread (a
 notification), or when a crashed holder's lease expires.
 
+The notification is Redis pub/sub on the conversations Redis: a release publishes the thread id
+on the channel `<prefix>:thread_lease_released`, and a waiting turn subscribes to it. When the
+conversations Redis user is a restricted ACL user (Redis 7 creates new ACL users with
+`resetchannels`), grant it the `PUBLISH` and `SUBSCRIBE` commands and that channel (for example
+`+publish +subscribe &conversations:thread_lease_released` with the default `prefix`). Without
+them every release logs `conversations: releasing thread lease … failed; its TTL is the hard
+bound` and every turn that has to wait for a busy thread fails on its subscribe.
+
 ### Delivery bounds
 
 | Setting | Default | Meaning |
