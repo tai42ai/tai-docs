@@ -9,7 +9,7 @@ icon: "sliders"
   with `scripts/generate-settings-reference.py`.
 </Note>
 
-Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 534 entries across 90 groups (523 variables and 11 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
+Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 536 entries across 91 groups (525 variables and 11 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
 
 ## AccessControlRedisSettings
 
@@ -51,12 +51,11 @@ Module `tai42_skeleton.access_control.settings`.
 | `ACCESS_CONTROL_POLICY_VERSION_KEY` | `string` | `"ac:policy_version"` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_PUBLIC_RESOURCE_ID` | `string` | `"public"` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_RESERVED_PUBLIC_PIN_PREFIXES` | `array` | `["/api/auth"]` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` | `array` | `["/api/login"]` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_AUTHENTICATED_ALWAYS_ALLOWED_PATHS` | `array` | `["/api/auth/me"]` | — | Optional | `hot` | — |
+| `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_SPA_SHELL_PUBLIC` | `boolean` | `true` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_RESERVED_OPERATIONAL_SUPPLEMENT` | `array` | `["/openapi.json"]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES` | `array` | `["/health", "/ready", "/universal_webhook/{topic}", "/trigger/{token}", "/{spa_path:path}"]` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `["/api/plugins/[^/]+/studio/.+"]` | — | Optional | `hot` | — |
+| `ACCESS_CONTROL_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_PATH_PATTERNS` | `object` | `{}` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
@@ -106,6 +105,7 @@ Module `tai42_agents.settings`.
 | `TAI_AGENTS_CHAINED_PARK_HORIZON_CAP_HOURS` | `integer` | `168` | — | Optional | `hot` | — |
 | `TAI_AGENTS_DEFAULT_RECURSION_LIMIT` | `integer` | `50` | — | Optional | `hot` | — |
 | `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` | `integer` | `3` | — | Optional | `hot` | — |
+| `TAI_AGENTS_GRAPH_CACHE_SIZE` | `integer` | `64` | — | Optional | `hot` | — |
 
 ## AgentsParkRedisSettings
 
@@ -222,6 +222,16 @@ Module `tai42_backend_celery.core.settings`.
 | `CELERY_REDBEAT_KEY_PREFIX` | `string` | `"redbeat:"` | — | Optional | `hot` | — |
 | `CELERY_BEAT_MAX_LOOP_INTERVAL` | `integer` | `60` | — | Optional | `hot` | — |
 | `CELERY_WORKER_CONCURRENCY` | `integer` | `1` | — | Optional | `hot` | — |
+
+## ChannelsSettings
+
+Module `tai42_skeleton.channels.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `CHANNELS_NOTIFICATIONS_FEED_MAX` | `integer` | `1000` | — | Optional | `hot` | — |
+| `CHANNELS_NOTIFICATIONS_FEED_TTL_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
+| `CHANNELS_SEND_RECEIPT_INDEX_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
 
 ## ClassifierSettings
 
@@ -374,7 +384,6 @@ Module `tai42_skeleton.conversations.settings`.
 | `CONVERSATIONS_INTAKE_CLAIM_REFRESH_SECONDS` | `integer` | `30` | — | Optional | `hot` | — |
 | `CONVERSATIONS_THREAD_LEASE_SECONDS` | `integer` | `120` | — | Optional | `hot` | — |
 | `CONVERSATIONS_THREAD_LEASE_REFRESH_SECONDS` | `integer` | `30` | — | Optional | `hot` | — |
-| `CONVERSATIONS_THREAD_LEASE_POLL_SECONDS` | `number` | `0.5` | — | Optional | `hot` | — |
 | `CONVERSATIONS_OVERLAP_CANCEL_POLL_SECONDS` | `number` | `0.5` | — | Optional | `hot` | — |
 | `CONVERSATIONS_SYNC_DOOR_WAIT_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
 | `CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` | `number` | `180.0` | — | Optional | `hot` | — |
@@ -559,11 +568,8 @@ Module `tai42_skeleton.interactions.settings`.
 |---|---|---|---|---|---|---|
 | — | `object` | — | — | Optional | — | Grouped settings — see [InteractionsRedisSettings](#interactionsredissettings). |
 | `INTERACTIONS_KEY_PREFIX` | `string` | `"interactions:"` | — | Optional | `hot` | — |
-| `INTERACTIONS_NOTIFICATIONS_FEED_MAX` | `integer` | `1000` | — | Optional | `hot` | — |
-| `INTERACTIONS_NOTIFICATIONS_FEED_TTL_SECONDS` | `integer` | `2592000` | — | Optional | `hot` | — |
 | `INTERACTIONS_ANSWER_TIMEOUT_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
 | `INTERACTIONS_IDLE_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
-| `INTERACTIONS_SEND_RECEIPT_INDEX_TTL_SECONDS` | `integer` | `86400` | — | Optional | `hot` | — |
 | `INTERACTIONS_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
 | `INTERACTIONS_CALLBACK_MAX_BODY_BYTES` | `integer` | `65536` | — | Optional | `hot` | — |
 | `INTERACTIONS_MAX_CONCURRENT` | `integer` | `1000` | — | Optional | `hot` | — |
@@ -593,7 +599,9 @@ Module `tai42_kit.llm.settings`.
 | `LLM_PROVIDER_CLASSIFIER` | `string` | `"typesafe"` | — | Optional | `hot` | — |
 | `LLM_PROVIDER_CHECKPOINT` | `string` | `"redis"` | — | Optional | `hot` | — |
 | `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | `string` | — | — | Optional | `hot` | — |
-| `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` | `integer` | — | — | Optional | `hot` | — |
+| `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `integer` | `10080` | — | Optional | `hot` | — |
+| `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` | `integer` | `1440` | — | Optional | `hot` | — |
+| `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES` | `integer` | `65536` | — | Optional | `hot` | — |
 | `LLM_PROVIDER_STORE` | `string` | `"redis"` | — | Optional | `hot` | — |
 | `LLM_PROVIDER_STORE_CONN_STRING` | `string` | — | — | Optional | `hot` | — |
 
@@ -666,6 +674,7 @@ Module `tai42_kit.clients.settings`.
 |---|---|---|---|---|---|---|
 | `MCP_CLIENT_CONNECT_TIMEOUT_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
 | `MCP_CLIENT_CALL_TIMEOUT_SECONDS` | `number` | `300` | — | Optional | `hot` | — |
+| `MCP_CLIENT_KEEPALIVE_EXPIRY_SECONDS` | `number` | `30` | — | Optional | `hot` | — |
 
 ## MCPDispatchSettings
 
@@ -984,7 +993,7 @@ Module `tai42_skeleton.template.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `TEMPLATE_CACHE_TTL` | `integer` | `300` | — | Optional | `hot` | — |
-| `TEMPLATE_CACHE_MAX_SIZE` | `integer` | `256` | — | Optional | `hot` | — |
+| `TEMPLATE_CACHE_MAX_SIZE` | `integer` | `1024` | — | Optional | `hot` | — |
 
 ## ToolRunsRedisSettings
 

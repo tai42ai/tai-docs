@@ -1092,6 +1092,8 @@ custom_route(
     destructive: bool = False,
     action: RouteAction | None = None,
     self_service: bool = False,
+    any_authenticated: bool = False,
+    pre_auth: bool = False,
     declared: DeclaredRouteMetadata | None = None,
     no_body_reason: str | None = None,
     enveloped: bool = True,
@@ -1147,6 +1149,16 @@ coverage gate consume, so every registration MUST describe itself:
   under an otherwise admin-gated prefix (an own-credential change under
   ``/api/auth``). The seed derives the carve-in from every route declaring
   this, so the platform names no provider's route.
+* ``any_authenticated`` — whether this route is reachable by ANY authenticated
+  identity whatever its scopes and whatever the route table maps (an
+  identity-introspection route); the base-tier jq still applies; an
+  unauthenticated caller is denied 401. Requires the route to be authenticated.
+* ``pre_auth`` — whether this route is a pre-authentication surface (login,
+  recovery, claim exchange): presented credentials are NOT verified, so a stale
+  credential can never lock a caller out of the door that replaces it; the route
+  is public and no policy layer runs. Requires the route to be public. A declared
+  plugin route passes either flag itself; a flag contradicting the route's
+  publicness is a registration error.
 * ``declared`` — the route's behavioral OpenAPI properties (a
   `DeclaredRouteMetadata`): its ``reload_gated`` / ``reads_body`` /
   error statuses / success status. A route in the ``/api/*`` spec surface
@@ -1179,6 +1191,8 @@ the reload-gate ``503`` response is derived from the handler body.
 | `destructive` | `bool` | `False` | — |
 | `action` | `RouteAction \| None` | `None` | — |
 | `self_service` | `bool` | `False` | — |
+| `any_authenticated` | `bool` | `False` | — |
+| `pre_auth` | `bool` | `False` | — |
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
 | `no_body_reason` | `str \| None` | `None` | — |
 | `enveloped` | `bool` | `True` | — |
@@ -1315,11 +1329,14 @@ Authorise the caller to resume (or deliver an outcome for) ``interaction_id`` �
 A driver's continuation face and cross-driver chain-delivery tool call this with the id
 they are about to resume/deliver-to, BEFORE producing any outcome, because those tools are
 dispatchable by name at the run-tool door and the MCP edge. Authorised only inside the
-platform's own resume of that run: it passes iff the ambient run-authorization context
-names ``interaction_id`` directly (the resume origin) OR the interaction's stored run
-delivery identity matches the ambient one (a cross-driver chain re-entry of the same run).
+platform's own drive (resume, kill or give-up) of that run: it passes iff the ambient
+run-authorization context names ``interaction_id`` directly (the resume origin), OR the
+interaction's stored run delivery identity matches the ambient one (another interaction of
+the same run), OR ``interaction_id`` is a chain key in the driven interaction's recorded
+chain lineage (a cross-driver chain re-entry of a caller the driven run is nested under).
 Raises `ParkResumeUnauthorizedError` for an external
-caller (no origin) or an id belonging to another run — never a mere presence test.
+caller (no origin), an id belonging to another run, or a chain key outside the lineage —
+never a mere presence test.
 
 **Parameters**
 
@@ -1673,20 +1690,23 @@ it spawns attaches to the serving loop and retires with its generation.
 `tai42_contract.app.facets.runtime.AppLifecycle.on_fleet_op_applied`
 
 ```python
-on_fleet_op_applied(self, func: Callable[[str], Any]) -> Callable[[str], Any]
+on_fleet_op_applied(self, func: Callable[[str, float], Any]) -> Callable[[str, float], Any]
 ```
 
 Register a handler fired after any worker-bus op applies in this process.
 
-Also fired after the reconnect self-resync reload. Unlike its zero-arg
-siblings, the handler takes ONE argument — the op name — so it can act on
-some ops and skip others (a query op carries no state change to react to).
+Also fired after the reconnect self-resync reload. The handler is called
+``handler(op_name, budget)``: ``op_name`` lets it act on some ops and skip others
+(a query op carries no state change to react to); ``budget`` — seconds remaining
+before the publisher's report cut, measured from this process's receipt of the op
+(the bus transit before receipt is not subtracted); a post-apply obligation that
+cannot finish within it must raise.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `func` | `Callable[[str], Any]` | — | — |
+| `func` | `Callable[[str, float], Any]` | — | — |
 
 
 #### wait_until_ready
@@ -2438,6 +2458,128 @@ Raises `TemplateInUseError` while it is still attached.
 | `name` | `str` | — | — |
 
 
+#### get_rendered_template
+
+`tai42_contract.app.facets.states.AppStates.get_rendered_template`
+
+```python
+async get_rendered_template(self, name: str) -> RenderedStateTemplate | None
+```
+
+The stored template ``name`` rendered — every body as jq text, the input programs ordered.
+
+``None`` when no such template is stored. A body that cannot be rendered raises
+`TemplateValidationError` naming the template.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### rendered_attachments
+
+`tai42_contract.app.facets.states.AppStates.rendered_attachments`
+
+```python
+async rendered_attachments(self, state: str) -> list[RenderedAttachment]
+```
+
+Every attachment on ``state`` with its rendered template, ordered by template name.
+
+Raises `StateNotFoundError` for an undeclared state.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+
+
+#### render_template
+
+`tai42_contract.app.facets.states.AppStates.render_template`
+
+```python
+async render_template(self, doc: StateTemplateDocument) -> RenderedStateTemplate
+```
+
+Render a candidate template document that is not stored (its ``version`` is ``"candidate"``).
+
+Validates the document as a store would; a refusal raises
+`TemplateValidationError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `StateTemplateDocument` | — | — |
+
+
+#### resolve_template_jq
+
+`tai42_contract.app.facets.states.AppStates.resolve_template_jq`
+
+```python
+async resolve_template_jq(
+    self,
+    state: str,
+    name: str,
+    *,
+    purpose: Literal['input', 'update'],
+    declared: Collection[str] = (),
+) -> ResolvedTemplateJq
+```
+
+Resolve the ``template_jq`` reference ``name`` on ``state`` to the program a ``purpose`` call would run.
+
+``<template>.<name>`` resolves to that template's program; an unqualified ``name`` to the one
+template that declares it across every attachment on the state. ``declared`` names templates
+a caller is about to attach: each one not attached yet is resolved as if attached at
+``[<template>]``. A template not attached (nor declared), or no such program, raises
+`StateNotFoundError`; a name two templates declare, or a
+program whose purpose is not ``purpose``, raises
+`ValueValidationError`. The rule every ``template_jq`` door
+evaluates and applies by, so a reference accepted here resolves the same way at run time.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `name` | `str` | — | — |
+| `purpose` | `Literal['input', 'update']` | — | — |
+| `declared` | `Collection[str]` | `()` | — |
+
+
+#### resolve_subject
+
+`tai42_contract.app.facets.states.AppStates.resolve_subject`
+
+```python
+async resolve_subject(self, state: str, ref: str | Mapping[str, Any] | None) -> StateSubject
+```
+
+Resolve a subject reference for ``state`` into a full `StateSubject`.
+
+A mapping with both ``target_kind`` and ``target_name`` is the full subject; a ``{kind, key}``
+mapping takes its target from the ambient `context`; a key string takes the state's
+``default_subject_kind`` and the ambient target; ``None`` takes the ambient candidate for
+the state's ``default_subject_kind``. A reference that cannot be resolved — one target field
+without the other, no ambient context where one is needed, a blank key, no ambient
+candidate, a malformed mapping, any other shape — raises
+`SubjectRefusedError` naming the rule; an undeclared state
+raises `StateNotFoundError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `state` | `str` | — | — |
+| `ref` | `str \| Mapping[str, Any] \| None` | — | — |
+
+
 #### list_attachments
 
 `tai42_contract.app.facets.states.AppStates.list_attachments`
@@ -2989,8 +3131,8 @@ register_attach_validator(self, validator: AttachValidator) -> None
 Register a data-dependent attach validator.
 
 A plugin calls this through the ``tai42_app`` handle when its module loads. The
-validator receives the template document, an attachment's declaration values, and the
-state's effective schema, and RAISES to refuse; it runs before every ``attach``,
+validator receives the state name, the template document, an attachment's declaration
+values, and the state's effective schema, and RAISES to refuse; it runs before every ``attach``,
 ``update_attachment_declarations`` and ``put_template(replace=True)`` write, so a
 consumer's checks fire at the platform's declarations doors, the States page
 included.
@@ -3318,6 +3460,20 @@ Remove the tool registered under ``name``.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | — | — |
+
+
+#### surface_generation
+
+`tai42_contract.tools.AppTools.surface_generation`
+
+```python
+surface_generation(self) -> int
+```
+
+A number that changes whenever the set of tools this process lists changes.
+
+Monotonic within a process; never compared across processes. A consumer that caches
+anything derived from ``get_tools``/``get_client_tools`` keys the cache on it.
 
 
 #### register_tool_info

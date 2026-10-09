@@ -948,8 +948,19 @@
         "type": "object"
       },
       "CheckpointSweepResult": {
-        "description": "The checkpoint-sweep report.\n\n``skipped`` is present ONLY on a no-op branch (an unsweepable provider or an\nunset TTL); a real sweep omits it and reports the swept threads.",
+        "description": "The checkpoint-sweep report.\n\n``finished_swept`` / ``waiting_swept`` list the threads deleted past each horizon;\n``spared`` lists the threads past a horizon a live-thread filter reported live.\n``skipped`` is set only when the provider has no waiting-horizon sweep (its threads\nexpire by key TTL, or live as long as the process).",
         "properties": {
+          "finished_minutes": {
+            "title": "Finished Minutes",
+            "type": "integer"
+          },
+          "finished_swept": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Finished Swept",
+            "type": "array"
+          },
           "provider": {
             "title": "Provider",
             "type": "string"
@@ -966,34 +977,37 @@
             "default": null,
             "title": "Skipped"
           },
+          "spared": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spared",
+            "type": "array"
+          },
           "swept_count": {
             "title": "Swept Count",
             "type": "integer"
           },
-          "swept_threads": {
+          "waiting_minutes": {
+            "title": "Waiting Minutes",
+            "type": "integer"
+          },
+          "waiting_swept": {
             "items": {
               "type": "string"
             },
-            "title": "Swept Threads",
+            "title": "Waiting Swept",
             "type": "array"
-          },
-          "ttl_minutes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Ttl Minutes"
           }
         },
         "required": [
           "provider",
+          "waiting_minutes",
+          "finished_minutes",
           "swept_count",
-          "swept_threads"
+          "finished_swept",
+          "waiting_swept",
+          "spared"
         ],
         "title": "CheckpointSweepResult",
         "type": "object"
@@ -3498,10 +3512,35 @@
         "type": "array"
       },
       "EnvUpdate": {
-        "additionalProperties": {
-          "type": "string"
+        "additionalProperties": false,
+        "description": "An env write: overrides merged into the stored env, and optionally the whole set of secret marks.\n\n``env`` maps names to string values (``\"\"`` deletes a name). ``secret_keys`` absent or\n``null`` leaves the stored marks untouched; a list REPLACES them (``[]`` deletes them).",
+        "properties": {
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "object"
+          },
+          "secret_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Secret Keys"
+          }
         },
-        "description": "An env override map — a ``{name: value}`` object whose values are all strings.\n\nMerged into the stored env config before a hot reload.",
+        "required": [
+          "env"
+        ],
         "title": "EnvUpdate",
         "type": "object"
       },
@@ -7261,8 +7300,76 @@
         "title": "OAuthSuccess",
         "type": "object"
       },
+      "ObservabilityCapabilities": {
+        "description": "What the monitoring backend serves, in the run list's wire names.\n\n``pageSizeMax`` is the largest run-list page; ``sortKeys`` the run-list sort keys it\nserves; ``incompatibleFilters`` maps a sort key to the run-list filter params it cannot\nbe combined with.",
+        "properties": {
+          "incompatibleFilters": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Incompatiblefilters",
+            "type": "object"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ObservabilityMetricsCapabilities"
+          },
+          "pageSizeMax": {
+            "title": "Pagesizemax",
+            "type": "integer"
+          },
+          "sortKeys": {
+            "items": {
+              "enum": [
+                "createdAt",
+                "cost",
+                "latencyMs",
+                "totalTokens"
+              ],
+              "type": "string"
+            },
+            "title": "Sortkeys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pageSizeMax",
+          "sortKeys",
+          "incompatibleFilters",
+          "metrics"
+        ],
+        "title": "ObservabilityCapabilities",
+        "type": "object"
+      },
+      "ObservabilityMetricsCapabilities": {
+        "description": "The neutral measures and dimensions the backend's metrics query serves.",
+        "properties": {
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "measures": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Measures",
+            "type": "array"
+          }
+        },
+        "required": [
+          "measures",
+          "dimensions"
+        ],
+        "title": "ObservabilityMetricsCapabilities",
+        "type": "object"
+      },
       "ObservabilityRunView": {
-        "description": "One run-list row projected from a trace summary.\n\n``inputPreview``/``outputPreview`` are the backend's server-bounded\n(structurally-clipped) JSON previews; the full bodies live on the trace.\nNullable aggregates are ``null`` when the backend returned none.",
+        "description": "One run-list row projected from a trace summary.\n\n``inputPreview``/``outputPreview`` are server-bounded (structurally-clipped)\nJSON previews of the run's input and output; the full bodies live on the trace.\nNullable aggregates are ``null`` when the backend returned none.",
         "properties": {
           "cost": {
             "anyOf": [
@@ -9364,6 +9471,10 @@
               }
             ]
           },
+          "public_resource_id": {
+            "title": "Public Resource Id",
+            "type": "string"
+          },
           "route_patterns": {
             "items": {
               "$ref": "#/components/schemas/PatternEntry"
@@ -9409,6 +9520,7 @@
           "owner_user_id",
           "principal",
           "admin",
+          "public_resource_id",
           "scopes",
           "routes",
           "route_patterns",
@@ -9818,6 +9930,43 @@
           "secret"
         ],
         "title": "RequiredEnvVar",
+        "type": "object"
+      },
+      "ResolvedSpanValue": {
+        "description": "One span field's value (at an RFC 6901 pointer) with every record reference resolved.",
+        "properties": {
+          "field": {
+            "enum": [
+              "input",
+              "output"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "pointer": {
+            "title": "Pointer",
+            "type": "string"
+          },
+          "spanId": {
+            "title": "Spanid",
+            "type": "string"
+          },
+          "traceId": {
+            "title": "Traceid",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue",
+            "default": null
+          }
+        },
+        "required": [
+          "traceId",
+          "spanId",
+          "field",
+          "pointer"
+        ],
+        "title": "ResolvedSpanValue",
         "type": "object"
       },
       "ResourceContent": {
@@ -10262,28 +10411,6 @@
         "title": "RouteCollision",
         "type": "object"
       },
-      "RouteConfig": {
-        "description": "The tools and transport exposed by one registered sub-MCP app.",
-        "properties": {
-          "tools": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Tools",
-            "type": "array"
-          },
-          "transport": {
-            "default": "http",
-            "title": "Transport",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tools"
-        ],
-        "title": "RouteConfig",
-        "type": "object"
-      },
       "RouteEntry": {
         "description": "A concrete route the caller can reach, with the methods that pass its jq.",
         "properties": {
@@ -10438,6 +10565,28 @@
           "tool_name"
         ],
         "title": "RunToolRequest",
+        "type": "object"
+      },
+      "RunTraceOutlineView": {
+        "description": "The span tree of one run: every span without its input and output.",
+        "properties": {
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/SpanOutlineView"
+            },
+            "title": "Spans",
+            "type": "array"
+          },
+          "traceId": {
+            "title": "Traceid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "traceId",
+          "spans"
+        ],
+        "title": "RunTraceOutlineView",
         "type": "object"
       },
       "RunTraceView": {
@@ -11268,7 +11417,7 @@
         "type": "object"
       },
       "SettingsProfileBody": {
-        "description": "The persisted body of a versioned settings profile.\n\n``env`` is the whole profile-managed env band (values verbatim, secrets\nincluded — the store rides the ``secret=True`` versioned-documents backup\nsection); applying the profile REPLACES the stored env with it (a key the\nprofile does not name is deleted, save the carried X-band). ``secret_keys`` are\nthe per-profile secret marks (which ``env`` keys are secret) folded into the\ndisplay mask union. ``description`` is the profile's human description.",
+        "description": "The persisted body of a versioned settings profile.\n\n``env`` is the whole profile-managed env band (values verbatim, secrets\nincluded — the store rides the ``secret=True`` versioned-documents backup\nsection); applying the profile REPLACES the stored env with it (a key the\nprofile does not name is deleted, save the carried X-band). ``secret_keys`` are\nthe band's operator secret marks (which ``env`` keys are secret); applying the\nprofile writes them as the stored secret marks, from which the display mask\nunion is derived. ``description`` is the profile's human description.",
         "properties": {
           "description": {
             "default": "",
@@ -11462,8 +11611,176 @@
         "title": "SetupResult",
         "type": "object"
       },
+      "SpanOutlineView": {
+        "description": "One span within a run trace, without its input and output.\n\n``kind`` is the backend's observation type mapped onto the neutral kinds; the token\ncounts are ``null`` when the producer reported none. ``metadata`` is the producer's\nmetadata (open JSON), passed through whole, the platform reading no key out of it.",
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "inputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inputtokens"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LLM",
+                  "TOOL",
+                  "CHAIN",
+                  "EVENT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Level"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/JsonValue",
+            "default": null
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "outputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outputtokens"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parentid"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start"
+          },
+          "statusMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Statusmessage"
+          },
+          "totalTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Totaltokens"
+          },
+          "traceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Traceid"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "SpanOutlineView",
+        "type": "object"
+      },
       "SpanView": {
-        "description": "One span within a run trace.\n\n``input``/``output``/``usage``/``metadata`` are the backend's free-form values\n(open JSON); ``metadata`` is passed through whole, the platform reading no key\nout of it.",
+        "description": "One span within a run trace, with its free-form input and output (open JSON).",
         "properties": {
           "end": {
             "anyOf": [
@@ -11484,6 +11801,36 @@
           "input": {
             "$ref": "#/components/schemas/JsonValue",
             "default": null
+          },
+          "inputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inputtokens"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LLM",
+                  "TOOL",
+                  "CHAIN",
+                  "EVENT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
           },
           "level": {
             "anyOf": [
@@ -11529,6 +11876,18 @@
             "$ref": "#/components/schemas/JsonValue",
             "default": null
           },
+          "outputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outputtokens"
+          },
           "parentId": {
             "anyOf": [
               {
@@ -11565,6 +11924,18 @@
             "default": null,
             "title": "Statusmessage"
           },
+          "totalTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Totaltokens"
+          },
           "traceId": {
             "anyOf": [
               {
@@ -11576,22 +11947,6 @@
             ],
             "default": null,
             "title": "Traceid"
-          },
-          "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Type"
-          },
-          "usage": {
-            "$ref": "#/components/schemas/JsonValue",
-            "default": null
           }
         },
         "required": [
@@ -12037,8 +12392,7 @@
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
-                  "type": "object"
+                  "$ref": "#/components/schemas/StateRegimeRule"
                 },
                 "type": "array"
               },
@@ -12298,6 +12652,35 @@
         "description": "The ``read_state_record`` body: one subject's record as a ``StateRecord``, or ``null`` when it holds none.",
         "title": "StateRecordOrNull"
       },
+      "StateRegimeRule": {
+        "additionalProperties": false,
+        "description": "One write-regime rule: a ``path`` (object keys and the ``\"*\"`` wildcard; ``[]`` is the root) and its ``regime``.\n\nAn undeclared path is ``free``.",
+        "properties": {
+          "path": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "regime": {
+            "enum": [
+              "single",
+              "composing",
+              "free"
+            ],
+            "title": "Regime",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "regime"
+        ],
+        "title": "StateRegimeRule",
+        "type": "object"
+      },
       "StateSearchPage": {
         "description": "One keyset page of a state's containment-matched records (``search_state_records``) — the matching subjects.\n\n``next_cursor`` is ``null`` on the last page.",
         "properties": {
@@ -12487,7 +12870,9 @@
             "type": "string"
           },
           "parameters": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StateTemplateParameter"
+            },
             "title": "Parameters",
             "type": "object"
           },
@@ -12504,8 +12889,7 @@
           },
           "regimes": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/StateRegimeRule"
             },
             "title": "Regimes",
             "type": "array"
@@ -12542,9 +12926,7 @@
             "title": "Template Jq"
           },
           "trace": {
-            "additionalProperties": true,
-            "title": "Trace",
-            "type": "object"
+            "$ref": "#/components/schemas/StateTemplateTrace"
           }
         },
         "required": [
@@ -12613,7 +12995,9 @@
             "type": "string"
           },
           "parameters": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StateTemplateParameter"
+            },
             "title": "Parameters",
             "type": "object"
           },
@@ -12630,8 +13014,7 @@
           },
           "regimes": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/StateRegimeRule"
             },
             "title": "Regimes",
             "type": "array"
@@ -12664,9 +13047,7 @@
             "title": "Template Jq"
           },
           "trace": {
-            "additionalProperties": true,
-            "title": "Trace",
-            "type": "object"
+            "$ref": "#/components/schemas/StateTemplateTrace"
           }
         },
         "required": [
@@ -12676,6 +13057,10 @@
         "type": "object"
       },
       "StateTemplateJq": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "StateTemplateParameter": {
         "additionalProperties": true,
         "type": "object"
       },
@@ -12699,6 +13084,19 @@
           "resolutions"
         ],
         "title": "StateTemplateReconcile",
+        "type": "object"
+      },
+      "StateTemplateTrace": {
+        "additionalProperties": false,
+        "description": "The trace switch: when ``enabled``, every write under an attachment of the template stamps ``_trace``.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "StateTemplateTrace",
         "type": "object"
       },
       "StateUpdate-Input": {
@@ -13072,8 +13470,16 @@
         "type": "object"
       },
       "SubMcpEntry": {
-        "description": "A sub-MCP mount the caller can reach.",
+        "description": "A sub-MCP mount the caller can reach, with the served URL and access pattern a route row maps it by.",
         "properties": {
+          "access_pattern": {
+            "title": "Access Pattern",
+            "type": "string"
+          },
+          "mount_url": {
+            "title": "Mount Url",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -13093,16 +13499,50 @@
         "required": [
           "slug",
           "tools",
-          "transport"
+          "transport",
+          "mount_url",
+          "access_pattern"
         ],
         "title": "SubMcpEntry",
         "type": "object"
       },
+      "SubMcpListingEntry": {
+        "description": "One registered sub-MCP app: its durable ``tools`` + ``transport`` and its served mount.\n\n``mount_url`` is the URL the app is served at (its route-table key) and ``access_pattern``\nthe dynamic route pattern that maps every sub-path of the mount to that key, so a client\nmaps the mount without rebuilding either.",
+        "properties": {
+          "access_pattern": {
+            "title": "Access Pattern",
+            "type": "string"
+          },
+          "mount_url": {
+            "title": "Mount Url",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tools",
+          "transport",
+          "mount_url",
+          "access_pattern"
+        ],
+        "title": "SubMcpListingEntry",
+        "type": "object"
+      },
       "SubMcpMapListing": {
         "additionalProperties": {
-          "$ref": "#/components/schemas/RouteConfig"
+          "$ref": "#/components/schemas/SubMcpListingEntry"
         },
-        "description": "The registered sub-MCP apps as a dynamic slug-keyed MAP (not an ``items`` list).\n\nEach value is the durable ``RouteConfig`` (``tools`` + ``transport``).",
+        "description": "The registered sub-MCP apps as a dynamic slug-keyed MAP (not an ``items`` list).",
         "title": "SubMcpMapListing",
         "type": "object"
       },
@@ -16264,7 +16704,7 @@
     },
     "/api/auth/api-keys/{user_id}/policy/rollback": {
       "post": {
-        "description": "Re-point the enforced policy to a prior version.\n\nStore-first: the target version body is read from the history, written to the enforced store\n(the authority) FIRST; on that success the cache-invalidation key is bumped immediately so\nenforcement follows, then the durable history pointer is advanced. Admin-only: a non-admin\ncaller is denied 403 so it can never roll back another user's (or its own) enforced policy.\n404 if the version is absent or the user has no live key.",
+        "description": "Re-point the enforced policy to a prior version.\n\nStore-first: the target version body is read from the history, written to the enforced store\n(the authority) FIRST — the writer invalidates the policy cache — then the durable history\npointer is advanced. Admin-only: a non-admin\ncaller is denied 403 so it can never roll back another user's (or its own) enforced policy.\n404 if the version is absent or the user has no live key.",
         "operationId": "post_api_auth_api_keys_user_id_policy_rollback",
         "parameters": [
           {
@@ -18492,7 +18932,7 @@
     },
     "/api/auth/validate-condition": {
       "post": {
-        "description": "Fail-closed guard: compile — and optionally sample-evaluate — a jq policy ``condition``, unpersisted.\n\nA syntactically broken condition raises at enforcement and DENIES the key (a\nlock-out), so authoring flows validate here before saving. The condition is\nrendered exactly as enforcement renders it, compiled with ``get_compiled_jq``, and —\nwhen a ``sample_context`` is supplied — evaluated against a ``JqAuthContext``-shaped\nsample. This ONLY compiles/evaluates; it never writes any store. Returns ``{\"ok\":\ntrue, \"result\": <bool|null>}`` (``result`` is ``null`` when no sample was evaluated).\nAn AUTHOR error is a loud ``BadRequestError`` (400); a server-side fault (an\nunconfigured resource manager, a redis/storage outage rendering a stored condition\n``id``) is NOT an author error and propagates as a loud 500.",
+        "description": "Fail-closed guard: compile — and optionally sample-evaluate — a jq policy ``condition``, unpersisted.\n\nA syntactically broken condition raises at enforcement and DENIES the key (a\nlock-out), so authoring flows validate here before saving. The condition is\nrendered through the SAME ``render_condition`` enforcement uses, compiled with\n``get_compiled_jq``, and — when a ``sample_context`` is supplied — decided by the SAME\n``PolicyEnforcer.evaluate`` against a ``JqAuthContext``-shaped sample, so the\nvalidator's verdict is enforcement's by construction. This ONLY compiles/evaluates; it\nnever writes any store. Returns ``{\"ok\": true, \"result\": <bool|null>}`` (``result`` is\n``null`` when no sample was evaluated).\nAn AUTHOR error is a loud ``BadRequestError`` (400); a server-side fault (an\nunconfigured resource manager, a redis/storage outage rendering a stored condition\n``id``) is NOT an author error and propagates as a loud 500.",
         "operationId": "post_api_auth_validate_condition",
         "requestBody": {
           "content": {
@@ -18843,7 +19283,7 @@
     },
     "/api/checkpoints/sweep": {
       "post": {
-        "description": "Delete conversation threads whose newest checkpoint is older than the configured idle lifetime.\n\nReturns the provider, the TTL, and the swept threads.\nA no-op (nothing deleted) when the TTL is unset, or the provider is ``redis``\n(native key TTL) or ``memory`` (process-lifetime) — each reported in ``skipped``.",
+        "description": "Delete the checkpoint threads of the deployment's store that are past their retention horizon.\n\nA finished thread (marked by its owner) goes ``checkpoint_retention_finished_minutes`` after the\nmark; on ``postgres``/``sqlite`` any thread goes ``checkpoint_retention_waiting_minutes`` after its\nnewest checkpoint (``redis`` expires it by key TTL and ``memory`` keeps it for the process — both\nreported in ``skipped``). A thread a registered live-thread filter claims is spared and listed.",
         "operationId": "post_api_checkpoints_sweep",
         "responses": {
           "200": {
@@ -18898,7 +19338,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Sweep expired conversation checkpoints",
+        "summary": "Sweep expired checkpoint threads",
         "tags": [
           "checkpoints"
         ],
@@ -18995,7 +19435,7 @@
         ]
       },
       "post": {
-        "description": "Merge env overrides into the stored config and hot-reload this worker and the fleet.",
+        "description": "Merge env overrides into the stored config and hot-reload this worker and the fleet.\n\n``secret_keys`` (when not ``None``) replaces the operator's secret marks in the same write;\nthe marks variable itself is never accepted as an ``env`` key.",
         "operationId": "post_api_config_env",
         "requestBody": {
           "content": {
@@ -19401,7 +19841,7 @@
     },
     "/api/config/profiles/{name}/apply": {
       "post": {
-        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{name, kind, status, generation_before}], fresh:[{name, kind,\ngeneration}], refused:[] on success, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per recycled/timed-out sibling (plus the\napplier's own deferred self-exit line when it must self-exit); ``fresh`` is the\nper-kind new ready lives observed since the pre-apply snapshot, capacity evidence never\nclaimed as any target's successor. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
+        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nThe profile's ``secret_keys`` are written as the stored secret marks in the same replace.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{name, kind, status, generation_before}], fresh:[{name, kind,\ngeneration}], refused:[] on success, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per recycled/timed-out sibling (plus the\napplier's own deferred self-exit line when it must self-exit); ``fresh`` is the\nper-kind new ready lives observed since the pre-apply snapshot, capacity evidence never\nclaimed as any target's successor. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
         "operationId": "post_api_config_profiles_name_apply",
         "parameters": [
           {
@@ -20935,6 +21375,16 @@
             },
             "description": "Resource not found."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
           "501": {
             "content": {
               "application/json": {
@@ -21511,7 +21961,7 @@
         ]
       },
       "post": {
-        "description": "Create a conversation route from its flat parameters — an UPSERT (create AND edit path).\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``execution_key`` is the api-key identity the turn runs AS; the caller must be allowed\nto delegate it and it must be usable by a tokenless fire, both decided BEFORE the write\nso a refusal leaves any existing row untouched. ``target_name`` must merely EXIST — the\nagent (``target_kind=agent``) or tool (``target_kind=tool``) — the key's live grants\nbound the turn at fire. The door jqs (``start_expr``/``cancel_expr``/``resume_expr``/\n``extras_expr``) and ``reply_expr``, when given, are rendered and compiled here so an invalid one\n— or a by-id text whose stored resource cannot be fetched — is refused at create, not at first\nmessage. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted here\nand returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the participant-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nAn ``overlap`` policy governs how a running turn treats the newer participant messages that\noverlap it (learn/cancel/carry); ``None`` stores the default policy (continue/one/no window),\nwhich runs one turn per message and leaves the payload unchanged.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
+        "description": "Create a conversation route from its flat parameters — an UPSERT (create AND edit path).\n\n``initial_mode`` is the route's default control mode (``agent`` runs the turn, ``manual``\nsuppresses it for an operator to answer) when a thread carries no per-thread override.\n\n``target_name`` must merely EXIST — the agent (``target_kind=agent``) or tool\n(``target_kind=tool``) — the key's live grants bound the turn at fire. ``execution_key`` is\nthe api-key identity the turn runs AS; the caller must be allowed to delegate it and it must\nbe usable by a tokenless fire. Both are decided at this door BEFORE the route write service\nruns the route's own rules, so a refusal leaves any existing row untouched. The write service\nruns the target's bind check (a refusal is a 422 carrying its lines), then renders and\ncompiles the door jqs (``start_expr``/``cancel_expr``/``resume_expr``/``extras_expr``) and\n``reply_expr``, so an invalid one — or a by-id text whose stored resource cannot be fetched —\nis refused at create, not at first message. A\n``channel`` row's ``our_identity`` is stored canonicalized and must not already be routed\non that channel. An edit that would change the ``door`` of a route already HOLDING\nthreads is refused: the two doors key their threads differently, so the held threads\ncannot be re-keyed under the new door.\nAn ``api`` row that declares a ``callback_url`` has its ``callback_secret`` minted by the\nwrite and returned ONCE; a poll-only api row (no callback) mints none and reads its answers\nback from the poll door. A positive\n``turns_per_hour_override`` runs this route's per-address buckets at that rate instead\nof the global ``per_address_turns_per_hour`` cap; ``None`` runs them at the global rate.\nA non-blank ``error_reply_text`` is the participant-facing reply sent when a turn on this route\nfails; ``None`` uses the built-in default.\nA ``locale`` is the operator-declared default language templated reply parts render in when\na turn supplies none; it is the last fallback under a per-turn or stored-contact locale and\nis stored canonicalized. ``None`` declares no route default (bare/English).\nAn ``overlap`` policy governs how a running turn treats the newer participant messages that\noverlap it (learn/cancel/carry); ``None`` stores the default policy (continue/one/no window),\nwhich runs one turn per message and leaves the payload unchanged.\nReturns ``{\"created\", \"route_name\", \"route\", \"callback_secret\"}``.",
         "operationId": "post_api_conversations_route_name",
         "parameters": [
           {
@@ -23281,6 +23731,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
           }
         },
         "security": [
@@ -24734,7 +25194,7 @@
     },
     "/api/login/claim": {
       "post": {
-        "description": "Burn a one-time claim token and return the raw API key it carried — the public exchange leg.\n\nThe public exchange leg of QR onboarding (``authed=False``; runtime public-ness comes\nfrom the always-public ``/api/login`` prefix).\n\nThe claim record is single-use: a used / unknown / expired token all answer the SAME\n404 (no oracle distinguishing them). The handed-out key is guaranteed not-REVOKED\n(re-validated at exchange), NOT owner-alive — owner-death is enforced by the gate on\nevery request. Response mirrors the ``loginResult`` wire shape:\n``{\"data\": {\"token\": <raw key>, \"user_id\": ...}}``.\n\n``authority_changing=True`` keeps this OFF the default MCP tool surface: a\ncredential-exchange login door is not an agent tool (it sits outside the\n``/api/auth/*`` prefix, so the flag is what excludes it, not the prefix).",
+        "description": "Burn a one-time claim token and return the raw API key it carried — the public exchange leg.\n\nThe public exchange leg of QR onboarding: its route is public by declaration\n(``authed=False``) and a pre-authentication surface (``pre_auth=True``), so a presented\ncredential is never verified.\n\nThe claim record is single-use: a used / unknown / expired token all answer the SAME\n404 (no oracle distinguishing them). The handed-out key is guaranteed not-REVOKED\n(re-validated at exchange), NOT owner-alive — owner-death is enforced by the gate on\nevery request. Response mirrors the ``loginResult`` wire shape:\n``{\"data\": {\"token\": <raw key>, \"user_id\": ...}}``.\n\n``authority_changing=True`` keeps this OFF the default MCP tool surface: a\ncredential-exchange login door is not an agent tool (it sits outside the\n``/api/auth/*`` prefix, so the flag is what excludes it, not the prefix).",
         "operationId": "post_api_login_claim",
         "requestBody": {
           "content": {
@@ -24784,7 +25244,7 @@
     },
     "/api/login/methods": {
       "get": {
-        "description": "Aggregate every registered accounts provider's login methods + the setup state.\n\n``authed=False`` is OpenAPI truth-telling only; runtime public-ness comes from the\nalways-public ``/api/login`` prefix. Each method is serialized with\n``model_dump(exclude_none=True)`` so a ``None``-valued optional (icon/autocomplete)\nis OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). ``needs_setup`` is the one platform fact \"no principal exists\"; ``setup_login``\nnames what the setup door can attach (``kinds`` from a configured login-attaching\nprovider, ``null`` when none). Provider errors propagate (loud, never a silently empty\nmethods list).",
+        "description": "Aggregate every registered accounts provider's login methods + the setup state.\n\nIts route is public by declaration (``authed=False``) and a pre-authentication surface\n(``pre_auth=True``): it is served without a credential, and a presented credential is\nnever verified, so a stale one cannot lock a caller out of login. Each method is\nserialized with ``model_dump(exclude_none=True)`` so a ``None``-valued optional\n(icon/autocomplete) is OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). ``needs_setup`` is the one platform fact \"no principal exists\"; ``setup_login``\nnames what the setup door can attach (``kinds`` from a configured login-attaching\nprovider, ``null`` when none). Provider errors propagate (loud, never a silently empty\nmethods list).",
         "operationId": "get_api_login_methods",
         "responses": {
           "200": {
@@ -26980,6 +27440,51 @@
         "x-destructive": true
       }
     },
+    "/api/observability/capabilities": {
+      "get": {
+        "description": "The run-list page ceiling, sorts and sort/filter incompatibilities, and the metrics measures and dimensions.\n\nRead from the backend's pure declarations (``max_page_size``, ``list_capability``,\n``metrics_capability``) in the run list's wire names; no backend query is issued.",
+        "operationId": "get_api_observability_capabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ObservabilityCapabilities"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get the monitoring backend's observability capabilities",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
     "/api/observability/metrics": {
       "get": {
         "description": "Aggregate metrics over the time range via the contract's ``query_metrics``.\n\nThe backend DECLARES what it serves (``metrics_capability``) before any query.\nA backend that does not serve the core measures fails loudly (501). The by-model\npanel's availability is the backend's DECLARATION that it groups by the model\ndimension — not a swallowed query error: when declared, the by-model query runs\nHARD and any failure propagates; when not declared, the panel is reported absent\nand no query is issued.",
@@ -27084,7 +27589,7 @@
     },
     "/api/observability/runs": {
       "get": {
-        "description": "Filterable run list via the contract's ``list_traces``, paged with the reader's ``limit`` / ``page``.\n\nTime range plus the neutral advanced filters (tags / status / cost / token / latency\nranges) and sort.\n\nList- or dict-typed query params are JSON-encoded in the query string\n(``tags`` may be a JSON list ``[\"a\",\"b\"]`` or a comma-separated string).",
+        "description": "Filterable run list via the contract's ``list_traces``, paged with the reader's ``limit`` / ``page``.\n\nTime range plus the neutral advanced filters (tags / status / cost / token / latency\nranges) and sort. ``page_size`` is capped to the backend's declared ``max_page_size``.\n\nList- or dict-typed query params are JSON-encoded in the query string\n(``tags`` may be a JSON list ``[\"a\",\"b\"]`` or a comma-separated string).",
         "operationId": "get_api_observability_runs",
         "parameters": [
           {
@@ -27264,7 +27769,7 @@
             }
           },
           {
-            "description": "Items per page; capped to 100, never refused.",
+            "description": "Items per page; capped to the monitoring backend's declared maximum, never refused.",
             "in": "query",
             "name": "pageSize",
             "required": false,
@@ -27581,6 +28086,124 @@
         ]
       }
     },
+    "/api/observability/runs/{trace_id}/spans/{span_id}/resolved": {
+      "get": {
+        "description": "One span field's value at ``pointer``, with every record reference on the way and inside it resolved.\n\nThe pointer is applied exactly as a reference's pointer: a step that lands on a\nreference resolves it and continues inside its value. An absent trace or span is a 404;\na reference the backend does not hold (not yet ingested, or lost), or a pointer the\nrecord does not hold, is a 502 carrying the reason.",
+        "operationId": "get_api_observability_runs_trace_id_spans_span_id_resolved",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "span_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The span field to resolve.",
+            "in": "query",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "enum": [
+                "input",
+                "output"
+              ],
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RFC 6901 JSON pointer into the field's value; empty for the whole value.",
+            "in": "query",
+            "name": "pointer",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Pointer",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ResolvedSpanValue"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get a run span's resolved value",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
     "/api/observability/runs/{trace_id}/trace": {
       "get": {
         "description": "Full detailed trace for one run via the contract's ``get_trace``.\n\nThe contract's ``get_trace`` always returns a trace or raises: an absent trace\nis ``TraceNotFoundError`` → 404, and every other backend error propagates as a\nloud 500.",
@@ -27658,7 +28281,7 @@
     },
     "/api/observability/runs/{trace_id}/trace/export": {
       "get": {
-        "description": "Single run's full trace as a downloadable JSON file.",
+        "description": "Single run's full trace as a downloadable JSON file; ``resolve=true`` resolves every span's references first.",
         "operationId": "get_api_observability_runs_trace_id_trace_export",
         "parameters": [
           {
@@ -27667,6 +28290,17 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Resolve every span's input/output record references before export.",
+            "in": "query",
+            "name": "resolve",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Resolve",
+              "type": "boolean"
             }
           }
         ],
@@ -27681,6 +28315,101 @@
             },
             "description": "Trace export: raw JSON attachment download",
             "x-no-body": "Trace export: raw JSON attachment download"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Export a run's trace as a JSON download",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/observability/runs/{trace_id}/trace/outline": {
+      "get": {
+        "description": "The span tree of one run via the contract's ``get_trace``: every span without its input and output.\n\nAn absent trace is a 404 and a read the backend cannot serve a 501, exactly as ``get_run_trace``.",
+        "operationId": "get_api_observability_runs_trace_id_trace_outline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunTraceOutlineView"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
           },
           "401": {
             "content": {
@@ -27718,7 +28447,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Export a run's trace as a JSON download",
+        "summary": "Get a run's trace outline",
         "tags": [
           "observability"
         ]
@@ -27935,6 +28664,16 @@
               }
             },
             "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -29651,6 +30390,16 @@
               }
             },
             "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
           },
           "500": {
             "content": {
@@ -32486,7 +33235,7 @@
     },
     "/api/storage/dirs/{dir_path}": {
       "delete": {
-        "description": "Remove a directory subtree from the store.",
+        "description": "Remove a directory subtree from the store; the render state under it is evicted fleet-wide.\n\nThis worker evicts whatever the outcome. A failure before deletion begins — a missing\ndirectory (``404``) or a rejected path (``400``) — broadcasts nothing. A failure once\ndeletion may have begun leaves the store partially changed, so the eviction still fans\nout before the error propagates (a ``FleetBroadcastError`` carrying the fleet report).",
         "operationId": "delete_api_storage_dirs_dir_path",
         "parameters": [
           {
@@ -32625,7 +33374,7 @@
         ]
       },
       "post": {
-        "description": "Store text OR base64-decoded bytes under ``resource_id`` (overwrite on reuse).\n\nThe type/shape validation the tool schema cannot express — a non-empty ``id``,\nexactly one content field, and each field's type — is enforced here so the MCP\ntool edge carries it too; the HTTP route's extractor passes the raw body through\nto the same checks.",
+        "description": "Store text OR base64-decoded bytes under ``resource_id`` (overwrite on reuse).\n\nThe type/shape validation the tool schema cannot express — a non-empty ``id``,\nexactly one content field, and each field's type — is enforced here so the MCP\ntool edge carries it too; the HTTP route's extractor passes the raw body through\nto the same checks. The stored id's render state is evicted fleet-wide.",
         "operationId": "post_api_storage_resources",
         "requestBody": {
           "content": {
@@ -32711,7 +33460,7 @@
     },
     "/api/storage/resources/{resource_id}": {
       "delete": {
-        "description": "Remove one object from the store.",
+        "description": "Remove one object from the store; its render state is evicted fleet-wide.",
         "operationId": "delete_api_storage_resources_resource_id",
         "parameters": [
           {
@@ -32960,7 +33709,7 @@
     },
     "/api/sub-mcp": {
       "get": {
-        "description": "List the registered sub-MCP apps from the durable store, keyed by slug.",
+        "description": "List the registered sub-MCP apps from the durable store, keyed by slug, with each served mount.",
         "operationId": "get_api_sub_mcp",
         "responses": {
           "200": {

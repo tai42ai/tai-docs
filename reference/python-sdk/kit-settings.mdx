@@ -5,10 +5,37 @@ icon: "gear"
 ---
 
 
-Settings machinery: the base class + the cache-reset registry.
+Settings machinery: the base class, the cache-reset registry, and the owned-prefix audit.
 
 Leaf settings live next to the impl they configure (``tai42_kit.llm``, ``tai42_kit.clients``,
 ``tai42_kit.logging``).
+
+## DEFAULT_ENV_FILE
+
+`tai42_kit.settings.env_file.DEFAULT_ENV_FILE`
+
+```python
+DEFAULT_ENV_FILE: Final = '.env'
+```
+
+
+## ENV_IGNORE_EMPTY
+
+`tai42_kit.settings.base.ENV_IGNORE_EMPTY`
+
+```python
+ENV_IGNORE_EMPTY: Final = True
+```
+
+
+## KUBERNETES_SERVICE_LINK_SUFFIX_RE
+
+`tai42_kit.settings.owned_prefix.KUBERNETES_SERVICE_LINK_SUFFIX_RE`
+
+```python
+KUBERNETES_SERVICE_LINK_SUFFIX_RE: Final = re.compile('^(SERVICE_HOST|SERVICE_PORT(_[A-Z0-9_]+)?|PORT(_[0-9]+_(TCP|UDP|SCTP)(_(PROTO|PORT|ADDR))?)?)$')
+```
+
 
 ## TAI_DEFAULT_ENV_PREFIX
 
@@ -57,6 +84,9 @@ settings_customise_sources(
 ```
 
 Append the ``TAI_DEFAULT_*`` fallback sources beneath the specific settings sources.
+
+The specific sources are the next class's in the MRO (the settings base's,
+whose dotenv slot holds the kit's cached dotenv source).
 
 **Parameters**
 
@@ -107,6 +137,8 @@ A registered settings class, identified by its qualified name.
 | `qualname` | `str` |
 | `fields` | `list[SettingsFieldInfo]` |
 | `reload_class` | `ReloadClass` |
+| `env_prefix` | `str` |
+| `env_prefix_owned` | `bool` |
 
 
 ## SettingsFieldInfo
@@ -134,6 +166,7 @@ One env-configurable field on a settings class, as plain data.
 | `default_namespace_var` | `str \| None` |
 | `reload_class` | `ReloadClass` |
 | `key_material` | `bool` |
+| `accepted_env_vars` | `list[str]` |
 
 
 ## StaleHolder
@@ -168,14 +201,51 @@ class TaiBaseSettings(BaseSettings)
 
 Base for env-configurable settings groups; concrete subclasses self-register.
 
+A settings class reads the env file named by its ``tai_env_file`` class attribute
+(default ``.env``); the file is parsed once per file identity. A subclass that sets
+``model_config['env_file']`` is refused at import.
+
 **Attributes**
 
 | Attribute | Type |
 |---|---|
 | `model_config` | — |
+| `tai_env_file` | `str \| Path \| None` |
 | `reload_class` | `ReloadClass` |
+| `env_prefix_owned` | `bool` |
 
 ### Members
+
+#### settings_customise_sources
+
+`tai42_kit.settings.base.TaiBaseSettings.settings_customise_sources`
+
+```python
+settings_customise_sources(
+    cls,
+    settings_cls: type[BaseSettings],
+    init_settings: PydanticBaseSettingsSource,
+    env_settings: PydanticBaseSettingsSource,
+    dotenv_settings: PydanticBaseSettingsSource,
+    file_secret_settings: PydanticBaseSettingsSource,
+) -> tuple[PydanticBaseSettingsSource, ...]
+```
+
+Put the kit's cached dotenv source in the dotenv slot.
+
+Every other option of the source is read from ``settings_cls.model_config``,
+as the framework's own source reads it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `settings_cls` | `type[BaseSettings]` | — | — |
+| `init_settings` | `PydanticBaseSettingsSource` | — | — |
+| `env_settings` | `PydanticBaseSettingsSource` | — | — |
+| `dotenv_settings` | `PydanticBaseSettingsSource` | — | — |
+| `file_secret_settings` | `PydanticBaseSettingsSource` | — | — |
+
 
 #### with_fallbacks
 
@@ -212,6 +282,100 @@ Parse ``user_config`` JSON (or empty) and merge it over the defaults.
 
 
 
+## UnknownOwnedSettingError
+
+`tai42_kit.settings.owned_prefix.UnknownOwnedSettingError`
+
+```python
+class UnknownOwnedSettingError(ValueError)
+```
+
+An env name under an owned settings prefix names no registered setting.
+
+
+## env_file_identity
+
+`tai42_kit.settings.env_file.env_file_identity`
+
+```python
+env_file_identity(path: str | os.PathLike[str]) -> EnvFileIdentity | None
+```
+
+The identity of the regular file at ``path``, or ``None`` when there is none.
+
+A missing path, a directory, a FIFO, or a path ``stat`` cannot reach answers
+``None``, as ``Path.is_file()`` answers ``False`` for each.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str \| os.PathLike[str]` | — | — |
+
+
+## is_kubernetes_service_link
+
+`tai42_kit.settings.owned_prefix.is_kubernetes_service_link`
+
+```python
+is_kubernetes_service_link(key: str, names: frozenset[str]) -> bool
+```
+
+True when the upper-cased ``key`` is ``<NAME>_<suffix>`` for a ``<NAME>`` in ``names``.
+
+``<suffix>`` must match ``KUBERNETES_SERVICE_LINK_SUFFIX_RE``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `str` | — | — |
+| `names` | `frozenset[str]` | — | — |
+
+
+## keyed_settings_cache
+
+`tai42_kit.settings.cache_registry.keyed_settings_cache`
+
+```python
+keyed_settings_cache(fn: Callable[[K], V]) -> Callable[[K], V]
+```
+
+Cache a one-argument settings accessor per key, cleared on reset and re-read when the env file changes.
+
+An entry is served while the env file keeps the identity it had when the entry
+was built; ``reset_all_settings()`` drops every entry. A settings instance is
+epoch-stamped on construction like `settings_cache`'s. A build that raises
+stores nothing, so the next call builds again.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[K], V]` | — | — |
+
+
+## kubernetes_service_link_names
+
+`tai42_kit.settings.owned_prefix.kubernetes_service_link_names`
+
+```python
+kubernetes_service_link_names(environ: Mapping[str, str]) -> frozenset[str]
+```
+
+The ``<NAME>`` of every Service whose link family is present in ``environ``.
+
+Empty unless ``KUBERNETES_SERVICE_HOST`` is in ``environ``. Otherwise each ``<NAME>``
+for which BOTH ``<NAME>_SERVICE_HOST`` and ``<NAME>_PORT`` are in ``environ`` (keys
+compared upper-cased).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `environ` | `Mapping[str, str]` | — | — |
+
+
 ## not_configured_message
 
 `tai42_kit.settings.require.not_configured_message`
@@ -233,6 +397,61 @@ field that only its own env var can set.
 | `subject` | `str` | — | — |
 | `env_var` | `str` | — | — |
 | `default_var` | `str \| None` | `None` | — |
+
+
+## owned_env_prefixes
+
+`tai42_kit.settings.owned_prefix.owned_env_prefixes`
+
+```python
+owned_env_prefixes() -> frozenset[str]
+```
+
+Every env prefix a registered group declares owned.
+
+
+## present_env_value
+
+`tai42_kit.settings.base.present_env_value`
+
+```python
+present_env_value(env: Mapping[str, str], var: str) -> str | None
+```
+
+The value the settings layer reads for ``var``: ``None`` when absent or empty, the kit's empty-is-absent rule.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `env` | `Mapping[str, str]` | — | — |
+| `var` | `str` | — | — |
+
+
+## refuse_unknown_owned_env
+
+`tai42_kit.settings.owned_prefix.refuse_unknown_owned_env`
+
+```python
+refuse_unknown_owned_env(
+    keys: Iterable[str],
+    *,
+    source: str,
+    service_link_env: Mapping[str, str] | None = None,
+) -> None
+```
+
+Raise ``UnknownOwnedSettingError`` naming every unknown key; no-op when none.
+
+``source`` names where the keys were read (it leads the message).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `keys` | `Iterable[str]` | — | — |
+| `source` | `str` | — | — |
+| `service_link_env` | `Mapping[str, str] \| None` | `None` | — |
 
 
 ## register_settings_reset
@@ -367,4 +586,32 @@ the findings so a probe/e2e can assert zero.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `retired_epoch` | `int` | — | — |
+
+
+## unknown_owned_env_keys
+
+`tai42_kit.settings.owned_prefix.unknown_owned_env_keys`
+
+```python
+unknown_owned_env_keys(keys: Iterable[str], *, service_link_env: Mapping[str, str] | None = None) -> list[tuple[str, str]]
+```
+
+``(key, prefix)`` for each key under an owned prefix that no registered group accepts, sorted by key.
+
+Comparison is upper-cased; the accepted set is the union of ``accepted_env_vars`` of every
+registered group (any prefix), so an alias declared elsewhere is accepted. A key under
+several owned prefixes is reported with the longest. With ``service_link_env`` (the
+process environment), an unaccepted key for which
+``is_kubernetes_service_link(key, kubernetes_service_link_names(service_link_env))`` holds
+is not reported: the container runtime injects a Service's link family into every pod of
+its namespace, and a Service named like an owned prefix yields names under it. A lone
+``<NAME>_PORT`` or ``<NAME>_SERVICE_HOST``, or any key outside a Kubernetes pod, is
+reported like any unknown name.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `keys` | `Iterable[str]` | — | — |
+| `service_link_env` | `Mapping[str, str] \| None` | `None` | — |
 

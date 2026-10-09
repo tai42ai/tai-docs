@@ -1,0 +1,263 @@
+---
+title: "Provider registration (tai42_kit.access_control, tai42_kit.accounts)"
+description: "The identity-provider and accounts-provider registries a plugin registers into at import."
+icon: "id-card"
+---
+
+
+Module-level identity-provider registry — populated by direct import.
+
+An identity plugin cannot register through the bound ``tai42_app`` handle: the plugin depends on
+tai42-contract and tai42-kit only and bans ``tai42_skeleton``, and ``tai42_app`` raises on ANY member
+access before ``bind()`` runs (``bind()`` runs only inside ``start()``), so a handle-based registration
+would crash at plugin import in any process that imports the plugin before ``start()`` — the metrics
+entrypoint never calls ``start()`` at all. So the plugin imports this module and calls
+`register_identity_provider` at its own module import. The registry is plain module state: it
+fills in ANY process that imports the plugin module, with no ``bind()`` anywhere.
+
+The registry stores FACTORIES, not descriptors: an identity provider is a live object holding a
+store/connection, so a plugin registers a callable that builds the provider from settings. The
+application drives the staging lifecycle; this module stays epoch-free.
+
+## abort_staging
+
+`tai42_kit.access_control.registry.abort_staging`
+
+```python
+abort_staging() -> None
+```
+
+Drop the staged generation on a failed build; a no-op when none is open.
+
+
+## begin_staging
+
+`tai42_kit.access_control.registry.begin_staging`
+
+```python
+begin_staging() -> None
+```
+
+Open a fresh staged generation an epoch build registers into; the committed one keeps serving.
+
+
+## commit_staging
+
+`tai42_kit.access_control.registry.commit_staging`
+
+```python
+commit_staging() -> None
+```
+
+Promote the staged generation in one reference assignment; a no-op when none is open.
+
+
+## get_identity_provider_factory
+
+`tai42_kit.access_control.registry.get_identity_provider_factory`
+
+```python
+get_identity_provider_factory(name: str) -> Callable[..., IdentityProvider]
+```
+
+Resolve a factory from the COMMITTED generation — the request-path accessor; ``KeyError`` when unknown.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+## get_identity_provider_factory_staged
+
+`tai42_kit.access_control.registry.get_identity_provider_factory_staged`
+
+```python
+get_identity_provider_factory_staged(name: str) -> Callable[..., IdentityProvider]
+```
+
+Resolve a factory from the STAGED generation while a build stages, else the committed one.
+
+The build's own accessor (startup probe, kind status), so a build decides against the generation
+it is assembling.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+## iter_identity_provider_names_staged
+
+`tai42_kit.access_control.registry.iter_identity_provider_names_staged`
+
+```python
+iter_identity_provider_names_staged() -> list[str]
+```
+
+Name-sorted names of the identity providers in the generation being resolved.
+
+Reads the STAGED generation while a build stages, else the committed one. The derived default for
+the access-control auth-provider chain: when no chain is configured, every registered identity
+provider is resolved.
+
+
+## register_identity_provider
+
+`tai42_kit.access_control.registry.register_identity_provider`
+
+```python
+register_identity_provider(name: str, factory: Callable[..., IdentityProvider]) -> None
+```
+
+Register a named identity-provider factory.
+
+RELOAD-SAFE: re-registering the SAME factory (by `tai42_kit.registry.same_factory`) under a
+name it already holds is a quiet no-op; a DIFFERENT factory under that name raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `factory` | `Callable[..., IdentityProvider]` | — | — |
+
+
+## reset_registry
+
+`tai42_kit.access_control.registry.reset_registry`
+
+```python
+reset_registry() -> None
+```
+
+Clear the write target — the staged generation while a build stages, else the committed one.
+
+
+Module-level accounts-provider registry — populated by direct import.
+
+Handle-free for the same reason as the identity-provider registry
+(`tai42_kit.access_control.registry`): accounts plugins never import the application package and
+register at plain module import, before any app handle is usable. The application resolves and
+ACTIVATES providers from its own configuration — registration alone activates nothing.
+
+Two differences from the identity registry:
+
+- `register_accounts_provider` ALSO registers the factory into the identity registry under the
+  same name — an accounts provider IS the token answerer for its own sessions, so registering into only
+  one registry would make sessions mintable but not validatable (or vice versa). One plugin call, both
+  registries, loud duplicate errors from either. The application stages and commits the two
+  registries together.
+- The registry is enumerable: the public login-methods aggregator asks EVERY registered accounts
+  provider for its declared methods.
+
+## abort_staging
+
+`tai42_kit.accounts.registry.abort_staging`
+
+```python
+abort_staging() -> None
+```
+
+Drop the staged generation on a failed build; a no-op when none is open.
+
+
+## begin_staging
+
+`tai42_kit.accounts.registry.begin_staging`
+
+```python
+begin_staging() -> None
+```
+
+Open a fresh staged generation the epoch build registers into.
+
+
+## commit_staging
+
+`tai42_kit.accounts.registry.commit_staging`
+
+```python
+commit_staging() -> None
+```
+
+Promote the staged generation in one reference assignment; a no-op when none is open.
+
+
+## get_accounts_provider_factory
+
+`tai42_kit.accounts.registry.get_accounts_provider_factory`
+
+```python
+get_accounts_provider_factory(name: str) -> Callable[..., AccountsProvider]
+```
+
+The factory under ``name`` in the COMMITTED generation; ``KeyError`` when unknown.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+## iter_accounts_provider_factories
+
+`tai42_kit.accounts.registry.iter_accounts_provider_factories`
+
+```python
+iter_accounts_provider_factories() -> list[tuple[str, Callable[..., AccountsProvider]]]
+```
+
+A fresh name-sorted snapshot of the COMMITTED factories.
+
+
+## iter_accounts_provider_factories_staged
+
+`tai42_kit.accounts.registry.iter_accounts_provider_factories_staged`
+
+```python
+iter_accounts_provider_factories_staged() -> list[tuple[str, Callable[..., AccountsProvider]]]
+```
+
+A fresh name-sorted snapshot of the STAGED generation while a build stages, else the committed one.
+
+The build's own accessor (the configured-providers boot check, kind status).
+
+
+## register_accounts_provider
+
+`tai42_kit.accounts.registry.register_accounts_provider`
+
+```python
+register_accounts_provider(name: str, factory: Callable[..., AccountsProvider]) -> None
+```
+
+Register a named accounts-provider factory in BOTH registries.
+
+RELOAD-SAFE: re-registering the SAME factory under a name it already holds is a quiet no-op in BOTH
+registries; a DIFFERENT factory under a held name raises ``ValueError``, in either registry. The
+accounts no-op returns before touching the identity registry, and the identity registry is written
+only when this name is new here (a refusal there leaves this registry untouched), so the two never
+drift.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `factory` | `Callable[..., AccountsProvider]` | — | — |
+
+
+## reset_registry
+
+`tai42_kit.accounts.registry.reset_registry`
+
+```python
+reset_registry() -> None
+```
+
+Clear the accounts write target only; the identity registry has its own lifecycle.
+

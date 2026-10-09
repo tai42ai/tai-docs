@@ -8,7 +8,8 @@ icon: "route"
 MCP client transports over a unix-domain socket + the transport selector.
 
 The UDS transports implement the contract ``Transport`` Protocol; ``get_mcp_transport``
-picks between them (or a plain dict-config for non-UDS servers).
+picks between them, fastmcp's remote transports for URL servers, or a plain
+dict-config for command servers.
 
 ## BaseUDSTransport
 
@@ -92,7 +93,7 @@ Open an MCP client session over the socket's SSE endpoint.
 `tai42_kit.transport.utils.get_mcp_transport`
 
 ```python
-get_mcp_transport(config: TaiMCPConfig, *, uds_protocol: str = 'http') -> HTTPUDSTransport | SSEUDSTransport | dict[str, Any]
+get_mcp_transport(config: TaiMCPConfig, *, uds_protocol: str = 'http') -> HTTPUDSTransport | SSEUDSTransport | StreamableHttpTransport | SSETransport | dict[str, Any]
 ```
 
 Build the fastmcp transport for one MCP server config.
@@ -100,8 +101,10 @@ Build the fastmcp transport for one MCP server config.
 A UDS server connects over a unix socket; ``uds_protocol`` selects the MCP
 wire protocol carried on it (``http`` = streamable-http, ``sse`` = SSE) — the
 caller (which owns the runtime/CLI) supplies it, so it arrives unvalidated and
-any other value raises. A non-UDS server returns a plain fastmcp dict-config
-and ignores ``uds_protocol``.
+any other value raises. A URL server gets fastmcp's SSE or streamable-http
+transport, chosen by fastmcp's own URL inference, carrying only the config's
+headers and built on `mcp_http_client`; it ignores ``uds_protocol``. A
+command server returns a plain fastmcp dict-config.
 
 **Parameters**
 

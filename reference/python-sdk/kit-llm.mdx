@@ -14,6 +14,400 @@ checkpoint/store connection resources. Importing this package pulls
 ``langchain_core`` / ``langgraph`` — that is the opt-in boundary (the
 ``tai42_kit`` top level stays vendor-free).
 
+## MonitoringCallbackHandler
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler`
+
+```python
+class MonitoringCallbackHandler(BaseCallbackHandler)
+```
+
+Records one bound run's LangChain runs through ``writer`` under ``trace_context``.
+
+``grouping_nodes`` names the framework nodes (``langgraph_node``) that hold steps rather
+than being one; their chain records carry ``StepRole.GROUPING``. ``chain_payloads``
+selects how chain runs record their input/output (see the module docstring).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `run_inline` | — |
+| `writer` | — |
+| `trace_context` | — |
+| `grouping_nodes` | — |
+| `chain_payloads` | `ChainPayloads` |
+
+### Members
+
+#### on_chain_start
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_chain_start`
+
+```python
+on_chain_start(
+    self,
+    serialized: dict[str, Any] | None,
+    inputs: Any,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Open the chain run's span and record its input payload.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `serialized` | `dict[str, Any] \| None` | — | — |
+| `inputs` | `Any` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `tags` | `list[str] \| None` | `None` | — |
+| `metadata` | `dict[str, Any] \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_chain_end
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_chain_end`
+
+```python
+on_chain_end(
+    self,
+    outputs: Any,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Record the chain run's output payload and end its span.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `outputs` | `Any` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_chain_error
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_chain_error`
+
+```python
+on_chain_error(
+    self,
+    error: BaseException,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+End the chain run's span: an interrupt as interrupted, any other error at ERROR.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `BaseException` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_chat_model_start
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_chat_model_start`
+
+```python
+on_chat_model_start(
+    self,
+    serialized: dict[str, Any] | None,
+    messages: list[list[BaseMessage]],
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Open the model run's span with its input messages in full.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `serialized` | `dict[str, Any] \| None` | — | — |
+| `messages` | `list[list[BaseMessage]]` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_llm_start
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_llm_start`
+
+```python
+on_llm_start(
+    self,
+    serialized: dict[str, Any] | None,
+    prompts: list[str],
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Open the completion run's span with each prompt as one user message.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `serialized` | `dict[str, Any] \| None` | — | — |
+| `prompts` | `list[str]` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_llm_end
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_llm_end`
+
+```python
+on_llm_end(
+    self,
+    response: LLMResult,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Record the generated messages in full, the usage and the generated message's full record.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `response` | `LLMResult` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_llm_error
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_llm_error`
+
+```python
+on_llm_error(
+    self,
+    error: BaseException,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+End the model run's span at ERROR.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `BaseException` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_tool_start
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_tool_start`
+
+```python
+on_tool_start(
+    self,
+    serialized: dict[str, Any] | None,
+    input_str: str,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    inputs: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Open the tool run's span with its arguments in full.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `serialized` | `dict[str, Any] \| None` | — | — |
+| `input_str` | `str` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `inputs` | `dict[str, Any] \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_tool_end
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_tool_end`
+
+```python
+on_tool_end(
+    self,
+    output: Any,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Record the tool's result in full and end its span.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `output` | `Any` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_tool_error
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_tool_error`
+
+```python
+on_tool_error(
+    self,
+    error: BaseException,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+End the tool run's span at ERROR.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `BaseException` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_retriever_start
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_retriever_start`
+
+```python
+on_retriever_start(
+    self,
+    serialized: dict[str, Any] | None,
+    query: str,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Open the retriever run's span (a tool record) with its query.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `serialized` | `dict[str, Any] \| None` | — | — |
+| `query` | `str` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_retriever_end
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_retriever_end`
+
+```python
+on_retriever_end(
+    self,
+    documents: Sequence[Any],
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+Record the retrieved documents and end the span.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `documents` | `Sequence[Any]` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+#### on_retriever_error
+
+`tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler.on_retriever_error`
+
+```python
+on_retriever_error(
+    self,
+    error: BaseException,
+    *,
+    run_id: UUID,
+    parent_run_id: UUID | None = None,
+    **kwargs: Any,
+) -> None
+```
+
+End the retriever run's span at ERROR.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `BaseException` | — | — |
+| `run_id` | `UUID` | — | — |
+| `parent_run_id` | `UUID \| None` | `None` | — |
+| `kwargs` | `Any` | `{}` | — |
+
+
+
 ## RunTrace
 
 `tai42_kit.llm.run_trace.RunTrace`
@@ -26,7 +420,7 @@ The resolved lineage of one run plus the per-invoke config that records it.
 
 ``context`` is the trace/span lineage the run's spans join; ``config`` is the caller's
 LangGraph run config (a ``RunnableConfig``-shaped mapping) copied by value with the
-backend's monitoring callbacks appended after the caller's own.
+monitoring callback handler appended after the caller's own callbacks.
 
 **Attributes**
 
@@ -41,25 +435,37 @@ backend's monitoring callbacks appended after the caller's own.
 `tai42_kit.llm.run_trace.bind_run_trace`
 
 ```python
-bind_run_trace(config: dict[str, Any] | None = None) -> RunTrace
+bind_run_trace(
+    config: dict[str, Any] | None = None,
+    *,
+    grouping_nodes: frozenset[str] = frozenset(),
+    chain_payloads: ChainPayloads = 'references',
+) -> RunTrace
 ```
 
-Resolve the run's lineage and return the per-invoke config carrying its callbacks.
+Resolve the run's lineage and return the per-invoke config carrying the monitoring callbacks.
 
-Resolves the lineage with `resolve_trace_context`, asks the active monitoring
-backend (``tai42_app.monitoring.active.writer``) for the callbacks under it, and
-returns a `RunTrace` whose ``config`` is ``config`` copied by value — a fresh
-top-level mapping, a fresh ``configurable``, and a fresh ``callbacks`` list with the
-backend's callbacks appended after the caller's — so one base config can feed many
-parallel invocations without colliding. A backend error from
-``get_monitoring_callbacks`` propagates loudly (dropping all tracing would be a silent
-degrade). No OpenTelemetry side effect.
+Resolves the lineage with `resolve_trace_context` and returns a `RunTrace`
+whose ``config`` is ``config`` copied by value — a fresh top-level mapping, a fresh
+``configurable``, and a fresh ``callbacks`` list — so one base config can feed many
+parallel invocations without colliding. When the active writer records
+(``is_recording()``), a `MonitoringCallbackHandler` bound to the lineage is
+appended after the caller's callbacks; otherwise nothing is appended.
+
+``grouping_nodes`` names the framework nodes that hold steps rather than being one.
+``chain_payloads='references'`` (default) — each chain run records a manifest that
+references the record where each value first appeared, by identity; ``'producer'`` —
+the producer records chain-run inputs/outputs itself. A run declared through
+``declared_chain_payload`` records the producer's ``build`` result in either mode. Model
+and tool runs are recorded in full either way.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `config` | `dict[str, Any] \| None` | `None` | — |
+| `grouping_nodes` | `frozenset[str]` | `frozenset()` | — |
+| `chain_payloads` | `ChainPayloads` | `'references'` | — |
 
 
 ## checkpoint_registry
@@ -74,6 +480,28 @@ Return the CheckpointRegistry for the running event loop.
 
 One registry per loop; after ``close_all()`` the next call builds a fresh
 registry instead of returning the closed one.
+
+
+## declared_chain_payload
+
+`tai42_kit.llm.monitoring_callbacks.declared_chain_payload`
+
+```python
+declared_chain_payload(run_id: UUID, build: Callable[[Any], Any]) -> Iterator[None]
+```
+
+Record ``build(inputs)`` / ``build(outputs)`` as the payloads of LangChain run ``run_id`` started in the block.
+
+The producer passes ``config["run_id"] = run_id`` to the run it starts (LangChain names
+exactly that one run with it). ``build`` is called while the run's span is current, so
+it may read ``writer.current_span_id()``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `run_id` | `UUID` | — | — |
+| `build` | `Callable[[Any], Any]` | — | — |
 
 
 ## get_classifier
@@ -190,6 +618,27 @@ Build the chat model for ``provider`` in a worker thread, off the event loop.
 | `kwargs` | — | `{}` | — |
 
 
+## release_loop_bound_resources
+
+`tai42_kit.llm._resource_registry.release_loop_bound_resources`
+
+```python
+async release_loop_bound_resources(*, all_epochs: bool = False) -> None
+```
+
+Close every loop-bound kit registry's resources on the running loop.
+
+Closes the current epoch's registry of every map (with ``all_epochs``, every retired
+epoch's registry held for this loop too). Every registry is tried even after a failure;
+the failures are raised together as one ``ExceptionGroup``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `all_epochs` | `bool` | `False` | — |
+
+
 ## resolve_trace_context
 
 `tai42_kit.llm.run_trace.resolve_trace_context`
@@ -200,8 +649,8 @@ resolve_trace_context(config: dict[str, Any] | None = None) -> TraceContext
 
 Resolve the one trace lineage for a run from ``config`` and the ambient deposit.
 
-Precedence: an explicit ``configurable['monitoring_trace_id']`` (with its optional
-``monitoring_parent_span_id`` anchor) wins; else the ambient
+Precedence: an explicit ``configurable[MONITORING_TRACE_ID_KEY]`` (with its optional
+``MONITORING_PARENT_SPAN_ID_KEY`` anchor) wins; else the ambient
 `get_ambient_trace_context` deposit; else a fresh
 32-hex root trace with no parent. Pure — reads only, mints no side effect.
 
