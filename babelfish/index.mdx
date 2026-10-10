@@ -174,6 +174,44 @@ node's own cap or a router's `maxRuns` must stay under. The engine bounds the gr
 one run segment may take from these caps; a flow within its caps never meets that bound.
 There is no setting for it.
 
+`config.checkpoint_retention` declares how long this flow's run memory is kept, in minutes:
+`waiting_minutes` while a run may still continue (a pause), `finished_minutes` after it
+reached its terminal. Either may be left out: an unset waiting is the platform's, an unset
+finished is the platform's capped at the waiting. Both are bounded by the platform's two
+[retention values](/operate/checkpoints#a-threads-own-retention): a flow may shorten them,
+never lengthen them. An empty object, a value that is not a positive whole number, or a
+finished value longer than the waiting one is refused wherever the flow is parsed; a value
+above the platform's is refused by the editor's save gate and by every run and query of the
+flow, before any node runs, naming both values. Every checkpoint of the run — the top level,
+every loop body, every pending write — is kept that long, and an async ask's deadline must fit
+the declared waiting. A child flow a node calls declares its own; the parent's never crosses
+the call. The [agent session threads](#agent-session-continuity) a run owns keep the
+platform's waiting retention and take the flow's finished retention at the run's terminal.
+
+```json
+{"config": {"entry_points": ["fetch"], "checkpoint_retention": {"waiting_minutes": 10, "finished_minutes": 5}}}
+```
+
+In the editor the declaration is the Start node's "Checkpoint retention (this flow)" group
+(the Sub-Flow Start form carries the same group for a sub-flow). Empty inputs keep the
+platform's values; the form itself refuses a finished run longer than the waiting run, and the
+save gate's banner carries the engine's refusal of a value above the platform's.
+
+<Frame caption="The Start form's checkpoint retention group with nothing declared.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-empty-light.png" alt="The Checkpoint retention (this flow) group on the Start form: its description, and the Waiting run and Finished run minute inputs, both empty with the placeholder platform." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-empty-dark.png" alt="The Checkpoint retention (this flow) group on the Start form: its description, and the Waiting run and Finished run minute inputs, both empty with the placeholder platform." />
+</Frame>
+
+<Frame caption="A finished run longer than the waiting run, refused by the form.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-error-light.png" alt="The same group with Waiting run 5 and Finished run 6, and the error Finished run must not exceed waiting run under it." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-error-dark.png" alt="The same group with Waiting run 5 and Finished run 6, and the error Finished run must not exceed waiting run under it." />
+</Frame>
+
+<Frame caption="A save refused by the engine: the waiting run is above the platform's.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-refused-light.png" alt="The flow editor after Save: the banner The engine rejected the flow: with the line checkpoint retention waiting_minutes (20000 min) exceeds the platform's 10080 min (LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES)." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-refused-dark.png" alt="The flow editor after Save: the banner The engine rejected the flow: with the line checkpoint retention waiting_minutes (20000 min) exceeds the platform's 10080 min (LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES)." />
+</Frame>
+
 A loop is an iterate node: a cycle of edges, conditional branch paths, holder ask exits
 (`on_ask`) or the route from a holder with an ask exit to a conditional that lists it in
 `inputs` is refused at validation.
@@ -1486,7 +1524,9 @@ set when a run, a restart, a resume or a step starts on the session. The platfor
 `sweep_checkpoints` removes a finished thread after
 `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` and any other one after
 `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, and spares a session whose latest
-checkpoint still holds a pending interrupt — a parked run, whatever its age. An async ask
+checkpoint still holds a pending interrupt — a parked run, whatever its age. A flow may
+declare shorter values for its own runs (`config.checkpoint_retention`, see
+[How a run runs](#how-a-run-runs-tool-calls-loops-and-abort)). An async ask
 must carry a deadline within the waiting retention; one without a deadline, or past it, is
 refused loudly at suspend. A holder that parks on its held call (a send-up caller ask, or a
 held flow's own park) parks under the earliest deadline among the held call's open asks, so
