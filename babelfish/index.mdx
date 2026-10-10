@@ -1253,7 +1253,10 @@ states as its subset options — never the parent's.
 
 In the Studio the control sits on the node's State/Settings surface beside the wait
 knobs, and a refresh lands in the run's [state-change trace](#flow-states) as a
-"refreshed" marker carrying no new writes.
+"refreshed" marker carrying no new writes. The marker holds the document the node read when
+the run's trace does not record it yet (a write from outside this run), and no document when it
+does — a node of this run, a subflow of this run or an earlier drive of this run wrote it; the
+node's records reference that record.
 
 ### Enable the state store
 
@@ -1501,12 +1504,13 @@ the full value:
 
 | Record | What it holds |
 |---|---|
-| `flow:input` | A fresh run's input: its arguments, its state documents and its warm-start fills. |
+| `flow:input` | A fresh run's input: its arguments, its state documents and its warm-start fills. A subflow's input references the records its dispatching run's trace already holds. |
+| `flow:attachments` | The attachment envelope a stateful run's expressions read as `$attachments` (each attached template's path, parameters and declarations), recorded at the fresh start and again at each resume, which renders it anew. A subflow whose expressions read the envelope its dispatching run recorded references that record; a subflow bound to other states records its own. A run whose states attach no template has none. |
 | `LangGraph` (graph root) | The state a run segment, or one loop iteration, started from and ended with. A resumed segment's root holds the answer the run resumed with. |
 | A node's step | The state the node received and what it wrote. Inside a loop, the step also names its node and its iteration path (`loop[1]/inner[0]`) and points at the values it wrote. |
 | A router (`decided_route:`, `branch_route:`, `iterate_route:`) | The state it read and the route it chose. |
 | A tool call | The call's arguments and result in full, over the call's window. |
-| An expression (`expr:<node>`, `foreach_expr:<node>`, …) | A sub-step of its node: the data and variables the expression read, and its result. |
+| An expression (`expr:<node>`, `foreach_expr:<node>`, …) | A sub-step of its node: the data and variables the expression read, and its result. A state document its node received is a reference to the record that holds it: `flow:input` or the step that last wrote the state; for a state the node re-read (`refresh_states`), the record that already holds it — the `state:<name>` event of that read when the read brought a document the trace did not record. The attachment envelope it read is a reference to the `flow:attachments` of the start or resume its run — or its dispatching run — runs in. |
 | `flow:result` | The run's final state and the result it returns, under the run's own trace. On a failed run the step carries the failure (level ERROR, the error text the caller receives) and the error envelope; the flow-level `on_error` handler's expressions are its sub-steps and the handler's tool call is a tool call of the run. A run has one `flow:result`: when shaping or checking the result fails, that same step ends at ERROR. |
 
 A run's node popup reads a node's result and inputs through these records. Without a
