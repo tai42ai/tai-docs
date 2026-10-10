@@ -59,7 +59,7 @@ A few sections do not key per record, so mode does not apply:
 
 The route table holds every url in its canonical form (each segment decoded once, slashes collapsed, dot segments resolved, no trailing slash), and an `access_control` import matches an archive url against the live table by that form. Two archive urls that reduce to one canonical route (`/api/x` and `/api//x/`) would overwrite each other, so the whole section is **refused before its first write**, the collision named in the section's `errors`; an archive url with no canonical form is refused the same way. Correct the archive and import again.
 
-A deployment refuses to **boot** while its route table holds a row that is not in canonical form, naming every such row. Every route door and the import write the canonical form, so such a row comes from a write made directly to the database, and no door can reach it while the boot refuses. Correct it there: in the skeleton database's `access_control_routes` table, set each named row's `url` to its canonical form — or delete the row when its canonical url is already in the table — then start the deployment again.
+A deployment refuses to **boot** while its route table holds a row that is not in canonical form, naming every such row. Every route door and the import write the canonical form, so such a row comes from a write made directly to the database, and no door can reach it while the boot refuses. Correct it there: in the skeleton database's `access_control_routes` table, set each named row's `url` to its canonical form — or delete the row when its canonical url is already in the table, or when the url has no canonical form at all — then start the deployment again.
 
 An `access_control` import invalidates every worker's cached policy decisions once when it ends, and a `sub_mcp` import invalidates them after each restored app, so a restored route, policy or mount is enforced on the next request.
 
@@ -87,7 +87,7 @@ Restore the two stores together: bring Redis and Postgres back from snapshots of
 
 ### The import report
 
-Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized, a token whose policy data carries `disabled` (a key has no disabled state; it is revoked) — each named in the report so one bad record never silently drops or aborts the rest.
+Each section returns a report: `created`, `updated`, and two distinct skip counts. `skipped_existing` counts records left untouched because their key already existed under `skip` — a clean, expected skip, not a failure. `errors` (with a matching `skipped`) counts records **rejected** — a malformed entry, an unsafe path, a token bound to a scope that never materialized, a token whose policy data carries `disabled` (a key has no disabled state; it is revoked), a token minted fresh with neither a scope nor a condition (it would grant nothing), a route mapping a URL that a route declared public serves — each named in the report so one bad record never silently drops or aborts the rest.
 
 Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
 
@@ -104,6 +104,16 @@ you name them: `manifest`, `env`, `access_control`, `sub_mcp`, `templates`, `sta
 sections plugins register. A section that decides its records against state another section
 restores replays after it: `states` replays right after `templates`, and before every section
 that restores a state binding.
+
+Inside `access_control`, the principals restore first, then the route mappings, then the API
+keys. A principal the restore creates gets its archived `disabled` flag with the principal
+itself, before any route or key, so a failure later in the section never leaves a principal the
+archive holds disabled enabled. A principal the server already holds is skipped under both
+modes and keeps its live state, whatever its archived flag. A key is re-minted onto its owner,
+enabled or disabled, and follows the owner's live state: while the owner is disabled the key
+is denied at every door, and while the owner is enabled it authenticates — so a key restored
+onto an existing, enabled owner authenticates at once, even where the archive holds that owner
+disabled.
 
 ### Restoring stored definitions
 

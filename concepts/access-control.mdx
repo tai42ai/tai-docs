@@ -149,8 +149,10 @@ flags on its registration (`custom_route`, or the plugin route module's own call
   its scopes and whatever the route table maps: `GET /api/auth/me` (the
   [capability projection](/concepts/owned-keys)) declares it, so a scoped key that
   holds no `"*"` can still introspect. The base-tier role condition still applies,
-  and an unauthenticated caller is refused `401`. Only an authenticated route may
-  declare it.
+  and an unauthenticated caller is refused `401`. The reach is the same at the HTTP
+  edge and when the route is reached as a tool — over MCP or by a background run: the
+  scope test is skipped, and the jq conditions and the per-tag access-level pass still
+  run. Only an authenticated route may declare it.
 - **`self_service`** — a caller self-service surface under the reserved `/api/auth`
   area: own keys, the tokens payload, claim-link creation, the read-only scopes
   listing, logout, and a provider's own-credential routes. The seeded `editor` and
@@ -214,6 +216,15 @@ door's declaration is fixed in the platform code; to close a plugin door, declin
 at the install-time public-acceptance gate or uninstall the plugin. Remapping only
 relocates the public route, it does not protect it. The operator's own hand-pin door
 stays for the operator's own routes.
+
+A scope mapping would read as protecting such a route while it stays open, so the
+scope writer refuses one: mapping a URL into a scope (`POST /api/auth/scopes` over
+HTTP or as a tool, `tai scopes add`) is refused with a `400`, nothing written, when a route
+declared public serves that URL on any method, and an `access_control` restore names
+such a mapping in its section's errors and restores the rest. The routes listing
+(`GET /api/auth/routes`, `tai scopes routes`) marks each route public by its own
+declaration with `declared_public: true`, read through the same predicate as this
+tier.
 
 The reserved namespace still wins. A declared public route resolving under a
 reserved prefix — `/api/auth` by default — is refused at boot, not quietly opened,

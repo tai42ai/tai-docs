@@ -10497,7 +10497,7 @@
         "type": "array"
       },
       "RouteMappingRow": {
-        "description": "One HTTP route joined with its scope mapping and route-registry metadata.\n\n``mapped`` is the route's scope id, the public marker, or ``null`` when unmapped;\n``action`` is its authorization action class, ``null`` when the route carries no\nregistry metadata.",
+        "description": "One HTTP route joined with its scope mapping and route-registry metadata.\n\n``mapped`` is the route's scope id, the public marker, or ``null`` when unmapped;\n``action`` is its authorization action class, ``null`` when the route carries no\nregistry metadata; ``declared_public`` is ``True`` when the route is public by its own\ndeclaration and so answers everyone whatever scope it is mapped to.",
         "properties": {
           "action": {
             "anyOf": [
@@ -10509,6 +10509,10 @@
               }
             ],
             "title": "Action"
+          },
+          "declared_public": {
+            "title": "Declared Public",
+            "type": "boolean"
           },
           "mapped": {
             "anyOf": [
@@ -10550,7 +10554,8 @@
           "mapped",
           "tags",
           "summary",
-          "action"
+          "action",
+          "declared_public"
         ],
         "title": "RouteMappingRow",
         "type": "object"
@@ -18993,7 +18998,7 @@
     },
     "/api/auth/routes": {
       "get": {
-        "description": "Enumerate the app's own HTTP routes with each route's current scope mapping.\n\nCovers the mapper's route picker and its \"unassigned routes\" bucket (the ``mapped: null``\nentries).\n\n``routes`` is the app's live route table (the route-adapter extractor hands the\noperation ``request.app.routes`` so it stays request-free). One entry per\n:class:`starlette.routing.Route`, sorted by ``path``. ``Mount`` entries (the sub-MCP\nmount, the MCP mount) are EXCLUDED — a mount is not a bindable url and the sub-MCP\nsurface has its own door. The exclusion is an explicit ``isinstance`` filter: any\nroute-table entry that is neither a ``Route`` nor a ``Mount`` raises loudly (a new\nStarlette routing type must be classified here, never silently dropped). ``methods``\nis the route's method set sorted with ``HEAD`` removed (Starlette auto-adds it to\nevery GET route — noise for the mapper). ``mapped`` is the url's value from\n``get_all_route_mappings`` looked up by the EXACT path string — a scope id, the\npublic marker for a public pin, or ``null`` when the path has no mapping. Exact-key\nlookup only: this door does not attempt dynamic-pattern matching.\n\nEach entry is JOINED with its :class:`RouteMetadata` (from\n``route_registry.load_all_routes()``, a separate collection) to also carry the\nroute's feature ``tags`` + ``summary`` + authorization ``action`` — the data the\nStudio Roles page groups the per-tag tri-state by and marks the ``fenced``/``secret``\n(admin-only) routes it must never offer a grant for. The join is keyed on the route\nTEMPLATE + its method set with ``HEAD`` stripped on BOTH sides (Starlette auto-adds\n``HEAD`` to a GET), so the two collections compare like-for-like; a registered route\nwhose method set fails to join is a loud STOP (a normalization drift), never a\nsilently dropped row.",
+        "description": "Enumerate the app's own HTTP routes with each route's current scope mapping.\n\nCovers the mapper's route picker and its \"unassigned routes\" bucket (the ``mapped: null``\nentries).\n\n``routes`` is the app's live route table (the route-adapter extractor hands the\noperation ``request.app.routes`` so it stays request-free). One entry per\n:class:`starlette.routing.Route`, sorted by ``path``. ``Mount`` entries (the sub-MCP\nmount, the MCP mount) are EXCLUDED — a mount is not a bindable url and the sub-MCP\nsurface has its own door. The exclusion is an explicit ``isinstance`` filter: any\nroute-table entry that is neither a ``Route`` nor a ``Mount`` raises loudly (a new\nStarlette routing type must be classified here, never silently dropped). ``methods``\nis the route's method set sorted with ``HEAD`` removed (Starlette auto-adds it to\nevery GET route — noise for the mapper). ``mapped`` is the url's value from\n``get_all_route_mappings`` looked up by the EXACT path string — a scope id, the\npublic marker for a public pin, or ``null`` when the path has no mapping. Exact-key\nlookup only: this door does not attempt dynamic-pattern matching.\n\n``declared_public`` is ``True`` for a route public by its own declaration: it answers\neveryone whatever scope it is mapped to (the access check's declared-public tier), so the\nscope writer refuses to map it.\n\nEach entry is JOINED with its :class:`RouteMetadata` (from\n``route_registry.load_all_routes()``, a separate collection) to also carry the\nroute's feature ``tags`` + ``summary`` + authorization ``action`` — the data the\nStudio Roles page groups the per-tag tri-state by and marks the ``fenced``/``secret``\n(admin-only) routes it must never offer a grant for. The join is keyed on the route\nTEMPLATE + its method set with ``HEAD`` stripped on BOTH sides (Starlette auto-adds\n``HEAD`` to a GET), so the two collections compare like-for-like; a registered route\nwhose method set fails to join is a loud STOP (a normalization drift), never a\nsilently dropped row.",
         "operationId": "get_api_auth_routes",
         "responses": {
           "200": {
@@ -27735,7 +27740,7 @@
     },
     "/api/notifications": {
       "get": {
-        "description": "List internal notifications, newest-first.\n\nA RESTRICTED caller reads its OWN per-identity feed (complete within its own\nbound — never truncated by other identities' volume, never a broadcast); an\nUNRESTRICTED caller reads the shared feed unchanged (today's operator view).",
+        "description": "List internal notifications, newest-first.\n\nA RESTRICTED caller reads its OWN per-identity feed (complete within its own\nbound — never truncated by other identities' volume, never a broadcast); an\nUNRESTRICTED caller reads the shared feed unchanged (the operator view).",
         "operationId": "get_api_notifications",
         "responses": {
           "200": {
