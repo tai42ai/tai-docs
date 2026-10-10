@@ -76,18 +76,21 @@ surfaces on the invoke response and nowhere else.
 
 ## Member state stays platform-owned
 
-A member's **disabled** state is an access-control fact the platform owns, not
-something a provider reports. A provider's member record carries the
+A member's **disabled** state and **role** are access-control facts the platform
+owns, not something a provider reports. A provider's member record carries the
 [principal](/concepts/access-control) id (or ids) the person holds; the Members
-operation joins those ids against the platform's own principal records and takes
-`disabled` from there. A row exposes each principal's state and a derived
-`disabled` that is true only when every principal the person holds is disabled,
-so a person with any live principal still reads active. A principal id a provider
-names that the platform does not hold is a loud failure, never a guessed state.
+operation joins those ids against the platform's own records and takes each
+principal's `disabled` state and the role it holds from there. A row exposes each
+principal's state and two derived values: `disabled` is true only when every
+principal the person holds is disabled, so a person with any live principal still
+reads active; `role` is the one role every principal holds, and `null` when there
+is no single one — every principal's access was set directly, or the principals
+hold different roles. A person whose logins hold different roles is listed with
+each login's own role, never refused. A principal id a provider names that the
+platform does not hold is a loud failure, never a guessed state.
 
-A member's **role** stays provider-sourced: the platform exposes no per-principal
-role to join from, and the only writer of a member's role is the provider's own
-action, so its copy cannot go stale behind a platform door.
+An invitation holds no principal yet, so its role is the one the provider reports:
+the role the person will hold.
 
 ## See also
 
