@@ -45,10 +45,29 @@ any thread nobody marked finished. A **finished** thread is one its owner marked
 - On `postgres` and `sqlite` the checkpoint sweep deletes a thread whose newest checkpoint is
   older than the waiting retention.
 - A finished thread goes the finished retention after its mark, on every provider, through
-  the checkpoint sweep.
+  the checkpoint sweep. The mark records the time the thread becomes due, from the retention in
+  force at the mark: changing the finished value later moves only new marks.
 
 An async `ask` must therefore carry a deadline within the waiting retention: a park with no
 deadline, or one past the horizon, is refused loudly before anything is parked.
+
+## A thread's own retention
+
+The two values above are every thread's **default** and its **ceiling**. A thread's owner may
+declare a shorter retention for the threads it starts — a flow declares one in its document
+(`config.checkpoint_retention`, see [the flows engine](/babelfish/index)) — never a longer one:
+
+- A declared value above the platform's value for its horizon is refused loudly, naming both
+  values; it is never shortened silently. A declared finished retention longer than the
+  declared waiting one is refused too.
+- A declaration may give only one value. An unset waiting is the platform's; an unset finished
+  is the platform's finished retention, capped at the thread's waiting one.
+- On `redis` the declared waiting is the TTL of every key the thread's writes store. On
+  `postgres` and `sqlite` it is recorded when a run starts on the thread, and the checkpoint
+  sweep reads it as that thread's waiting horizon; a later run on the same thread replaces it.
+- A finished thread is due its declared finished retention after its mark.
+- A park on such a thread must fit its declared waiting retention: an async `ask` whose
+  deadline runs past it is refused before anything is parked.
 
 <Note>
 `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` is gone: its place is taken by the two retention values
@@ -88,11 +107,11 @@ used again never sits there while it is live.
 operation that deletes checkpoint threads. It is admin-only and destructive; drive it on a
 cadence with a schedule or external cron — nothing runs it in the background.
 
-1. Every thread marked finished more than the finished retention ago is deleted, on every
-   provider, `memory` included.
-2. On `postgres` and `sqlite`, every thread whose newest checkpoint is older than the waiting
-   retention is deleted. On `redis` the key TTL does this; on `memory` the thread lives with
-   the process — both reported in `skipped`.
+1. Every thread marked finished whose due time has passed (its finished retention after the
+   mark) is deleted, on every provider, `memory` included.
+2. On `postgres` and `sqlite`, every thread whose newest checkpoint is older than its waiting
+   retention (the one its owner declared, else the platform's) is deleted. On `redis` the key
+   TTL does this; on `memory` the thread lives with the process — both reported in `skipped`.
 
 Before any delete, every **live-thread filter** a consumer registered is asked whether the
 thread is still live; a thread one claims is **spared**: logged at WARNING, counted on
@@ -118,7 +137,7 @@ The result:
 | Field | Meaning |
 | --- | --- |
 | `provider` | The deployment's checkpoint provider. |
-| `waiting_minutes`, `finished_minutes` | The two retention values in force. |
+| `waiting_minutes`, `finished_minutes` | The platform's two retention values: the default and the ceiling of every thread's retention. |
 | `swept_count` | Threads deleted in this sweep. |
 | `finished_swept` | Threads deleted past the finished horizon. |
 | `waiting_swept` | Threads deleted past the waiting horizon. |
@@ -148,7 +167,8 @@ first time a saver is built on it. A store that already holds checkpoints writte
 format — or with no recorded generation — is refused at that first use with
 `CheckpointStoreFormatError` ("reset the checkpoint store before starting this version"): every
 run, query or sweep that needs it fails loudly until the store is reset. A deployment that
-uses no checkpoint store never builds a saver and never runs the check.
+uses no checkpoint store never builds a saver and never runs the check. The current generation
+is 3: a store written by an earlier version is reset before this one starts on it.
 
 ## What the Redis store keeps
 
