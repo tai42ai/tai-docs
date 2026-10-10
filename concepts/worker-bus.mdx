@@ -185,7 +185,13 @@ lives are gone** (their slots absent, expired, or already advanced to a higher
 generation), and **fresh ready capacity** of each kind has booted under the new
 config, counted per kind to cover the recycled workers. The report never claims a
 particular new life is a particular old one's replacement; it confirms the old
-lives ended and the fleet came back to strength. Because that census rides the bus
+lives ended and the fleet came back to strength. A target the bus could not confirm
+(it was still applying the reload, so the recycle op got no acknowledgement) is
+awaited on the census within the step budget; it may still recycle once its reload
+returns, and its generation then bumps on `tai fleet workers`. The roll stops at the
+first target that does not converge — reported `timed-out` or `failed` with a
+`detail` — or when the bus cannot be read, and attempts neither the later targets nor
+the applier's own recycle; `recycle_stopped` in the response names where and why. Because that census rides the bus
 itself, the bus URL is one key a recycle can never carry — replacements would
 register on a new bus the running census cannot see — so a profile changing
 `TAI_BUS_REDIS_URL` is refused on every shape.
