@@ -302,12 +302,23 @@ switched off by revoking it.
 Deleting a scope or a route never reaches an admin's grant: the universal scope
 `*` names no route, so mapping a route to it (`POST /api/auth/scopes` with
 `"scope_id": "*"`) and deleting it (`DELETE /api/auth/scopes/*`) are both refused
-(`400`, nothing written).
+(`400`, nothing written). Mapping a URL into any scope is refused the same way when a
+route that declares itself public serves it, on any method: such a route answers
+everyone whatever it is mapped to, and the routes listing marks it
+`declared_public: true`.
+
+A policy that grants nothing is never written either. A policy with neither a scope
+nor a condition reads as no key at every door, so minting an API key with neither is
+refused (`400`, nothing written), and so is an edit that would leave a key's or a
+principal's own policy with neither — the refusal says to revoke the key, or to disable
+or delete the principal. For the last enabled admin principal the last-admin `409`
+answers first.
 
 Because every admin counts, demoting the last admin **account** is allowed while
 another admin principal — the owner, say — is still enabled. Promoting someone
 never needs the check, and an API key's own policy row is not a principal and
-never counts.
+never counts. Nor can it become one: creating a principal under the user id of a
+minted key (`POST /api/auth/principals`) is refused (`409`, nothing kept).
 
 ## An account is not an API key
 
