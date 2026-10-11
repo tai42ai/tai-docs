@@ -951,7 +951,7 @@
         "type": "object"
       },
       "CheckpointSweepResult": {
-        "description": "The checkpoint-sweep report.\n\n``finished_swept`` / ``waiting_swept`` list the threads deleted past each horizon;\n``spared`` lists the threads past a horizon a live-thread filter reported live.\n``skipped`` is set only when the provider has no waiting-horizon sweep (its threads\nexpire by key TTL, or live as long as the process).",
+        "description": "The checkpoint-sweep report.\n\n``finished_swept`` / ``waiting_swept`` list the threads deleted past each horizon;\n``spared`` lists the threads past a horizon a live-thread filter reported live.\n``skipped`` is set only when the provider has no waiting-horizon sweep (its threads\nexpire by key TTL, or live as long as the process). ``waiting_minutes`` /\n``finished_minutes`` are the platform's two retention values: the default and the\nceiling of every thread's retention, which a thread's owner may declare shorter.",
         "properties": {
           "finished_minutes": {
             "title": "Finished Minutes",
@@ -5458,7 +5458,7 @@
       },
       "InviteRow": {
         "additionalProperties": false,
-        "description": "An invite row in the aggregated directory the Members door returns.\n\nDisplay fields plus the opaque routing tokens. An invitation holds no principal, so it\ncarries no principal state; ``role`` is provider-sourced; ``None`` — the principal's\npolicy was not written from a role template.",
+        "description": "An invite row in the aggregated directory the Members door returns.\n\nDisplay fields plus the opaque routing tokens. An invitation holds no principal, so it\ncarries no principal state, and ``role`` is provider-sourced; ``None`` — the policy is\nnot written from a role template.",
         "properties": {
           "action_keys": {
             "items": {
@@ -6431,11 +6431,23 @@
       },
       "MemberPrincipalState": {
         "additionalProperties": false,
-        "description": "One platform principal a member holds, with its access-control state joined in.\n\n``user_id`` is the platform principal id; ``disabled`` is taken from that principal's\nown record (the store the principals listing reads), never from a provider.",
+        "description": "One platform principal a member holds, with its access-control state joined in.\n\n``user_id`` is the platform principal id; ``disabled`` is taken from that principal's\nown record (the store the principals listing reads) and ``role`` is the role it holds,\njoined from its own policy record — both never from a provider. ``role`` is ``None``\nwhen the principal's policy was not written from a role template.",
         "properties": {
           "disabled": {
             "title": "Disabled",
             "type": "boolean"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
           },
           "user_id": {
             "minLength": 1,
@@ -6445,14 +6457,15 @@
         },
         "required": [
           "user_id",
-          "disabled"
+          "disabled",
+          "role"
         ],
         "title": "MemberPrincipalState",
         "type": "object"
       },
       "MemberRow": {
         "additionalProperties": false,
-        "description": "A member row in the aggregated directory the Members door returns.\n\nDisplay fields plus the platform-joined principal state and opaque routing tokens.\n``handle`` routes an invoke back to the producing provider and pins this row;\n``action_keys`` are the opaque catalog keys of the actions applicable to it — a caller\njoins and echoes both, never parses them. ``principals`` carries each principal's\njoined state; ``disabled`` is derived True only when EVERY principal is disabled, so a\nperson with any enabled principal still reads active while the per-principal truth\nstays visible. ``role`` is provider-sourced; ``None`` — the principal's policy was not\nwritten from a role template.",
+        "description": "A member row in the aggregated directory the Members door returns.\n\nDisplay fields plus the platform-joined principal state and opaque routing tokens.\n``handle`` routes an invoke back to the producing provider and pins this row;\n``action_keys`` are the opaque catalog keys of the actions applicable to it — a caller\njoins and echoes both, never parses them. ``principals`` carries each principal's\njoined state; ``disabled`` is derived True only when EVERY principal is disabled, so a\nperson with any enabled principal still reads active while the per-principal truth\nstays visible. ``role`` is derived too: the one name every principal holds, ``None``\nwhen there is no single name — every principal's policy was set directly, or the\nprincipals hold different roles; ``principals[].role`` carries each principal's own.",
         "properties": {
           "action_keys": {
             "items": {
@@ -9231,7 +9244,7 @@
         "type": "object"
       },
       "ProfileApplyResponse": {
-        "description": "The dedicated profile-apply response.\n\n``hot`` are the hot-class diff key names; ``recycle`` the recycled/self-deferred worker lines;\n``fresh`` the new ready lives seen since the pre-apply snapshot; ``refused`` is empty on success\n(any refusal aborts the pipeline before a response is built); ``fanout`` the reload broadcast's\nfleet summary. Names only — never env values.",
+        "description": "The dedicated profile-apply response.\n\n``hot`` are the hot-class diff key names; ``recycle`` the worker lines of the recycle roll;\n``fresh`` the new ready lives seen since the pre-apply snapshot; ``refused`` is empty on success\n(any refusal aborts the pipeline before a response is built); ``recycle_stopped`` is ``null``\nwhen the roll ran to its end, otherwise where it stopped and why; ``fanout`` the reload\nbroadcast's fleet summary. Names only — never env values.",
         "properties": {
           "fanout": {
             "$ref": "#/components/schemas/FanoutSummary"
@@ -9256,6 +9269,17 @@
             },
             "title": "Recycle",
             "type": "array"
+          },
+          "recycle_stopped": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecycleStop"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "refused": {
             "items": {
@@ -9783,8 +9807,20 @@
         "type": "object"
       },
       "RecycleEntry": {
-        "description": "One recycled or self-deferred worker line in a profile-apply report.",
+        "description": "One worker line in a profile-apply report.\n\n``status`` is ``recycled`` (confirmed on reality), ``timed-out`` or ``failed`` (the\ntarget the roll stopped at), or ``self-deferred`` (the applier's own post-response\nself-exit). ``detail`` names why a ``timed-out`` / ``failed`` target did not\nconverge, and is ``null`` otherwise.",
         "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          },
           "generation_before": {
             "title": "Generation Before",
             "type": "integer"
@@ -9809,6 +9845,37 @@
           "generation_before"
         ],
         "title": "RecycleEntry",
+        "type": "object"
+      },
+      "RecycleStop": {
+        "description": "Where a profile apply's recycle roll stopped and why.\n\n``name`` is the target the roll stopped at (its line in ``recycle`` carries the\ntarget's own outcome), or ``null`` when the bus could not be read before a target was\nreached.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "detail"
+        ],
+        "title": "RecycleStop",
         "type": "object"
       },
       "ReloadConfig": {
@@ -17830,7 +17897,7 @@
     },
     "/api/auth/members": {
       "get": {
-        "description": "Aggregate every registered accounts provider's people and invitations (admin only).\n\nEach provider's :meth:`~tai42_contract.accounts.provider.AccountsProvider.list_members`\nsupplies its own members and invites; the aggregate wraps them into wire rows in provider\nname order, minting each row's opaque handle and action keys and joining each member's\nper-principal ``disabled`` state from the platform's own principal store (read once per\ncall). A member row's ``disabled`` is derived True only when EVERY principal is disabled.\nProvider errors propagate (loud, never a silently empty listing).",
+        "description": "Aggregate every registered accounts provider's people and invitations (admin only).\n\nEach provider's :meth:`~tai42_contract.accounts.provider.AccountsProvider.list_members`\nsupplies its own members and invites; the aggregate wraps them into wire rows in provider\nname order, minting each row's opaque handle and action keys and joining each member\nprincipal's ``disabled`` state (the principal store, read once per call) and the role it\nholds (one ``principal_roles`` read for every member principal). A member row's\n``disabled`` is derived True only when EVERY principal is disabled; its ``role`` is the\none role every principal holds, else ``None``. Provider errors propagate (loud, never a\nsilently empty listing).",
         "operationId": "get_api_auth_members",
         "responses": {
           "200": {
@@ -18023,7 +18090,7 @@
     },
     "/api/auth/principals/{user_id}": {
       "delete": {
-        "description": "Delete a principal, revoking every key it owns plus its policy row (admin only).\n\nRefused (409) when a login-attaching accounts provider owns the principal's login — that\nprovider's users door deletes it and cleans the login row. A principal no attaching\nprovider claims (service, OIDC-provisioned human, keys-only owner) is deleted here;\ndeleting the last enabled admin principal is refused (409) by the last-admin guard. A\nmissing principal is a 404.",
+        "description": "Delete a principal, revoking every key it owns plus its policy row (admin only).\n\nRefused (409) when a login-owning accounts provider keeps a login record for the principal\n— that provider's member actions on the Members page remove the principal and the record\ntogether, so the record never outlives the principal. A principal no provider claims\n(service, hand-provisioned OIDC human, keys-only owner) is deleted here; deleting the last\nenabled admin principal is refused (409) by the last-admin guard. A missing principal is a\n404.",
         "operationId": "delete_api_auth_principals_user_id",
         "parameters": [
           {
@@ -18107,7 +18174,7 @@
         "x-destructive": true
       },
       "put": {
-        "description": "Update a principal's display name and/or disabled state (admin only).\n\nBoth fields are omit-means-keep. A ``disabled`` change is refused (409) when a\nlogin-attaching accounts provider owns the principal's login — its disabled state lives\nat that provider's users door — and otherwise flips both homes through the guarded\ndisabled writer. Disabling the last enabled admin principal is refused (409) by the\nlast-admin guard. A display-name edit is accepted for any kind. Returns the\nupdated principal; a missing principal is a 404.",
+        "description": "Update a principal's display name and/or disabled state (admin only).\n\nBoth fields are omit-means-keep. A ``disabled`` change is refused (409) when a\nlogin-attaching accounts provider holds the principal's credential — its disabled state\nlives with that provider and changes through its member actions on the Members page — and\notherwise flips both homes through the guarded disabled writer (a principal whose login\nrecord a provider keeps without holding its credential is disabled here). Disabling the\nlast enabled admin principal is refused (409) by the last-admin guard. A display-name edit\nis accepted for any kind. Returns the updated principal; a missing principal is a 404.",
         "operationId": "put_api_auth_principals_user_id",
         "parameters": [
           {
@@ -19730,7 +19797,7 @@
     },
     "/api/checkpoints/sweep": {
       "post": {
-        "description": "Delete the checkpoint threads of the deployment's store that are past their retention horizon.\n\nA finished thread (marked by its owner) goes ``checkpoint_retention_finished_minutes`` after the\nmark; on ``postgres``/``sqlite`` any thread goes ``checkpoint_retention_waiting_minutes`` after its\nnewest checkpoint (``redis`` expires it by key TTL and ``memory`` keeps it for the process — both\nreported in ``skipped``). A thread a registered live-thread filter claims is spared and listed.",
+        "description": "Delete the checkpoint threads of the deployment's store that are past their retention horizon.\n\nA finished thread (marked by its owner) goes at the due time stored with its mark; on\n``postgres``/``sqlite`` any thread goes its waiting retention (declared by its owner, else\n``checkpoint_retention_waiting_minutes``) after its newest checkpoint (``redis`` expires it by key\nTTL and ``memory`` keeps it for the process — both reported in ``skipped``). A thread a\nregistered live-thread filter claims is spared and listed. ``waiting_minutes`` and\n``finished_minutes`` in the result are the platform's values: the default and ceiling of every\nthread's retention.",
         "operationId": "post_api_checkpoints_sweep",
         "responses": {
           "200": {
@@ -20288,7 +20355,7 @@
     },
     "/api/config/profiles/{name}/apply": {
       "post": {
-        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nThe profile's ``secret_keys`` are written as the stored secret marks in the same replace.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse``\n``{hot, recycle:[{name, kind, status, generation_before}], fresh:[{name, kind,\ngeneration}], refused:[] on success, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per recycled/timed-out sibling (plus the\napplier's own deferred self-exit line when it must self-exit); ``fresh`` is the\nper-kind new ready lives observed since the pre-apply snapshot, capacity evidence never\nclaimed as any target's successor. A refusal (X-band key, dangling ``!ENV``, a recycle-\nclass diff the deployment shape cannot carry) aborts upfront with a loud 400 naming\nthe key, before anything is snapshotted, built, or persisted. When the diff carries\nserve-affecting recycle keys the applier's OWN recycle is armed as a post-response\ngraceful self-exit (a Starlette ``BackgroundTask``) — its supervisor respawns it on\nthe new env. 404 for an absent name.",
+        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nThe profile's ``secret_keys`` are written as the stored secret marks in the same replace.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse`` ``{hot, recycle:[{name, kind, status,\ngeneration_before, detail}], fresh:[{name, kind, generation}], refused:[],\nrecycle_stopped:{kind, name, detail} | null, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per sibling the roll reached (plus the applier's\nown deferred self-exit line when it is armed). A ``recycled`` line is confirmed on reality;\nthe roll stops at the first line that is not: ``timed-out`` (its old life did not go, fresh\ncapacity did not boot, or it never returned to ready, within the step budget) or ``failed``\n(the worker refused the op, or the bus could not be reached while it was in hand), its\n``detail`` naming why — or when the bus could not be read before a target was reached.\n``recycle_stopped`` names where the roll stopped and why (``null`` when it ran to its end; a\n``null`` name when no target was in hand). Later siblings and the applier's own recycle are\nthen not attempted, and the call still answers with the report: the env is persisted and the\nfleet reloaded. ``fresh`` is the per-kind new ready lives observed since the pre-apply\nsnapshot, capacity evidence never claimed as any target's successor. ``refused`` is ``[]``:\na refusal (X-band key, dangling ``!ENV``, a recycle-class diff the deployment shape cannot\ncarry) aborts upfront with a loud 400 naming the key, before anything is snapshotted, built,\nor persisted. When the diff carries serve-affecting recycle keys and the roll converged, the\napplier's OWN recycle is armed as a post-response graceful self-exit (a Starlette\n``BackgroundTask``) — its supervisor respawns it on the new env. 404 for an absent name.",
         "operationId": "post_api_config_profiles_name_apply",
         "parameters": [
           {
