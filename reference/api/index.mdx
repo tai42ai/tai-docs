@@ -147,13 +147,16 @@ connectors mutation doors, a validation failure names **which** fields failed an
 its error type only, with the rejected input values stripped, so a secret
 submitted in a rejected field there does not ride back out.
 
-A door whose body is its operation's plain request model is parsed by the shared operation
-adapter: a body that does not parse answers `400 malformed request body`, and a non-object body or
-a model break answers `422` with the field list above (for example `POST /api/auth/principals`,
-`POST /api/marketplace/install`). Every other door reads its own JSON body — the doors whose body
-carries more than the model checks (for example conversation routes, messages and events, hooks,
-schedules, manifest, config, presets, templates, states, tool metadata, keys, connectors, storage,
-backup, setup, sub-MCP, and the agent and tool runs) and the interaction answer, reaction and callback doors — and answers one set of `400` texts:
+Seventeen doors take their operation's plain request model and are parsed by the shared operation
+adapter: `POST /api/auth/principals`, `PUT /api/auth/principals/{user_id}`, `POST /api/auth/roles`,
+`PUT /api/auth/roles/{name}`, `POST /api/auth/roles/{name}/rollback`,
+`POST /api/auth/roles/{name}/grants`, `POST /api/auth/member-actions/invoke`, `POST /api/login/claim`,
+`POST /api/config/reload`, `POST /api/marketplace/install`, `POST /api/marketplace/install/preview`,
+`POST /api/marketplace/uninstall`, `POST /api/marketplace/update`, `POST /api/notifications`,
+`POST /api/resources/get`, `POST /api/tools/reload` and `POST /api/tools/remove`. On these a body that
+does not parse answers `400 malformed request body`, and a non-object body or a model break answers
+`422` with the field list above. Every other door of the platform's own that takes a JSON body
+reads it itself — the interaction answer, reaction and callback doors included — and answers one set of `400` texts:
 `invalid JSON body` for a body that does not parse (a deeply nested one included), `body must be a
 JSON object` for one that is not an object, and `invalid <what>: <rule>; <rule>` for a body that
 breaks its model, each rule the message pydantic gives for the bound it violates. A door then names
@@ -161,10 +164,10 @@ a missing required field in its own words (`body must contain 'answer'`). Four o
 model break with a fixed text instead: the three connector mutation doors (connect, reconnect,
 sub-services) answer `400 invalid request body` with the failing fields' paths and types under
 `fields`, and the setup door answers `422 invalid request body`. The public webhook ingress
-doors (`/universal_webhook/{topic}`, `/trigger/{token}`) are not among them: they accept any JSON value and refuse a malformed one in
-their own ingest envelope, `{"status": "rejected", "error": "malformed JSON body: …"}` (the
-topic door's envelope also carries its `topic`).
-A model's own named rule (a hook topic or a sub-MCP slug that is not one lowercase path
+doors (`/universal_webhook/{topic}`, `/trigger/{token}`) are not among them: they accept any JSON
+value and refuse a malformed one in their own ingest envelope, `{"status": "rejected", "error": "malformed JSON body: …"}` (the
+topic door's envelope also carries its `topic`). A plugin's doors (a channel's, an accounts
+provider's) answer the texts the plugin documents. A model's own named rule (a hook topic or a sub-MCP slug that is not one lowercase path
 segment) quotes the value it refuses, so do not rely on every error response to withhold
 rejected input.
 
