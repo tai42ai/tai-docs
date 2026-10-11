@@ -107,7 +107,8 @@ annotation directly: an annotated field renders the
 
 ## The reload-gated 503
 
-When the server applies a configuration reload, routes that mutate state return
+When the server applies a configuration reload, routes that mutate state — and every
+door that would start a conversation turn, a channel's inbound webhook included — return
 `503` until the reload completes. The body sets `reloading` to `true` and the
 response carries a `Retry-After` header with the seconds to wait:
 
@@ -144,10 +145,14 @@ On the generic operation body-validation path (the adapter's `422`) and the
 connectors mutation doors, a validation failure names **which** fields failed and
 **how**, never **what** you sent: the body lists each offending field's path and
 its error type only, with the rejected input values stripped, so a secret
-submitted in a rejected field there does not ride back out. This stripping is not
-universal — some named-entity doors interpolate the raw validation error into
-their `400` body, and pydantic includes the submitted value in that text, so do
-not rely on the error response to withhold rejected input everywhere.
+submitted in a rejected field there does not ride back out.
+
+The doors that read their own JSON body answer one set of `400` texts: `invalid JSON
+body` for a body that does not parse, `body must be a JSON object` for one that is not an
+object, and `invalid <what>: <rule>; <rule>` for a body that breaks its model, each rule
+the message pydantic gives for the bound it violates. A model's own named rule (a hook
+topic or a sub-MCP slug that is not one lowercase path segment) quotes the value it
+refuses, so do not rely on every error response to withhold rejected input.
 
 <Tip>
   Regenerate this reference from the running code with `tai openapi --out

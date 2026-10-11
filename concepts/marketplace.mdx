@@ -169,6 +169,24 @@ route passes `any_authenticated=True` (it must be authed), and a caller self-ser
 route under `/api/auth` passes `self_service=True` so the seeded roles carve it in. See
 [routes declare their reach](/concepts/access-control#routes-declare-their-reach).
 
+The registration also declares what the platform reads about a route rather than
+guesses:
+
+- **Flood control** — a public route's `DeclaredRouteMetadata` may name its
+  `rate_limit_family` and the family's `rate_limit_budget`
+  (`RateLimitBudget(limit=…, burst=…)`). A declared family holds whatever base the
+  install remaps. Every public route of one family declares the same budget; a plugin
+  whose routes disagree fails the boot, or the reload that installs it, loudly. See
+  [budgets](/concepts/access-control#budgets).
+- **Success media types** — `success_media_types={"GET": ("text/html",)}` publishes the
+  body each method really answers in the OpenAPI document; a method left out publishes
+  `application/json`.
+- **Reloads** — a route declaring `reload_gated=True` answers the retriable reload `503`
+  while a configuration reload runs; the platform enforces it around the handler, so the
+  route carries no check of its own. A route that hands a turn to the conversation bridge
+  needs no flag: the bridge refuses the turn during a reload and the platform answers the
+  same `503`.
+
 ## The migrations contract
 
 A plugin that owns tables ships its schema as a **migration chain**, not a
