@@ -160,7 +160,17 @@ manifest registries in place. Combined with [live config](/concepts/config-and-s
 and manifest updates, it lets a server pick up configuration and capability changes
 without dropping its process. Across a fleet, `tai fleet reload-config`
 soft-restarts every worker on the bus (or only `--target` ones) and returns the
-per-worker report — see [Manage a fleet](/operate/manage-a-fleet).
+per-worker report — see [Manage a fleet](/operate/manage-a-fleet). The soft restart
+never respawns a process, so a recycle-class value changed in the stored env outside
+the pipeline (a hand edit of `.env`, a `kubectl edit` of the config Secret) is named by
+the reload instead: each worker's report lists it under `awaiting_respawn` (its value
+differs from the one the worker bound — at boot, or when the plugin that declares it was
+loaded), the worker
+that ran the reload command logs one ERROR line naming every such worker, and it takes
+effect when that worker is respawned through the deployment's supervisor (on a bare
+server, a restart). The response of an env write or a profile apply names under
+`awaiting_respawn` the workers still awaiting a respawn after its roll — empty when the
+roll converged.
 
 ## The kinds summary
 

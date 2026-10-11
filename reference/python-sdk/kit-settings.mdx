@@ -293,6 +293,39 @@ class UnknownOwnedSettingError(ValueError)
 An env name under an owned settings prefix names no registered setting.
 
 
+## bind_respawn_class_env
+
+`tai42_kit.settings.registry.bind_respawn_class_env`
+
+```python
+bind_respawn_class_env() -> None
+```
+
+Bind every registered respawn-class env var to the value the settings layer reads for it now.
+
+Called once a lifespan applied its env, before it builds the resources behind those values:
+a group registered later binds its own vars at its registration. Overwrites every value an
+earlier bind recorded.
+
+
+## changes_only_by_respawn
+
+`tai42_kit.settings.registry.changes_only_by_respawn`
+
+```python
+changes_only_by_respawn(cls: type[BaseSettings]) -> bool
+```
+
+Whether every value of the registered settings group ``cls`` changes only by a process respawn or restart.
+
+True when ``cls`` is registered and every field's reload class is ``recycle`` or
+``excluded``; a field that references a nested group is judged by that group's own
+registered fields, recursively. False for an unregistered class (a plain
+``BaseSettings``, a ``registry_exclude`` base, a class with no fields), for a nested
+group that is unregistered or references back into the groups being judged, and
+for any ``hot`` field.
+
+
 ## env_file_identity
 
 `tai42_kit.settings.env_file.env_file_identity`
@@ -346,7 +379,8 @@ Cache a one-argument settings accessor per key, cleared on reset and re-read whe
 An entry is served while the env file keeps the identity it had when the entry
 was built; ``reset_all_settings()`` drops every entry. A settings instance is
 epoch-stamped on construction like `settings_cache`'s. A build that raises
-stores nothing, so the next call builds again.
+stores nothing, so the next call builds again. One accessor exists per qualified name,
+re-bound by a re-import exactly as `settings_cache`'s.
 
 **Parameters**
 
@@ -543,6 +577,19 @@ reset_all_settings() -> None
 Drop every registered settings cache, then run the reset hooks.
 
 
+## respawn_class_env_drift
+
+`tai42_kit.settings.registry.respawn_class_env_drift`
+
+```python
+respawn_class_env_drift() -> frozenset[str]
+```
+
+The bound respawn-class env vars whose value the settings layer reads now differs from the bound one.
+
+Such a value takes effect only in a respawned process. Empty while nothing is bound.
+
+
 ## restamp_settings_born_after
 
 `tai42_kit.settings.cache_registry.restamp_settings_born_after`
@@ -559,10 +606,6 @@ replaces. Once its epoch is current, the builder re-stamps everything constructe
 since the mark it took when the build began: a sweep of the replaced epoch then
 judges only the instances read before the build, and the new generation's own
 instances are judged when its epoch retires.
-
-An instance constructed by a superseded accessor (one whose name a module
-re-import has registered again) is not re-stamped: only the code of the replaced
-generation still calls that accessor, so the instance keeps that generation's epoch.
 
 **Parameters**
 
@@ -601,6 +644,10 @@ the epoch the instance was born under; a cached hit returns the same stamped
 instance, and a reset clears the cache so the next call rebuilds and re-stamps
 under the then-current epoch.
 
+One accessor exists per qualified name: decorating a function whose name is already
+registered (a module re-import) re-binds that accessor to the new function, clears its
+cache and returns the same wrapper.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -618,7 +665,8 @@ sweep_stale_settings(retired_epoch: int) -> list[StaleHolder]
 
 Report every settings instance stamped with ``retired_epoch`` that something still holds.
 
-Walks the roster for instances whose stamp is the retired epoch and are still
+The roster holds only settings whose values can change within the process, so
+the sweep judges only those. Walks the roster for instances whose stamp is the retired epoch and are still
 alive. When any is found, cyclic garbage is collected first, so an instance
 that only unreachable objects keep (the finished frame of a cancelled task
 awaiting collection) is freed rather than reported. Each instance still alive
@@ -632,6 +680,17 @@ Nothing is dropped.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `retired_epoch` | `int` | — | — |
+
+
+## unbind_respawn_class_env
+
+`tai42_kit.settings.registry.unbind_respawn_class_env`
+
+```python
+unbind_respawn_class_env() -> None
+```
+
+Drop the bound respawn-class env (a lifespan's end); nothing is bound until the next bind.
 
 
 ## unknown_owned_env_keys
