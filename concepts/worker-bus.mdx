@@ -159,9 +159,10 @@ the report names, honestly, every worker the change did not cleanly reach:
   ack window.
 - **departed** — the worker's presence key expired; it went away (a rolling
   restart or a `SIGKILL` mid-reload).
-- **timed_out** — the worker acknowledged the op but did not finish applying it by
-  the deadline. The op usually still applies once its reload gate frees; verify
-  with the fleet census or a fleet reload.
+- **timed_out** — the worker acknowledged the op but did not finish applying it
+  inside the apply window, which covers its full drain budget: its reload is stuck
+  past it. Read that worker's log (the retire names the step that overran) and
+  verify with the fleet census or a fleet reload.
 - **resyncing** — the worker is mid-resync (a boot or a reconnect) and was not in
   a ready state to take the op; it converges on its own resync.
 - **recycling** — the worker is departing under a recycle; it converges by ending
@@ -244,14 +245,20 @@ whether or not a rule fires.
 ## Operational knobs
 
 The timing knobs have safe defaults; change them only for a deployment whose
-reloads legitimately run long.
+reloads legitimately run long. The apply window is never below three drain budgets
+(`TAI_TOOL_RUNS_SHUTDOWN_DRAIN_SECONDS`): a reload's retire drains in-flight
+requests, background runs and retired client pools in sequence, each within the
+drain budget, and a worker draining real work must answer inside the window. A
+bus-enabled process refuses to boot or reload, and a config change is refused, when
+the window is below that floor; raise the window with the drain budget, adding the
+reload's own time.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `TAI_BUS_REDIS_URL` | unset | Redis URL that enables the bus. Unset = bus off (single-worker, `file` mode, no backend only). |
 | `TAI_BUS_NAMESPACE` | `tai` | Prefixes the control channel, reply channels, and presence keys. Unique per stack on a shared Redis. |
 | `TAI_BUS_ACK_TIMEOUT` | `2.0` | Seconds the collector waits for the fast liveness acknowledgements before it budgets the rest of its wait toward the apply deadline. |
-| `TAI_BUS_APPLY_TIMEOUT` | `30.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Budgets a worst-case reload plus the post-apply hooks; each post-apply handler receives the seconds left of it, measured from the worker's receipt of the op. |
+| `TAI_BUS_APPLY_TIMEOUT` | `90.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Never below three drain budgets (refused at boot, on every reload and on every config change). The default covers three default drains, the fork quiesce, the MCP re-probes, the rebuild and the post-apply hooks; each post-apply handler receives the seconds left of it, measured from the worker's receipt of the op. |
 | `TAI_BUS_HEARTBEAT_TTL` | `15.0` | Presence-key TTL. A worker refreshes it at a third of this; a transport blip leaves the key to this TTL and the worker re-verifies its slot on reconnect (presence survives a brief wobble), while a frozen or killed worker's row goes stale and then leaves the census within one TTL rather than blocking every op. |
 
 ## See also
