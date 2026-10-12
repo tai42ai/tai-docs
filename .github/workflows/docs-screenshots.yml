@@ -7,9 +7,11 @@
 #   studio -- boots a docs-demo skeleton, builds the Studio SPA, and drives
 #     tai-studio/e2e/scripts/docs-screenshots.sh to capture the Studio screens.
 #   editor -- boots the flow-editor stack (the same backend the engine's own
-#     browser e2e job provides) against the Studio SPA shell, runs the
-#     docs-bound screenshot sweep, asserts the captured set matches the images
-#     the flow-author pages embed, then copies that set in.
+#     browser e2e job provides) with the monitoring compose profile (Langfuse and
+#     the OpenTelemetry collector, from the platform's e2e harness at the release
+#     the engine locks) so the run popups read recorded steps, against the Studio
+#     SPA shell, runs the docs-bound screenshot sweep, asserts the captured set
+#     matches the images the flow-author pages embed, then copies that set in.
 #
 # Both jobs write disjoint filenames, so their PRs never collide.
 #
@@ -258,6 +260,9 @@ jobs:
       TAI_E2E_PG_HOST: localhost
       TAI_E2E_PG_PASSWORD: postgres
       TAI_E2E_CHECKPOINT_REDIS_URL: redis://localhost:6380
+      # The stack this job boots loads the Langfuse monitoring plugin on the monitoring
+      # compose profile started below (the run popups' recorded-value shots need it).
+      TAI_E2E_MONITORING: '1'
       # The capture target: a running stack to capture from instead of building one,
       # from the dispatch input or the TAI_E2E_TARGET repository variable.
       TAI_E2E_TARGET: ${{ inputs.e2e_target || vars.TAI_E2E_TARGET }}
@@ -298,6 +303,24 @@ jobs:
 
       - run: uv python install 3.13
         if: env.TAI_E2E_TARGET == ''
+
+      - name: Start the monitoring compose profile
+        # Langfuse and the OpenTelemetry collector the monitored stack writes to and reads
+        # back from, as the engine's own monitoring e2e job starts them: the compose file
+        # ships with the platform's e2e harness, checked out at the release the engine's
+        # uv.lock pins. The platform repo may be private, so it is cloned through the
+        # TAI_CI_TOKEN rewrite set above.
+        if: env.TAI_E2E_TARGET == ''
+        env:
+          SOURCE_OWNER: ${{ vars.SOURCE_REPO_OWNER || github.repository_owner }}
+          MONOREPO_REPO: ${{ vars.MONOREPO_REPO || 'tai42' }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("engine/uv.lock", "rb"))["package"] if p["name"] == "tai42-e2e"))')
+          git clone --depth 1 --branch "tai42-e2e-v${version}" --filter=blob:none --sparse \
+            "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" platform
+          git -C platform sparse-checkout set e2e
+          docker compose -f platform/e2e/compose.yml --profile monitoring up -d --wait \
+            langfuse-web langfuse-worker otel-collector
 
       - name: Sync the engine env (the studio stack the webServer boots)
         # The Playwright webServer boots `.venv/bin/tai42-e2e-studio-stack` from the
