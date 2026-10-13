@@ -8,7 +8,8 @@ committed ``plugins/_registry.json`` snapshot::
 
 Guarantees asserted:
 
-1. A doc naming a real distribution / real repo passes.
+1. A doc naming a real distribution, an installed ``tai42-*`` console script or a
+   real repo passes.
 2. A fabricated ``tai42-bogus`` distribution fails, naming its ``file:line``.
 3. A documented ALWAYS_PUBLIC value that differs from the compose default fails.
 4. A bundled-plugin-env value that differs from the dist preset fails, and the
@@ -46,6 +47,16 @@ def test_real_distribution_passes() -> None:
     problems = check_docs_refs.check_distribution_names(docs, set(dist_map))
     assert problems == [], problems
     print("  real distribution names: no problems")
+
+
+def test_console_script_name_passes() -> None:
+    """A doc naming an installed tai42-* console script produces no problems."""
+    scripts = check_docs_refs._console_script_names()
+    assert "tai42-contract-schemas" in scripts, sorted(scripts)
+    docs = [("fake/api.mdx", "The bundle is regenerated with `tai42-contract-schemas --out`.")]
+    problems = check_docs_refs.check_distribution_names(docs, set(_dist_map()) | scripts)
+    assert problems == [], problems
+    print("  console script name: no problems")
 
 
 def test_bogus_distribution_fails() -> None:
