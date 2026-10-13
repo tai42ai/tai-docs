@@ -265,9 +265,9 @@ the subflow's path into the Studio problems panel like the parent's.
 
 A node that starts, resumes, and cancels a **parkable call** — a **Flow Call**, a
 **custom node** (a saved flow published to the palette), or an **agent** — is a
-**holder**. On the wire its `type` is `"holder"`, it holds a saved flow or an agent
-(the `tool` / `tool_kwargs` pair), and the runtime decides which of the two the call
-is by resolving `tool`, never a second field. A holder has no plain expression input;
+**holder**. On the wire its `type` is `"holder"`, it holds a saved flow or any registered
+agent — or a preset over one — (the `tool` / `tool_kwargs` pair), and the runtime decides
+which of the two the call is by resolving `tool`, never a second field. A holder has no plain expression input;
 instead it carries jq slots evaluated over the [node
 envelope](/babelfish/jq-editor#what-each-field-seeds) with the held call's parked
 interactions bound as `$parked`:
@@ -289,6 +289,16 @@ interactions bound as `$parked`:
 
 When none of a holder's expressions reference `$parked`, the engine does not fetch
 the held call's parked list before running them.
+
+**A parking target must be a holder.** A saved flow parks, and an agent parks when its kind
+declares that it can (the platform's agent registry says so for each registered agent). A
+plain runnable that calls a parking agent, or a preset over one, is refused at validation:
+`Node '<id>': agent '<agent>' can park, so it must be a 'holder' node, not a plain runnable.`
+(for a preset: `Node '<id>': tool '<preset>' is a preset over agent '<agent>', which can park,
+so it must be a 'holder' node, not a plain runnable.`). An agent that does not park may be
+called by a plain runnable or held. A held agent **can ask its caller** when it parks and its
+static tool set — the kind's own fixed tools, a preset's saved `tool_names`, and the holder's
+own `tool_kwargs.tool_names` — names the `ask` tool.
 
 A held call that **fails** — an agent whose resumed run raised (a model or provider error,
 say), or one whose resume the platform gave up on — reaches the holder as a failure, never
@@ -368,6 +378,15 @@ The whole map is checked once at run start — an unknown node, a node whose kin
 be filled, an output that fails the node's declared schema, a per-round shape that does
 not match the node's loop depth, and an answer a static ask format rejects are all loud
 refusals — then consumed per node.
+
+A raw `ask` node's fill is checked against its question format when that format is
+**static**: the ask's own `answer_format` (with `options` for a select and `schema` for a
+form) is set in its tool arguments, and the node has no expression and no declared inputs
+that could rewrite them at run time. The check uses the platform's own question format for
+those arguments, so an off-set answer is refused (`warm-start answer for node '<id>' does
+not fit its question format: answer must be one of […]`), and arguments the ask itself
+refuses are refused too (`warm-start cannot check node '<id>': …`). A node whose format is
+built or overridable at run time is filled unchecked.
 
 <Frame caption="The holder panel's warm-start rows.">
   <img className="block dark:hidden" src="/images/studio/warm-start-light.png" alt="The holder panel's warm-start rows." />
@@ -488,7 +507,7 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.upstream_outputs.error` | The exception payload as raised — a dict is carried verbatim so jq can navigate it (`.upstream_outputs.error.code == 404`), anything else is its string form. |
 | `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
-| `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"app"` when the flow's own logic raised or `"infrastructure"` when the platform beneath it did, so recovery can gate on which. |
+| `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"infrastructure"` when a transport the platform owns failed, and `"app"` for every other failure (see [Who handles a failure](#who-handles-a-failure)). |
 | `.inputs` / `.outputs` | The run's inputs and outputs channels at failure — what the [run state](#run-state) keeps. |
 | `$states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
@@ -533,6 +552,35 @@ A finished run shows what the On Error did. A node that failed and was rescued r
 as recovered, and the On Error that ran — whether the inline tool or the wired
 Recovery — reads as having run on the error path rather than as an ordinary
 step. A node reached both ways keeps its own status and gains the On Error mark.
+
+### Who handles a failure
+
+Two questions about a failure are answered apart.
+
+**Who handles it — `error_source`.** A failure is `infrastructure` only when a transport the
+platform owns failed, as that transport's owner declares it: a standard timeout or connection
+error, a dropped or unconnectable pooled client, an HTTP transport error, a closed or broken
+stream, or the MCP client's own read timeout. No author caused such a failure and no On Error
+can mend it, so it **skips** the node's On Error and reaches the run's error path. Every other
+failure is `app` and **reaches** the On Error, whatever its kind — including an MCP tool's own
+error, an unanswered sync ask, a spent turn budget, a sandbox command that timed out, a
+sandbox, states or other capability that is not available, a tool that paused without
+declaring it, a barrier that timed out, and any error raised from a transport error (only the
+error itself is read, never its cause). A failure replayed on resume keeps the source it had
+when it happened.
+
+| Raised in a node | `error_source` |
+| --- | --- |
+| A standard timeout or connection error, a dropped pooled client, an HTTP transport error, a closed or broken stream, an MCP read timeout (code 408) | `infrastructure` — the node's On Error is skipped |
+| An MCP error with any other code | `app` — the node's On Error runs |
+| An unanswered sync ask, a turn budget, a sandbox exec timeout, a missing sandbox, states or capability, an undeclared pause | `app` — each is stamped `timed_out` or `unavailable` for a reason that is the flow's own, and the node's On Error runs |
+| Any error raised from a transport error, a barrier timeout | `app` |
+
+**Whether it is retried — the error kind.** A tool that opts into the platform's retries is
+retried on the error kinds the platform treats as retryable. The transport errors above carry a
+kind too: an HTTP timeout reads `timed_out`, other HTTP transport errors and a closed or broken
+stream read `unavailable`, and an MCP error leased through the platform's client reads the kind
+its code means — so `.upstream_outputs.error_kind` names them rather than `unknown`.
 
 ### When a loop's failure reaches the flow's On Error
 
