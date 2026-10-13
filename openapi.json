@@ -490,14 +490,32 @@
         "type": "object"
       },
       "ApplyResponse": {
-        "description": "The standard mutation-op response: this worker's local reload result merged with the fleet fan-out summary.\n\n``env_keys`` is the count of env keys the reload loaded.",
+        "description": "The standard mutation-op response: this worker's local reload result merged with the fleet fan-out summary.\n\n``env_keys`` is the count of env keys the reload loaded. ``recycle`` is the fleet recycle\nroll the change ran — ``null`` when it carried no recycle-class key. ``awaiting_respawn`` is\nthe operation's verdict: the workers still awaiting a respawn after it (name + keys) — empty\nwhen the change rolled a recycle that converged and this worker recycles itself; a worker the\nroll did not reach, and every listed worker of a change that rolls nothing, keep their keys.",
         "properties": {
+          "awaiting_respawn": {
+            "items": {
+              "$ref": "#/components/schemas/AwaitingWorker"
+            },
+            "title": "Awaiting Respawn",
+            "type": "array"
+          },
           "env_keys": {
             "title": "Env Keys",
             "type": "integer"
           },
           "fanout": {
             "$ref": "#/components/schemas/FanoutSummary"
+          },
+          "recycle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecycleRoll"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "status": {
             "title": "Status",
@@ -620,6 +638,28 @@
         ],
         "title": "AuthHealthState",
         "type": "string"
+      },
+      "AwaitingWorker": {
+        "description": "One worker an operation names as still awaiting a respawn.\n\nIts recycle-class ``keys`` changed in the stored env since its process bound them (at boot, or\nwhen the plugin that declares them was loaded), and nothing in the operation respawns it.",
+        "properties": {
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "keys"
+        ],
+        "title": "AwaitingWorker",
+        "type": "object"
       },
       "BackendInfo": {
         "description": "Backend identity.\n\n``backend``/``module`` are ``null`` when no provider is registered\n(``present`` false).",
@@ -792,8 +832,15 @@
       },
       "BackupSectionReport": {
         "additionalProperties": false,
-        "description": "One section's import outcome — the typed result every importer returns.\n\nThe platform reads ONLY these fields: ``created``/``updated``/``skipped`` are\nthe per-record counts (``skipped`` is the per-record REJECTION count, each also\ncarried in ``errors``), ``errors`` is the per-record failure messages, and\n``fanout`` is the platform's own per-worker report for a section whose restore\nbroadcasts a fleet eviction (``None`` for every section that does not).\n\n``details`` is an OPEN map for an importer's OWN counts and data — a\nper-entity breakdown, a ``skipped_existing`` tally, minted credentials to\nsurface once — so a backend declares its own shape there without the platform\nknowing it. The typed surface is CLOSED (``extra=\"forbid\"``): an importer that\nreturns a stray top-level field is a wrong shape the registry refuses loudly\nrather than silently dropping. ``validate_assignment`` coerces ``fanout`` on\nassignment, so a mutation building the report cannot leave an unvalidated shape.",
+        "description": "One section's import outcome — the typed result every importer returns.\n\nThe platform reads ONLY these fields: ``created``/``updated``/``skipped`` are\nthe per-record counts (``skipped`` is the per-record REJECTION count, each also\ncarried in ``errors``), ``errors`` is the per-record failure messages, and\n``fanout`` is the platform's own per-worker report for a section whose restore\nbroadcasts a fleet eviction (``None`` for every section that does not), and\n``recycle`` the fleet recycle roll a section's restore ran for a recycle-class env\nchange (``None`` for every section that ran none), and ``awaiting_respawn`` the workers\nstill awaiting a respawn after the section's env change (name + keys; empty for every\nsection that ran none).\n\n``details`` is an OPEN map for an importer's OWN counts and data — a\nper-entity breakdown, a ``skipped_existing`` tally, minted credentials to\nsurface once — so a backend declares its own shape there without the platform\nknowing it. The typed surface is CLOSED (``extra=\"forbid\"``): an importer that\nreturns a stray top-level field is a wrong shape the registry refuses loudly\nrather than silently dropping. ``validate_assignment`` coerces ``fanout`` and ``recycle`` on\nassignment, so a mutation building the report cannot leave an unvalidated shape.",
         "properties": {
+          "awaiting_respawn": {
+            "items": {
+              "$ref": "#/components/schemas/AwaitingWorker"
+            },
+            "title": "Awaiting Respawn",
+            "type": "array"
+          },
           "created": {
             "default": 0,
             "title": "Created",
@@ -815,6 +862,17 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/FanoutSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "recycle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecycleRoll"
               },
               {
                 "type": "null"
@@ -9244,8 +9302,15 @@
         "type": "object"
       },
       "ProfileApplyResponse": {
-        "description": "The dedicated profile-apply response.\n\n``hot`` are the hot-class diff key names; ``recycle`` the worker lines of the recycle roll;\n``fresh`` the new ready lives seen since the pre-apply snapshot; ``refused`` is empty on success\n(any refusal aborts the pipeline before a response is built); ``recycle_stopped`` is ``null``\nwhen the roll ran to its end, otherwise where it stopped and why; ``fanout`` the reload\nbroadcast's fleet summary. Names only — never env values.",
+        "description": "The dedicated profile-apply response.\n\n``hot`` are the hot-class diff key names; ``recycle`` the worker lines of the recycle roll;\n``fresh`` the new ready lives seen since the pre-apply snapshot; ``refused`` is empty on success\n(any refusal aborts the pipeline before a response is built); ``recycle_stopped`` is ``null``\nwhen the roll ran to its end, otherwise where it stopped and why; ``awaiting_respawn`` the\nworkers still awaiting a respawn after the apply (name + keys; empty when the roll converged);\n``fanout`` the reload broadcast's fleet summary. Names only — never env values.",
         "properties": {
+          "awaiting_respawn": {
+            "items": {
+              "$ref": "#/components/schemas/AwaitingWorker"
+            },
+            "title": "Awaiting Respawn",
+            "type": "array"
+          },
           "fanout": {
             "$ref": "#/components/schemas/FanoutSummary"
           },
@@ -9845,6 +9910,42 @@
           "generation_before"
         ],
         "title": "RecycleEntry",
+        "type": "object"
+      },
+      "RecycleRoll": {
+        "description": "The report of a fleet recycle roll an env change carrying a recycle-class key ran.\n\n``recycle`` the worker lines of the roll (the writer's own ``self-deferred`` line when its\npost-response self-exit is armed); ``fresh`` the new ready lives seen since the change began;\n``recycle_stopped`` is ``null`` when the roll ran to its end, otherwise where it stopped and\nwhy. Names only — never env values.",
+        "properties": {
+          "fresh": {
+            "items": {
+              "$ref": "#/components/schemas/FreshLife"
+            },
+            "title": "Fresh",
+            "type": "array"
+          },
+          "recycle": {
+            "items": {
+              "$ref": "#/components/schemas/RecycleEntry"
+            },
+            "title": "Recycle",
+            "type": "array"
+          },
+          "recycle_stopped": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecycleStop"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "recycle",
+          "fresh"
+        ],
+        "title": "RecycleRoll",
         "type": "object"
       },
       "RecycleStop": {
@@ -19623,7 +19724,7 @@
     },
     "/api/backup/import": {
       "post": {
-        "description": "Import each SELECTED section of ``document`` in registration order and return a per-section report.\n\n``mode`` is the per-record policy (``skip`` or ``overwrite``). A ``version`` other than 1\nraises ``BadRequestError``; an unknown, absent, or failing section carries its error in\nthe report and makes ``ok`` false.",
+        "description": "Import each SELECTED section of ``document`` in registration order and return a per-section report.\n\n``mode`` is the per-record policy (``skip`` or ``overwrite``). A ``version`` other than 1\nraises ``BadRequestError``; an unknown, absent, or failing section carries its error in\nthe report and makes ``ok`` false. A section whose restore rolled a worker recycle (an env\nsection changing a recycle-class key on a supervised deployment) carries the roll in its\n``recycle``; when that roll converged, this worker recycles itself after replying.",
         "operationId": "post_api_backup_import",
         "requestBody": {
           "content": {
@@ -19949,7 +20050,7 @@
         ]
       },
       "post": {
-        "description": "Merge env overrides into the stored config and hot-reload this worker and the fleet.\n\n``secret_keys`` (when not ``None``) replaces the operator's secret marks in the same write;\nthe marks variable itself is never accepted as an ``env`` key.",
+        "description": "Merge env overrides into the stored config and reload this worker and the fleet.\n\nA hot-class key is re-read in place. A recycle-class key rolls a worker recycle across the\nfleet on a supervised deployment: the response's ``recycle`` carries the roll's rows (``null``\nwhen the change carried no recycle-class key), and when the roll converged this worker\nrecycles itself after replying — on the HTTP edge and on every projected tool door alike (a\npost-reply graceful self-exit its supervisor respawns).\nA change the deployment cannot carry is refused with a 400 before anything is written, naming\nthe key: a recycle-class key on a bare (unsupervised) deployment, and the bus URL or a key the\ndeployment pins on every shape.\n\n``secret_keys`` (when not ``None``) replaces the operator's secret marks in the same write;\nthe marks variable itself is never accepted as an ``env`` key.\n\nCalled over MCP, the reload answers on the session that called it and then retires that session with\nthe generation it ran on: a later call on the same session fails (streamable HTTP answers it 404,\nand an SSE session's stream closes), so the client starts a new session to go on.",
         "operationId": "post_api_config_env",
         "requestBody": {
           "content": {
@@ -20024,7 +20125,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Merge env overrides and hot-reload the process config",
+        "summary": "Merge env overrides and reload the fleet",
         "tags": [
           "config"
         ],
@@ -20355,7 +20456,7 @@
     },
     "/api/config/profiles/{name}/apply": {
       "post": {
-        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nThe profile's ``secret_keys`` are written as the stored secret marks in the same replace.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse`` ``{hot, recycle:[{name, kind, status,\ngeneration_before, detail}], fresh:[{name, kind, generation}], refused:[],\nrecycle_stopped:{kind, name, detail} | null, fanout}`` — key names + worker identities only,\nnever env values. ``recycle`` is one line per sibling the roll reached (plus the applier's\nown deferred self-exit line when it is armed). A ``recycled`` line is confirmed on reality;\nthe roll stops at the first line that is not: ``timed-out`` (its old life did not go, fresh\ncapacity did not boot, or it never returned to ready, within the step budget) or ``failed``\n(the worker refused the op, or the bus could not be reached while it was in hand), its\n``detail`` naming why — or when the bus could not be read before a target was reached.\n``recycle_stopped`` names where the roll stopped and why (``null`` when it ran to its end; a\n``null`` name when no target was in hand). Later siblings and the applier's own recycle are\nthen not attempted, and the call still answers with the report: the env is persisted and the\nfleet reloaded. ``fresh`` is the per-kind new ready lives observed since the pre-apply\nsnapshot, capacity evidence never claimed as any target's successor. ``refused`` is ``[]``:\na refusal (X-band key, dangling ``!ENV``, a recycle-class diff the deployment shape cannot\ncarry) aborts upfront with a loud 400 naming the key, before anything is snapshotted, built,\nor persisted. When the diff carries serve-affecting recycle keys and the roll converged, the\napplier's OWN recycle is armed as a post-response graceful self-exit (a Starlette\n``BackgroundTask``) — its supervisor respawns it on the new env. 404 for an absent name.",
+        "description": "Apply the profile's active env as the WHOLE stored env band and reload the fleet.\n\nThe profile's ``secret_keys`` are written as the stored secret marks in the same replace.\n\nA key the profile omits is deleted, save the carried deployment X band; build+swap a fresh serving\nepoch under it, persist env-write-LAST, broadcast the reload, and recycle the fleet for recycle-class\ndiffs. NO request body.\n\nThe response is the dedicated ``profileApplyResponse`` ``{hot, recycle:[{name, kind, status,\ngeneration_before, detail}], fresh:[{name, kind, generation}], refused:[],\nrecycle_stopped:{kind, name, detail} | null, awaiting_respawn:[{name, keys}], fanout}`` — key names\n+ worker identities only,\nnever env values. ``recycle`` is one line per sibling the roll reached (plus the applier's\nown deferred self-exit line when it is armed). A ``recycled`` line is confirmed on reality;\nthe roll stops at the first line that is not: ``timed-out`` (its old life did not go, fresh\ncapacity did not boot, or it never returned to ready, within the step budget) or ``failed``\n(the worker refused the op, or the bus could not be reached while it was in hand), its\n``detail`` naming why — or when the bus could not be read before a target was reached.\n``recycle_stopped`` names where the roll stopped and why (``null`` when it ran to its end; a\n``null`` name when no target was in hand). Later siblings and the applier's own recycle are\nthen not attempted, and the call still answers with the report: the env is persisted and the\nfleet reloaded. ``fresh`` is the per-kind new ready lives observed since the pre-apply\nsnapshot, capacity evidence never claimed as any target's successor. ``refused`` is ``[]``:\na refusal (X-band key, dangling ``!ENV``, a recycle-class diff the deployment shape cannot\ncarry) aborts upfront with a loud 400 naming the key, before anything is snapshotted, built,\nor persisted. ``awaiting_respawn`` names the workers (name + keys) still awaiting a respawn\nafter the roll — empty when it converged. When the diff carries serve-affecting recycle keys\nand the roll converged, the applier's OWN recycle is armed as a post-reply graceful self-exit\n— after the HTTP body flushes, or once a projected tool call (MCP, ``tai tools run``, an\nagent, a preset, a schedule, a hook) returned — and its supervisor respawns it on the new\nenv. 404 for an absent name.\n\nCalled over MCP, the reload answers on the session that called it and then retires that session with\nthe generation it ran on: a later call on the same session fails (streamable HTTP answers it 404,\nand an SSE session's stream closes), so the client starts a new session to go on.",
         "operationId": "post_api_config_profiles_name_apply",
         "parameters": [
           {
@@ -20787,7 +20888,7 @@
     },
     "/api/config/reload": {
       "post": {
-        "description": "Soft-restart the process from its manifest, in-process with no pod restart.\n\nRefreshes env from the config manager, resets every settings cache, and re-initializes from the\nmanifest. Applied on this worker (when it is a target) and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-worker fleet report.\n\nHeavy (a full re-init); meant for env/config saves, not tool edits. A convergence\nop: its whole purpose is aligning siblings to persisted state, so a failed local\nreload still broadcasts and then re-raises with the fleet report attached.",
+        "description": "Soft-restart the process from its manifest, in-process with no pod restart.\n\nRefreshes env from the config manager, resets every settings cache, and re-initializes from the\nmanifest. Applied on this worker (when it is a target) and broadcast to the fleet (all workers, or only\n``targets``); the response embeds the per-worker fleet report.\n\nHeavy (a full re-init); meant for env/config saves, not tool edits. A convergence\nop: its whole purpose is aligning siblings to persisted state, so a failed local\nreload still broadcasts and then re-raises with the fleet report attached.\n\nCalled over MCP on a worker the reload applies to (no ``targets``, or ``targets`` naming that\nworker), the reload answers on the session that called it and then retires that session with the\ngeneration it ran on: a later call on the same session fails (streamable HTTP answers it 404, and an\nSSE session's stream closes), so the client starts a new session to go on. When ``targets`` leave\nthat worker out, nothing reloads there and the session keeps working.\n\nEach worker's payload is ``{status, env_keys, awaiting_respawn}``: ``awaiting_respawn`` names the\nrecycle-class keys whose value now differs from the one that worker bound (at boot, or when the\nplugin that declares them was loaded) — the soft\nrestart carries every hot key in place, and those keys take effect only when the worker is\nrespawned through the deployment's supervisor (on a bare deployment, a server restart). This\noperation ERROR-logs one line naming every such worker and its keys.",
         "operationId": "post_api_config_reload",
         "requestBody": {
           "content": {
@@ -24009,7 +24110,7 @@
     },
     "/api/fleet/reload-config": {
       "post": {
-        "description": "Soft-restart the worker fleet, optionally restricted to the named ``targets``.",
+        "description": "Soft-restart the worker fleet, optionally restricted to the named ``targets``.\n\nCalled over MCP on a worker the reload applies to (no ``targets``, or ``targets`` naming that\nworker), the reload answers on the session that called it and then retires that session with the\ngeneration it ran on: a later call on the same session fails (streamable HTTP answers it 404, and an\nSSE session's stream closes), so the client starts a new session to go on. When ``targets`` leave\nthat worker out, nothing reloads there and the session keeps working.\n\nEach worker's payload is ``{status, env_keys, awaiting_respawn}``: ``awaiting_respawn`` names the\nrecycle-class keys whose value now differs from the one that worker bound (at boot, or when the\nplugin that declares them was loaded) — the soft\nrestart carries every hot key in place, and those keys take effect only when the worker is\nrespawned through the deployment's supervisor (on a bare deployment, a server restart). This\noperation ERROR-logs one line naming every such worker and its keys.",
         "operationId": "post_api_fleet_reload_config",
         "requestBody": {
           "content": {
@@ -26117,7 +26218,7 @@
     },
     "/api/marketplace/install": {
       "post": {
-        "description": "Resolve, pip install, patch the manifest, reload, and record attribution.\n\nNothing is pip-installed for a descriptor-only plugin; aborts and unwinds on any\nfailure (see :meth:`Installer.install`). When the spec declares install-time env\n``env`` / ``secret_keys`` satisfy the required ``!ENV`` markers or connector-env in\nthe same combined transaction. ``route_mounts`` remaps declared route bases;\n``accept_public_routes`` acknowledges public routes. The result's ``routes`` lists\nevery route the install mounted.",
+        "description": "Resolve, pip install, patch the manifest, reload, and record attribution.\n\nNothing is pip-installed for a descriptor-only plugin; aborts and unwinds on any\nfailure (see :meth:`Installer.install`). When the spec declares install-time env\n``env`` / ``secret_keys`` satisfy the required ``!ENV`` markers or connector-env in\nthe same combined transaction. ``route_mounts`` remaps declared route bases;\n``accept_public_routes`` acknowledges public routes. The result's ``routes`` lists\nevery route the install mounted. An install-time env change carrying a recycle-class key\nrolls a worker recycle (the receipt's ``reload.recycle``); when it converged this worker\nrecycles itself after replying.",
         "operationId": "post_api_marketplace_install",
         "requestBody": {
           "content": {
@@ -26837,7 +26938,7 @@
     },
     "/api/marketplace/update": {
       "post": {
-        "description": "Resolve the target, pip upgrade, re-patch the manifest, reload, and upsert attribution.\n\nNothing is pip-upgraded for a descriptor-only plugin; the same pre-flights apply\nas install (see :meth:`Installer.update`). ``env`` / ``secret_keys`` satisfy a new\nversion's required ``!ENV`` markers or connector-env. ``route_mounts`` remaps\ndeclared route bases (surviving items keep their stored base);\n``accept_public_routes`` acknowledges public routes not already approved. The\nresult's ``routes`` lists every route the update mounted.",
+        "description": "Resolve the target, pip upgrade, re-patch the manifest, reload, and upsert attribution.\n\nNothing is pip-upgraded for a descriptor-only plugin; the same pre-flights apply\nas install (see :meth:`Installer.update`). ``env`` / ``secret_keys`` satisfy a new\nversion's required ``!ENV`` markers or connector-env. ``route_mounts`` remaps\ndeclared route bases (surviving items keep their stored base);\n``accept_public_routes`` acknowledges public routes not already approved. The\nresult's ``routes`` lists every route the update mounted. An update-time env change\ncarrying a recycle-class key rolls a worker recycle (the receipt's ``reload.recycle``);\nwhen it converged this worker recycles itself after replying.",
         "operationId": "post_api_marketplace_update",
         "requestBody": {
           "content": {
@@ -27366,7 +27467,7 @@
     },
     "/api/mcp-config/secret-env": {
       "post": {
-        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nThe env KEY is EITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one\n(``key | key_hint``). Writes the secret ``value`` to the env store under that key AND\nmarks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and writes an ``!ENV ${KEY}``\nMARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent. Partial-failure: a manifest-persist failure after the env write does\nNO rollback — the env write stands as an inert, re-runnable orphan and the op raises\nloudly. An explicit ``key`` colliding with an existing stored key holding a DIFFERENT value\nis a loud 400 naming the key; a generated key never shadows a registered settings\n``env_var``. The pointer's HEAD segment MUST be ``mcp`` (loud 400 otherwise). The response\nis the ``reloadConfigResult`` shape; the resolved key is NEVER returned. A dangling\n``!ENV`` / X-band refusal surfaces as a loud 400 naming the key (the shared boundary\nvalidator, same as ``POST /api/mcp-config``).",
+        "description": "Store a pasted secret as an env value and reference it from the manifest by a marker.\n\nThe env KEY is EITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one\n(``key | key_hint``). Writes the secret ``value`` to the env store under that key AND\nmarks the key secret (adding it to ``TAI_ENV_SECRET_KEYS``), and writes an ``!ENV ${KEY}``\nMARKER at ``manifest_pointer`` — all through the combined\n``ConfigService.apply_env_and_change`` pipeline so the env write and the manifest mutate\nstay consistent. Partial-failure: a manifest-persist failure after the env write does\nNO rollback — the env write stands as an inert, re-runnable orphan and the op raises\nloudly. An explicit ``key`` colliding with an existing stored key holding a DIFFERENT value\nis a loud 400 naming the key; a generated key never shadows a registered settings\n``env_var``. The pointer's HEAD segment MUST be ``mcp`` (loud 400 otherwise). The response\nis the ``reloadConfigResult`` shape; the resolved key is NEVER returned. A dangling\n``!ENV`` / X-band refusal surfaces as a loud 400 naming the key (the shared boundary\nvalidator, same as ``POST /api/mcp-config``). An explicit ``key`` that is a recycle-class\nsetting rolls a worker recycle as every env write does (the response's ``recycle``; this\nworker recycles itself after replying when the roll converged).",
         "operationId": "post_api_mcp_config_secret_env",
         "requestBody": {
           "content": {
