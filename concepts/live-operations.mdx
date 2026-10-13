@@ -153,6 +153,17 @@ header, rather than serving against a half-swapped registry. A client treats it 
 a transient condition and retries — the reload is a state the API describes, not an
 error.
 
+The refusal holds on every door that schedules a conversation turn, not only on the
+API's own message and event routes: a channel webhook (a vendor's inbound message, the
+web chat's send) that arrives during a reload is answered the same retriable `503`, and
+nothing of it is recorded, so the vendor's redelivery is processed in full. A
+conversation door tool reached off the HTTP gate — from a hook, a schedule, an agent's
+tool call, or a detached run — fails loudly with the `unavailable` error kind instead of
+running, and is retried only where the tool's retry policy opts in.
+
+A plugin route opts into the same refusal by declaring `reload_gated` on its
+registration; the route surface enforces it around the handler.
+
 ## Soft restart
 
 `reload_config` is the soft restart: it refreshes environment values and reloads the

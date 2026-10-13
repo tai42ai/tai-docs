@@ -261,20 +261,29 @@ shared `/api` segment dropped:
 | `POST /api/channels/slack/inbound` | `channels_slack` — one family per channel |
 
 Two segments is what keeps a deployment's families disjoint without splitting one
-door's own surface: the six `/api/channels/web/*` web-chat doors all fold into
-`channels_web`, while every other channel keeps a family of its own. A path
+door's own surface, while every channel keeps a family of its own. A path
 parameterised from its first segment — the SPA catch-all `/{spa_path}` — has no stem
 and folds into `root`.
 
+A route may name its family instead (`DeclaredRouteMetadata.rate_limit_family`): the
+web chat's doors declare `channels_web` and its upload door `channels_web_uploads`, so
+their families hold whatever mount base the plugin is installed under.
+
 ### Budgets
 
-Every family is charged **600 requests a minute** with a **120-request burst in any
-10 seconds** unless a tighter budget applies. The runtime holds the three
-single-request doors — `trigger`, `universal_webhook`, and `interactions_callback` —
-at 60 a minute and 10 in 10 seconds, because one request there buys real work: a
-webhook fan-out, a ticket redemption, a tool run. It holds the web-chat family —
-`channels_web` — at 120 a minute and 30 in 10 seconds, wide enough for one first page
-load, which is the chat page plus every bundle file it links in a single burst.
+A route declares its family's default budget
+(`DeclaredRouteMetadata.rate_limit_budget`, a `RateLimitBudget(limit=…, burst=…)`), and
+every public route of one family declares the same one: a family whose routes disagree —
+or where one route declares and another forgets — fails the boot, or the reload that
+installs it, before it serves. A family whose routes declare nothing is charged
+**600 requests a minute** with a **120-request burst in any 10 seconds**.
+
+The runtime's three single-request doors — `trigger`, `universal_webhook`, and
+`interactions_callback` — declare 60 a minute and 10 in 10 seconds, because one request
+there buys real work: a webhook fan-out, a ticket redemption, a tool run. The web chat
+declares `channels_web` at 120 a minute and 30 in 10 seconds, wide enough for one first
+page load (the chat page plus every bundle file it links in a single burst), and
+`channels_web_uploads` at 20 and 5.
 
 Over either window the door answers `429` with a `Retry-After` naming the seconds
 left in that window, and the refusal writes its own audit line as an unauthenticated
@@ -290,10 +299,12 @@ TAI_RATE_LIMIT_FAMILIES='{"trigger": {"limit": 240, "burst": 40}}'
 TAI_RATE_LIMIT_FAMILIES__TRIGGER__LIMIT=240
 ```
 
-Each field resolves on its own — an override naming only a limit keeps the shipped
-burst — and `TAI_RATE_LIMIT_DEFAULT_LIMIT`, `TAI_RATE_LIMIT_DEFAULT_BURST`, and
-`TAI_RATE_LIMIT_DEFAULT_ENABLED` move the floor every family that states nothing
-starts from.
+Each field resolves on its own, most specific first: the operator's override, then
+the budget the family's routes declare, then the default — so an override naming only a
+limit keeps the declared burst. `TAI_RATE_LIMIT_DEFAULT_LIMIT`,
+`TAI_RATE_LIMIT_DEFAULT_BURST`, and `TAI_RATE_LIMIT_DEFAULT_ENABLED` move the default
+every family whose routes declare nothing starts from. Switching a family off is the
+operator's alone: a route declares a budget, never an off switch.
 
 An override **tunes or disables** the door it names; it never widens coverage.
 `{"enabled": false}` passes that family through, and an entry for a family no route
