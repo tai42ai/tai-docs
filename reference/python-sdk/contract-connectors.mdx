@@ -121,7 +121,11 @@ One sub-service a provider exposes, with its scopes and a single launch path.
 class OAuthEndpoints(BaseModel)
 ```
 
-The OAuth endpoint URLs a provider authorizes against, exchanges tokens at, and optionally revokes.
+The OAuth endpoint URLs of a DECLARED provider: authorize, token exchange, and optional revoke.
+
+A provider that carries this block is in declared mode (fixed endpoints, an env client, no
+discovery); a ``kind == "oauth"`` provider without it is in discovered mode, where the engine
+reads the endpoints from the authorization server its MCP server names.
 
 **Attributes**
 
@@ -142,6 +146,12 @@ class ProviderDescriptor(BaseModel)
 
 The universal connector-provider contract, registered from the manifest ``connectors`` list at boot/reload.
 
+A ``kind == "oauth"`` provider is in exactly one of two modes. Declared: ``oauth`` carries the
+endpoints and ``client_id_env`` / ``client_secret_env`` name the operator's client. Discovered:
+``oauth`` is unset and the engine discovers the authorization server from the one MCP server all
+sub-services share; the client is either the env client pinned by ``issuer`` to the authorization
+server it is registered with, or (all three unset) a stored client.
+
 **Attributes**
 
 | Attribute | Type |
@@ -155,6 +165,7 @@ The universal connector-provider contract, registered from the manifest ``connec
 | `oauth` | `OAuthEndpoints \| None` |
 | `client_id_env` | `str \| None` |
 | `client_secret_env` | `str \| None` |
+| `issuer` | `str \| None` |
 | `sub_services` | `dict[str, SubServiceDescriptor]` |
 | `pkg_manager` | `Literal['uvx', 'npx'] \| None` |
 | `pkg_version` | `str \| None` |
@@ -168,11 +179,36 @@ The universal connector-provider contract, registered from the manifest ``connec
 `tai42_contract.connectors.providers.ProviderDescriptor.icon_url`
 
 ```python
-icon_url: str
+icon_url: str | None = None
 ```
 
-An ``https://`` URL to the provider's icon; http, relative, or empty is
+An ``https://`` URL to the provider's icon, or ``None`` for none; http, relative, or empty is
 rejected. The catalog serves this value verbatim as a brand mark, the same
 rule the plugin spec's ``icon`` enforces.
+
+
+#### is_discovered
+
+`tai42_contract.connectors.providers.ProviderDescriptor.is_discovered`
+
+```python
+is_discovered: bool
+```
+
+Whether this is an OAuth provider in discovered mode (no declared ``oauth`` endpoints).
+
+
+#### discovery_url
+
+`tai42_contract.connectors.providers.ProviderDescriptor.discovery_url`
+
+```python
+discovery_url: str
+```
+
+The one MCP server URL every sub-service of a discovered provider shares.
+
+Raises ``RuntimeError`` for a declared or no-auth provider (a caller bug: only a discovered
+provider is discovered).
 
 

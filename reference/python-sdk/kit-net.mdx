@@ -10,14 +10,56 @@ SSRF-guarded server-side URL fetching.
 The SSRF guard (`tai42_kit.net.url_guard`) resolves and validates each target
 host, and `fetch_url` is the httpx download built on it: while the guard is
 enabled (the default) that download is DNS-rebinding-safe, redirect-safe, and
-size-capped. The guard is reusable on its own by any caller that fetches a
-caller-supplied URL server-side over its own HTTP client.
+size-capped. `guarded_request` is the single guarded GET/POST/DELETE beside it
+(no redirects followed, a size cap, one total deadline). The guard is reusable on its
+own by any caller that fetches a caller-supplied URL server-side over its own HTTP client.
 
-`fetch_url` and `fetch_media` are re-exported LAZILY (PEP 562): they pull in
+`fetch_url`, `fetch_media` and `guarded_request` are re-exported LAZILY (PEP 562): they pull in
 ``httpx``/``httpcore``, and a consumer of a lighter ``net`` utility (e.g.
 `tai42_kit.net.request_body`) must not drag that backend into its import graph merely
 by importing a sibling module. This is the same reason `tai42_kit.net.jwt` (which
 needs ``joserfc``) stays out of this re-export.
+
+## GuardedRequestError
+
+`tai42_kit.net.guarded_request.GuardedRequestError`
+
+```python
+class GuardedRequestError(Exception)
+```
+
+A guarded request that reached no usable answer: a transport failure or a body over the cap.
+
+
+## GuardedRequestTimeoutError
+
+`tai42_kit.net.guarded_request.GuardedRequestTimeoutError`
+
+```python
+class GuardedRequestTimeoutError(GuardedRequestError)
+```
+
+A guarded request that did not complete within its total deadline.
+
+
+## GuardedResponse
+
+`tai42_kit.net.guarded_request.GuardedResponse`
+
+```python
+class GuardedResponse
+```
+
+The complete answer to a guarded request: status, headers and the whole (capped) body.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `status` | `int` |
+| `headers` | `httpx.Headers` |
+| `body` | `bytes` |
+
 
 ## MediaFetchError
 
@@ -179,7 +221,7 @@ async fetch_url(url: str) -> tuple[bytes, str | None]
 Fetch the URL's body and return ``(bytes, mime)``.
 
 ``mime`` is the response ``Content-Type`` header (``None`` when absent). When
-the guard is enabled the request runs over `_PinningTransport`, which
+the guard is enabled the request runs over `PinningTransport`, which
 validates and pins every connection (initial request and each redirect hop
 that opens a new connection), and the body is size-capped while streaming.
 Raises rather than truncating an over-cap body or reaching a non-public host.
@@ -211,6 +253,60 @@ guard_enabled() -> bool
 Return whether the SSRF guard is enabled (``TAI_URL_GUARD_ENABLED``).
 
 
+## guarded_request
+
+`tai42_kit.net.guarded_request.guarded_request`
+
+```python
+async guarded_request(
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    form: Mapping[str, str] | None = None,
+    json_body: Any = None,
+    timeout: float,
+    max_bytes: int,
+) -> GuardedResponse
+```
+
+Send one guarded request and return its complete answer, whatever its status.
+
+Raises `UrlGuardError` when the URL is refused (not ``https`` on
+a non-loopback host, or a host the guard blocks), `GuardedRequestTimeoutError` when the
+whole call outlasts ``timeout`` seconds, and `GuardedRequestError` on a transport failure
+or a body over ``max_bytes``. ``form`` is sent form-encoded, ``json_body`` as JSON; at most one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `method` | `str` | — | — |
+| `url` | `str` | — | — |
+| `headers` | `Mapping[str, str] \| None` | `None` | — |
+| `form` | `Mapping[str, str] \| None` | `None` | — |
+| `json_body` | `Any` | `None` | — |
+| `timeout` | `float` | — | — |
+| `max_bytes` | `int` | — | — |
+
+
+## is_loopback_host
+
+`tai42_kit.net.url_guard.is_loopback_host`
+
+```python
+is_loopback_host(host: str) -> bool
+```
+
+Whether ``host`` names this machine: ``localhost`` or a loopback IP literal (``127.0.0.0/8``, ``::1``).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `host` | `str` | — | — |
+
+
 ## open_media_stream
 
 `tai42_kit.net.fetch_media.open_media_stream`
@@ -228,7 +324,7 @@ async open_media_stream(
 Open a vendor media object for streaming, SSRF-pinned while the guard is enabled.
 
 While `guard_enabled` is set the request runs over the
-`_PinningTransport`; when it is unset a plain transport
+`PinningTransport`; when it is unset a plain transport
 that pins nothing is used instead — the same one operator switch ``fetch_url`` honours.
 When ``follow_redirects`` is set, redirects are followed hop-by-hop up to the guard's
 ``max_redirects`` (``follow_redirects`` is never handed to httpx, so the pin re-runs per

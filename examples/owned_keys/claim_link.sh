@@ -1,10 +1,10 @@
 #| fixture: owned_keys_app
 #| expect_exit: 0
-#| expect_stdout_contains: claimed=maya second=refused
+#| expect_stdout_contains: claimed=maya-device second=refused
 set -e
-# 1. Mint a one-time claim link that carries a key you already hold to another device.
+# 1. Mint a one-time claim link that carries a key you own to another device.
 #    The token rides the URL fragment (/login#claim=<token>) and is single-use.
-token=$(tai keys claim-link "$TAI_API_KEY" --json \
+token=$(tai keys claim-link "$TAI_OWNED_KEY" --json \
   | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')
 
 # 2. On the other device, exchange the token for the key — a public, credential-free

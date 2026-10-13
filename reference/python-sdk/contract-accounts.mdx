@@ -1,6 +1,6 @@
 ---
 title: "Accounts (tai42_contract.accounts)"
-description: "The AccountsProvider contract, its registry, and the login-method metadata models."
+description: "The AccountsProvider contract and the login-method metadata models."
 icon: "user-lock"
 ---
 
@@ -35,7 +35,7 @@ async create_principal(
     self,
     user_id: str,
     *,
-    kind: Literal['human', 'service'],
+    kind: PrincipalKind,
     display_name: str,
     created_by: str | None,
     role: str,
@@ -54,7 +54,7 @@ if the principal already exists or the role is unknown.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `user_id` | `str` | — | — |
-| `kind` | `Literal['human', 'service']` | — | — |
+| `kind` | `PrincipalKind` | — | — |
 | `display_name` | `str` | — | — |
 | `created_by` | `str \| None` | — | — |
 | `role` | `str` | — | — |
@@ -69,6 +69,10 @@ async apply_role(self, user_id: str, role: str) -> None
 ```
 
 Copy the named role template into the principal's enforced policy.
+
+Guarded: raises `LastAdminError` (nothing
+written) when the principal is the last enabled admin and ``role`` is not an
+allow-all role. Raises ``KeyError`` on an unknown role.
 
 **Parameters**
 
@@ -88,6 +92,10 @@ async remove_policy(self, user_id: str) -> None
 
 Delete the principal's enforced policy and row (and revoke keys it owned).
 
+Guarded: raises `LastAdminError` (nothing
+written) when the principal is the last enabled admin. Raises ``KeyError`` when the
+principal or its policy is absent.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -105,12 +113,37 @@ async set_user_disabled(self, user_id: str, disabled: bool) -> None
 
 Set/clear the disabled marker on the principal.
 
+Guarded for ``disabled=True``: raises
+`LastAdminError` (nothing written) when the
+principal is the last enabled admin. Raises ``KeyError`` when no principal exists.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `user_id` | `str` | — | — |
 | `disabled` | `bool` | — | — |
+
+
+#### principal_roles
+
+`tai42_contract.accounts.provider.AccountsAdminServices.principal_roles`
+
+```python
+async principal_roles(self, user_ids: Sequence[str]) -> Mapping[str, str | None]
+```
+
+The role each principal holds.
+
+The reserved admin role name when its own policy is admin-shaped, else its role
+pointer, else ``None`` (a policy not written from a role template). A user id with no
+principal is absent from the mapping.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_ids` | `Sequence[str]` | — | — |
 
 
 
@@ -279,48 +312,21 @@ no store-specific field here.
 `tai42_contract.accounts.provider.LoginAttachingProvider`
 
 ```python
-class LoginAttachingProvider(AccountsProvider)
+class LoginAttachingProvider(LoginOwningProvider)
 ```
 
-An accounts provider that can attach an interactive login to an existing principal.
+An accounts provider that holds an interactive credential it can set for a principal.
 
-A provider mixes this in when it owns an interactive credential it can set
-for a principal (a password, or a one-time invite link). The setup door and
-the invite flow ``isinstance``-check for it: a provider whose login lives at
-an external issuer (OIDC) does not implement it, and the caller reports the
-login as not attached.
+A provider mixes this in when it owns an interactive credential it can attach to a
+principal (a password, or a one-time invite link). The setup door and the login-methods
+door ``isinstance``-check for it: a provider whose login lives at an external issuer
+does not implement it, and the caller reports the login as not attached.
 
-Ownership of a principal's disable/delete follows the login: the principals
-door asks every registered attaching provider `has_login`, and a
-principal some provider claims is managed through that provider's users door
-(which cleans its login row and runs its own guard), never the principals
-door.
+The credential's own disabled state lives with the provider, so the principals door also
+routes a DISABLE of a principal it claims (`has_login`) to the
+provider's member actions, never the principals door.
 
 ### Members
-
-#### has_login
-
-`tai42_contract.accounts.provider.LoginAttachingProvider.has_login`
-
-```python
-async has_login(self, user_id: str) -> bool
-```
-
-Whether this provider holds a login for the principal ``user_id``.
-
-The principals door reads this to decide who owns a principal's
-disable/delete: a ``True`` means the provider holds the credential, so the
-principal is managed through that provider's users door; a ``False`` means
-it does not (a service principal, an OIDC-provisioned human whose login
-lives at the issuer, the keys-only owner), and the principals door manages
-it directly. A backend error raises (fail closed), never a silent ``False``.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `user_id` | `str` | — | — |
-
 
 #### attach_login
 
@@ -347,6 +353,48 @@ unchanged on either, so the caller surfaces the failure and stays retriable.
 |---|---|---|---|
 | `user_id` | `str` | — | — |
 | `credential` | `LoginCredential` | — | — |
+
+
+
+## LoginOwningProvider
+
+`tai42_contract.accounts.provider.LoginOwningProvider`
+
+```python
+class LoginOwningProvider(AccountsProvider)
+```
+
+An accounts provider that keeps a login record for principals.
+
+A provider mixes this in when it keeps its own record of a principal's login — a record
+that must never outlive the principal. The principals door asks every registered owning
+provider `has_login` before it DELETES a principal: a principal some provider claims
+is removed through that provider's member actions, which remove the principal and the
+record together, never through the principals door.
+
+### Members
+
+#### has_login
+
+`tai42_contract.accounts.provider.LoginOwningProvider.has_login`
+
+```python
+async has_login(self, user_id: str) -> bool
+```
+
+Whether this provider keeps a login record for the principal ``user_id``.
+
+The principals door reads this before a delete: a ``True`` means the provider's
+member actions remove the principal; a ``False`` means the provider keeps nothing for
+it (a service principal, a principal provisioned by hand, the keys-only owner), and
+the principals door removes it directly. A backend error raises (fail closed), never a
+silent ``False``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `user_id` | `str` | — | — |
 
 
 
@@ -460,7 +508,8 @@ One outstanding invitation an accounts provider holds.
 
 ``id`` is the provider's stable handle for the invited person — the id its own actions
 act on. ``email`` is the invited address; ``role`` names the platform role the person
-will hold (only the name, as on `MemberEntry`). ``created_at`` and
+will hold (only the name — the role's definition is read from the role listing; ``None``
+— the policy is not written from a role template). ``created_at`` and
 ``expires_at`` are timezone-aware (UTC). ``actions`` are the provider's OWN
 member-action ids applicable to this row. An invitation holds no principal yet, so it
 carries no ``principal_ids``.
@@ -472,7 +521,7 @@ carries no ``principal_ids``.
 | `model_config` | — |
 | `id` | `str` |
 | `email` | `str` |
-| `role` | `str` |
+| `role` | `_RoleName` |
 | `created_at` | `datetime` |
 | `expires_at` | `datetime` |
 | `actions` | `list[str]` |
@@ -489,8 +538,8 @@ class InviteRow(BaseModel)
 An invite row in the aggregated directory the Members door returns.
 
 Display fields plus the opaque routing tokens. An invitation holds no principal, so it
-carries no principal state; ``role`` is provider-sourced, correct while no principal
-exists yet.
+carries no principal state, and ``role`` is provider-sourced; ``None`` — the policy is
+not written from a role template.
 
 **Attributes**
 
@@ -499,7 +548,7 @@ exists yet.
 | `model_config` | — |
 | `id` | `str` |
 | `email` | `str` |
-| `role` | `str` |
+| `role` | `_RoleName` |
 | `created_at` | `datetime` |
 | `expires_at` | `datetime` |
 | `handle` | `str` |
@@ -585,6 +634,17 @@ LoginCredential = Annotated[PasswordCredential | InviteCredential, Field(discrim
 ```
 
 The closed union of login credentials a provider can attach to a principal.
+
+
+## LoginCredentialKind
+
+`tai42_contract.accounts.models.LoginCredentialKind`
+
+```python
+LoginCredentialKind = Literal['password', 'invite']
+```
+
+The ``kind`` tags of `LoginCredential`, one per credential variant.
 
 
 ## LoginMethod
@@ -731,15 +791,14 @@ class MemberEntry(BaseModel)
 One person an accounts provider owns: an account the operator manages.
 
 ``id`` is the provider's stable handle for the person — the id its own actions act on.
-``email`` is the sign-in identity the provider holds for them. ``role`` names the
-platform role the person holds; only the name rides here, the role's definition is read
-from the role listing. ``created_at`` is timezone-aware (UTC).
+``email`` is the sign-in identity the provider holds for them. ``created_at`` is
+timezone-aware (UTC).
 
 ``principal_ids`` are the platform principal id(s) this person holds (at least one — a
 person with none is an invitation, not a member); the Members operation joins them
-against the platform's own principal records to resolve the access-control
-``disabled`` state, which is NOT a provider fact and so does not ride here.
-``actions`` are the provider's OWN member-action ids applicable to this row.
+against the platform's own records to resolve each principal's access-control
+``disabled`` state and the role it holds. Neither is a provider fact, so neither rides
+here. ``actions`` are the provider's OWN member-action ids applicable to this row.
 
 **Attributes**
 
@@ -748,7 +807,6 @@ against the platform's own principal records to resolve the access-control
 | `model_config` | — |
 | `id` | `str` |
 | `email` | `str` |
-| `role` | `str` |
 | `created_at` | `datetime` |
 | `principal_ids` | `list[str]` |
 | `actions` | `list[str]` |
@@ -789,7 +847,9 @@ class MemberPrincipalState(BaseModel)
 One platform principal a member holds, with its access-control state joined in.
 
 ``user_id`` is the platform principal id; ``disabled`` is taken from that principal's
-own record (the store the principals listing reads), never from a provider.
+own record (the store the principals listing reads) and ``role`` is the role it holds,
+joined from its own policy record — both never from a provider. ``role`` is ``None``
+when the principal's policy was not written from a role template.
 
 **Attributes**
 
@@ -798,6 +858,7 @@ own record (the store the principals listing reads), never from a provider.
 | `model_config` | — |
 | `user_id` | `str` |
 | `disabled` | `bool` |
+| `role` | `_RoleName` |
 
 
 ## MemberRow
@@ -816,7 +877,9 @@ Display fields plus the platform-joined principal state and opaque routing token
 joins and echoes both, never parses them. ``principals`` carries each principal's
 joined state; ``disabled`` is derived True only when EVERY principal is disabled, so a
 person with any enabled principal still reads active while the per-principal truth
-stays visible. ``role`` is provider-sourced.
+stays visible. ``role`` is derived too: the one name every principal holds, ``None``
+when there is no single name — every principal's policy was set directly, or the
+principals hold different roles; ``principals[].role`` carries each principal's own.
 
 **Attributes**
 
@@ -825,7 +888,7 @@ stays visible. ``role`` is provider-sourced.
 | `model_config` | — |
 | `id` | `str` |
 | `email` | `str` |
-| `role` | `str` |
+| `role` | `_RoleName` |
 | `created_at` | `datetime` |
 | `principals` | `list[MemberPrincipalState]` |
 | `disabled` | `bool` |
@@ -851,148 +914,4 @@ A login credential that sets the principal's password now.
 | `kind` | `Literal['password']` |
 | `email` | `str` |
 | `password` | `str` |
-
-
-Module-level registry for accounts providers.
-
-Handle-free on purpose, for the same reason as the identity-provider
-registry (see ``tai42_contract.access_control.registry``): accounts plugins
-never import the application package (ruff banned-api in every plugin repo)
-and register at plain module import, before any app handle is usable. The
-application resolves and ACTIVATES providers from its own configuration —
-registration alone activates nothing.
-
-Two deliberate differences from the identity registry:
-
-- ``register_accounts_provider`` ALSO registers the factory into the
-  identity registry under the same name — an accounts provider IS the token
-  answerer for its own sessions, and registering into only one registry
-  would make sessions mintable but not validatable (or vice versa). One
-  plugin call, both registries, loud duplicate errors from either.
-- The registry is enumerable: the public login-methods aggregator must ask
-  EVERY registered accounts provider for its declared methods.
-
-## abort_staging
-
-`tai42_contract.accounts.registry.abort_staging`
-
-```python
-abort_staging() -> None
-```
-
-Drop the staged generation on a failed build.
-
-
-## begin_staging
-
-`tai42_contract.accounts.registry.begin_staging`
-
-```python
-begin_staging() -> None
-```
-
-Open a fresh staged generation the epoch build registers into.
-
-
-## commit_staging
-
-`tai42_contract.accounts.registry.commit_staging`
-
-```python
-commit_staging() -> None
-```
-
-Promote the staged generation to committed in one reference assignment.
-
-
-## get_accounts_provider_factory
-
-`tai42_contract.accounts.registry.get_accounts_provider_factory`
-
-```python
-get_accounts_provider_factory(name: str) -> Callable[..., AccountsProvider]
-```
-
-Return the factory registered under ``name`` in the COMMITTED generation.
-
-Unknown names raise KeyError.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `name` | `str` | — | — |
-
-
-## iter_accounts_provider_factories
-
-`tai42_contract.accounts.registry.iter_accounts_provider_factories`
-
-```python
-iter_accounts_provider_factories() -> list[tuple[str, Callable[..., AccountsProvider]]]
-```
-
-Name-sorted snapshot of the COMMITTED factories.
-
-Returns a new list: callers may iterate freely without touching registry
-state. Sorted for deterministic aggregator output.
-
-
-## iter_accounts_provider_factories_staged
-
-`tai42_contract.accounts.registry.iter_accounts_provider_factories_staged`
-
-```python
-iter_accounts_provider_factories_staged() -> list[tuple[str, Callable[..., AccountsProvider]]]
-```
-
-Name-sorted snapshot of the STAGED generation if a build is staging, else the committed one.
-
-The build's own accessor (the configured-providers boot check, kind status).
-
-
-## register_accounts_provider
-
-`tai42_contract.accounts.registry.register_accounts_provider`
-
-```python
-register_accounts_provider(name: str, factory: Callable[..., AccountsProvider]) -> None
-```
-
-Register a named accounts-provider factory in BOTH registries.
-
-Registers ``factory`` here and — because an accounts provider is the
-identity answerer for its own session tokens — into the identity
-registry under the same name. Both registries stage together, so a staged
-accounts registration lands beside its staged identity twin.
-
-RELOAD-SAFE: re-registering the SAME factory (by
-`same_factory`) under a name it
-already holds is a quiet no-op in BOTH registries, so the hot-reload primitive
-re-executing this plugin's module body does not raise. A DIFFERENT factory under
-an already-registered name still raises loudly, in either registry. The accounts
-no-op returns before touching the identity registry, and the identity registry
-is only written when this name is new here, so the two registries never drift.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `name` | `str` | — | — |
-| `factory` | `Callable[..., AccountsProvider]` | — | — |
-
-
-## reset_registry
-
-`tai42_contract.accounts.registry.reset_registry`
-
-```python
-reset_registry() -> None
-```
-
-Clear the write-target accounts registrations — staged generation while staging, else committed.
-
-The write target is the STAGED generation while a build is staging (never the
-committed one), else the committed map (boot, test isolation). Clears only this
-registry: the identity registry has its own lifecycle.
 
