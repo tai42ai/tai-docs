@@ -10,6 +10,30 @@ Manage connector providers and connections.
 $ tai connectors [OPTIONS] COMMAND [ARGS]...
 ```
 
+## `tai connectors add-server`
+
+Add an MCP server that signs in with OAuth as a connector provider.
+
+Example: `tai connectors add-server https://mcp.example.com/mcp --name "Team tools"`
+
+```console
+$ tai connectors add-server [OPTIONS] {url}
+```
+
+| Argument | Description |
+| --- | --- |
+| `url` | The address of the MCP server to add. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--id` `&lt;str&gt;` | The provider id (default: suggested from the host). |
+| `--name` `&lt;str&gt;` | The display name. |
+| `--description` `&lt;str&gt;` | A description. |
+| `--icon-url` `&lt;str&gt;` | An https URL of an icon. |
+| `--category` `&lt;str&gt;` | The catalog category (default: other). |
+| `--scope` `&lt;str&gt;` | A scope to request (repeatable; default: what the server lists). |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai connectors connect`
 
 Start a connection flow; prints the authorize URL (or the created connection).
@@ -30,7 +54,7 @@ $ tai connectors connect [OPTIONS] {provider}
 | `--sub-service` `&lt;str&gt;` | An enabled sub-service (repeatable). _(required)_ |
 | `--config` `&lt;str&gt;` | Provider config values as a JSON object. |
 | `--config-file` `&lt;str&gt;` | Read the provider config values from a file, or from stdin when the path is '-', which keeps provider secrets off the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --config. |
-| `--return-url` `&lt;str&gt;` | Where to return after the flow completes. _(default: `/connectors`)_ |
+| `--return-url` `&lt;str&gt;` | Where to return after the flow completes (omitted: the deployment's connectors page). |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai connectors connections`
@@ -63,6 +87,25 @@ $ tai connectors disconnect [OPTIONS] {connection_id}
 
 | Option | Description |
 | --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai connectors discover`
+
+Look up an MCP server's sign-in: every sign-in service it lists and the redirect URI to register.
+
+Example: `tai connectors discover https://mcp.example.com/mcp`
+
+```console
+$ tai connectors discover [OPTIONS] [url]
+```
+
+| Argument | Description |
+| --- | --- |
+| `url` | The address of the MCP server to look up. _(optional)_ |
+
+| Option | Description |
+| --- | --- |
+| `--provider` `&lt;str&gt;` | Look up the server of this discovered provider instead. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai connectors get`
@@ -114,15 +157,16 @@ $ tai connectors reconnect [OPTIONS] {connection_id}
 | Option | Description |
 | --- | --- |
 | `--sub-service` `&lt;str&gt;` | An enabled sub-service (repeatable). _(required)_ |
-| `--return-url` `&lt;str&gt;` | Where to return after the flow completes. _(default: `/connectors`)_ |
+| `--return-url` `&lt;str&gt;` | Where to return after the flow completes (omitted: the deployment's connectors page). |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai connectors reencrypt-tokens`
 
-Re-encrypt every stored token blob under the current CONNECTORS_KEK.
+Re-encrypt every stored token and client credential under the current CONNECTORS_KEK.
 
 Run after rotating CONNECTORS_KEK (old key moved to CONNECTORS_KEK_PREVIOUS) to
-converge every blob onto the new key so the previous key can be retired.
+converge every connection token blob and every stored OAuth client blob onto the
+new key so the previous key can be retired.
 
 Example: `tai connectors reencrypt-tokens`
 
@@ -132,6 +176,46 @@ $ tai connectors reencrypt-tokens [OPTIONS]
 
 | Option | Description |
 | --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai connectors remove-server`
+
+Remove a provider added by its address, and its stored client credentials.
+
+Example: `tai connectors remove-server mcp_example_com`
+
+```console
+$ tai connectors remove-server [OPTIONS] {provider_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `provider_id` | Provider id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+## `tai connectors set-client`
+
+Set the client credentials of an app registered by hand for a discovered provider.
+
+Example: `tai connectors set-client mcp_example_com --client-id app --client-secret-file - --issuer URL`
+
+```console
+$ tai connectors set-client [OPTIONS] {provider_id}
+```
+
+| Argument | Description |
+| --- | --- |
+| `provider_id` | Provider id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--client-id` `&lt;str&gt;` | The client id of the app registered by hand. _(required)_ |
+| `--client-secret-file` `&lt;str&gt;` | Read the client secret from a file, or from stdin when the path is '-' (never an argument: a value on argv leaks via ps and shell history). Leave out for an app without a secret. |
+| `--auth-method` `&lt;str&gt;` | client_secret_post, client_secret_basic or none (default: chosen from the sign-in service). |
+| `--issuer` `&lt;str&gt;` | The sign-in service the app belongs to; the secret is sent to no other. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai connectors sub-services`
@@ -151,5 +235,5 @@ $ tai connectors sub-services [OPTIONS] {connection_id}
 | Option | Description |
 | --- | --- |
 | `--sub-service` `&lt;str&gt;` | The desired enabled sub-service (repeatable). _(required)_ |
-| `--return-url` `&lt;str&gt;` | Where to return if consent is required. _(default: `/connectors`)_ |
+| `--return-url` `&lt;str&gt;` | Where to return if consent is required (omitted: the deployment's connectors page). |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
