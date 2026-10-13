@@ -24,6 +24,7 @@ drifting.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import sys
@@ -37,6 +38,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import uvicorn
+    from tai42_contract.access_control.identity import IdentityProvider
     from tests.access_control.conftest import FakeAccessControlPg, FakeRedis
 
 # The fakes live in the skeleton's test tree. The docs scripts run from the
@@ -69,6 +71,25 @@ def _restore_env(key: str, saved: str | None) -> None:
         os.environ.pop(key, None)
     else:
         os.environ[key] = saved
+
+
+def _snapshot_identity_registry() -> dict[str, Callable[..., IdentityProvider]]:
+    """Copy the identity-provider registry's current names and factories through its public accessors."""
+    from tai42_kit.access_control import registry
+
+    return {
+        name: registry.get_identity_provider_factory_staged(name)
+        for name in registry.iter_identity_provider_names_staged()
+    }
+
+
+def _restore_identity_registry(saved: dict[str, Callable[..., IdentityProvider]]) -> None:
+    """Reinstate exactly the identity providers a :func:`_snapshot_identity_registry` copy holds."""
+    from tai42_kit.access_control import registry
+
+    registry.reset_registry()
+    for name, factory in saved.items():
+        registry.register_identity_provider(name, factory)
 
 
 def _register_default_identity_provider() -> None:
@@ -183,13 +204,12 @@ def _swap_ac_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[
     from tai42_identity_redis import redis_api_key_provider as provider_module
     from tai42_skeleton.access_control import policy as policy_module
     from tai42_skeleton.access_control import store as store_module
-    from tai42_skeleton.access_control import verifier as verifier_module
     from tests.access_control.conftest import make_client_ctx, make_pg_ctx  # type: ignore[import-not-found]
 
     redis_ctx = make_client_ctx(fake_redis)
     pg_ctx = make_pg_ctx(fake_pg)
     seams: list[tuple[object, str, object]] = []
-    for module in (verifier_module, policy_module, provider_module):
+    for module in (policy_module, provider_module):
         seams.append((module, "client_ctx", module.client_ctx))
         module.client_ctx = redis_ctx  # type: ignore[attr-defined]
     seams.append((store_module, "client_ctx", store_module.client_ctx))
@@ -207,7 +227,6 @@ def ac_app() -> Iterator[dict[str, str]]:
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
-    from tai42_contract.access_control import registry
     from tai42_contract.app import tai42_app
     from tai42_skeleton.access_control.adapter import AuthAdapter
     from tai42_skeleton.access_control.settings import AccessControlSettings
@@ -218,7 +237,7 @@ def ac_app() -> Iterator[dict[str, str]]:
     # free; every mutation (registry, bound app, client_ctx seams) happens inside
     # the try below, so the restore runs on EVERY exit — including the
     # uvicorn-startup-timeout path, which raises from inside the try.
-    saved_registry = dict(registry._REGISTRY)
+    saved_registry = _snapshot_identity_registry()
     saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
     seams: list[tuple[object, str, object]] = []
     server = None
@@ -260,43 +279,69 @@ def ac_app() -> Iterator[dict[str, str]]:
         for obj, attr, original in seams:
             setattr(obj, attr, original)
         tai42_app.bind(None)
-        registry._REGISTRY.clear()
-        registry._REGISTRY.update(saved_registry)
+        _restore_identity_registry(saved_registry)
         _restore_env(_DEFAULT_DATABASE_PASSWORD_ENV, saved_db_password)
 
 
-# Fixed demo credentials for the owned-keys app. The seeded key is a NON-admin owner
+# Fixed demo identities for the owned-keys app. The owner is a NON-admin human principal
 # (scopes ``read``+``mint``, no ``*`` and no jq condition) so its examples can show the
 # real owner-attenuation behaviour: it mints only within its own scopes, and asking for
-# a scope it does not hold is rejected at mint time.
-_OWNER_KEY = "sk-owner-demo-key"
+# a scope it does not hold is rejected at mint time. The owner's credential is its login
+# session (an api key is always owned, and an owned key never mints); the opaque token
+# carries the documented ``tai-sess-`` prefix.
 _OWNER_ID = "maya"
+_OWNER_SESSION = "tai-sess-maya-demo-session"
+# The one owned key the inspect/share examples use, minted for the owner at boot.
+_OWNED_KEY_ID = "maya-device"
+_SESSION_PROVIDER_NAME = "session"
+
+
+def _register_owner_session_provider() -> None:
+    """Register a minimal accounts-style session provider beside the api-key provider.
+
+    It resolves the owner's one demo session token to the owner principal with no
+    claims (a session is a top-level principal) and answers ``None`` for any other
+    token, so the verifier chain moves on to the api-key provider.
+    """
+    from tai42_contract.access_control import AuthIdentity, IdentityProvider
+    from tai42_kit.access_control import registry
+
+    class _OwnerSessionProvider(IdentityProvider):
+        async def validate_token(self, token: str) -> AuthIdentity | None:
+            if token == _OWNER_SESSION:
+                return AuthIdentity(user_id=_OWNER_ID, claims={})
+            return None
+
+    registry.register_identity_provider(_SESSION_PROVIDER_NAME, lambda _settings: _OwnerSessionProvider())
+
+
+def _mint_owned_key() -> str:
+    """Mint the owner's demo key through the platform's own mint path and return the raw ``sk-…``.
+
+    Runs after the storage seams point at the fakes, so the identity record and the
+    policy row (both carrying the owner) land in the fake stores in the exact shape
+    every real mint writes.
+    """
+    from tai42_skeleton.access_control.management import add_user_api_key
+
+    raw_key, _body, _fingerprint = asyncio.run(
+        add_user_api_key(_OWNED_KEY_ID, "the owner's device key", ["read"], owner_user_id=_OWNER_ID)
+    )
+    return raw_key
 
 
 def _seed_owned_keys_store() -> tuple[FakeRedis, FakeAccessControlPg]:
     """Seed the fake Redis and fake policy store for the owned-key example.
 
-    Redis gets the owner key; the policy store gets the routes the owner reaches
-    and the owner's non-admin scope set.
+    Redis starts empty (the owned key is minted into it at boot); the policy store
+    gets the routes the owner reaches and the owner's non-admin scope set.
     """
-    from tai42_identity_redis.settings import redis_identity_settings
-    from tai42_kit.utils.data.string_util import hash_api_key
     from tests.access_control.conftest import (  # type: ignore[import-not-found]
         FakeAccessControlPg,
         FakeRedis,
     )
 
-    key_prefix = redis_identity_settings().key_prefix
-    fake_redis = FakeRedis(
-        strings={},
-        hashes={
-            f"{key_prefix}{hash_api_key(_OWNER_KEY)}": {
-                "user_id": _OWNER_ID,
-                "description": "owner key",
-                "owner_user_id": _OWNER_ID,
-            },
-        },
-    )
+    fake_redis = FakeRedis(strings={}, hashes={})
     fake_pg = FakeAccessControlPg()
     # Map the two authed doors the owner reaches to a scope the owner holds; the mint
     # also validates that a granted scope exists (has a url mapping), so ``read`` gets
@@ -304,15 +349,16 @@ def _seed_owned_keys_store() -> tuple[FakeRedis, FakeAccessControlPg]:
     fake_pg.add_route("/api/auth/api-keys", "mint")
     fake_pg.add_route("/api/auth/claim-links", "mint")
     fake_pg.add_route("/api/tools", "read")
-    # The owner is a top-level principal: its policy carries no owner claim, so it may
-    # mint keys owned by itself. The mint's owner-exists check reads its principal row.
+    # The owner is a top-level principal: its policy carries no owner claim, so its
+    # session may mint keys owned by itself. The mint's owner-exists check reads its
+    # principal row.
     fake_pg.add_principal(_OWNER_ID, kind="human", display_name="Maya")
     fake_pg.add_policy(_OWNER_ID, scopes=["read", "mint"])
     return fake_redis, fake_pg
 
 
 def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
-    """Point the six ``client_ctx`` seams the owned-key routes reach at the fakes.
+    """Point the five ``client_ctx`` seams the owned-key routes reach at the fakes.
 
     Redirects the key-policy history store to the in-memory generic store so the
     mint write-through runs offline. Returns the ``(object, attr, original)``
@@ -322,9 +368,7 @@ def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) 
     from tai42_skeleton.access_control import claim_links as claim_links_module
     from tai42_skeleton.access_control import management as management_module
     from tai42_skeleton.access_control import policy as policy_module
-    from tai42_skeleton.access_control import projection as projection_module
     from tai42_skeleton.access_control import store as store_module
-    from tai42_skeleton.access_control import verifier as verifier_module
     from tai42_skeleton.access_control.policy_store import AcPolicyStore
     from tai42_skeleton.operations import api_keys as ops_api_keys
     from tests.access_control.conftest import make_client_ctx, make_pg_ctx  # type: ignore[import-not-found]
@@ -333,14 +377,7 @@ def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) 
     redis_ctx = make_client_ctx(fake_redis)
     pg_ctx = make_pg_ctx(fake_pg)
     seams: list[tuple[object, str, object]] = []
-    for module in (
-        verifier_module,
-        policy_module,
-        provider_module,
-        claim_links_module,
-        management_module,
-        projection_module,
-    ):
+    for module in (policy_module, provider_module, claim_links_module, management_module):
         seams.append((module, "client_ctx", module.client_ctx))
         module.client_ctx = redis_ctx  # type: ignore[attr-defined]
     seams.append((store_module, "client_ctx", store_module.client_ctx))
@@ -399,10 +436,13 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     (create a claim link), and the public ``POST /api/login/claim`` (exchange) — mounted
     as their REAL route handlers behind ``AuthAdapter``'s middleware, so an example
     observes the real projection, the real owner-scope cap, and the real single-use
-    claim burn. Yields ``TAI_BASE_URL``/``TAI_SERVER_URL`` and the owner's ``TAI_API_KEY``
-    so both a ``curl`` and a ``tai`` command run against it.
+    claim burn. Yields ``TAI_BASE_URL``/``TAI_SERVER_URL``, the owner's login session as
+    ``TAI_API_KEY`` and one key minted for the owner as ``TAI_OWNED_KEY``, so both a
+    ``curl`` and a ``tai`` command run against it.
 
-    Like :func:`ac_app` only the Redis/Postgres storage seams are faked. The capability
+    Like :func:`ac_app` only the Redis/Postgres storage seams are faked, plus the owner's
+    login session, which a minimal session provider registered beside the api-key
+    provider resolves (the accounts sign-in flow is outside this boot). The capability
     projection additionally reaches into a fully-built app's tool/agent/sub-MCP
     registries, which this minimal boot does not populate, so the four live-registry
     projection seams are pinned to controlled values exactly as the projection's own unit
@@ -410,7 +450,6 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     """
     from starlette.applications import Starlette
     from starlette.routing import Route
-    from tai42_contract.access_control import registry
     from tai42_contract.app import tai42_app
     from tai42_skeleton.access_control import projection as projection_module
     from tai42_skeleton.access_control.adapter import AuthAdapter
@@ -423,7 +462,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
     # restore loop covers both the ``client_ctx`` module seams and the projection's
     # live-registry seams. Every mutation happens inside the try, so restore runs on EVERY
     # exit path — including the uvicorn-startup-timeout raise.
-    saved_registry = dict(registry._REGISTRY)
+    saved_registry = _snapshot_identity_registry()
     saved_db_password = os.environ.get(_DEFAULT_DATABASE_PASSWORD_ENV)
     seams: list[tuple[object, str, object]] = []
     server = None
@@ -432,6 +471,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         os.environ[_DEFAULT_DATABASE_PASSWORD_ENV] = _DEFAULT_DATABASE_PASSWORD
 
         _register_default_identity_provider()
+        _register_owner_session_provider()
 
         # The delegation routes register onto the app's HTTP surface at import; importing
         # them needs a bound app. ``load_api_routes`` binds the skeleton's own offline
@@ -449,6 +489,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         fake_redis, fake_pg = _seed_owned_keys_store()
         seams = _swap_owned_keys_seams(fake_redis, fake_pg)
         seams += _pin_projection_seams()
+        owned_key = _mint_owned_key()
 
         app = Starlette(
             routes=[
@@ -468,7 +509,8 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         yield {
             "TAI_BASE_URL": base_url,
             "TAI_SERVER_URL": base_url,
-            "TAI_API_KEY": _OWNER_KEY,
+            "TAI_API_KEY": _OWNER_SESSION,
+            "TAI_OWNED_KEY": owned_key,
         }
     finally:
         _stop_uvicorn(server, thread)
@@ -478,8 +520,7 @@ def owned_keys_app() -> Iterator[dict[str, str]]:
         with suppress(NameError):
             projection_module.reset_projection_cache()
         tai42_app.bind(None)
-        registry._REGISTRY.clear()
-        registry._REGISTRY.update(saved_registry)
+        _restore_identity_registry(saved_registry)
         _restore_env(_DEFAULT_DATABASE_PASSWORD_ENV, saved_db_password)
 
 

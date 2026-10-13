@@ -15,11 +15,14 @@ onto another device with a one-time QR claim link.
 
 ## Prerequisites
 
-[Access control](/guides/access-control) is on, and you hold a key whose scopes are
-the ceiling for what you can delegate. A non-admin owner may grant only scopes it
-holds itself; an admin may also mint keys for a service principal. Point `TAI_SERVER_URL`
-at your server and `TAI_API_KEY` at your key (the CLI reads both from the
-environment).
+[Access control](/guides/access-control) is on, and you are signed in to an
+[account](/concepts/accounts). As a non-admin owner, your credential is your login
+session: the [Studio](/studio/login) sign-in, or, for the CLI, the session token. Your
+own scopes are the ceiling for what you can delegate, and you may grant only scopes you
+hold yourself. An admin may use its admin key instead, and may also mint keys for a
+service principal. A non-admin's key is itself an owned key, so it can never mint. Point
+`TAI_SERVER_URL` at your server and `TAI_API_KEY` at your session token (the CLI reads
+both from the environment).
 
 ## Mint a capped key
 
@@ -45,7 +48,8 @@ admin may also mint a key for a service principal. See
 A scoped key needs to know its own limits. `tai auth whoami` prints the caller's
 [capability projection](/concepts/owned-keys) — the routes, tools, and agents it
 can reach right now and its effective scopes, plus a `mintable` flag. Run it with
-the owned key (set `TAI_API_KEY` to the key you just minted):
+the owned key (point `TAI_API_KEY` at the key you minted; the example keeps it in
+`TAI_OWNED_KEY`):
 
 <Whoami />
 
@@ -63,13 +67,15 @@ is exactly one level deep.
 
 An owned key never has to be revoked on its own — it is capped by its owner's
 *current* policy on every request, so attenuating the owner attenuates the key on its
-very next call. Prove the mechanism end to end: disable the owner, empty the owner's
-scopes, or revoke the owner's key, then make any call with the owned key. The gate
-re-evaluates the key against the now-empty owner policy and denies it with a `403` —
-the key is powerless while the owner is down, and recovers the instant the owner is
-restored. (Revoking the owned key itself is the other lever: its own credential then
-fails to authenticate at all.) This is why you revoke a person once, rather than
-chasing down every key they were ever issued.
+very next call. Prove the mechanism end to end: disable the owner or empty the owner's
+scopes, then make any call with the owned key. The gate re-evaluates the key against
+the owner's now-empty standing and denies it with a `403` — the key is powerless while
+the owner is down, and recovers the instant the owner is restored. Deleting the owner
+principal is the final lever: every key it owned then fails to authenticate at all
+(`401`) and does not come back. (Revoking the owned key itself works the same way for
+that one key.) The owner is a principal, not a key: revoking one of the owner's own
+keys changes nothing for the keys it owns. This is why you disable or delete a person
+once, rather than chasing down every key they were ever issued.
 
 ## Share it by QR claim link
 
