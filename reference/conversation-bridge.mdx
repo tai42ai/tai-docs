@@ -126,8 +126,20 @@ instead answers a pending `ask`. The values
 are **untrusted transport**: the platform caps and delivers them but attaches no
 signature, expiry, or meaning, so a value a flow must trust is a secret the flow
 checks in its own store. Bounds: at most **16** params, each key
-`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized
-— a violation is refused at the door.
+`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized.
+Each door applies one declared policy to a violation:
+
+| Door | `door` label | Over a bound |
+| --- | --- | --- |
+| Web channel — page, messages, forms, answers | `web` | **refused** (`422`; the page answers a `400` refusal page) |
+| Interactions callback (a forwarded answer's `params`) | `interactions-callback` | **refused** (`400 invalid params: …`) |
+| Telegram, WhatsApp, Slack, Twilio webhooks | `telegram`, `whatsapp`, `slack`, `twilio` | **dropped** — the set (or one over-cap value) is dropped and the turn proceeds |
+
+A refusing door answers a caller who is waiting; a dropping door's vendor would redeliver a
+`5xx` forever, so it never loses the participant's message to a params bound. Every drop is
+logged at `WARNING` (naming the door and the bound or key, never a value) and counted on
+`tai_entry_params_dropped_total{door, unit}` on `GET /metrics`, where `unit` is `set` or
+`value`.
 
 The payload also carries a **`turn`** block on **every** tool turn — whichever door
 it entered through:
