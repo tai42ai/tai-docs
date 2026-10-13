@@ -24,7 +24,7 @@ See [Backends](/concepts/backends) for where tools run.
 
 ## Attach the schedule extension
 
-The friendly `tai schedules add` form fires the tool's `<tool>_schedule_task` branch — the backend's `schedule_task` [extension](/concepts/tools-and-extensions). Naming the backend under `backend_module` registers that extension, but it is never attached to a tool on its own: name it in the tool's per-tool `extensions` map so the branch exists.
+A schedule on a cadence fires the tool's `<tool>_schedule_task` vehicle — the backend's `schedule_task` [extension](/concepts/tools-and-extensions). You always name the base tool; the server resolves the vehicle. Naming the backend under `backend_module` registers that extension, but it is never attached to a tool on its own: name it in the tool's per-tool `extensions` map so the vehicle exists.
 
 ```yaml manifest.yml
 backend_module: myapp.backend
@@ -37,26 +37,45 @@ tools:
       report: [schedule_task]
 ```
 
-Without the extension the tool has no `report_schedule_task` branch, and `tai schedules add report --schedule-kw cron=...` answers a `404` — the cadence has no vehicle to run on.
+Without the extension the tool has no schedule vehicle, and `tai schedules add report --cron ...` answers a `404` — the cadence has nothing to run on. `GET /api/tools/tags` marks each tool `schedulable` when its vehicle is registered, which is how Studio's schedule dialog picks the tools it offers.
 
 ## Add a schedule
 
-Name the tool to run and its cadence. Pass tool arguments with `--tool-kw key=value` (or `--tool-kwargs` as JSON), and the cadence with `--schedule-kw` (or `--schedule-kwargs`).
+Name the base tool and its cadence. Pass tool arguments with `--tool-kw key=value` (or `--tool-kwargs` as JSON), and give the cadence with at most one of:
+
+- **`--cron EXPR`** — a crontab expression: 5 fields (`minute hour day-of-month month day-of-week`), or 6 with a leading seconds field, which is dropped.
+- **`--every SECONDS`** — an interval, in seconds (greater than 0).
+- **`--cadence JSON`** — the cadence object itself (below).
 
 ```bash
-tai schedules add report --schedule-kw cron='0 9 * * *'
+tai schedules add report --cron '0 9 * * *' --schedule-name morning-report
 ```
 
-Give the cadence one of two ways:
+With no cadence option the tool runs **once, now**. `--schedule-name` names a recurring schedule (its handle for `tai schedules delete`); it needs a cadence. Without it the server derives a name from the tool, its arguments and the cadence, so re-adding the same schedule updates it in place — pass `--schedule-name` when you want an explicit, stable handle.
 
-- **`cron`** — a crontab string, as above (`'0 9 * * *'` fires at 09:00 every day).
-- **Structured fields** — `minute`, `hour`, `day_of_month`, `month_of_year`, and `day_of_week` set the crontab parts individually, e.g. `--schedule-kw hour=9 --schedule-kw minute=0`.
+### The cadence
 
-Passing both `cron` and a structured field at once is an error. Either form is translated onto the tool's `schedule_task` branch for you.
+Every door speaks one cadence shape, discriminated by `kind`:
 
-### The expert form
+```json
+{"kind": "interval", "every": 60, "relative": false}
+{"kind": "crontab", "minute": "0", "hour": "9", "day_of_month": "*", "month_of_year": "*", "day_of_week": "*"}
+```
 
-To hand the cadence to the backend untouched, pass `backend_schedule` (the backend's own schedule spec) and optionally `backend_schedule_name` through `--schedule-kw`, or name the `<tool>_schedule_task` branch as the tool directly. Both skip the translation above and dispatch the backend's scheduling parameters as given.
+`relative` aligns an interval to its own clock. The Celery backend honours it; the arq and RQ backends cannot, and refuse a schedule with `relative: true` rather than ignoring it.
+
+Over HTTP, `POST /api/schedules` takes the same fields:
+
+```bash
+curl -X POST .../api/schedules -H 'Content-Type: application/json' -d '{
+  "tool_name": "report",
+  "tool_kwargs": {"recipients": ["alice"]},
+  "cadence": {"kind": "crontab", "minute": "0", "hour": "9"},
+  "schedule_name": "morning-report"
+}'
+```
+
+The body is closed: an unknown key is a `400`, and so is naming the `<tool>_schedule_task` vehicle as `tool_name` or giving `schedule_name` without a `cadence`.
 
 ## Driving parked interactions
 
@@ -67,7 +86,7 @@ jqs — each evaluated over the schedule's fired tool arguments with the run's p
 interactions bound as [`$parked`](/concepts/jq-variables#doors):
 
 ```bash
-tai schedules add report --schedule-kw cron='0 9 * * *' \
+tai schedules add report --cron '0 9 * * *' \
   --execution-key svc \
   --start-expr '{waiting: ($parked | length)}' \
   --resume-expr '$parked[0].id'
@@ -98,6 +117,8 @@ binding](/concepts/states#saving-a-binding).
     ```bash
     tai schedules list
     ```
+
+    Each row names the schedule, the tool it fires, its cadence, whether it is enabled, and its next run — never the stored tool arguments.
   </Step>
   <Step title="Check the server clock">
     Cron cadences resolve against the server's clock — read it to reason about when a job fires.
@@ -113,7 +134,9 @@ binding](/concepts/states#saving-a-binding).
   </Step>
 </Steps>
 
-A schedule the worker cannot recover — one that keeps failing when the watchdog tries to read or re-arm it — is shown in the listing as an error state rather than being retried silently forever, so `tai schedules list` tells you which schedule needs attention.
+A schedule the worker cannot recover — one that keeps failing when the watchdog tries to read or re-arm it — carries an `error` (its message and when it happened) in the listing rather than being retried silently forever, so `tai schedules list` tells you which schedule needs attention.
+
+A scheduled run, like every dispatched job, is bounded by the backend's job budget, `<PREFIX>_TASK_TIMEOUT` (see [Backends](/concepts/backends#the-job-budget)).
 
 <Note>
 A schedule and a webhook binding are the two ways a tool fires without a client call. To fire a tool on an inbound event instead, see [Fire a tool from a webhook](/guides/fire-a-tool-from-a-webhook).
