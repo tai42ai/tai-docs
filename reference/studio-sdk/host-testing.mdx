@@ -39,9 +39,28 @@ What `usePluginContributions` returns: the load status and the registry.
 | Property | Type | Description |
 |---|---|---|
 | `contributions` | `PluginContributions` | The committed contributions, meaningful only when `status === 'ready'`. |
-| `status` | `"idle" \| "loading" \| "ready"` | The load pass's status; contributions are only complete once it is `'ready'`. |
+| `status` | `"loading" \| "ready" \| "idle"` | The load pass's status; contributions are only complete once it is `'ready'`. |
 
 **Related:** [PluginContributions](/reference/studio-sdk/plugin-api#plugincontributions)
+
+
+## PluginLoadInputs
+
+```ts
+interface PluginLoadInputs
+```
+
+What the host knows about a plugin from its registry listing entry: `mounts`, the
+plugin's own route items and their resolved absolute bases (`{item: "/api/<base>"}`),
+and `declaredRoutePanels`, the channels its manifest lists under
+`contributions.route_panels`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `declaredRoutePanels` | `readonly string[]` | — |
+| `mounts` | `Readonly<Record<string, string>>` | — |
 
 
 ## PluginLoaderState
@@ -62,7 +81,7 @@ contributions are complete, and the error fields carry the loud failures.
 | `loaded` | `readonly string[]` | Names of plugins whose bundle imported and registered successfully. |
 | `plugins` | `readonly LoadedPlugin[]` | Identity (name + version) of every successfully-loaded plugin, parallel to `loaded`. The host reads it to attribute a contribution to its plugin — e.g. the nav provenance badge's "Plugin: name version". Empty before any plugin loads. |
 | `registryError` | `string \| null` | A registry-listing failure that is NOT a 401 (surfaced loudly, never hidden). |
-| `status` | `"idle" \| "loading" \| "ready"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
+| `status` | `"loading" \| "ready" \| "idle"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
 
 **Related:** [LoadedPlugin](/reference/studio-sdk/host-testing#loadedplugin)
 
@@ -104,6 +123,29 @@ function __resetPluginHostState(): void
 ```
 
 Tests reset the module-level host state between cases.
+
+
+## contributionCovered
+
+```ts
+function contributionCovered(
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  required: RequiredCapabilities | undefined,
+): boolean
+```
+
+A full projection shows every contribution; an ABSENT requirement renders only for a
+full projection (safe-by-default); a declared requirement renders when the projection
+reaches at least one of its routes.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `required` | `RequiredCapabilities \| undefined` | — | — |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
 
 
 ## deferred
@@ -213,7 +255,11 @@ unconditionally. Call once from a package's Vitest `setupFiles` entry.
 ## loadPlugin
 
 ```ts
-function loadPlugin(pluginId: string, entry: PluginEntry): Promise<void>
+function loadPlugin(
+  pluginId: string,
+  entry: PluginEntry,
+  host: PluginLoadInputs,
+): Promise<void>
 ```
 
 Load one plugin: call its `register` entry with a context bound to `pluginId`,
@@ -232,8 +278,9 @@ still captured and committed. A `register` that throws commits nothing.
 |---|---|---|---|
 | `pluginId` | `string` | — | — |
 | `entry` | `PluginEntry` | — | — |
+| `host` | `PluginLoadInputs` | — | — |
 
-**Related:** [PluginEntry](/reference/studio-sdk/plugin-api#pluginentry)
+**Related:** [PluginEntry](/reference/studio-sdk/plugin-api#pluginentry), [PluginLoadInputs](/reference/studio-sdk/host-testing#pluginloadinputs)
 
 
 ## setElementOverflow
@@ -278,7 +325,7 @@ driver); every subscriber is notified so feature pages re-render off it.
 | `loaded` | `readonly string[]` | Names of plugins whose bundle imported and registered successfully. |
 | `plugins` | `readonly LoadedPlugin[]` | Identity (name + version) of every successfully-loaded plugin, parallel to `loaded`. The host reads it to attribute a contribution to its plugin — e.g. the nav provenance badge's "Plugin: name version". Empty before any plugin loads. |
 | `registryError` | `string \| null` | A registry-listing failure that is NOT a 401 (surfaced loudly, never hidden). |
-| `status` | `"idle" \| "loading" \| "ready"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
+| `status` | `"loading" \| "ready" \| "idle"` | `idle` before the first pass, `loading` while it runs, `ready` once done. |
 
 **Related:** [PluginLoaderState](/reference/studio-sdk/host-testing#pluginloaderstate)
 

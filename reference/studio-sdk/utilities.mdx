@@ -234,6 +234,31 @@ interface BindingTemplatedJqFieldProps
 **Related:** [TemplateJqSuggestion](/reference/studio-sdk/utilities#templatejqsuggestion), [TemplatedTextCatalog](/reference/studio-sdk/utilities#templatedtextcatalog)
 
 
+## ENV_MARKER_PREFIX
+
+```ts
+const ENV_MARKER_PREFIX: "!ENV "
+```
+
+The prefix that makes a string leaf an `!ENV` marker.
+
+
+## EnvRef
+
+```ts
+interface EnvRef
+```
+
+The reference of a single-reference marker leaf.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `default?` | `string` | The `:default` text (without the leading colon); absent for a bare reference. |
+| `key` | `string` | — |
+
+
 ## FeatureDisabled
 
 ```ts
@@ -275,7 +300,7 @@ interface FeatureDisabledProps
 type FieldRoot = "output" | "input"
 ```
 
-Which root of `{ output, input }` a picked field reads.
+Which value a picked field reads: the tool output (the program's `.`) or the run input (`$input`).
 
 
 ## FieldSource
@@ -284,7 +309,7 @@ Which root of `{ output, input }` a picked field reads.
 interface FieldSource
 ```
 
-A picked field: a path into `output` or `input`.
+A picked field: a path into the tool output or the run input.
 
 **Properties**
 
@@ -357,7 +382,7 @@ interface InjectionListProps
 interface JqSource
 ```
 
-A raw jq expression over `{ output, input }`.
+A raw jq expression over the tool output (its `.`), with the run input bound as `$input`.
 
 **Properties**
 
@@ -433,6 +458,15 @@ One template jq of an attached template, resolved to the reference a binding sto
 | `writes?` | `readonly readonly string[][]` | An `update` jq's declared write paths, each a list of key segments. |
 
 **Related:** [BindingTemplateJqOption](/reference/studio-sdk/utilities#bindingtemplatejqoption)
+
+
+## RunAnswer
+
+```ts
+type RunAnswer = z.infer<typeof runAnswer>
+```
+
+What `useApi().runTool` resolves with: the run-tool door's answer, read by its `kind`.
 
 
 ## SchemaEditor
@@ -853,6 +887,21 @@ Append a `tjq_<name>({…})` template call to the current expression (space-sepa
 | `ref` | `string` | — | — |
 
 
+## collectEnvRefs
+
+```ts
+function collectEnvRefs(value: unknown): Set<string>
+```
+
+Every variable name any marker leaf anywhere under `value` references.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `unknown` | — | — |
+
+
 ## comboElementNames
 
 ```ts
@@ -877,7 +926,7 @@ function compileAdapter(rows: readonly MappingRow[]): AdapterCompileResult
 ```
 
 Compile a mapping form into ONE adapter jq that constructs the update jq's
-declared input over `{ output, input }`. An empty form compiles to the
+declared input over the tool output and `$input`. An empty form compiles to the
 empty object `{}`; a blank target, a duplicate target, or an invalid source is a
 loud error.
 
@@ -1035,7 +1084,9 @@ a refusal carrying neither is a contract breach and raises.
 function fieldPathToJq(root: FieldRoot, path: readonly string[]): string
 ```
 
-A picked field rendered as a jq path, e.g. `.output.user.name` / `.input["odd key"]`.
+A picked field rendered as a jq path: an output field reads off the program root
+(`.user.name`, `.["odd key"]`, the whole output `.`), an input field off the bound run
+input (`$input.user.name`, the whole input `$input`).
 
 **Parameters**
 
@@ -1088,6 +1139,24 @@ Find one resolved template jq by the reference a binding stores.
 **Related:** [ResolvedTemplateJq](/reference/studio-sdk/utilities#resolvedtemplatejq)
 
 
+## formatEnvMarker
+
+```ts
+function formatEnvMarker(key: string, defaultValue?: string): string
+```
+
+The marker referencing `key`, carrying `defaultValue` when given. Throws when
+`parseEnvMarker` would not read the marker back as `(key, defaultValue)`: a name is
+non-empty and carries no `{`, `}` or `:`; a default is non-empty and carries no `}`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `key` | `string` | — | — |
+| `defaultValue` *(optional)* | `string` | — | — |
+
+
 ## generateTemplateCall
 
 ```ts
@@ -1112,7 +1181,7 @@ one (see the module note on the `__` boundary invariant).
 
 ```ts
 function hiddenToolNames(
-  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[],
+  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
   overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
 ): Set<string>
 ```
@@ -1131,7 +1200,7 @@ plugin-hidden tool correctly keeps it OUT of the set (unhidden).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[]` | — | — |
+| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
 | `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 
@@ -1230,6 +1299,23 @@ Recover the mapping rows from a stored adapter jq, or `null` if it is not the ge
 | `jq` | `string` | — | — |
 
 **Related:** [MappingRow](/reference/studio-sdk/utilities#mappingrow)
+
+
+## parseEnvMarker
+
+```ts
+function parseEnvMarker(value: unknown): EnvRef | null
+```
+
+The reference of `value` when it is exactly `!ENV ${KEY}` or `!ENV ${KEY:default}`, else `null`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `unknown` | — | — |
+
+**Related:** [EnvRef](/reference/studio-sdk/utilities#envref)
 
 
 ## parseFieldPath
@@ -1350,7 +1436,7 @@ keyed here so the two never fetch the same catalog under diverging tuples.
 
 ```ts
 function statesCatalogFromList(
-  states: readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> | null; name: string; regimes: Record<string, unknown>[] | null; retention_days: number | null; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string | null })[],
+  states: readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> | null; name: string; regimes: ({ path: string[]; regime: "single" | "free" | "composing" })[] | null; retention_days: number | null; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string | null })[],
 ): BindingStateOption[]
 ```
 
@@ -1360,7 +1446,7 @@ The states catalog from `listStates()`; per-state attachments are resolved lazil
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `states` | `readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> \| null; name: string; regimes: Record<string, unknown>[] \| null; retention_days: number \| null; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string \| null })[]` | — | — |
+| `states` | `readonly ({ default_subject_kind: string; description: string; effective_schema: Record<string, unknown> \| null; name: string; regimes: ({ path: string[]; regime: "single" \| "free" \| "composing" })[] \| null; retention_days: number \| null; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; subject_kinds: string[]; updated_at: string \| null })[]` | — | — |
 
 **Related:** [BindingStateOption](/reference/studio-sdk/utilities#bindingstateoption)
 
@@ -1413,7 +1499,7 @@ function templatedTextCatalog(
 
 ```ts
 function templatesCatalogFromList(
-  items: readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } | null; regimes: Record<string, unknown>[]; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[],
+  items: readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } | null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } | null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodObject<{ default: z.ZodOptional<z.ZodUnknown>; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> }, z.core.$strict>>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } | null; regimes: ({ path: string[]; regime: "single" | "free" | "composing" })[]; schema?: Record<string, unknown> | { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" | "update"; reads: string[][]; writes: string[][] }> | null; trace?: { enabled: boolean } })[],
 ): BindingTemplateOption[]
 ```
 
@@ -1423,7 +1509,7 @@ The template catalog (with each template's template jq) from `listStateTemplates
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `items` | `readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } \| null; regimes: Record<string, unknown>[]; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnknown>> })[]` | — | — |
+| `items` | `readonly ({ attached_to: number; declarations: { check: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> } \| null; description: string; kind: "state-template"; name: string; parameters: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodObject<{ default: z.ZodOptional<z.ZodUnknown>; schema: z.ZodRecord<z.ZodString, z.ZodUnknown> }, z.core.$strict>>>; reconcile: { close: { content?: string; id?: string; kwargs?: Record<string, unknown> }; orphans: { content?: string; id?: string; kwargs?: Record<string, unknown> }; resolutions: { content?: string; id?: string; kwargs?: Record<string, unknown> } } \| null; regimes: ({ path: string[]; regime: "single" \| "free" \| "composing" })[]; schema?: Record<string, unknown> \| { content?: string; id?: string; kwargs?: Record<string, unknown> }; shipped_default: boolean; template_jq: Record<string, { description: string; jq: { content?: string; id?: string; kwargs?: Record<string, unknown> }; params: string[]; purpose: "input" \| "update"; reads: string[][]; writes: string[][] }> \| null; trace?: { enabled: boolean } })[]` | — | — |
 
 **Related:** [BindingTemplateOption](/reference/studio-sdk/utilities#bindingtemplateoption)
 
@@ -1441,7 +1527,7 @@ The api-key payloads; read by settings AND the hooks execution-key picker.
 
 ```ts
 function toolBadgesByName(
-  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[],
+  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
   overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
 ): Readonly<Record<string, readonly string[]>>
 ```
@@ -1457,7 +1543,7 @@ carrying no native tag entry is still surfaced.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; tags: string[] })[]` | — | — |
+| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
 | `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 

@@ -126,7 +126,7 @@ The inputs the caller drives the tail-only stream with.
 | Property | Type | Description |
 |---|---|---|
 | `onResync` | `() => boolean \| Promise<boolean>` | Refetch `seed`. Called on every (re)connect ONLY — the tail carries no backlog, so this reconciles anything missed while disconnected. A live delta never calls it: the overlay updates the list and the derived `count` in place. MUST resolve `true` only when the refetch LANDED a fresh `total`, and `false` when it failed: the hook advances `countEpoch` only on `true`, so terminals and adds already folded into the fresh `total` are not applied to the count again, while after a failed refetch the prior-epoch deltas keep applying against the unchanged prior total instead of being discarded against a stale one. |
-| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "confirm"; audience?: string; channel?: string; created_at: string; format_payload: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>, z.ZodTransform<Record<string, unknown>, Record<string, unknown> \| null \| undefined>>; group_id: string; interaction_id: string; media?: unknown[]; origin?: string; question: string; recipient?: string; sensitive: boolean; server_verified?: boolean; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
+| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "free" \| "confirm"; audience: string \| null; channel: string \| null; created_at: string; format_payload: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>, z.ZodTransform<Record<string, unknown>, Record<string, unknown> \| null \| undefined>>; group_id: string; interaction_id: string; media: ({ caption: string \| null; filename: string \| null; kind: "audio" \| "link" \| "video" \| "document" \| "image"; url: string })[] \| null; origin: string \| null; question: string; recipient: string \| null; sensitive: boolean; server_verified: boolean \| null; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
 | `total` | `number` | The door's authoritative pending TOTAL for the current `seed` (the paged response's `total`). The published `count` derives the live pending tally from this plus the overlay delta, so the badge stays live without a refetch. |
 
 
@@ -296,7 +296,7 @@ const UnauthorizedProvider: Provider<() => void>
 
 ```ts
 function coversAnyRoute(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal?: { display_name: string; kind: "human" | "service"; user_id: string } | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
   prefixes: readonly string[],
 ): boolean
 ```
@@ -304,21 +304,17 @@ function coversAnyRoute(
 Whether the projection reaches ANY route under one of `prefixes` — the
 declarative test behind nav filtering and plugin `requiredCapabilities`. A
 concrete `routes[].path` covers a prefix when it is that prefix or a
-segment-nested descendant of it; a dynamic `route_patterns[].pattern` covers a
-prefix only when it is a simple anchored open-wildcard pattern (`^<literal>.*$`)
-whose open literal overlaps the prefix at a segment boundary.
-
-Under-showing is safe (projection is UX; the server is the authority);
-over-showing is the bug. So any non-anchored or otherwise complex pattern
-(alternation, char class, bounded quantifier) is conservatively treated as NOT
-covering — its matched set is not a clean prefix, so we never infer reach from
-it.
+segment-nested descendant of it; a dynamic `route_patterns[]` entry covers a
+prefix through its served `open_prefix` — the literal the server rules every
+path starting with is reachable — when it overlaps the prefix at a segment
+boundary. A `null` open prefix (a pattern whose matched set is not a clean
+prefix) covers nothing by prefix: under-showing is safe, over-showing is the bug.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal?: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 | `prefixes` | `readonly string[]` | — | — |
 
 
@@ -326,7 +322,7 @@ it.
 
 ```ts
 function coversRoute(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal?: { display_name: string; kind: "human" | "service"; user_id: string } | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
   path: string,
   method: string,
 ): boolean
@@ -349,7 +345,7 @@ server stays the authority); over-showing an action the gate denies is the bug.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal?: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 | `path` | `string` | — | — |
 | `method` | `string` | — | — |
 
@@ -387,7 +383,7 @@ every non-admin caller and degrades that control to read-only. Under-showing is 
 
 ```ts
 function isFullProjection(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal?: { display_name: string; kind: "human" | "service"; user_id: string } | null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
 ): boolean
 ```
 
@@ -405,7 +401,7 @@ exactly right — and the gate-off synthetic projection (`admin: true`, empty
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal?: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; route_patterns: ({ pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 
 
 ## toolDisplayLabel
@@ -535,7 +531,7 @@ function useInteractionsStream(options: InteractionsStreamOptions): Interactions
 | Prop | Type | Description |
 |---|---|---|
 | `onResync` | `() => boolean \| Promise<boolean>` | Refetch `seed`. Called on every (re)connect ONLY — the tail carries no backlog, so this reconciles anything missed while disconnected. A live delta never calls it: the overlay updates the list and the derived `count` in place. MUST resolve `true` only when the refetch LANDED a fresh `total`, and `false` when it failed: the hook advances `countEpoch` only on `true`, so terminals and adds already folded into the fresh `total` are not applied to the count again, while after a failed refetch the prior-epoch deltas keep applying against the unchanged prior total instead of being discarded against a stale one. |
-| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "confirm"; audience?: string; channel?: string; created_at: string; format_payload: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>, z.ZodTransform<Record<string, unknown>, Record<string, unknown> \| null \| undefined>>; group_id: string; interaction_id: string; media?: unknown[]; origin?: string; question: string; recipient?: string; sensitive: boolean; server_verified?: boolean; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
+| `seed` | `readonly ({ answer_format: "form" \| "select" \| "external" \| "text" \| "free" \| "confirm"; audience: string \| null; channel: string \| null; created_at: string; format_payload: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodUnknown>>>, z.ZodTransform<Record<string, unknown>, Record<string, unknown> \| null \| undefined>>; group_id: string; interaction_id: string; media: ({ caption: string \| null; filename: string \| null; kind: "audio" \| "link" \| "video" \| "document" \| "image"; url: string })[] \| null; origin: string \| null; question: string; recipient: string \| null; sensitive: boolean; server_verified: boolean \| null; timeout_at: string })[]` | The pending set from the paged `GET /api/interactions` door — the base the live tail overlays. A stable reference between refetches (memoize it upstream); a new reference re-merges but does NOT reopen the stream. |
 | `total` | `number` | The door's authoritative pending TOTAL for the current `seed` (the paged response's `total`). The published `count` derives the live pending tally from this plus the overlay delta, so the badge stays live without a refetch. |
 
 **Related:** [InteractionsStreamOptions](/reference/studio-sdk/hooks#interactionsstreamoptions), [InteractionsStreamState](/reference/studio-sdk/hooks#interactionsstreamstate)
