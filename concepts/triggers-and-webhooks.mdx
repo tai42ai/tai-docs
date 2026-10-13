@@ -36,9 +36,17 @@ The public webhook doors — `/universal_webhook/{topic}` and the
 webhook-verifier registry. A topic with no verifier binding is open by design; you
 bind a verifier to lock it.
 
-Verification **fails closed**: a signature mismatch returns a constant `401`, and a
-missing verifier or secret returns a `500` — either way nothing is recorded and no
-tool runs. A verified delivery is then deduped against replay: on the
+A binding has one shape everywhere — the contract's `TopicVerifierBinding`,
+`{"verifier": <registered name>, "config": {...}}` — whether it locks a hook topic
+(`PUT /api/hooks/topics/{topic}/verifier`), binds an `ask(verifier=...)` question, or is
+[`ask_external`'s author config](/concepts/interactions#external-questions). Both doors run
+the same verification and answer the same bodies.
+
+Verification **fails closed**: a signature mismatch returns a constant `401`
+(`{"error": "webhook verification failed"}`), and a missing verifier or secret, a verifier
+bug, or a stored binding that is not a `TopicVerifierBinding` returns a `500`
+(`{"error": "webhook verification error"}`) — either way nothing is recorded and no tool
+runs. A body-signature verifier on the topic ingress refuses a `GET` with `405`. A verified delivery is then deduped against replay: on the
 `/universal_webhook/{topic}` ingress a delivery whose per-delivery id was already
 claimed within the replay window is a replay, answered with the idempotent
 `already_seen` `200` and dispatching nothing.
