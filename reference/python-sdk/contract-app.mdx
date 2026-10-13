@@ -189,6 +189,23 @@ reload_failed_mcps(self) -> list[dict[str, Any]]
 Retry every MCP that failed to bind and return their statuses.
 
 
+#### reprobe_failed_mcps
+
+`tai42_contract.app.facets.runtime.AppAdmin.reprobe_failed_mcps`
+
+```python
+async reprobe_failed_mcps(self, titles: list[str]) -> list[dict[str, Any]]
+```
+
+Re-probe those of ``titles`` that failed to bind, bind the recovered ones, and return their statuses.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `titles` | `list[str]` | — | — |
+
+
 #### list_failed_mcps
 
 `tai42_contract.app.facets.runtime.AppAdmin.list_failed_mcps`
@@ -252,8 +269,9 @@ Register an `Agent` subclass under ``name`` and auto-register its JSON ``run`` t
 
 ``tags`` are the run tool's native tags, set on its constructed tool object.
 ``meta`` is generic registration metadata threaded onto the same constructed
-run-tool object (naming no consumer concept — a registrant attaches any generic
-``tai42/*`` key, e.g. a crash-resume flag the run-dispatch seam reads). The
+run-tool object (naming no consumer concept — a registrant attaches any key of
+`tai42_contract.tools.meta`, e.g. ``TOOL_META_CRASH_RESUME``, which the
+run-dispatch seam reads). The
 decorator returns the class unchanged, so the decorated symbol keeps its
 concrete subclass type.
 
@@ -1036,6 +1054,7 @@ extension(
     name: str | None = None,
     requires_body_locality: bool = False,
     pauses: bool = False,
+    declares_output_schema: bool = False,
 ) -> Callable[..., Any]
 ```
 
@@ -1055,6 +1074,9 @@ behind in the submitting process and silently does not apply.
 declares (an extension that re-dispatches other tools and passes their park
 through); see ``AppTools.pauses``.
 
+``declares_output_schema``: this extension declares the wrapped tool's output shape (its
+JSON Schema), so a preset over a tool carrying it may not also set ``output_schema``.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -1064,6 +1086,7 @@ through); see ``AppTools.pauses``.
 | `name` | `str \| None` | `None` | — |
 | `requires_body_locality` | `bool` | `False` | — |
 | `pauses` | `bool` | `False` | — |
+| `declares_output_schema` | `bool` | `False` | — |
 
 
 #### available_extensions
@@ -1071,10 +1094,12 @@ through); see ``AppTools.pauses``.
 `tai42_contract.app.facets.execution.AppExtensions.available_extensions`
 
 ```python
-available_extensions(self) -> list[dict[str, str]]
+available_extensions(self) -> list[dict[str, str | bool]]
 ```
 
-List registered extension modules as ``[{"name", "kind"}]``.
+List registered extensions as ``[{"name", "kind", "multiple"}]``.
+
+``multiple`` says whether one tool may stack several extensions of that kind.
 
 
 
@@ -1133,6 +1158,7 @@ custom_route(
     declared: DeclaredRouteMetadata | None = None,
     no_body_reason: str | None = None,
     enveloped: bool = True,
+    success_media_types: Mapping[str, tuple[str, ...]] | None = None,
 ) -> Callable[[Callable[[Request], Awaitable[Response]]], Callable[[Request], Awaitable[Response]]]
 ```
 
@@ -1161,6 +1187,11 @@ coverage gate consume, so every registration MUST describe itself:
   raw non-enveloped body the envelope emitter cannot describe). Passing it
   alongside a ``response_model``, or omitting it when ``response_model`` is
   ``None``, is a registration error.
+* ``success_media_types`` — the media types each method's success body is
+  published under, keyed by the route's upper-cased methods; each value is a
+  non-empty tuple. A method left out (or ``None``, the default) publishes
+  ``application/json``. A key outside the route's methods, an empty tuple, or
+  a non-JSON type on an ``enveloped=False`` route is a registration error.
 * ``request_model`` — the pydantic model of the request body; required for
   any route that reads a body, omitted (``None``) otherwise.
 * ``query_model`` — the pydantic model whose fields are published as ``in:
@@ -1203,12 +1234,14 @@ coverage gate consume, so every registration MUST describe itself:
   defaults for a route outside the spec surface, whose behavioral metadata
   is never emitted. A route MAY also declare its own ``max_body_bytes`` (a
   per-route request body cap the app's request-body limit honours; default
-  ``None`` defers to the app cap) and its own ``rate_limit_family`` (the
+  ``None`` defers to the app cap), its own ``rate_limit_family`` (the
   rate-limit family the door charges; default ``None`` defers to the
-  path-derived family).
+  path-derived family) and its family's ``rate_limit_budget`` (a
+  `RateLimitBudget`; default ``None`` defers to the app-wide default).
+  A ``reload_gated`` route answers the retriable reload ``503`` while a config
+  reload holds the gate; the surface enforces it around the handler.
 
-The handler's narrative docstring becomes the operation description, and
-the reload-gate ``503`` response is derived from the handler body.
+The handler's narrative docstring becomes the operation description.
 
 **Parameters**
 
@@ -1232,6 +1265,7 @@ the reload-gate ``503`` response is derived from the handler body.
 | `declared` | `DeclaredRouteMetadata \| None` | `None` | — |
 | `no_body_reason` | `str \| None` | `None` | — |
 | `enveloped` | `bool` | `True` | — |
+| `success_media_types` | `Mapping[str, tuple[str, ...]] \| None` | `None` | — |
 
 
 #### use_raw_path_key
@@ -1277,6 +1311,17 @@ hardcoded default. Called with no binding present — a core or
 operator-authored module — it raises: those modules own no declared mount.
 
 
+#### hosted_ui
+
+`tai42_contract.app.facets.routing.AppHttp.hosted_ui`
+
+```python
+hosted_ui(self) -> HostedUiPaths
+```
+
+The page addresses of the hosted UI, as the deployment declares them.
+
+
 
 ## AppInteractions
 
@@ -1318,6 +1363,41 @@ every surface applies identical rules per format.
 | `answer` | `Any` | — | — |
 
 
+#### question_format
+
+`tai42_contract.app.facets.messaging.AppInteractions.question_format`
+
+```python
+question_format(
+    self,
+    answer_format: str,
+    *,
+    options: list[str] | None = None,
+    schema: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None,
+    pages: list[dict[str, Any]] | None = None,
+    reactions: dict[str, Any] | None = None,
+) -> QuestionFormat
+```
+
+The answer-check view of an ask with these arguments (the parameter names are the ``ask`` tool's own).
+
+The stored ``format_payload`` minus EXTERNAL's delivery keys (``url``, ``verifier``), ready
+for `check_answer`. Raises ``ValueError`` for an unknown format, an argument not valid
+for the format, or a value of the wrong shape.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `answer_format` | `str` | — | — |
+| `options` | `list[str] \| None` | `None` | — |
+| `schema` | `dict[str, Any] \| None` | `None` | — |
+| `data` | `dict[str, Any] \| None` | `None` | — |
+| `pages` | `list[dict[str, Any]] \| None` | `None` | — |
+| `reactions` | `dict[str, Any] \| None` | `None` | — |
+
+
 #### react
 
 `tai42_contract.app.facets.messaging.AppInteractions.react`
@@ -1326,7 +1406,7 @@ every surface applies identical rules per format.
 async react(
     self,
     interaction_id: str,
-    event: dict[str, Any],
+    event: FormReactionEvent,
     partial_values: dict[str, Any],
 ) -> dict[str, Any]
 ```
@@ -1348,7 +1428,7 @@ A handler that raises or misses the deadline surfaces LOUDLY, never a stale/sile
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `interaction_id` | `str` | — | — |
-| `event` | `dict[str, Any]` | — | — |
+| `event` | `FormReactionEvent` | — | — |
 | `partial_values` | `dict[str, Any]` | — | — |
 
 
@@ -1420,6 +1500,21 @@ it, so no resume redelivery fires past it. A resuming driver derives its own
 resolution-record retention from this value rather than a hard-coded guess.
 
 
+#### callback_url_prefix
+
+`tai42_contract.app.facets.messaging.AppInteractions.callback_url_prefix`
+
+```python
+callback_url_prefix(self) -> str | None
+```
+
+The absolute URL prefix every callback URL this platform mints starts with.
+
+``{public base}/api/interactions/callback/``; ``None`` when the deployment configures no
+public base. A component that POSTs an answer to a stored callback URL pins it against this
+prefix first.
+
+
 #### visit
 
 `tai42_contract.app.facets.messaging.AppInteractions.visit`
@@ -1439,23 +1534,23 @@ values and hands them in; the generic ``list_parked`` / ``resume_parked`` / ``ca
 below are thin wrappers over this same seam.
 
 
-#### park_answer
+#### run_answer
 
-`tai42_contract.app.facets.messaging.AppInteractions.park_answer`
+`tai42_contract.app.facets.messaging.AppInteractions.run_answer`
 
 ```python
-park_answer(self, outcome: VisitOutcome) -> Any
+run_answer(self, outcome: VisitOutcome) -> RunAnswer
 ```
 
-The ONE park-answer shape a direct door hands back for a `VisitOutcome`.
+The ONE `RunAnswer` a run door hands back for a `VisitOutcome`.
 
-A plain ``result`` is the tool's own value; an ``asks`` outcome is the caller ask entries
-the run parked (``{"asks": [entry, ...]}``); a ``parked`` outcome is the suspended
-sentinel; ``none`` is ``None``. Both the synchronous run-tool door and the background
-submit's terminal record shape a park through this ONE callable, so a poller of either
-door reads identical bytes and can tell a caller-ask park (answerable through
-``resume_parked``) from a user-ask park. It never reveals a wrapped secret — the sync door
-reveals those on the ``result`` kind itself and every recorder masks its own copy.
+Discriminated on ``kind``: ``result`` carries the run's own value, ``asks`` the caller ask
+entries the run parked with its re-park sentinel, ``parked`` the sentinel alone, ``none``
+nothing. Both the synchronous run-tool door and the background submit's parked record
+shape a run through this ONE callable, so a poller of either door reads identical bytes.
+It never reveals a wrapped secret — the sync door reveals those on its own ``result`` and
+every recorder masks its own copy. An ``asks``/``parked`` outcome carrying no sentinel
+raises ``RuntimeError``.
 
 **Parameters**
 
@@ -1726,23 +1821,22 @@ it spawns attaches to the serving loop and retires with its generation.
 `tai42_contract.app.facets.runtime.AppLifecycle.on_fleet_op_applied`
 
 ```python
-on_fleet_op_applied(self, func: Callable[[str, float], Any]) -> Callable[[str, float], Any]
+on_fleet_op_applied(self, func: Callable[[FleetOpApplied], Any]) -> Callable[[FleetOpApplied], Any]
 ```
 
 Register a handler fired after any worker-bus op applies in this process.
 
-Also fired after the reconnect self-resync reload. The handler is called
-``handler(op_name, budget)``: ``op_name`` lets it act on some ops and skip others
-(a query op carries no state change to react to); ``budget`` — seconds remaining
-before the publisher's report cut, measured from this process's receipt of the op
-(the bus transit before receipt is not subtracted); a post-apply obligation that
-cannot finish within it must raise.
+Also fired after the reconnect self-resync reload. The handler takes ONE argument — the
+applied op with its declared effects (`FleetOpApplied`);
+decide on ``effects``, never on ``op`` (a query op declares none). Its ``budget`` is the
+seconds remaining before the publisher's report cut, measured from this process's
+receipt of the op; a post-apply obligation that cannot finish within it must raise.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `func` | `Callable[[str, float], Any]` | — | — |
+| `func` | `Callable[[FleetOpApplied], Any]` | — | — |
 
 
 #### wait_until_ready
@@ -3282,6 +3376,25 @@ resource_manager: Any
 The active resource manager (impl type; loads/renders content over storage).
 
 
+#### resolve_image
+
+`tai42_contract.app.facets.execution.AppStorage.resolve_image`
+
+```python
+async resolve_image(self, source: str | bytes) -> ImageReference
+```
+
+Resolve a stored id, a data URI, raw bytes or a public URL to an addressable image with its asserted mime.
+
+A non-image or a path outside the store raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `source` | `str \| bytes` | — | — |
+
+
 #### on_template_evicted
 
 `tai42_contract.app.facets.execution.AppStorage.on_template_evicted`
@@ -3466,10 +3579,10 @@ Return every assembled tool keyed by name.
 `tai42_contract.tools.AppTools.get_client_tools`
 
 ```python
-async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
+async get_client_tools(self, names: list[str] | None = None) -> list[ClientTool]
 ```
 
-Return the client-facing tool objects, restricted to ``names`` when given.
+The tools named in ``names`` (all when ``None``) as framework-neutral handles; an unknown name raises.
 
 **Parameters**
 
@@ -3919,6 +4032,32 @@ besides ``success_status``; each is emitted as its own success response.
 | `additional_success_statuses` | `tuple[int, ...]` |
 | `max_body_bytes` | `int \| None` |
 | `rate_limit_family` | `str \| None` |
+| `rate_limit_budget` | `RateLimitBudget \| None` |
+
+
+## HostedUiPaths
+
+`tai42_contract.app.facets.routing.HostedUiPaths`
+
+```python
+class HostedUiPaths
+```
+
+The page addresses of the hosted UI, as the deployment declares them.
+
+``login_path``, ``oauth_callback_path`` and ``connectors_path`` are same-origin paths; a
+claim link carries its token in the login page's ``#<claim_fragment_key>=`` fragment and an
+invite link in its ``?<invite_query_key>=`` query.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `login_path` | `str` |
+| `claim_fragment_key` | `str` |
+| `invite_query_key` | `str` |
+| `oauth_callback_path` | `str` |
+| `connectors_path` | `str` |
 
 
 ## PendingMessage
@@ -3944,6 +4083,24 @@ seconds it was accepted at (the thread index's own score). Frozen.
 | `message_id` | `str` |
 | `text` | `str` |
 | `accepted_at` | `float` |
+
+
+## RateLimitBudget
+
+`tai42_contract.app.facets.routing.RateLimitBudget`
+
+```python
+class RateLimitBudget
+```
+
+A route family's default flood-control budget: requests per 60 s window and per 10 s burst window.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `limit` | `int` |
+| `burst` | `int` |
 
 
 ## RouteAction

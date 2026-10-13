@@ -14,6 +14,19 @@ checkpoint/store connection resources. Importing this package pulls
 ``langchain_core`` / ``langgraph`` — that is the opt-in boundary (the
 ``tai42_kit`` top level stays vendor-free).
 
+## InvalidRunTraceError
+
+`tai42_kit.llm.run_trace.InvalidRunTraceError`
+
+```python
+class InvalidRunTraceError(ValueError)
+```
+
+A run's config names an explicit trace id or parent anchor that no monitoring writer can record under.
+
+The caller's input is refused before the run starts, naming the configurable key and the value it carried.
+
+
 ## MonitoringCallbackHandler
 
 `tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler`
@@ -430,6 +443,17 @@ monitoring callback handler appended after the caller's own callbacks.
 | `config` | `dict[str, Any]` |
 
 
+## ToolNameTooLongError
+
+`tai42_kit.llm.models.ToolNameTooLongError`
+
+```python
+class ToolNameTooLongError(ValueError)
+```
+
+A tool name is longer than a bound tool name may be.
+
+
 ## bind_run_trace
 
 `tai42_kit.llm.run_trace.bind_run_trace`
@@ -445,8 +469,8 @@ bind_run_trace(
 
 Resolve the run's lineage and return the per-invoke config carrying the monitoring callbacks.
 
-Resolves the lineage with `resolve_trace_context` and returns a `RunTrace`
-whose ``config`` is ``config`` copied by value — a fresh top-level mapping, a fresh
+Resolves the lineage with `resolve_trace_context` (its `InvalidRunTraceError` propagates) and
+returns a `RunTrace` whose ``config`` is ``config`` copied by value — a fresh top-level mapping, a fresh
 ``configurable``, and a fresh ``callbacks`` list — so one base config can feed many
 parallel invocations without colliding. When the active writer records
 (``is_recording()``), a `MonitoringCallbackHandler` bound to the lineage is
@@ -466,6 +490,26 @@ and tool runs are recorded in full either way.
 | `config` | `dict[str, Any] \| None` | `None` | — |
 | `grouping_nodes` | `frozenset[str]` | `frozenset()` | — |
 | `chain_payloads` | `ChainPayloads` | `'references'` | — |
+
+
+## check_tool_name
+
+`tai42_kit.llm.models.check_tool_name`
+
+```python
+check_tool_name(name: str) -> None
+```
+
+Refuse a tool name longer than `TOOL_NAME_MAX_LEN`.
+
+The bound is the strictest among the providers a bound tool is sent to; a longer name is
+refused, never truncated (a truncated name would name a different tool).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
 
 
 ## checkpoint_registry
@@ -653,6 +697,10 @@ Precedence: an explicit ``configurable[MONITORING_TRACE_ID_KEY]`` (with its opti
 ``MONITORING_PARENT_SPAN_ID_KEY`` anchor) wins; else the ambient
 `get_ambient_trace_context` deposit; else a fresh
 32-hex root trace with no parent. Pure — reads only, mints no side effect.
+
+An explicit trace id that is not 32 lower-hex (not all zeros), or a caller's parent anchor that is not 16
+lower-hex (not all zeros), is refused with `InvalidRunTraceError`: a run never proceeds under a lineage
+no writer can record. An empty explicit trace id reads as absent.
 
 **Parameters**
 

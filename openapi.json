@@ -1,6 +1,80 @@
 {
   "components": {
     "schemas": {
+      "AddServerRequest": {
+        "description": "Add the MCP server at ``url`` as a discovered provider.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Category"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Display Name"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Icon Url"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "AddServerRequest",
+        "type": "object"
+      },
       "AdvisorySnapshot": {
         "description": "The advisory snapshot for the installed plugins.\n\nEach advisory row is an upstream registry object forwarded verbatim (its shape is owned by the\nregistry); ``fetched_at`` is the ISO-8601 fetch time.",
         "properties": {
@@ -142,6 +216,19 @@
         ],
         "title": "AgentsEntriesAdd",
         "type": "object"
+      },
+      "AnswerFormat": {
+        "description": "The shape a question's answer takes.",
+        "enum": [
+          "text",
+          "confirm",
+          "select",
+          "form",
+          "external",
+          "free"
+        ],
+        "title": "AnswerFormat",
+        "type": "string"
       },
       "AnswerPart": {
         "additionalProperties": false,
@@ -309,6 +396,795 @@
           }
         },
         "title": "AnswerPart",
+        "type": "object"
+      },
+      "ApiConversationRouteCreate": {
+        "description": "An ``api`` route: answers by signed callback to ``callback_url`` when set, else by the poll door.",
+        "properties": {
+          "callback_url": {
+            "anyOf": [
+              {
+                "pattern": "^[hH][tT][tT][pP][sS]://[^/?#@]+(?:[/?#]|$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Callback Url"
+          },
+          "cancel_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "cancel expression",
+              "language": "jq",
+              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "channel": {
+            "default": null,
+            "title": "Channel",
+            "type": "null"
+          },
+          "door": {
+            "const": "api",
+            "title": "Door",
+            "type": "string"
+          },
+          "error_reply_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Reply Text"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
+          "extras_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "extras expression",
+              "language": "jq",
+              "returns": "the extras mapping handed to the started target; null for no extras",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "initial_mode": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "manual"
+            ],
+            "title": "Initial Mode",
+            "type": "string"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Locale"
+          },
+          "our_identity": {
+            "default": null,
+            "title": "Our Identity",
+            "type": "null"
+          },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
+          "reply_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
+              "label": "reply expression",
+              "language": "jq",
+              "returns": "the reply: null (silent), a string, or a list of answer parts",
+              "variables": [
+                {
+                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
+                  "name": "turn",
+                  "sample": {
+                    "id": "m-1",
+                    "inbound": {
+                      "id": "i-1",
+                      "kind": "message",
+                      "source": "api"
+                    }
+                  }
+                },
+                {
+                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
+                  "name": "asks",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "id": "i-42",
+                      "question": "proceed?"
+                    }
+                  ]
+                },
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "resume_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "resume expression",
+              "language": "jq",
+              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "route_name": {
+            "pattern": "^[a-z0-9-]+$",
+            "title": "Route Name",
+            "type": "string"
+          },
+          "start_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
+              "keys": [
+                {
+                  "gloss": "the inbound message text",
+                  "name": "message"
+                },
+                {
+                  "gloss": "the sending address",
+                  "name": "sender"
+                },
+                {
+                  "gloss": "door=channel: the medium address we are texted at",
+                  "name": "our_identity"
+                },
+                {
+                  "gloss": "door=channel: the registry channel name",
+                  "name": "channel"
+                },
+                {
+                  "gloss": "the turn's canonical thread id (the thread doors' id)",
+                  "name": "thread_id"
+                },
+                {
+                  "gloss": "multichannel only: the linked person's id",
+                  "name": "person_id"
+                },
+                {
+                  "gloss": "multichannel only: the person's known addresses",
+                  "name": "person_addresses"
+                },
+                {
+                  "gloss": "non-empty entry params, nested under this key",
+                  "name": "params"
+                },
+                {
+                  "gloss": "a structured form submission, present only when the inbound carried one",
+                  "name": "form"
+                },
+                {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
+                  "name": "attachments"
+                },
+                {
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
+                  "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
+                },
+                {
+                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
+                  "name": "turn"
+                },
+                {
+                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
+                  "name": "event"
+                }
+              ],
+              "label": "start expression",
+              "language": "jq",
+              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
+            "type": "string"
+          },
+          "turns_per_hour_override": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turns Per Hour Override"
+          }
+        },
+        "required": [
+          "route_name",
+          "target_kind",
+          "target_name",
+          "execution_key",
+          "door"
+        ],
+        "title": "ApiConversationRouteCreate",
+        "type": "object"
+      },
+      "ApiConversationRouteView": {
+        "description": "A stored ``api`` conversation route as every read serves it.\n\nThe client-supplied fields plus the server-derived ``execution_key_fingerprint``, with\n``callback_secret`` OMITTED — reads always strip it, so the view never advertises a field the wire\nwithholds. The one-time ``callback_secret`` is returned separately by the create door.",
+        "properties": {
+          "callback_url": {
+            "anyOf": [
+              {
+                "pattern": "^[hH][tT][tT][pP][sS]://[^/?#@]+(?:[/?#]|$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Callback Url"
+          },
+          "cancel_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "cancel expression",
+              "language": "jq",
+              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "channel": {
+            "default": null,
+            "title": "Channel",
+            "type": "null"
+          },
+          "door": {
+            "const": "api",
+            "title": "Door",
+            "type": "string"
+          },
+          "error_reply_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Reply Text"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
+          "execution_key_fingerprint": {
+            "title": "Execution Key Fingerprint",
+            "type": "string"
+          },
+          "extras_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "extras expression",
+              "language": "jq",
+              "returns": "the extras mapping handed to the started target; null for no extras",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "initial_mode": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "manual"
+            ],
+            "title": "Initial Mode",
+            "type": "string"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Locale"
+          },
+          "our_identity": {
+            "default": null,
+            "title": "Our Identity",
+            "type": "null"
+          },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
+          "reply_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
+              "label": "reply expression",
+              "language": "jq",
+              "returns": "the reply: null (silent), a string, or a list of answer parts",
+              "variables": [
+                {
+                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
+                  "name": "turn",
+                  "sample": {
+                    "id": "m-1",
+                    "inbound": {
+                      "id": "i-1",
+                      "kind": "message",
+                      "source": "api"
+                    }
+                  }
+                },
+                {
+                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
+                  "name": "asks",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "id": "i-42",
+                      "question": "proceed?"
+                    }
+                  ]
+                },
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "resume_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "resume expression",
+              "language": "jq",
+              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "route_name": {
+            "pattern": "^[a-z0-9-]+$",
+            "title": "Route Name",
+            "type": "string"
+          },
+          "start_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
+              "keys": [
+                {
+                  "gloss": "the inbound message text",
+                  "name": "message"
+                },
+                {
+                  "gloss": "the sending address",
+                  "name": "sender"
+                },
+                {
+                  "gloss": "door=channel: the medium address we are texted at",
+                  "name": "our_identity"
+                },
+                {
+                  "gloss": "door=channel: the registry channel name",
+                  "name": "channel"
+                },
+                {
+                  "gloss": "the turn's canonical thread id (the thread doors' id)",
+                  "name": "thread_id"
+                },
+                {
+                  "gloss": "multichannel only: the linked person's id",
+                  "name": "person_id"
+                },
+                {
+                  "gloss": "multichannel only: the person's known addresses",
+                  "name": "person_addresses"
+                },
+                {
+                  "gloss": "non-empty entry params, nested under this key",
+                  "name": "params"
+                },
+                {
+                  "gloss": "a structured form submission, present only when the inbound carried one",
+                  "name": "form"
+                },
+                {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
+                  "name": "attachments"
+                },
+                {
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
+                  "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
+                },
+                {
+                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
+                  "name": "turn"
+                },
+                {
+                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
+                  "name": "event"
+                }
+              ],
+              "label": "start expression",
+              "language": "jq",
+              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
+            "type": "string"
+          },
+          "turns_per_hour_override": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turns Per Hour Override"
+          }
+        },
+        "required": [
+          "route_name",
+          "target_kind",
+          "target_name",
+          "execution_key",
+          "door",
+          "execution_key_fingerprint"
+        ],
+        "title": "ApiConversationRouteView",
         "type": "object"
       },
       "ApiKeyCreate": {
@@ -959,6 +1835,783 @@
         "title": "CacheClearResult",
         "type": "object"
       },
+      "ChannelConversationRouteCreate": {
+        "description": "A ``channel`` route: answers through the registry ``channel`` at the ``our_identity`` address.",
+        "properties": {
+          "callback_url": {
+            "default": null,
+            "title": "Callback Url",
+            "type": "null"
+          },
+          "cancel_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "cancel expression",
+              "language": "jq",
+              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "channel": {
+            "pattern": "^[^:]*[^:\\s][^:]*$",
+            "title": "Channel",
+            "type": "string"
+          },
+          "door": {
+            "const": "channel",
+            "title": "Door",
+            "type": "string"
+          },
+          "error_reply_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Reply Text"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
+          "extras_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "extras expression",
+              "language": "jq",
+              "returns": "the extras mapping handed to the started target; null for no extras",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "initial_mode": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "manual"
+            ],
+            "title": "Initial Mode",
+            "type": "string"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Locale"
+          },
+          "our_identity": {
+            "pattern": "\\S",
+            "title": "Our Identity",
+            "type": "string"
+          },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
+          "reply_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
+              "label": "reply expression",
+              "language": "jq",
+              "returns": "the reply: null (silent), a string, or a list of answer parts",
+              "variables": [
+                {
+                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
+                  "name": "turn",
+                  "sample": {
+                    "id": "m-1",
+                    "inbound": {
+                      "id": "i-1",
+                      "kind": "message",
+                      "source": "api"
+                    }
+                  }
+                },
+                {
+                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
+                  "name": "asks",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "id": "i-42",
+                      "question": "proceed?"
+                    }
+                  ]
+                },
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "resume_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "resume expression",
+              "language": "jq",
+              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "route_name": {
+            "pattern": "^[a-z0-9-]+$",
+            "title": "Route Name",
+            "type": "string"
+          },
+          "start_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
+              "keys": [
+                {
+                  "gloss": "the inbound message text",
+                  "name": "message"
+                },
+                {
+                  "gloss": "the sending address",
+                  "name": "sender"
+                },
+                {
+                  "gloss": "door=channel: the medium address we are texted at",
+                  "name": "our_identity"
+                },
+                {
+                  "gloss": "door=channel: the registry channel name",
+                  "name": "channel"
+                },
+                {
+                  "gloss": "the turn's canonical thread id (the thread doors' id)",
+                  "name": "thread_id"
+                },
+                {
+                  "gloss": "multichannel only: the linked person's id",
+                  "name": "person_id"
+                },
+                {
+                  "gloss": "multichannel only: the person's known addresses",
+                  "name": "person_addresses"
+                },
+                {
+                  "gloss": "non-empty entry params, nested under this key",
+                  "name": "params"
+                },
+                {
+                  "gloss": "a structured form submission, present only when the inbound carried one",
+                  "name": "form"
+                },
+                {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
+                  "name": "attachments"
+                },
+                {
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
+                  "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
+                },
+                {
+                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
+                  "name": "turn"
+                },
+                {
+                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
+                  "name": "event"
+                }
+              ],
+              "label": "start expression",
+              "language": "jq",
+              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
+            "type": "string"
+          },
+          "turns_per_hour_override": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turns Per Hour Override"
+          }
+        },
+        "required": [
+          "route_name",
+          "target_kind",
+          "target_name",
+          "execution_key",
+          "door",
+          "channel",
+          "our_identity"
+        ],
+        "title": "ChannelConversationRouteCreate",
+        "type": "object"
+      },
+      "ChannelConversationRouteView": {
+        "description": "A stored ``channel`` conversation route as every read serves it, plus ``execution_key_fingerprint``.",
+        "properties": {
+          "callback_url": {
+            "default": null,
+            "title": "Callback Url",
+            "type": "null"
+          },
+          "cancel_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "cancel expression",
+              "language": "jq",
+              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "channel": {
+            "pattern": "^[^:]*[^:\\s][^:]*$",
+            "title": "Channel",
+            "type": "string"
+          },
+          "door": {
+            "const": "channel",
+            "title": "Door",
+            "type": "string"
+          },
+          "error_reply_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Reply Text"
+          },
+          "execution_key": {
+            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
+            "minLength": 1,
+            "title": "Execution Key",
+            "type": "string"
+          },
+          "execution_key_fingerprint": {
+            "title": "Execution Key Fingerprint",
+            "type": "string"
+          },
+          "extras_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "extras expression",
+              "language": "jq",
+              "returns": "the extras mapping handed to the started target; null for no extras",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "initial_mode": {
+            "default": "agent",
+            "enum": [
+              "agent",
+              "manual"
+            ],
+            "title": "Initial Mode",
+            "type": "string"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Locale"
+          },
+          "our_identity": {
+            "pattern": "\\S",
+            "title": "Our Identity",
+            "type": "string"
+          },
+          "overlap": {
+            "$ref": "#/components/schemas/OverlapPolicy",
+            "default": {
+              "deliver": "one",
+              "running": "continue",
+              "settle_seconds": 0
+            }
+          },
+          "reply_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
+              "label": "reply expression",
+              "language": "jq",
+              "returns": "the reply: null (silent), a string, or a list of answer parts",
+              "variables": [
+                {
+                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
+                  "name": "turn",
+                  "sample": {
+                    "id": "m-1",
+                    "inbound": {
+                      "id": "i-1",
+                      "kind": "message",
+                      "source": "api"
+                    }
+                  }
+                },
+                {
+                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
+                  "name": "asks",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "id": "i-42",
+                      "question": "proceed?"
+                    }
+                  ]
+                },
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "resume_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the door's input document",
+              "label": "resume expression",
+              "language": "jq",
+              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "route_name": {
+            "pattern": "^[a-z0-9-]+$",
+            "title": "Route Name",
+            "type": "string"
+          },
+          "start_expr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplatedText-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "x-tai42-expression": {
+              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
+              "keys": [
+                {
+                  "gloss": "the inbound message text",
+                  "name": "message"
+                },
+                {
+                  "gloss": "the sending address",
+                  "name": "sender"
+                },
+                {
+                  "gloss": "door=channel: the medium address we are texted at",
+                  "name": "our_identity"
+                },
+                {
+                  "gloss": "door=channel: the registry channel name",
+                  "name": "channel"
+                },
+                {
+                  "gloss": "the turn's canonical thread id (the thread doors' id)",
+                  "name": "thread_id"
+                },
+                {
+                  "gloss": "multichannel only: the linked person's id",
+                  "name": "person_id"
+                },
+                {
+                  "gloss": "multichannel only: the person's known addresses",
+                  "name": "person_addresses"
+                },
+                {
+                  "gloss": "non-empty entry params, nested under this key",
+                  "name": "params"
+                },
+                {
+                  "gloss": "a structured form submission, present only when the inbound carried one",
+                  "name": "form"
+                },
+                {
+                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
+                  "name": "form_tag"
+                },
+                {
+                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
+                  "name": "attachments"
+                },
+                {
+                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
+                  "name": "location"
+                },
+                {
+                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
+                  "name": "messages"
+                },
+                {
+                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
+                  "name": "superseded"
+                },
+                {
+                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
+                  "name": "turn"
+                },
+                {
+                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
+                  "name": "event"
+                }
+              ],
+              "label": "start expression",
+              "language": "jq",
+              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
+              "variables": [
+                {
+                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
+                  "name": "parked",
+                  "sample": [
+                    {
+                      "answer_format": "confirm",
+                      "asked_by": [
+                        "main"
+                      ],
+                      "group_id": "g-1",
+                      "id": "i-42",
+                      "question": "proceed?",
+                      "status": "asking",
+                      "to": "caller"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "minLength": 1,
+            "title": "Target Name",
+            "type": "string"
+          },
+          "turns_per_hour_override": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turns Per Hour Override"
+          }
+        },
+        "required": [
+          "route_name",
+          "target_kind",
+          "target_name",
+          "execution_key",
+          "door",
+          "channel",
+          "our_identity",
+          "execution_key_fingerprint"
+        ],
+        "title": "ChannelConversationRouteView",
+        "type": "object"
+      },
       "ChannelListing": {
         "description": "The registered channel names the delivery media can resolve.",
         "properties": {
@@ -977,6 +2630,7 @@
         "type": "object"
       },
       "ChannelTemplate": {
+        "additionalProperties": false,
         "description": "A pre-approved, named template a channel sends outside its freeform window.\n\nSome media only accept arbitrary text inside a bounded conversation window (a provider's\ncustomer-service window); outside it, the sole accepted send is an operator-authored,\npre-approved template referenced by ``name`` in an approved ``language`` locale — both\nrequired and non-blank.\n\n``parameters`` is the template's runtime arguments as an OPAQUE object: the platform\nthreads it UNOPENED (never looking inside it), and the channel that declares the\n``supports_template_notifications`` capability owns its shape — it validates ``parameters``\nagainst its OWN template-parameter schema through its OPTIONAL ``validate_template`` hook\n(see :class:`~tai42_contract.channels.Channel`) and maps it to its own send API in its own\ncode. A template with no runtime arguments carries no ``parameters``; a present\n``parameters`` is a non-empty dict.",
         "properties": {
           "language": {
@@ -1173,6 +2827,11 @@
             "title": "Reason"
           },
           "status": {
+            "enum": [
+              "compatible",
+              "incompatible",
+              "unknown"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -1459,6 +3118,13 @@
             "title": "Provider Id",
             "type": "string"
           },
+          "scopes_wanted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes Wanted",
+            "type": "array"
+          },
           "unreachable_sub_services": {
             "items": {
               "type": "string"
@@ -1532,15 +3198,38 @@
         "type": "object"
       },
       "ConnectorReencryptResult": {
-        "description": "The KEK re-encrypt sweep's outcome.\n\n``scanned`` blobs split into ``reencrypted`` (rewritten under the current KEK), ``skipped`` (already under\nthe current key), and ``failed`` (no configured key could open them, or compare-and-set contention was not\nresolved). ``failed_connection_ids`` names each failed connection; ``cas_retries``\ncounts compare-and-set retries forced by concurrent refreshes.",
+        "description": "The KEK re-encrypt sweep's outcome, for the connection tokens and the stored client credentials.\n\n``scanned`` connection blobs split into ``reencrypted`` (rewritten under the current KEK), ``skipped``\n(already under the current key), and ``failed`` (no configured key could open them, or compare-and-set\ncontention was not resolved); ``failed_connection_ids`` names each failed connection. The ``clients_*``\ncounts split the stored OAuth client blobs the same way, ``failed_client_row_ids`` naming each failed\nclient row. ``cas_retries`` counts the compare-and-set retries concurrent writers forced in both tables.",
         "properties": {
           "cas_retries": {
             "title": "Cas Retries",
             "type": "integer"
           },
+          "clients_failed": {
+            "title": "Clients Failed",
+            "type": "integer"
+          },
+          "clients_reencrypted": {
+            "title": "Clients Reencrypted",
+            "type": "integer"
+          },
+          "clients_scanned": {
+            "title": "Clients Scanned",
+            "type": "integer"
+          },
+          "clients_skipped": {
+            "title": "Clients Skipped",
+            "type": "integer"
+          },
           "failed": {
             "title": "Failed",
             "type": "integer"
+          },
+          "failed_client_row_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed Client Row Ids",
+            "type": "array"
           },
           "failed_connection_ids": {
             "items": {
@@ -1568,6 +3257,11 @@
           "skipped",
           "failed",
           "failed_connection_ids",
+          "clients_scanned",
+          "clients_reencrypted",
+          "clients_skipped",
+          "clients_failed",
+          "failed_client_row_ids",
           "cas_retries"
         ],
         "title": "ConnectorReencryptResult",
@@ -1710,7 +3404,7 @@
       },
       "Contributions": {
         "additionalProperties": false,
-        "description": "What a Studio plugin contributes to the shell.\n\n``tool_panels`` is keyed by the tool name whose run panel the plugin replaces; a tool with\nno entry here falls back to the auto-form. ``nav_entries`` declares the ``pages`` the plugin\nsurfaces a nav entry for — the manifest-declared form of the shell's runtime\n``registerNavEntry``, so the catalog/manifest read-surface reports a nav-contributing plugin.",
+        "description": "What a Studio plugin contributes to the shell.\n\n``tool_panels`` is keyed by the tool name whose run panel the plugin replaces; a tool with\nno entry here falls back to the auto-form. ``nav_entries`` declares the ``pages`` the plugin\nsurfaces a nav entry for — the manifest-declared form of the shell's runtime\n``registerNavEntry``, so the catalog/manifest read-surface reports a nav-contributing plugin.\n``route_panels`` names the channels whose conversation routes the plugin decorates with a\npanel — the manifest-declared form of the shell's runtime ``registerRoutePanel``.",
         "properties": {
           "nav_entries": {
             "default": [],
@@ -1726,6 +3420,14 @@
               "type": "string"
             },
             "title": "Pages",
+            "type": "array"
+          },
+          "route_panels": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Route Panels",
             "type": "array"
           },
           "settings_tabs": {
@@ -1828,6 +3530,10 @@
             "type": "boolean"
           },
           "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
             "title": "Target Kind",
             "type": "string"
           },
@@ -1882,6 +3588,10 @@
             "type": "boolean"
           },
           "target_kind": {
+            "enum": [
+              "agent",
+              "tool"
+            ],
             "title": "Target Kind",
             "type": "string"
           },
@@ -2435,411 +4145,24 @@
         "title": "ConversationRecordView",
         "type": "object"
       },
-      "ConversationRouteCreate": {
-        "description": "The client-facing create/edit body for a conversation route: the fields a caller supplies.\n\nBinds a ``(target_kind, target_name)`` — an ``agent`` run or a ``tool`` dispatch — to\nan ``execution_key`` the turn runs AS (bound with pass-role at create). Both target kinds\nmay carry the parkable-door jq (:class:`ParkableDoorMixin`: ``cancel_expr`` / ``resume_expr`` /\n``start_expr`` / ``extras_expr``) plus a ``reply_expr`` (jq mapping the started run's result to\nthe reply): ``start_expr`` builds the run's kwargs (a tool dispatch's kwargs or an agent run's\n``astream`` kwargs), the cancel/resume jqs act on the run's parked interactions, and\n``reply_expr`` maps the terminal to the participant reply. ``api`` rows MAY carry an https\n``callback_url`` (the answer sink; when absent\nthe caller reads its answer back from the poll door); ``channel`` rows carry the\nregistry ``channel`` plus the ``our_identity`` the medium is texted at (N rows may\nshare a channel, each its own identity). The server-derived ``callback_secret`` and\n``execution_key_fingerprint`` are deliberately absent; :class:`ConversationRoute` is\nthis shape plus those. Frozen.",
-        "properties": {
-          "callback_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Callback Url"
+      "ConversationRouteCreateBody": {
+        "description": "The published, validating form of a route create: ``.root`` is the door's variant.",
+        "discriminator": {
+          "mapping": {
+            "api": "#/components/schemas/ApiConversationRouteCreate",
+            "channel": "#/components/schemas/ChannelConversationRouteCreate"
           },
-          "cancel_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "cancel expression",
-              "language": "jq",
-              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "channel": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Channel"
-          },
-          "door": {
-            "enum": [
-              "api",
-              "channel"
-            ],
-            "title": "Door",
-            "type": "string"
-          },
-          "error_reply_text": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Error Reply Text"
-          },
-          "execution_key": {
-            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
-            "minLength": 1,
-            "title": "Execution Key",
-            "type": "string"
-          },
-          "extras_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "extras expression",
-              "language": "jq",
-              "returns": "the extras mapping handed to the started target; null for no extras",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "initial_mode": {
-            "default": "agent",
-            "enum": [
-              "agent",
-              "manual"
-            ],
-            "title": "Initial Mode",
-            "type": "string"
-          },
-          "locale": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Locale"
-          },
-          "our_identity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Our Identity"
-          },
-          "overlap": {
-            "$ref": "#/components/schemas/OverlapPolicy",
-            "default": {
-              "deliver": "one",
-              "running": "continue",
-              "settle_seconds": 0
-            }
-          },
-          "reply_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
-              "label": "reply expression",
-              "language": "jq",
-              "returns": "the reply: null (silent), a string, or a list of answer parts",
-              "variables": [
-                {
-                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
-                  "name": "turn",
-                  "sample": {
-                    "id": "m-1",
-                    "inbound": {
-                      "id": "i-1",
-                      "kind": "message",
-                      "source": "api"
-                    }
-                  }
-                },
-                {
-                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
-                  "name": "asks",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "id": "i-42",
-                      "question": "proceed?"
-                    }
-                  ]
-                },
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "resume_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "resume expression",
-              "language": "jq",
-              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "route_name": {
-            "title": "Route Name",
-            "type": "string"
-          },
-          "start_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
-              "keys": [
-                {
-                  "gloss": "the inbound message text",
-                  "name": "message"
-                },
-                {
-                  "gloss": "the sending address",
-                  "name": "sender"
-                },
-                {
-                  "gloss": "door=channel: the medium address we are texted at",
-                  "name": "our_identity"
-                },
-                {
-                  "gloss": "door=channel: the registry channel name",
-                  "name": "channel"
-                },
-                {
-                  "gloss": "the turn's canonical thread id (the thread doors' id)",
-                  "name": "thread_id"
-                },
-                {
-                  "gloss": "multichannel only: the linked person's id",
-                  "name": "person_id"
-                },
-                {
-                  "gloss": "multichannel only: the person's known addresses",
-                  "name": "person_addresses"
-                },
-                {
-                  "gloss": "non-empty entry params, nested under this key",
-                  "name": "params"
-                },
-                {
-                  "gloss": "a structured form submission, present only when the inbound carried one",
-                  "name": "form"
-                },
-                {
-                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
-                  "name": "form_tag"
-                },
-                {
-                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
-                  "name": "attachments"
-                },
-                {
-                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
-                  "name": "location"
-                },
-                {
-                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
-                  "name": "messages"
-                },
-                {
-                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
-                  "name": "superseded"
-                },
-                {
-                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
-                  "name": "turn"
-                },
-                {
-                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
-                  "name": "event"
-                }
-              ],
-              "label": "start expression",
-              "language": "jq",
-              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "target_kind": {
-            "enum": [
-              "agent",
-              "tool"
-            ],
-            "title": "Target Kind",
-            "type": "string"
-          },
-          "target_name": {
-            "minLength": 1,
-            "title": "Target Name",
-            "type": "string"
-          },
-          "turns_per_hour_override": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Turns Per Hour Override"
-          }
+          "propertyName": "door"
         },
-        "required": [
-          "route_name",
-          "door",
-          "target_kind",
-          "target_name",
-          "execution_key"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ApiConversationRouteCreate"
+          },
+          {
+            "$ref": "#/components/schemas/ChannelConversationRouteCreate"
+          }
         ],
-        "title": "ConversationRouteCreate",
-        "type": "object"
+        "title": "ConversationRouteCreateBody"
       },
       "ConversationRouteCreateResult": {
         "description": "The created/replaced route.\n\n``callback_secret`` is the api-door callback signing secret surfaced ONCE (``null`` for a channel\nroute); ``route`` is the stored view with its secret stripped.",
@@ -2860,7 +4183,22 @@
             "type": "boolean"
           },
           "route": {
-            "$ref": "#/components/schemas/ConversationRouteView"
+            "discriminator": {
+              "mapping": {
+                "api": "#/components/schemas/ApiConversationRouteView",
+                "channel": "#/components/schemas/ChannelConversationRouteView"
+              },
+              "propertyName": "door"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ApiConversationRouteView"
+              },
+              {
+                "$ref": "#/components/schemas/ChannelConversationRouteView"
+              }
+            ],
+            "title": "Route"
           },
           "route_name": {
             "title": "Route Name",
@@ -2881,7 +4219,21 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ConversationRouteView"
+              "discriminator": {
+                "mapping": {
+                  "api": "#/components/schemas/ApiConversationRouteView",
+                  "channel": "#/components/schemas/ChannelConversationRouteView"
+                },
+                "propertyName": "door"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ApiConversationRouteView"
+                },
+                {
+                  "$ref": "#/components/schemas/ChannelConversationRouteView"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -2903,416 +4255,24 @@
         "title": "ConversationRouteListEnvelope",
         "type": "object"
       },
-      "ConversationRouteView": {
-        "description": "A stored conversation route as every read serves it.\n\nThe client-supplied fields plus the server-derived ``execution_key_fingerprint``, with\n``callback_secret`` OMITTED — reads always strip it, so the view never advertises a field the wire\nwithholds. The one-time ``callback_secret`` is returned separately by the create door.",
-        "properties": {
-          "callback_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Callback Url"
+      "ConversationRouteViewBody": {
+        "description": "One stored conversation route as a read serves it (the door's view variant).",
+        "discriminator": {
+          "mapping": {
+            "api": "#/components/schemas/ApiConversationRouteView",
+            "channel": "#/components/schemas/ChannelConversationRouteView"
           },
-          "cancel_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Output"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "cancel expression",
-              "language": "jq",
-              "returns": "null (cancel nothing), a parked interaction id, or a list of ids to cancel",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "channel": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Channel"
-          },
-          "door": {
-            "enum": [
-              "api",
-              "channel"
-            ],
-            "title": "Door",
-            "type": "string"
-          },
-          "error_reply_text": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Error Reply Text"
-          },
-          "execution_key": {
-            "description": "The api-key ``user_id`` the turn runs AS; its live stored grants authorize the agent run or tool dispatch and every tool call the turn makes.",
-            "minLength": 1,
-            "title": "Execution Key",
-            "type": "string"
-          },
-          "execution_key_fingerprint": {
-            "title": "Execution Key Fingerprint",
-            "type": "string"
-          },
-          "extras_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Output"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "extras expression",
-              "language": "jq",
-              "returns": "the extras mapping handed to the started target; null for no extras",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "initial_mode": {
-            "default": "agent",
-            "enum": [
-              "agent",
-              "manual"
-            ],
-            "title": "Initial Mode",
-            "type": "string"
-          },
-          "locale": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Locale"
-          },
-          "our_identity": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Our Identity"
-          },
-          "overlap": {
-            "$ref": "#/components/schemas/OverlapPolicy",
-            "default": {
-              "deliver": "one",
-              "running": "continue",
-              "settle_seconds": 0
-            }
-          },
-          "reply_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Output"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the started run's result (the SUCCESS shape) the route maps to the participant reply; null when the run asked its caller instead of finishing",
-              "label": "reply expression",
-              "language": "jq",
-              "returns": "the reply: null (silent), a string, or a list of answer parts",
-              "variables": [
-                {
-                  "blurb": "the turn ids and subject this reply answers ({id, inbound, subject}); null when an out-of-band delivery's originating record has aged out",
-                  "name": "turn",
-                  "sample": {
-                    "id": "m-1",
-                    "inbound": {
-                      "id": "i-1",
-                      "kind": "message",
-                      "source": "api"
-                    }
-                  }
-                },
-                {
-                  "blurb": "the run's caller-ask entries when it asked instead of finishing (each the full parked entry); an empty list on a plain result",
-                  "name": "asks",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "id": "i-42",
-                      "question": "proceed?"
-                    }
-                  ]
-                },
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "resume_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Output"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the door's input document",
-              "label": "resume expression",
-              "language": "jq",
-              "returns": "null (resume nothing), {id, payload} to resume an ask with an answer, a bare id to take a waiting outcome, or a list of these",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "route_name": {
-            "title": "Route Name",
-            "type": "string"
-          },
-          "start_expr": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemplatedText-Output"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "x-tai42-expression": {
-              "blurb": "the inbound turn payload the route maps to the started run's kwargs",
-              "keys": [
-                {
-                  "gloss": "the inbound message text",
-                  "name": "message"
-                },
-                {
-                  "gloss": "the sending address",
-                  "name": "sender"
-                },
-                {
-                  "gloss": "door=channel: the medium address we are texted at",
-                  "name": "our_identity"
-                },
-                {
-                  "gloss": "door=channel: the registry channel name",
-                  "name": "channel"
-                },
-                {
-                  "gloss": "the turn's canonical thread id (the thread doors' id)",
-                  "name": "thread_id"
-                },
-                {
-                  "gloss": "multichannel only: the linked person's id",
-                  "name": "person_id"
-                },
-                {
-                  "gloss": "multichannel only: the person's known addresses",
-                  "name": "person_addresses"
-                },
-                {
-                  "gloss": "non-empty entry params, nested under this key",
-                  "name": "params"
-                },
-                {
-                  "gloss": "a structured form submission, present only when the inbound carried one",
-                  "name": "form"
-                },
-                {
-                  "gloss": "the caller-set opaque per-send form tag, present only when the submission carried one",
-                  "name": "form_tag"
-                },
-                {
-                  "gloss": "inbound media the participant sent, present only when the inbound carried some",
-                  "name": "attachments"
-                },
-                {
-                  "gloss": "a geographic point the participant shared, present only when the inbound carried one",
-                  "name": "location"
-                },
-                {
-                  "gloss": "overlap deliver=all: the batch carried into this turn, in acceptance order, each {id, text, accepted_at} (+ form/form_tag/attachments/location when that message carried them)",
-                  "name": "messages"
-                },
-                {
-                  "gloss": "overlap deliver=all: messages dropped in favour of this turn, in the same shape; present only when non-empty",
-                  "name": "superseded"
-                },
-                {
-                  "gloss": "the turn ids: {id, inbound: {id, kind, source}}",
-                  "name": "turn"
-                },
-                {
-                  "gloss": "an event turn's structured payload {id, kind, payload}; absent on a message turn",
-                  "name": "event"
-                }
-              ],
-              "label": "start expression",
-              "language": "jq",
-              "returns": "the JSON object dispatched as the started run's kwargs; null starts nothing",
-              "variables": [
-                {
-                  "blurb": "the run's currently parked interactions on the door's subject — the full entries list_parked() carries, each with its id, status, to, asked_by, question and answer-format fields",
-                  "name": "parked",
-                  "sample": [
-                    {
-                      "answer_format": "confirm",
-                      "asked_by": [
-                        "main"
-                      ],
-                      "group_id": "g-1",
-                      "id": "i-42",
-                      "question": "proceed?",
-                      "status": "asking",
-                      "to": "caller"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "target_kind": {
-            "enum": [
-              "agent",
-              "tool"
-            ],
-            "title": "Target Kind",
-            "type": "string"
-          },
-          "target_name": {
-            "minLength": 1,
-            "title": "Target Name",
-            "type": "string"
-          },
-          "turns_per_hour_override": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Turns Per Hour Override"
-          }
+          "propertyName": "door"
         },
-        "required": [
-          "route_name",
-          "door",
-          "target_kind",
-          "target_name",
-          "execution_key",
-          "execution_key_fingerprint"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ApiConversationRouteView"
+          },
+          {
+            "$ref": "#/components/schemas/ChannelConversationRouteView"
+          }
         ],
-        "title": "ConversationRouteView",
-        "type": "object"
+        "title": "ConversationRouteViewBody"
       },
       "ConversationTurnAck": {
         "description": "The ack a message/event submission returns: the accepted turn's ``message_id`` and ``thread_id``.\n\n``answer`` is present on every inline-waited turn that finished in time (a 200) — including a silent one,\nwhich carries the silent marker (status ``silent``, no answer text, dumped ``exclude_none``); it is\nabsent only on the default deferred 202, whose turn produced no outcome yet.",
@@ -3342,6 +4302,45 @@
           "thread_id"
         ],
         "title": "ConversationTurnAck",
+        "type": "object"
+      },
+      "CrontabCadence": {
+        "additionalProperties": false,
+        "description": "Fire on a five-field crontab (minute, hour, day of month, month, day of week).",
+        "properties": {
+          "day_of_month": {
+            "default": "*",
+            "title": "Day Of Month",
+            "type": "string"
+          },
+          "day_of_week": {
+            "default": "*",
+            "title": "Day Of Week",
+            "type": "string"
+          },
+          "hour": {
+            "default": "*",
+            "title": "Hour",
+            "type": "string"
+          },
+          "kind": {
+            "const": "crontab",
+            "default": "crontab",
+            "title": "Kind",
+            "type": "string"
+          },
+          "minute": {
+            "default": "*",
+            "title": "Minute",
+            "type": "string"
+          },
+          "month_of_year": {
+            "default": "*",
+            "title": "Month Of Year",
+            "type": "string"
+          }
+        },
+        "title": "CrontabCadence",
         "type": "object"
       },
       "DeliveryStatus": {
@@ -3460,7 +4459,135 @@
         "title": "DisconnectResponse",
         "type": "object"
       },
+      "DiscoverServerRequest": {
+        "description": "Look up an MCP server's authorization: by its address, or the server of an existing discovered provider.",
+        "properties": {
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Id"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "title": "DiscoverServerRequest",
+        "type": "object"
+      },
+      "DiscoveredServerView": {
+        "description": "What a look-up found: the server's protected resource and the sign-in service a new login would use.",
+        "properties": {
+          "authorization_servers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authorization Servers",
+            "type": "array"
+          },
+          "automatic_client": {
+            "title": "Automatic Client",
+            "type": "boolean"
+          },
+          "client_issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Client Issuer"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Redirect Uri"
+          },
+          "registration_supported": {
+            "title": "Registration Supported",
+            "type": "boolean"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          },
+          "resource_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resource Name"
+          },
+          "scopes_supported": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes Supported",
+            "type": "array"
+          },
+          "suggested_display_name": {
+            "title": "Suggested Display Name",
+            "type": "string"
+          },
+          "suggested_id": {
+            "title": "Suggested Id",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "resource",
+          "issuer",
+          "authorization_servers",
+          "registration_supported",
+          "automatic_client",
+          "scopes_supported",
+          "suggested_id",
+          "suggested_display_name"
+        ],
+        "title": "DiscoveredServerView",
+        "type": "object"
+      },
       "DisplayBlock": {
+        "additionalProperties": false,
         "description": "One ordered display element shown on a form page beside its input fields. Frozen.\n\n``kind`` chooses the element: ``heading`` and ``body`` carry ``text``; ``image``\ncarries a ``src`` (its reference) and an optional ``alt`` (the text a surface that\ncannot draw the image shows instead). A block is either STATIC — its ``text``/``src``\nis given here — or declares a ``slot``: a name a form reaction's ``display`` update\nfills while the form is open (a computed total is a display slot). A static block\nrequires its content; a slotted block may omit it (the reaction supplies it). A\nblock carries only the content its ``kind`` allows (no ``src``/``alt`` on text, no\n``text`` on an image). Raises ``ValueError`` on any ill-formed combination.",
         "properties": {
           "alt": {
@@ -3668,11 +4795,15 @@
         "type": "array"
       },
       "ExtensionView": {
-        "description": "One registered extension: its ``name`` and lowercase ``kind`` enum value.",
+        "description": "One registered extension: ``name``, the lowercase ``kind`` value, and ``multiple``.\n\n``multiple`` says whether one tool may stack several extensions of that kind.",
         "properties": {
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "multiple": {
+            "title": "Multiple",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -3681,7 +4812,8 @@
         },
         "required": [
           "name",
-          "kind"
+          "kind",
+          "multiple"
         ],
         "title": "ExtensionView",
         "type": "object"
@@ -3980,6 +5112,10 @@
             "title": "Merged Members"
           },
           "mode": {
+            "enum": [
+              "switch",
+              "merge"
+            ],
             "title": "Mode",
             "type": "string"
           }
@@ -4123,6 +5259,7 @@
         "type": "object"
       },
       "FormData": {
+        "additionalProperties": false,
         "description": "Per-send data layered over a form's published schema for ONE send.\n\n``values`` prefills top-level properties — each entry keyed by property name,\nits value shown filled in and validated against that property's schema.\n``options`` supplies a per-send choice list for a property whose schema is a\nstring (or an array of strings), keyed by property name: the list REPLACES that\nproperty's ``enum`` for this send only (labels shown, values submitted). The\nmodel holds only the shape; the cross-check against the schema (unknown\nproperty, a value that fails its schema, options on a non-string property, an\nempty list) is done once by the interaction request. Frozen.",
         "properties": {
           "options": {
@@ -4243,6 +5380,7 @@
         "type": "object"
       },
       "FormOption": {
+        "additionalProperties": false,
         "description": "One per-send choice for a form field. Frozen.\n\n``value`` is the string submitted as the answer, ``label`` (when set) is shown\nto the human in its place. A per-send option list REPLACES a property's schema\n``enum`` for ONE send — the published form is unchanged, so a variant needs no\nre-publish.",
         "properties": {
           "label": {
@@ -4269,6 +5407,7 @@
         "type": "object"
       },
       "FormPage": {
+        "additionalProperties": false,
         "description": "One step of a stepped form. Frozen.\n\n``title`` heads the step. ``fields`` names the top-level properties collected on an\nINPUT page (``kind == \"input\"``, the default); a REVIEW page (``kind == \"review\"``)\ncarries NO input fields (a terminal/summary step) and so has an empty ``fields``.\n``display`` is the ordered list of :class:`DisplayBlock` shown on the page. Across a\nform's ``pages`` every property appears exactly once on the INPUT pages (the\ninteraction request enforces the coverage); absent ``pages`` means one page.",
         "properties": {
           "display": {
@@ -4960,6 +6099,10 @@
             "type": "array"
           },
           "delivery": {
+            "enum": [
+              "package",
+              "descriptor"
+            ],
             "title": "Delivery",
             "type": "string"
           },
@@ -5121,6 +6264,10 @@
             "$ref": "#/components/schemas/CompatStatus"
           },
           "delivery": {
+            "enum": [
+              "package",
+              "descriptor"
+            ],
             "title": "Delivery",
             "type": "string"
           },
@@ -5268,8 +6415,7 @@
         "description": "One pending question's client add-frame (the paged list door and the live tail share it).\n\n``format_payload`` is the verifier-stripped, otherwise-open payload (``null``\nwhen the question carries none). ``server_verified`` rides ONLY when a\nverifier was stripped; ``channel``/``recipient``/``origin``/``audience``/\n``media`` ride only when the question set them (absent otherwise).",
         "properties": {
           "answer_format": {
-            "title": "Answer Format",
-            "type": "string"
+            "$ref": "#/components/schemas/AnswerFormat"
           },
           "audience": {
             "anyOf": [
@@ -5490,6 +6636,34 @@
           "truncated"
         ],
         "title": "InteractionWindow",
+        "type": "object"
+      },
+      "IntervalCadence": {
+        "additionalProperties": false,
+        "description": "Fire every ``every`` seconds; ``relative`` aligns the schedule to the interval's own clock.",
+        "properties": {
+          "every": {
+            "description": "The interval in seconds.",
+            "exclusiveMinimum": 0,
+            "title": "Every",
+            "type": "number"
+          },
+          "kind": {
+            "const": "interval",
+            "default": "interval",
+            "title": "Kind",
+            "type": "string"
+          },
+          "relative": {
+            "default": false,
+            "title": "Relative",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "every"
+        ],
+        "title": "IntervalCadence",
         "type": "object"
       },
       "InviteCredential": {
@@ -5729,6 +6903,7 @@
         "type": "object"
       },
       "LinkOption": {
+        "additionalProperties": false,
         "description": "A tappable link action.\n\nTapping OPENS ``url`` (an absolute ``http(s)`` URL) in the human's\nbrowser — NO message is submitted, distinct from a :class:`ReplyOption`. ``label`` is the\nbutton text. The URL-button / call-to-action case. Frozen.",
         "properties": {
           "kind": {
@@ -5754,6 +6929,7 @@
         "type": "object"
       },
       "LocationElement": {
+        "additionalProperties": false,
         "description": "A geographic point shared on a message — the one shape used BOTH ways.\n\nIt is an outbound place the sender shares and the inbound location a participant sent.\n``latitude``/``longitude`` are WGS84 decimal degrees, bounded to their valid ranges\n(latitude -90..90, longitude -180..180). ``name`` is an optional place label and ``address``\nan optional street address, each a single-line non-blank string within its cap when present\n(raw whitespace and control/format characters are rejected, as on a media url — an embedded\nnewline or bidi spoof would corrupt the rendered pin label). A channel that cannot render a\nmap renders the coordinates (and any name/address) as text. Frozen.",
         "properties": {
           "address": {
@@ -5797,8 +6973,12 @@
         "type": "object"
       },
       "LoginMethodsListing": {
-        "description": "The aggregated login surface.\n\nEach method is dumped ``exclude_none`` so an unset optional (icon/autocomplete) is\nOMITTED, never ``null``. ``needs_setup`` is the one platform fact \"no principal exists\"\n(the login screen renders the setup entry instead of sign-in forms while true).\n``setup_login`` names what the setup door can attach, or ``null`` when no login-attaching\nprovider is configured.",
+        "description": "The aggregated login surface.\n\nEach method is dumped ``exclude_none`` so an unset optional (icon/autocomplete) is\nOMITTED, never ``null``. ``needs_setup`` is the one platform fact \"no principal exists\"\n(the login screen renders the setup entry instead of sign-in forms while true).\n``setup_login`` names what the setup door can attach, or ``null`` when no login-attaching\nprovider is configured. ``claim_fragment_key`` is the key a claim link carries its token\nunder in the login page's fragment (``HOSTED_UI_CLAIM_FRAGMENT_KEY``), so a client cuts the\ntoken out of a pasted link.",
         "properties": {
+          "claim_fragment_key": {
+            "title": "Claim Fragment Key",
+            "type": "string"
+          },
           "methods": {
             "items": {
               "discriminator": {
@@ -5838,7 +7018,8 @@
         },
         "required": [
           "methods",
-          "needs_setup"
+          "needs_setup",
+          "claim_fragment_key"
         ],
         "title": "LoginMethodsListing",
         "type": "object"
@@ -6342,6 +7523,7 @@
         "type": "object"
       },
       "MediaItem": {
+        "additionalProperties": false,
         "description": "One media item shown WITH a message — a display element, and inbound a participant's sent media.\n\n``kind`` selects how it renders: an ``image`` inline, a ``document``/``video``/``audio`` as\nthe matching file bubble, a ``link`` as a labelled anchor. ``url`` is the source. A file\nkind (``image``/``document``/``video``/``audio``) must be an absolute ``https`` URL, a\nsame-origin ``{MEDIA_ROUTE_PREFIX}{id}`` reference to media the skeleton serves by id, or an\nabsolute ``http(s)`` served reference of that same ``{MEDIA_ROUTE_PREFIX}{id}`` path a\nchannel send mints from ``public_base_url`` (remote file media is https-only: the inbox CSP\n``img-src`` admits ``https:``/``data:`` and same-origin but not ``http:``, so an ``http:``\nremote source would be an unrenderable record); ``image`` ADDITIONALLY admits an inline\n``data:image/*`` URI — that inline form is image-only, a ``data:`` URI on any other file\nkind is refused. A ``link`` must be an absolute ``http(s)`` URL (anchors are not governed by\n``img-src``; the human clicks through). A remote url names a host directly — an ASCII DNS\nname, dotted-quad IPv4, or bracketed IPv6 (IDN callers supply punycode); an embedded\n``user@`` credential form is rejected as it spoofs the authority — and is always a single\nline — raw whitespace and control/format characters are rejected. ``caption`` is the\naccessibility text — the image's alt text, a file's label, or the link's display label.\n``filename`` is the document's suggested display name; it is meaningful ONLY for a\n``document`` item and is refused on every other kind.",
         "properties": {
           "caption": {
@@ -6658,6 +7840,11 @@
             "type": "boolean"
           },
           "granularity": {
+            "enum": [
+              "hour",
+              "day",
+              "week"
+            ],
             "title": "Granularity",
             "type": "string"
           },
@@ -6842,6 +8029,13 @@
           },
           "methods": {
             "items": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
               "type": "string"
             },
             "title": "Methods",
@@ -7040,6 +8234,7 @@
         "type": "string"
       },
       "NotifyUser": {
+        "additionalProperties": false,
         "description": "A notification to send.\n\nThe ``message`` text, an optional named ``channel`` that carries it (omit to record to the internal sink),\nan optional per-call ``recipient`` delivery address, and an optional ``audience`` identity whose in-app\ninbox shows it (honored even with a channel set; distinct from ``recipient``).",
         "properties": {
           "audience": {
@@ -7290,7 +8485,7 @@
         "type": "object"
       },
       "OAuthComplete": {
-        "description": "The OAuth provider callback payload.\n\nThe signed ``state`` and the authorization ``code``, or a provider-reported ``error``.",
+        "description": "The OAuth provider callback payload.\n\nThe signed ``state`` and the authorization ``code``, or a provider-reported ``error``, with the\nredirect's ``iss`` (the issuer that answered, RFC 9207) when it carried one.",
         "properties": {
           "code": {
             "anyOf": [
@@ -7315,6 +8510,18 @@
             ],
             "default": null,
             "title": "Error"
+          },
+          "iss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Iss"
           },
           "state": {
             "anyOf": [
@@ -7541,6 +8748,10 @@
             "$ref": "#/components/schemas/JsonValue"
           },
           "status": {
+            "enum": [
+              "error",
+              "success"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -7648,6 +8859,7 @@
         "title": "OpaqueJson"
       },
       "OptionSection": {
+        "additionalProperties": false,
         "description": "One titled section of a sectioned option list.\n\n``title`` is the section header; ``rows`` are\nits entries — a sectioned list holds :class:`ReplyOption` rows ONLY (a tapped row submits its\ntext; a link action is a button, never a list row). A present ``rows`` is non-empty. Frozen.",
         "properties": {
           "rows": {
@@ -7702,6 +8914,237 @@
         "title": "OverlapPolicy",
         "type": "object"
       },
+      "ParkedEntry": {
+        "additionalProperties": false,
+        "description": "One parked interaction on a run's subject — the full entry ``list_parked`` and ``$parked`` carry.\n\n``id`` and ``status`` are always present. The question/answer fields are present for a state-backed\nentry (an ``asking`` or ``running`` one); a bare ``running`` membership whose state hash has aged\nout carries only ``id``/``status``, and a ``finished``/``failed`` waiting outcome carries its\n``result``/``error`` instead of the question fields. Absent fields default to ``None`` and are left out\nof every dump: an entry serializes with only its set fields, never a null key, whichever door sends it.",
+        "properties": {
+          "answer_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Answer Format"
+          },
+          "asked_by": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Asked By"
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Audience"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Channel"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created At"
+          },
+          "error": {
+            "default": null,
+            "title": "Error"
+          },
+          "expiry_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expiry At"
+          },
+          "format_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Format Payload"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "media": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Media"
+          },
+          "on_expiry": {
+            "anyOf": [
+              {
+                "enum": [
+                  "kill",
+                  "resume"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "On Expiry"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Payload"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Question"
+          },
+          "recipient": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recipient"
+          },
+          "result": {
+            "default": null,
+            "title": "Result"
+          },
+          "status": {
+            "enum": [
+              "asking",
+              "running",
+              "finished",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Thread Id"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "caller"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "To"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "ParkedEntry",
+        "type": "object"
+      },
       "PasswordCredential": {
         "additionalProperties": false,
         "description": "A login credential that sets the principal's password now.",
@@ -7743,9 +9186,16 @@
             "type": "array"
           },
           "return_url": {
-            "default": "/connectors",
-            "title": "Return Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Return Url"
           }
         },
         "required": [
@@ -7835,6 +9285,18 @@
       "PatternEntry": {
         "description": "A dynamic route pattern the caller can reach.\n\nA mount/pattern surface that is NOT enumerable into concrete paths, projected\nonly when its scope AND jq admit it.",
         "properties": {
+          "open_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The literal every matching path starts with when the pattern is an open prefix, else null.",
+            "title": "Open Prefix"
+          },
           "pattern": {
             "title": "Pattern",
             "type": "string"
@@ -7846,7 +9308,8 @@
         },
         "required": [
           "pattern",
-          "scope_id"
+          "scope_id",
+          "open_prefix"
         ],
         "title": "PatternEntry",
         "type": "object"
@@ -9101,6 +10564,13 @@
           },
           "methods": {
             "items": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
               "type": "string"
             },
             "title": "Methods",
@@ -9253,6 +10723,10 @@
             "type": "string"
           },
           "kind": {
+            "enum": [
+              "human",
+              "service"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -9699,6 +11173,24 @@
             "title": "Category",
             "type": "string"
           },
+          "client_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "env",
+                  "manual",
+                  "dynamic",
+                  "unset"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Client Source"
+          },
           "config_fields": {
             "items": {
               "$ref": "#/components/schemas/ConfigFieldSpec"
@@ -9716,8 +11208,16 @@
             "type": "string"
           },
           "icon_url": {
-            "title": "Icon Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Icon Url"
           },
           "id": {
             "title": "Id",
@@ -9739,6 +11239,11 @@
             "title": "Origin",
             "type": "string"
           },
+          "removable": {
+            "default": false,
+            "title": "Removable",
+            "type": "boolean"
+          },
           "sub_services": {
             "items": {
               "$ref": "#/components/schemas/SubServiceView"
@@ -9750,7 +11255,6 @@
         "required": [
           "id",
           "display_name",
-          "icon_url",
           "kind",
           "origin",
           "category",
@@ -9782,6 +11286,32 @@
           "categories"
         ],
         "title": "ProviderCatalogResponse",
+        "type": "object"
+      },
+      "ProviderMutationResponse": {
+        "description": "The provider's catalog entry after a change, and the fleet report of the manifest write it made.",
+        "properties": {
+          "fanout": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fanout"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderCatalogEntry"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "ProviderMutationResponse",
         "type": "object"
       },
       "PruneResult": {
@@ -9843,6 +11373,13 @@
           },
           "methods": {
             "items": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
               "type": "string"
             },
             "title": "Methods",
@@ -10040,6 +11577,38 @@
         ],
         "type": "object"
       },
+      "RemoveProviderResponse": {
+        "description": "A removed provider, how many stored clients went with it, and the fleet report of the manifest write.",
+        "properties": {
+          "fanout": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fanout"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "removed_clients": {
+            "title": "Removed Clients",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider_id",
+          "removed_clients"
+        ],
+        "title": "RemoveProviderResponse",
+        "type": "object"
+      },
       "RemovedByName": {
         "description": "A remove-by-name confirmation (hook unregister, trigger-link delete).",
         "properties": {
@@ -10093,6 +11662,7 @@
         "type": "object"
       },
       "ReplyOption": {
+        "additionalProperties": false,
         "description": "A tappable suggested reply.\n\nTapping SUBMITS ``text`` as the participant's next inbound message —\nthe quick-reply / list-row case, where the option's own text becomes the turn. ``description``\nis an OPTIONAL secondary line a sectioned-list row renders under its ``text``; a channel that\nrenders flat buttons (no descriptions) ignores it.\n\n``id`` is an OPTIONAL author-set stable identifier for the button/list row. When set, a channel\nsends it verbatim on the wire and the participant's tap echoes it back (a channel surfaces the echoed\nid to the inbound turn as opaque enrichment — e.g. Slack forwards it as ``params.reply_id``);\nwhen ``None`` the channel mints its own id. Bounded by the platform abuse bound\n``OPTION_ID_MAX_CHARS`` and a single-line non-blank label; a channel with a tighter id cap\nenforces it in its own code. Frozen.",
         "properties": {
           "description": {
@@ -10268,11 +11838,18 @@
         "type": "object"
       },
       "ResourceStat": {
-        "description": "One storage resource's inferred content type.",
+        "description": "One storage resource's inferred content type; ``null`` when the provider cannot infer one.",
         "properties": {
           "content_type": {
-            "title": "Content Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
           },
           "id": {
             "title": "Id",
@@ -10618,6 +12195,13 @@
           },
           "methods": {
             "items": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
               "type": "string"
             },
             "title": "Methods",
@@ -10670,6 +12254,12 @@
           "action": {
             "anyOf": [
               {
+                "enum": [
+                  "read",
+                  "write",
+                  "fenced",
+                  "secret"
+                ],
                 "type": "string"
               },
               {
@@ -10745,6 +12335,111 @@
           "route_name"
         ],
         "title": "RouteRemoveResult",
+        "type": "object"
+      },
+      "RunAnswerResponse": {
+        "description": "The sync run-tool body: the run answer, discriminated on ``kind``.",
+        "discriminator": {
+          "mapping": {
+            "asks": "#/components/schemas/RunAsksAnswer",
+            "none": "#/components/schemas/RunNoneAnswer",
+            "parked": "#/components/schemas/RunParkedAnswer",
+            "result": "#/components/schemas/RunResultAnswer"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RunResultAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/RunAsksAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/RunParkedAnswer"
+          },
+          {
+            "$ref": "#/components/schemas/RunNoneAnswer"
+          }
+        ],
+        "title": "RunAnswerResponse"
+      },
+      "RunAsksAnswer": {
+        "description": "A run that parked with asks addressed to its caller: their entries and the re-park sentinel.",
+        "properties": {
+          "asks": {
+            "items": {
+              "$ref": "#/components/schemas/ParkedEntry"
+            },
+            "title": "Asks",
+            "type": "array"
+          },
+          "kind": {
+            "const": "asks",
+            "default": "asks",
+            "title": "Kind",
+            "type": "string"
+          },
+          "suspended": {
+            "$ref": "#/components/schemas/SuspendedInteraction"
+          }
+        },
+        "required": [
+          "asks",
+          "suspended"
+        ],
+        "title": "RunAsksAnswer",
+        "type": "object"
+      },
+      "RunNoneAnswer": {
+        "description": "A visit that ran nothing.",
+        "properties": {
+          "kind": {
+            "const": "none",
+            "default": "none",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "RunNoneAnswer",
+        "type": "object"
+      },
+      "RunParkedAnswer": {
+        "description": "A run that parked on asks only someone else answers: the re-park sentinel alone.",
+        "properties": {
+          "kind": {
+            "const": "parked",
+            "default": "parked",
+            "title": "Kind",
+            "type": "string"
+          },
+          "suspended": {
+            "$ref": "#/components/schemas/SuspendedInteraction"
+          }
+        },
+        "required": [
+          "suspended"
+        ],
+        "title": "RunParkedAnswer",
+        "type": "object"
+      },
+      "RunResultAnswer": {
+        "description": "A run that finished: its value, whatever shape it has.",
+        "properties": {
+          "kind": {
+            "const": "result",
+            "default": "result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "RunResultAnswer",
         "type": "object"
       },
       "RunSubmitted": {
@@ -11153,8 +12848,36 @@
         "type": "object"
       },
       "ScheduleCreate": {
-        "description": "Create a schedule that periodically runs ``tool_name`` on the cadence in ``schedule_kwargs``.\n\n``tool_kwargs`` are the arguments each fire passes to the tool, the tool's alone and forwarded\nuntouched — a tool whose OWN argument is named ``subject`` carries it here like any argument.\n``subject`` is the OPTIONAL top-level door field naming the ``schedule``-door state context each\nfire re-establishes: the create door stamps it onto the job, and the fire keys its state writes and\nparks on it (it never reaches the base tool). ``state_binding`` is the OPTIONAL door-layer binding\nthe fire applies around the started tool alone (never the base tool's).\n\nA schedule is a parkable-driving door: it carries the four :class:`ParkableDoorMixin` jqs\n(``start_expr`` builds the fired tool's kwargs; ``cancel_expr`` / ``resume_expr`` act on the run's\nparked interactions; ``extras_expr`` builds the started run's extras), each evaluated over the\nfired tool's arguments with the run's parked interactions bound as ``$parked``. Any contract jq\nneeds an ``execution_key`` (the api-key ``user_id`` the recurring fire runs as, so a park it\nraises can be rebound and resumed under that authority); the create refuses a contract jq with no\nkey.",
+        "additionalProperties": false,
+        "description": "Create a schedule that runs ``tool_name`` on ``cadence``, or once now when no cadence is given.\n\n``tool_kwargs`` are the arguments each fire passes to the tool, the tool's alone and forwarded\nuntouched — a tool whose OWN argument is named ``subject`` carries it here like any argument.\n``subject`` is the OPTIONAL top-level door field naming the ``schedule``-door state context each\nfire re-establishes: the create door stamps it onto the job, and the fire keys its state writes and\nparks on it (it never reaches the base tool). ``state_binding`` is the OPTIONAL door-layer binding\nthe fire applies around the started tool alone (never the base tool's). ``schedule_name`` names a\nrecurring schedule; without it the door derives one from the tool, its arguments and the cadence.\n\nA schedule is a parkable-driving door: it carries the four :class:`ParkableDoorMixin` jqs\n(``start_expr`` builds the fired tool's kwargs; ``cancel_expr`` / ``resume_expr`` act on the run's\nparked interactions; ``extras_expr`` builds the started run's extras), each evaluated over the\nfired tool's arguments with the run's parked interactions bound as ``$parked``. Any contract jq\nneeds an ``execution_key`` (the api-key ``user_id`` the recurring fire runs as, so a park it\nraises can be rebound and resumed under that authority).",
         "properties": {
+          "cadence": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "crontab": "#/components/schemas/CrontabCadence",
+                    "interval": "#/components/schemas/IntervalCadence"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/IntervalCadence"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CrontabCadence"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The cadence; none runs the tool once now.",
+            "title": "Cadence"
+          },
           "cancel_expr": {
             "anyOf": [
               {
@@ -11277,10 +13000,18 @@
               ]
             }
           },
-          "schedule_kwargs": {
-            "additionalProperties": true,
-            "title": "Schedule Kwargs",
-            "type": "object"
+          "schedule_name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Schedule Name"
           },
           "start_expr": {
             "anyOf": [
@@ -11346,6 +13077,7 @@
             "type": "object"
           },
           "tool_name": {
+            "description": "The base tool to run.",
             "minLength": 1,
             "title": "Tool Name",
             "type": "string"
@@ -11355,6 +13087,120 @@
           "tool_name"
         ],
         "title": "ScheduleCreate",
+        "type": "object"
+      },
+      "ScheduleListResponse": {
+        "description": "The bare array of the scheduling backend's typed schedule rows.",
+        "items": {
+          "$ref": "#/components/schemas/ScheduleListRow"
+        },
+        "title": "ScheduleListResponse",
+        "type": "array"
+      },
+      "ScheduleListRow": {
+        "additionalProperties": false,
+        "description": "One row of the schedule listing: no arguments, no kwargs.",
+        "properties": {
+          "cadence": {
+            "discriminator": {
+              "mapping": {
+                "crontab": "#/components/schemas/CrontabCadence",
+                "interval": "#/components/schemas/IntervalCadence"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IntervalCadence"
+              },
+              {
+                "$ref": "#/components/schemas/CrontabCadence"
+              }
+            ],
+            "title": "Cadence"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleRowError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_run_at_iso": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Run At Iso"
+          },
+          "next_run_at_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Run At Ts"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "tool",
+          "cadence",
+          "enabled"
+        ],
+        "title": "ScheduleListRow",
+        "type": "object"
+      },
+      "ScheduleRowError": {
+        "additionalProperties": false,
+        "description": "A backend's last scheduling failure for a schedule, when the backend records one.",
+        "properties": {
+          "at_iso": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "At Iso"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ScheduleRowError",
         "type": "object"
       },
       "ScopeDeleteResult": {
@@ -11566,6 +13412,64 @@
         "title": "ServedStateView",
         "type": "object"
       },
+      "SetConnectorClientRequest": {
+        "description": "Store the client credentials of an app registered by hand for a discovered provider.",
+        "properties": {
+          "client_id": {
+            "minLength": 1,
+            "title": "Client Id",
+            "type": "string"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Client Secret"
+          },
+          "issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Issuer"
+          },
+          "token_endpoint_auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client_secret_post",
+                  "client_secret_basic",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Token Endpoint Auth Method"
+          }
+        },
+        "required": [
+          "client_id"
+        ],
+        "title": "SetConnectorClientRequest",
+        "type": "object"
+      },
       "SetMcpSecretEnv": {
         "description": "The combined env+manifest secret op body (``POST /api/mcp-config/secret-env``).\n\n``value`` is the raw secret pasted by the operator. The env KEY it is stored under is\nEITHER an explicit ``key`` OR generated from ``key_hint`` — exactly one is given\n(``{value, key | key_hint, manifest_pointer}``). The server writes ``value`` to the env\nstore under that key (marked secret) and writes an ``!ENV ${KEY}`` MARKER at\n``manifest_pointer`` — so the secret lives only in the env store and the manifest carries\na placeholder. An explicit ``key`` that collides with an existing stored key holding a\nDIFFERENT value is refused with a loud 400 naming the key (never a silent overwrite\nof a live secret). ``manifest_pointer`` is a slash-delimited, no-leading-slash path (e.g.\n``mcp/0/config/headers/Authorization``) whose HEAD segment MUST be ``mcp`` (the same\nmcp-only authority ``set_mcp_config`` holds). The generated key is NOT returned.",
         "properties": {
@@ -11692,6 +13596,10 @@
         "properties": {
           "kinds": {
             "items": {
+              "enum": [
+                "password",
+                "invite"
+              ],
               "type": "string"
             },
             "title": "Kinds",
@@ -12257,9 +14165,16 @@
             "type": "string"
           },
           "return_url": {
-            "default": "/connectors",
-            "title": "Return Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Return Url"
           }
         },
         "required": [
@@ -12302,9 +14217,16 @@
             "type": "array"
           },
           "return_url": {
-            "default": "/connectors",
-            "title": "Return Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Return Url"
           }
         },
         "required": [
@@ -14005,16 +15927,16 @@
         "type": "array"
       },
       "StudioPluginListing": {
-        "description": "The bare-list body of ``list_studio_plugins``.\n\nEach installed plugin's parsed, validated ``StudioPluginManifest`` (a fixed\nshape, reused as-is).",
+        "description": "The bare-list body of ``list_studio_plugins``: one entry per installed plugin.",
         "items": {
-          "$ref": "#/components/schemas/StudioPluginManifest"
+          "$ref": "#/components/schemas/StudioPluginListingEntry"
         },
         "title": "StudioPluginListing",
         "type": "array"
       },
-      "StudioPluginManifest": {
+      "StudioPluginListingEntry": {
         "additionalProperties": false,
-        "description": "The parsed, validated ``studio-manifest.json``.\n\n``extra=\"forbid\"`` so an unknown field is a loud rejection, not a silently-ignored typo.",
+        "description": "One installed plugin's parsed, validated ``StudioPluginManifest`` plus where its own routes are served.",
         "properties": {
           "api_version": {
             "title": "Api Version",
@@ -14034,6 +15956,14 @@
             "title": "Integrity",
             "type": "object"
           },
+          "mounts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The plugin's own route items and their resolved absolute bases, `{item: \"/api/<base>\"}`.",
+            "title": "Mounts",
+            "type": "object"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -14049,9 +15979,10 @@
           "api_version",
           "entry",
           "integrity",
-          "contributions"
+          "contributions",
+          "mounts"
         ],
-        "title": "StudioPluginManifest",
+        "title": "StudioPluginListingEntry",
         "type": "object"
       },
       "SubMcpEntry": {
@@ -14234,6 +16165,59 @@
           "display_name"
         ],
         "title": "SubServiceView",
+        "type": "object"
+      },
+      "SuspendedInteraction": {
+        "description": "The sentinel an ``async`` ask returns in place of an answer.\n\nAny async-suspending tool returns it to signal the caller was parked, keyed by\n``interaction_id`` so the resume path can find the parked question. Generic:\na resuming driver's resume state is keyed by this id, not carried here.",
+        "properties": {
+          "caller_interaction_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Caller Interaction Ids",
+            "type": "array"
+          },
+          "expiry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expiry At"
+          },
+          "interaction_id": {
+            "title": "Interaction Id",
+            "type": "string"
+          },
+          "interaction_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Interaction Ids",
+            "type": "array"
+          },
+          "resume_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resume Owner"
+          }
+        },
+        "required": [
+          "interaction_id"
+        ],
+        "title": "SuspendedInteraction",
         "type": "object"
       },
       "SystemKindsListing": {
@@ -14922,6 +16906,10 @@
         "description": "A per-thread mode override write; ``source`` is always ``thread``.",
         "properties": {
           "mode": {
+            "enum": [
+              "agent",
+              "manual"
+            ],
             "title": "Mode",
             "type": "string"
           },
@@ -14930,6 +16918,10 @@
             "type": "string"
           },
           "source": {
+            "enum": [
+              "thread",
+              "route"
+            ],
             "title": "Source",
             "type": "string"
           },
@@ -14951,10 +16943,18 @@
         "description": "A thread's control mode and where it comes from.\n\n``source`` is ``thread`` for a per-thread override or ``route`` for the route default.",
         "properties": {
           "mode": {
+            "enum": [
+              "agent",
+              "manual"
+            ],
             "title": "Mode",
             "type": "string"
           },
           "source": {
+            "enum": [
+              "thread",
+              "route"
+            ],
             "title": "Source",
             "type": "string"
           }
@@ -15032,8 +17032,7 @@
             "type": "number"
           },
           "last_delivery_status": {
-            "title": "Last Delivery Status",
-            "type": "string"
+            "$ref": "#/components/schemas/DeliveryStatus"
           },
           "message_count": {
             "title": "Message Count",
@@ -15208,14 +17207,11 @@
         "type": "object"
       },
       "ToolExtensionsView": {
-        "description": "A tool's applied extension combos plus the catalog of available extensions.\n\nEach ``available`` entry is a ``{name, kind}`` string map.",
+        "description": "A tool's applied extension combos plus the catalog of available extensions.\n\nEach ``available`` entry is one registered extension's catalog row.",
         "properties": {
           "available": {
             "items": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
+              "$ref": "#/components/schemas/ExtensionView"
             },
             "title": "Available",
             "type": "array"
@@ -15536,7 +17532,7 @@
         "type": "object"
       },
       "ToolRunView": {
-        "description": "A background tool run's full status view.\n\n``finished_at``/``result``/``error``/``resumed_interactions`` are present only once the run reaches a\nterminal status, so they are optional; ``result`` is the tool's arbitrary output;\n``resumed_interactions`` is the parked interaction ids the run resumed or took while it executed\n(``[]`` when it resumed nothing).",
+        "description": "A background tool run's full status view.\n\n``finished_at``/``result``/``error``/``resumed_interactions`` are present only once the run reaches a\nterminal status, so they are optional; ``result`` is the tool's arbitrary output;\n``resumed_interactions`` is the parked interaction ids the run resumed or took while it executed\n(``[]`` when it resumed nothing).\n\n``outcome`` is present only on a ``failed`` record whose run reached a failed terminal (a run that\nraises the contract's ``RunTerminalFailed``): the driver's outcome, whole, as the sync run-tool door\ndelivers it under the same name; ``error`` is then the plain ``tool run failed``. A plain raise records\nits message under ``error`` and no ``outcome``.",
         "properties": {
           "error": {
             "anyOf": [
@@ -15561,6 +17557,17 @@
             ],
             "default": null,
             "title": "Finished At"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "result": {
             "anyOf": [
@@ -15667,7 +17674,7 @@
         "type": "array"
       },
       "ToolTagRow": {
-        "description": "One tool's declared tags, visibility, and capability badges.\n\n``hidden`` and ``badges`` are the tool's OWN declaration (before the tool_meta overlay's override).",
+        "description": "One tool's declared tags, visibility, and capability badges.\n\n``hidden`` and ``badges`` are the tool's OWN declaration (before the tool_meta overlay's override).\n``schedulable`` is whether the tool's schedule vehicle is registered (the scheduling backend's\n``schedule_task`` extension is attached to it).",
         "properties": {
           "badges": {
             "items": {
@@ -15684,6 +17691,10 @@
             "title": "Name",
             "type": "string"
           },
+          "schedulable": {
+            "title": "Schedulable",
+            "type": "boolean"
+          },
           "tags": {
             "items": {
               "type": "string"
@@ -15696,7 +17707,8 @@
           "name",
           "tags",
           "hidden",
-          "badges"
+          "badges",
+          "schedulable"
         ],
         "title": "ToolTagRow",
         "type": "object"
@@ -15786,15 +17798,15 @@
         "type": "object"
       },
       "TopicVerifierBinding": {
-        "description": "Bind a registered webhook ``verifier`` (with optional ``config``) to a hook topic for verification.",
+        "description": "A per-topic webhook-verifier binding: a registered verifier's name plus its per-topic ``config``.\n\nThis is the persisted shape a hooks manager stores for a topic. ``verifier``\nnames a registered :class:`~tai42_contract.webhooks.WebhookVerifier`; ``config``\nis that verifier's per-binding configuration and NEVER holds a secret value —\nonly a ``secret_env`` naming the environment variable that does. The model is\nfrozen so a validated binding cannot be mutated after it is read back.",
         "properties": {
           "config": {
             "additionalProperties": true,
-            "default": {},
             "title": "Config",
             "type": "object"
           },
           "verifier": {
+            "minLength": 1,
             "title": "Verifier",
             "type": "string"
           }
@@ -15825,7 +17837,7 @@
         "type": "object"
       },
       "TranscriptEnvelope": {
-        "description": "A page of a thread's records (admin full records or the caller_view subset).\n\n``order`` is the direction served; ``next_page`` is ``null`` on the last page; ``unreadable`` counts\nthe members whose row was gone or unparseable, omitted from the page.",
+        "description": "A page of a thread's records (admin full records or the caller_view subset).\n\n``order`` is the direction served; ``next_page`` is ``null`` on the last page; ``unreadable`` counts\nthe members whose row was gone or unparseable, omitted from the page; ``person_id`` names the linked\nperson a person thread aggregates (``null`` for a route-keyed thread).",
         "properties": {
           "items": {
             "items": {
@@ -15846,6 +17858,10 @@
             "title": "Next Page"
           },
           "order": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
             "title": "Order",
             "type": "string"
           },
@@ -15856,6 +17872,17 @@
           "page_size": {
             "title": "Page Size",
             "type": "integer"
+          },
+          "person_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Person Id"
           },
           "total": {
             "title": "Total",
@@ -15878,7 +17905,8 @@
           "page_size",
           "next_page",
           "order",
-          "truncated"
+          "truncated",
+          "person_id"
         ],
         "title": "TranscriptEnvelope",
         "type": "object"
@@ -16167,6 +18195,12 @@
             "type": "string"
           },
           "outcome": {
+            "enum": [
+              "upgraded",
+              "up-to-date",
+              "no-compatible-version",
+              "failed"
+            ],
             "title": "Outcome",
             "type": "string"
           },
@@ -16441,7 +18475,7 @@
     }
   },
   "info": {
-    "description": "The operator HTTP surface served under /api/*.",
+    "description": "The operator HTTP surface served under /api/*. The platform's core routes. Plugin routes are published by each plugin.",
     "title": "tai42-skeleton API",
     "version": "23.0.1"
   },
@@ -17651,7 +19685,7 @@
     },
     "/api/auth/claim-links": {
       "post": {
-        "description": "Mint a one-time claim link that carries ``api_key`` to another device (the QR onboarding leg).\n\nThe submitted key is resolved through the gate's own verifier chain and the caller must own it\n(or be admin) per the module's ownership rule; the response returns the claim token ONCE plus a\nfragment-carrier path (``/login#claim=<token>``) and an expiry.\n\nAccepted oracle (deliberate, not an oversight): an unresolvable key answers 400 and a\nvalid-but-not-yours key answers 403, so an authenticated caller can tell a live key\nfrom garbage. This adds NO capability the ``/api/auth/me`` carve-out does not already\ngrant a caller holding a candidate key. The uniform-404 no-oracle rule governs the\nunauthenticated EXCHANGE surface, never this authed creation.",
+        "description": "Mint a one-time claim link that carries ``api_key`` to another device (the QR onboarding leg).\n\nThe submitted key is resolved through the gate's own verifier chain and the caller must own it\n(or be admin) per the module's ownership rule; the response returns the claim token ONCE plus a\nfragment-carrier path on the declared hosted-UI login page (``/login#claim=<token>`` by default)\nand an expiry.\n\nAccepted oracle (deliberate, not an oversight): an unresolvable key answers 400 and a\nvalid-but-not-yours key answers 403, so an authenticated caller can tell a live key\nfrom garbage. This adds NO capability the ``/api/auth/me`` carve-out does not already\ngrant a caller holding a candidate key. The uniform-404 no-oracle rule governs the\nunauthenticated EXCHANGE surface, never this authed creation.",
         "operationId": "post_api_auth_claim_links",
         "requestBody": {
           "content": {
@@ -21573,7 +23607,7 @@
     },
     "/api/connectors/providers": {
       "get": {
-        "description": "The provider catalog — one entry per registered connector provider, plus category groupings.\n\nThe category groupings are those the UI arranges the providers under.\nProviders come from the in-memory registry (populated from the manifest's\n``connectors`` list at boot/reload), so they list regardless of store\nconfiguration. The category\ngroupings live in the connector store's Postgres, so they are served only when\nthat store is configured (otherwise an empty grouping list, mirroring the\nOFF-state connections read).",
+        "description": "The provider catalog — one entry per registered connector provider, plus category groupings.\n\nThe category groupings are those the UI arranges the providers under.\nProviders come from the in-memory registry (populated from the manifest's\n``connectors`` list at boot/reload), so they list regardless of store\nconfiguration; each says whether the provider door may remove it and where its\nsign-in client comes from (``unset`` for a stored-client provider and never\nremovable while the store is not configured). The category\ngroupings live in the connector store's Postgres, so they are served only when\nthat store is configured (otherwise an empty grouping list, mirroring the\nOFF-state connections read).",
         "operationId": "get_api_connectors_providers",
         "responses": {
           "200": {
@@ -21614,11 +23648,397 @@
         "tags": [
           "connectors"
         ]
+      },
+      "post": {
+        "description": "Add the MCP server at ``url`` as a discovered provider, written to the manifest and broadcast to the fleet.\n\nIts id is ``provider_id`` or a suggestion from the host. An id that is not free — a provider in the\nmanifest, a stored connection record (live or lapsed), or a stored client row under it — is a 409\nnaming which; nothing is deleted.",
+        "operationId": "post_api_connectors_providers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderMutationResponse"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Add an MCP server as a connector provider",
+        "tags": [
+          "connectors"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/connectors/providers/discover": {
+      "post": {
+        "description": "Look up the sign-in of the MCP server at ``url``, or of the server of the discovered provider ``provider_id``.\n\nPersists nothing. ``origin`` is the deployment origin a sign-in would start from: it decides the\ncallback address an app registered by hand must allow and whether this deployment's client-identity\ndocument can serve the login. An unknown provider is a 404; a declared one a 400.",
+        "operationId": "post_api_connectors_providers_discover",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DiscoveredServerView"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Look up an MCP server's sign-in",
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/api/connectors/providers/{provider_id}": {
+      "delete": {
+        "description": "Remove a removable provider and its stored clients.\n\nA provider that is not removable here is a 409 naming where it is managed; a provider with a\nLIVE connection is a 409 naming the count. A connection whose session has lapsed is purged first,\nthrough the disconnect routine. The manifest change comes before the client rows are deleted, so a\nfailed change leaves them; a failed deletion after it is raised, and running the remove again\ndeletes the rows left under the id (nothing else holds it any more; no manifest change, so no\nfan-out).",
+        "operationId": "delete_api_connectors_providers_provider_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RemoveProviderResponse"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict with the current resource state."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadingError"
+                }
+              }
+            },
+            "description": "The server is applying a config reload; retry shortly.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Remove a connector provider added by its address",
+        "tags": [
+          "connectors"
+        ],
+        "x-destructive": true
+      }
+    },
+    "/api/connectors/providers/{provider_id}/client": {
+      "put": {
+        "description": "Store the client credentials of an app registered by hand for the discovered provider ``provider_id``.\n\nThe credentials are stored for one sign-in service the provider's server lists: ``issuer`` when\ngiven (400 when the server does not list it), else the one the provider's manual client is already\nstored for while the server still lists it; with neither, a 400 ``connector-client-issuer-required``\nnaming the listed ones — the secret is never sent to a sign-in service nobody chose. Only a\ndiscovered provider that names no env client takes stored credentials.",
+        "operationId": "put_api_connectors_providers_provider_id_client",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetConnectorClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderMutationResponse"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or invalid api key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error."
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Set the client credentials of a connector provider",
+        "tags": [
+          "connectors"
+        ]
       }
     },
     "/api/connectors/tokens/reencrypt": {
       "post": {
-        "description": "Re-encrypt every stored connector token blob under the current ``CONNECTORS_KEK``.\n\nThe KEK-rotation convergence sweep: after ``CONNECTORS_KEK`` is rotated (new current\nkey, old key moved to ``CONNECTORS_KEK_PREVIOUS``), this rewrites every blob still\nunder a previous key so the previous key can be retired. Idempotent — a blob already\nunder the current key is skipped. A blob no configured key can open is counted and\nnamed in ``failed_connection_ids``, never silently dropped. A missing/malformed\ncurrent ``CONNECTORS_KEK`` is a deployment-wide config fault and surfaces as a named\n``NotSupportedError`` (501), never an unnamed 500.",
+        "description": "Re-encrypt every stored connector token and client credential under the current ``CONNECTORS_KEK``.\n\nThe KEK-rotation convergence sweep: after ``CONNECTORS_KEK`` is rotated (new current\nkey, old key moved to ``CONNECTORS_KEK_PREVIOUS``), this rewrites every connection blob\nand every stored OAuth client blob still under a previous key so the previous key can\nbe retired. Idempotent — a blob already under the current key is skipped. A blob no\nconfigured key can open is counted and named in ``failed_connection_ids`` /\n``failed_client_row_ids``, never silently dropped. A missing/malformed\ncurrent ``CONNECTORS_KEK`` is a deployment-wide config fault and surfaces as a named\n``NotSupportedError`` (501), never an unnamed 500.",
         "operationId": "post_api_connectors_tokens_reencrypt",
         "responses": {
           "200": {
@@ -21665,7 +24085,7 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Re-encrypt connector tokens under the current KEK",
+        "summary": "Re-encrypt connector tokens and client credentials under the current KEK",
         "tags": [
           "connectors"
         ]
@@ -22512,7 +24932,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/ConversationRouteView"
+                      "$ref": "#/components/schemas/ConversationRouteViewBody"
                     }
                   },
                   "required": [
@@ -22592,7 +25012,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConversationRouteCreate"
+                "$ref": "#/components/schemas/ConversationRouteCreateBody"
               }
             }
           },
@@ -22850,7 +25270,7 @@
     },
     "/api/conversations/{route_name}/messages": {
       "post": {
-        "description": "Accept one authed message for ``route_name`` and run its turn AS the route's execution key.\n\nThe auth gate authorizes who may SEND; the turn's own authority is the route's\nexecution key, not the caller. Default answer is ``202 {message_id, thread_id}``; the\nanswer is then delivered later by signed callback when the route declares a\n``callback_url``, and otherwise read back from the poll door\n(``GET .../messages/{message_id}``). With a ``wait_seconds`` body field (clamped here to\n``sync_wait_max_seconds``) a turn finishing in time answers ``200`` inline — an\nanswered/error turn with the answer, a silent turn with the silent marker (status\n``silent``, no answer text) — and any callback (which otherwise carries\nanswered/error/silent) is suppressed the same way, so it never double-fires; a turn\nstill running when the wait elapses falls back to ``202``. The inline ``200`` is taken\nonly while the client is still connected — a caller that hung up during the wait gets its\nanswer by the route's signed callback (or its terminal poll record), never a write to a\nclosed socket.",
+        "description": "Accept one authed message for ``route_name`` and run its turn AS the route's execution key.\n\nThe auth gate authorizes who may SEND; the turn's own authority is the route's\nexecution key, not the caller. Default answer is ``202 {message_id, thread_id}``; the\nanswer is then delivered later by signed callback when the route declares a\n``callback_url``, and otherwise read back from the poll door\n(``GET .../messages/{message_id}``). With a ``wait_seconds`` body field (clamped to\n``sync_wait_max_seconds``) a turn finishing in time answers ``200`` inline — an\nanswered/error turn with the answer, a silent turn with the silent marker (status\n``silent``, no answer text) — and any callback (which otherwise carries\nanswered/error/silent) is suppressed the same way, so it never double-fires; a turn\nstill running when the wait elapses falls back to ``202``. The inline ``200`` is taken\nonly while the client is still connected — a caller that hung up during the wait gets its\nanswer by the route's signed callback (or its terminal poll record), never a write to a\nclosed socket.",
         "operationId": "post_api_conversations_route_name_messages",
         "parameters": [
           {
@@ -23776,7 +26196,7 @@
     },
     "/api/conversations/{route_name}/transcript": {
       "get": {
-        "description": "One thread's records under ``route_name``, one page at a time.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\n``q`` filters to records whose inbound text or answer contains that substring — a BOUNDED\nscan (the searched text lives inside the record content blob), so a page that spent its\nscan budget answers ``truncated: true`` LOUDLY. A ``q`` read never 404s: the unknown-thread\n404 below is gated on an UNFILTERED read, so under ``q`` an unknown thread and one that\nmatched nothing alike read as an EMPTY page.\n\nAn admin reads whole records; a non-admin reads the caller-safe projection, which\nwithholds the internal detail of the route key's run. An unknown ``route_name`` is a loud\n404. A thread that is absent or keyed to another route answers the uniform thread\nnot-found. A ``page`` or ``page_size`` below 1, a ``page`` above the served maximum, a\nblank ``thread_id`` or an unknown ``order`` is a 400.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\", \"truncated\",\n\"unreadable\"}``, where ``total`` counts the thread's indexed records for an unfiltered read,\nor the matches a bounded ``q`` scan found, and ``unreadable`` counts the members whose row\nwas gone or unparseable.",
+        "description": "One thread's records under ``route_name``, one page at a time.\n\n``order`` picks the direction: ``asc`` (the default) reads the transcript oldest first,\n``desc`` reads it newest first, which is the order a live tail wants because page 1 then\nalways holds the latest messages. ``page``/``page_size`` window that order from its own\nend, so page 1 of ``desc`` is the newest page and never the oldest.\n\n``q`` filters to records whose inbound text or answer contains that substring — a BOUNDED\nscan (the searched text lives inside the record content blob), so a page that spent its\nscan budget answers ``truncated: true`` LOUDLY. A ``q`` read never 404s: the unknown-thread\n404 below is gated on an UNFILTERED read, so under ``q`` an unknown thread and one that\nmatched nothing alike read as an EMPTY page.\n\nAn admin reads whole records; a non-admin reads the caller-safe projection, which\nwithholds the internal detail of the route key's run. An unknown ``route_name`` is a loud\n404. A thread that is absent or keyed to another route answers the uniform thread\nnot-found. A ``page`` or ``page_size`` below 1, a ``page`` above the served maximum, a\nblank ``thread_id`` or an unknown ``order`` is a 400.\n\nA thread the index still holds but whose rows have expired under the retention TTL is\nNOT that 404: it reads as an empty page carrying the indexed ``total``, until the prune\npass reclaims the members and the thread becomes unknown.\n\nReturns ``{\"items\", \"total\", \"page\", \"page_size\", \"next_page\", \"order\", \"truncated\",\n\"unreadable\", \"person_id\"}``, where ``total`` counts the thread's indexed records for an\nunfiltered read, or the matches a bounded ``q`` scan found, ``unreadable`` counts the members\nwhose row was gone or unparseable, and ``person_id`` names the linked person of a person\nthread (``None`` for a route-keyed thread).",
         "operationId": "get_api_conversations_route_name_transcript",
         "parameters": [
           {
@@ -24065,7 +26485,7 @@
     },
     "/api/extensions": {
       "get": {
-        "description": "Return the flat ``{\"name\", \"kind\"}`` list of every registered extension for the picker.",
+        "description": "Return the flat ``{\"name\", \"kind\", \"multiple\"}`` list of every registered extension for the picker.",
         "operationId": "get_api_extensions",
         "responses": {
           "200": {
@@ -25235,15 +27655,9 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
+              "application/octet-stream": {
                 "schema": {
-                  "properties": {
-                    "data": {}
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
+                  "type": "string"
                 }
               }
             },
@@ -25302,15 +27716,9 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
+              "application/octet-stream": {
                 "schema": {
-                  "properties": {
-                    "data": {}
-                  },
-                  "required": [
-                    "data"
-                  ],
-                  "type": "object"
+                  "type": "string"
                 }
               }
             },
@@ -25859,7 +28267,7 @@
     },
     "/api/login/methods": {
       "get": {
-        "description": "Aggregate every registered accounts provider's login methods + the setup state.\n\nIts route is public by declaration (``authed=False``) and a pre-authentication surface\n(``pre_auth=True``): it is served without a credential, and a presented credential is\nnever verified, so a stale one cannot lock a caller out of login. Each method is\nserialized with ``model_dump(exclude_none=True)`` so a ``None``-valued optional\n(icon/autocomplete) is OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). ``needs_setup`` is the one platform fact \"no principal exists\"; ``setup_login``\nnames what the setup door can attach (``kinds`` from a configured login-attaching\nprovider, ``null`` when none). Provider errors propagate (loud, never a silently empty\nmethods list).",
+        "description": "Aggregate every registered accounts provider's login methods + the setup state.\n\nIts route is public by declaration (``authed=False``) and a pre-authentication surface\n(``pre_auth=True``): it is served without a credential, and a presented credential is\nnever verified, so a stale one cannot lock a caller out of login. Each method is\nserialized with ``model_dump(exclude_none=True)`` so a ``None``-valued optional\n(icon/autocomplete) is OMITTED, never ``null`` (the Studio's zod schemas accept absent but reject\n``null``). ``needs_setup`` is the one platform fact \"no principal exists\"; ``setup_login``\nnames what the setup door can attach (``kinds`` from a configured login-attaching\nprovider, ``null`` when none); ``claim_fragment_key`` the declared claim-link fragment key.\nProvider errors propagate (loud, never a silently empty\nmethods list).",
         "operationId": "get_api_login_methods",
         "responses": {
           "200": {
@@ -29070,7 +31478,7 @@
     },
     "/api/plugins": {
       "get": {
-        "description": "Every registered studio plugin's manifest contents, or a loud 500 if the registry is unbuilt.",
+        "description": "Every registered studio plugin's manifest contents and route mounts, or a loud 500 if the registry is unbuilt.\n\n``mounts`` is read off the committed route generation, so a remapped or dropped route item reads as it is\nserved now.",
         "operationId": "get_api_plugins",
         "responses": {
           "200": {
@@ -29142,7 +31550,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "x-tai42-converter": "path"
           }
         ],
         "responses": {
@@ -30458,7 +32867,7 @@
     },
     "/api/run-tool": {
       "post": {
-        "description": "Execute an arbitrary registered tool with REAL side effects.\n\nReaching this route is full-execution privilege — the Studio key runs any\nregistered tool. Per-tool scoped keys are not supported.\n\nWith the caller's own execution identity bound below, the dispatch ALSO takes\nthe per-call execution decision the fire seam runs (an AND-gate over this\nroute's own authz — it can only deny more, never less), and a connector-backed\ntool resolves its managed credential exactly as a fire would. Both are\nfire-parity, not new privilege; when the bind degrades to unbound the dispatch\nruns with no subject context.\n\nThe tool starts through the shared :func:`~tai42_skeleton.interactions.visit.visit`, under\nthe ``door=\"api\"`` :class:`StateContext` the caller's named ``subject`` deposits: a tool\nwhose async ask parks then indexes under that subject and returns a park receipt rather\nthan raising. A tool that never parks returns its result.",
+        "description": "Execute an arbitrary registered tool with REAL side effects.\n\nReaching this route is full-execution privilege — the Studio key runs any\nregistered tool. Per-tool scoped keys are not supported.\n\nWith the caller's own execution identity bound below, the dispatch ALSO takes\nthe per-call execution decision the fire seam runs (an AND-gate over this\nroute's own authz — it can only deny more, never less), and a connector-backed\ntool resolves its managed credential exactly as a fire would. Both are\nfire-parity, not new privilege; when the bind degrades to unbound the dispatch\nruns with no subject context.\n\nThe tool starts through the shared :func:`~tai42_skeleton.interactions.visit.visit`, under\nthe ``door=\"api\"`` :class:`StateContext` the caller's named ``subject`` deposits: a tool\nwhose async ask parks then indexes under that subject and answers ``asks``/``parked`` rather\nthan raising. A tool that never parks answers ``result`` carrying its value.",
         "operationId": "post_api_run_tool",
         "requestBody": {
           "content": {
@@ -30477,7 +32886,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/OpaqueJson"
+                      "$ref": "#/components/schemas/RunAnswerResponse"
                     }
                   },
                   "required": [
@@ -30869,7 +33278,7 @@
     },
     "/api/schedules": {
       "get": {
-        "description": "List the installed backend's schedules; raises 501 when no scheduling backend is present.",
+        "description": "List the installed backend's schedules as ``ScheduleListRow`` dumps; 501 when no scheduling backend is present.\n\nThe backend tool's output is validated as ``list[ScheduleListRow]``; any other shape is a 500 naming\nthe first violation.",
         "operationId": "get_api_schedules",
         "responses": {
           "200": {
@@ -30878,7 +33287,7 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/OpaqueJson"
+                      "$ref": "#/components/schemas/ScheduleListResponse"
                     }
                   },
                   "required": [
@@ -30952,7 +33361,7 @@
         ]
       },
       "post": {
-        "description": "Schedule a caller-named tool to run on a cadence — a run-ANY-tool door.\n\nThe caller supplies ``tool_name``, so reaching this is arbitrary-tool-execution\nprivilege (the recurring firing runs the named tool with real side effects). As a\n\"run any tool by name\" door it is a tier-1 meta-executor, never projected to the MCP\nsurface — matching ``run_tool`` and ``submit_run``.\n\nThe four door-contract jqs make the schedule a parkable-driving door: a recurring fire evaluates\nthem each firing over the tool's arguments with ``$parked`` bound; a RUN-ONCE shape (no cadence)\nhonours them at the immediate create-time dispatch through the SAME door mechanism. A contract jq\nrequires ``execution_key`` — the identity a receiver-less recurring fire binds to rebind/resume a\npark it raises.",
+        "description": "Schedule a caller-named tool to run on a cadence, or once now with no cadence — a run-ANY-tool door.\n\nThe caller supplies ``tool_name``, so reaching this is arbitrary-tool-execution\nprivilege (the recurring firing runs the named tool with real side effects). As a\n\"run any tool by name\" door it is a tier-1 meta-executor, never projected to the MCP\nsurface — matching ``run_tool`` and ``submit_run``.\n\nThe four door-contract jqs make the schedule a parkable-driving door: a recurring fire evaluates\nthem each firing over the tool's arguments with ``$parked`` bound; a RUN-ONCE shape (no cadence)\nhonours them at the immediate create-time dispatch through the SAME door mechanism. A contract jq\nrequires ``execution_key`` — the identity a receiver-less recurring fire binds to rebind/resume a\npark it raises.",
         "operationId": "post_api_schedules",
         "requestBody": {
           "content": {
@@ -34382,7 +36791,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "x-tai42-converter": "path"
           }
         ],
         "responses": {
@@ -34607,7 +37017,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "x-tai42-converter": "path"
           }
         ],
         "responses": {
@@ -34693,7 +37104,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "x-tai42-converter": "path"
           }
         ],
         "responses": {
@@ -34781,7 +37193,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "x-tai42-converter": "path"
           }
         ],
         "responses": {
@@ -36440,7 +38853,7 @@
     },
     "/api/tools/tags": {
       "get": {
-        "description": "The per-tool native-``tags`` map plus the plugin-declared visibility and capability badges.\n\nOne ``{name, tags, hidden, badges}`` entry per registered tool, ``tags`` and ``badges`` each\nsorted for a stable wire order. ``hidden`` is the tool's OWN declaration, read from the\nFastMCP ``meta`` under the namespaced ``tai42/hidden`` key (a tool that never declared it is\nnot hidden); ``badges`` is likewise the tool's OWN declared INFORMATIONAL capability badges,\nread from ``meta`` under ``tai42/badges`` (a tool that declared none carries an empty list).\nThe tool_meta overlay's tri-state override and its own badge set are merged on top\nclient-side; this read exposes only the declaration. Additive to the flat names contract; a\ntool with no tags carries an empty list.",
+        "description": "The per-tool native-``tags`` map plus the plugin-declared visibility and capability badges.\n\nOne ``{name, tags, hidden, badges, schedulable}`` entry per registered tool, ``tags`` and ``badges`` each\nsorted for a stable wire order. ``hidden`` is the tool's OWN declaration, read from the\nFastMCP ``meta`` under ``TOOL_META_HIDDEN`` (a tool that never declared it is\nnot hidden); ``badges`` is likewise the tool's OWN declared INFORMATIONAL capability badges,\nread from ``meta`` under ``TOOL_META_BADGES`` (a tool that declared none carries an empty list).\nThe tool_meta overlay's tri-state override and its own badge set are merged on top\nclient-side; this read exposes only the declaration. ``schedulable`` is whether the tool's\n``<name>_schedule_task`` vehicle is registered, so a client never spells the suffix. Additive to\nthe flat names contract; a tool with no tags carries an empty list.",
         "operationId": "get_api_tools_tags",
         "responses": {
           "200": {

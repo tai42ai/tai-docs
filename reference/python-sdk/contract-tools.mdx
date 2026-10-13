@@ -7,7 +7,8 @@ icon: "wrench"
 
 Tools contract: the ``ToolInfo`` model + the ``AppTools`` tool/toolkit registration sub-protocol.
 
-Vendor return types (fastmcp ``Tool``, langchain ``StructuredTool``) are ``TYPE_CHECKING``-only.
+The vendor return type fastmcp ``Tool`` is ``TYPE_CHECKING``-only; an in-process tool is the
+framework-neutral `ClientTool` handle.
 
 ``AppTools`` is the ``app.tools`` namespace of the assembled facade (`tai42_contract.app`).
 
@@ -36,6 +37,40 @@ MAX_ATTEMPTS_CEILING = 10
 ```python
 NEVER_RETRYABLE_KINDS: frozenset[ErrorKind] = frozenset({ErrorKind.UNKNOWN, ErrorKind.CANCELLED})
 ```
+
+
+## TOOL_META_BADGES
+
+`tai42_contract.tools.meta.TOOL_META_BADGES`
+
+```python
+TOOL_META_BADGES: Final = 'tai42/badges'
+```
+
+A list of the tool's own informational capability badges; the tool listing reports them.
+
+
+## TOOL_META_CRASH_RESUME
+
+`tai42_contract.tools.meta.TOOL_META_CRASH_RESUME`
+
+```python
+TOOL_META_CRASH_RESUME: Final = 'tai42/crash_resume'
+```
+
+Value ``True``: a detached recorded run of this tool (a hook or trigger fire, a background submit) found
+lost after a worker crash is resumed instead of left lost.
+
+
+## TOOL_META_HIDDEN
+
+`tai42_contract.tools.meta.TOOL_META_HIDDEN`
+
+```python
+TOOL_META_HIDDEN: Final = 'tai42/hidden'
+```
+
+Value ``True``: the tool declares itself hidden; the tool listing reports the declaration.
 
 
 ## TOOL_META_PAUSES
@@ -112,10 +147,10 @@ Return every assembled tool keyed by name.
 `tai42_contract.tools.AppTools.get_client_tools`
 
 ```python
-async get_client_tools(self, names: list[str] | None = None) -> list[StructuredTool]
+async get_client_tools(self, names: list[str] | None = None) -> list[ClientTool]
 ```
 
-Return the client-facing tool objects, restricted to ``names`` when given.
+The tools named in ``names`` (all when ``None``) as framework-neutral handles; an unknown name raises.
 
 **Parameters**
 
@@ -449,6 +484,95 @@ None means no execution fence; authoring keeps the presets' default ``write`` ac
 
 
 
+## ClientTool
+
+`tai42_contract.tools.ClientTool`
+
+```python
+class ClientTool(Protocol)
+```
+
+A registered tool bound for in-process use by an agent engine, framework-neutral.
+
+``name`` is the full registered name (never truncated); ``input_schema`` is the JSON Schema of
+the arguments, the schema the MCP edge advertises. ``invoke`` returns the tool's value with
+secrets masked, or a ``SuspendedInteraction`` / ``ResumeBuffered`` (by type, unadapted) when a
+tool that declares it can pause parked; it raises `ClientToolError` for a failure the
+model should see (the body raised, a driver reached a FAILED terminal, the result cannot be
+JSON-encoded, the arguments do not validate), and raises every other error raw (tier refusal,
+authorization, unknown or vanished tool, a park signal from a tool that does not declare it can
+pause — `UndeclaredPauseError` — cancellation).
+
+### Members
+
+#### name
+
+`tai42_contract.tools.ClientTool.name`
+
+```python
+name: str
+```
+
+The full registered tool name.
+
+
+#### description
+
+`tai42_contract.tools.ClientTool.description`
+
+```python
+description: str
+```
+
+The tool's description, as the model reads it.
+
+
+#### input_schema
+
+`tai42_contract.tools.ClientTool.input_schema`
+
+```python
+input_schema: dict[str, Any]
+```
+
+The JSON Schema of the tool's arguments.
+
+
+#### invoke
+
+`tai42_contract.tools.ClientTool.invoke`
+
+```python
+async invoke(self, arguments: Mapping[str, Any]) -> Any
+```
+
+Run the tool once with ``arguments``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `arguments` | `Mapping[str, Any]` | — | — |
+
+
+
+## ClientToolError
+
+`tai42_contract.tools.ClientToolError`
+
+```python
+class ClientToolError(Exception)
+```
+
+One call's model-visible failure; the message is worded for the model and names the tool.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `tool_name` | — |
+
+
 ## NestedDoorFrameError
 
 `tai42_contract.tools.call_frame.NestedDoorFrameError`
@@ -479,7 +603,7 @@ The run's single delivery identity and the starting door's out-of-band address.
 
 ``run_delivery_id`` is the ``uuid4`` minted once at the outermost run start,
 shared by every nested dispatch, sibling branch, and re-park of the run so
-its single terminal delivers once. ``delivery`` is the ``(tool, context)``
+its single terminal delivers once. ``delivery`` is the `DeliveryAddress`
 the starting door bound as the run's completion address, or ``None`` when the
 door has no receiver.
 
@@ -488,7 +612,7 @@ door has no receiver.
 | Attribute | Type |
 |---|---|
 | `run_delivery_id` | `str` |
-| `delivery` | `tuple[str \| None, Mapping[str, Any] \| None] \| None` |
+| `delivery` | `DeliveryAddress \| None` |
 
 
 ## StateTemplateDetachReferee
@@ -498,6 +622,23 @@ door has no receiver.
 ```python
 StateTemplateDetachReferee = Callable[[str, str], Awaitable[list[str]]]
 ```
+
+
+## ToolAlreadyRegisteredError
+
+`tai42_contract.tools.ToolAlreadyRegisteredError`
+
+```python
+class ToolAlreadyRegisteredError(ValueError)
+```
+
+A tool of this name is already bound on the live tool surface.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | — |
 
 
 ## ToolDeleteReferee
@@ -703,7 +844,7 @@ The tool execution in flight for the current context, or ``None`` when no tool i
 `tai42_contract.tools.call_frame.get_run_delivery`
 
 ```python
-get_run_delivery() -> tuple[str | None, Mapping[str, Any] | None] | None
+get_run_delivery() -> DeliveryAddress | None
 ```
 
 The current run's out-of-band delivery address, or ``None`` when receiver-less or unbound.

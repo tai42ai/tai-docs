@@ -9,7 +9,7 @@ icon: "sliders"
   with `scripts/generate-settings-reference.py`.
 </Note>
 
-Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 551 entries across 92 groups (540 variables and 11 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
+Every registered settings group and the environment variables it reads — the core server groups, every first-party plugin's groups, and the per-named-database Postgres group — 556 entries across 93 groups (545 variables and 11 nested-group references). A deployment reads only the groups its manifest loads; a plugin group appears here whether or not a given deployment loads it. Each variable row lists the variable, its type, its default, the `TAI_DEFAULT_*` variable it falls back to when set (a `—` for every field that is not a shared connection identity), whether it is required, its reload class (how a live [settings-profile](/concepts/config-and-secrets#settings-profiles) apply treats a change to it — `hot` re-reads in place, `recycle` rebuilds the pooled resource behind it, `excluded` needs a full restart), and a description where one exists; each nested-group reference row carries no variable of its own and links to that sub-group's section instead. Values shown are code-level defaults; a running server resolves each variable from the environment, then any stored override, then this default.
 
 ## AccessControlRedisSettings
 
@@ -54,8 +54,9 @@ Module `tai42_skeleton.access_control.settings`.
 | `ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_SPA_SHELL_PUBLIC` | `boolean` | `true` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_RESERVED_OPERATIONAL_SUPPLEMENT` | `array` | `["/openapi.json"]` | — | Optional | `hot` | — |
-| `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES` | `array` | `["/health", "/ready", "/universal_webhook/{topic}", "/trigger/{token}", "/{spa_path:path}"]` | — | Optional | `hot` | — |
+| `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES` | `array` | `["/health", "/ready", "/universal_webhook/{topic}", "/trigger/{token}", "/oauth/client-metadata.json", "/.well-known/oauth-protected-resource/{endpoint_path:path}", "/{spa_path:path}"]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
+| `ACCESS_CONTROL_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_PATH_PATTERNS` | `object` | `{}` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
 | `ACCESS_CONTROL_COMPILED_ALWAYS_PUBLIC_ROUTE_PATTERNS` | `array` | `[]` | — | Optional | `hot` | — |
@@ -140,7 +141,7 @@ Module `tai42_backend_arq.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `ARQ_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
-| `ARQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `ARQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `recycle` | The dispatch's job budget in seconds: the longest a dispatched job may run on the worker, and how long a synchronous dispatch waits for its result. Worker-side limits are bound when the worker starts, so a change converges through a process recycle. |
 | `ARQ_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
 | `ARQ_REDIS_URL` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
 | `ARQ_REDIS_MAX_CONNECTIONS` | `integer` | — | [`TAI_DEFAULT_REDIS_MAX_CONNECTIONS`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
@@ -214,7 +215,7 @@ Module `tai42_backend_celery.core.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `CELERY_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
-| `CELERY_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `CELERY_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `recycle` | The dispatch's job budget in seconds: the longest a dispatched job may run on the worker, and how long a synchronous dispatch waits for its result. Worker-side limits are bound when the worker starts, so a change converges through a process recycle. |
 | `CELERY_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
 | `CELERY_BROKER_URL` | `string` | `"amqp://localhost:5672//"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
 | `CELERY_RESULT_BACKEND` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
@@ -309,6 +310,8 @@ Module `tai42_skeleton.connectors.settings`.
 | `CONNECTORS_MAX_SESSION_TTL` | `string` | — | — | Optional | `hot` | — |
 | `CONNECTORS_REDIRECT_URI_ALLOWLIST` | `string` | `""` | — | Optional | `hot` | — |
 | `CONNECTORS_OAUTH_BRIDGE_URL` | `string` | — | — | Optional | `hot` | — |
+| `CONNECTORS_CLIENT_NAME` | `string` | `"Tai"` | — | Optional | `hot` | — |
+| `CONNECTORS_CLIENT_ID_DOCUMENT` | `boolean` | `true` | — | Optional | `hot` | — |
 
 ## ConnectorStoreRedisSettings
 
@@ -448,7 +451,6 @@ Module `tai42_sandbox_docker.settings`.
 
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
-| `SANDBOX_DOCKER_DEFAULT_TTL_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
 | `SANDBOX_DOCKER_REAP_INTERVAL_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
 | `SANDBOX_DOCKER_EXEC_DEFAULT_TIMEOUT_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
 | `SANDBOX_DOCKER_HOST` | `string` | — | — | Required | `hot` | — |
@@ -545,6 +547,18 @@ Module `tai42_skeleton.hooks.settings`.
 | — | `object` | — | — | Optional | — | Grouped settings — see [HooksRedisSettings](#hooksredissettings). |
 | `HOOKS_MAX_WORKERS` | `integer` | `10` | — | Optional | `hot` | — |
 | `HOOKS_PREFIX` | `string` | `"hooks"` | — | Optional | `hot` | — |
+
+## HostedUiSettings
+
+Module `tai42_skeleton.plugins.settings`.
+
+| Env var | Type | Default | Fallback | Required | Reload | Description |
+|---|---|---|---|---|---|---|
+| `HOSTED_UI_LOGIN_PATH` | `string` | `"/login"` | — | Optional | `hot` | — |
+| `HOSTED_UI_CLAIM_FRAGMENT_KEY` | `string` | `"claim"` | — | Optional | `hot` | — |
+| `HOSTED_UI_INVITE_QUERY_KEY` | `string` | `"invite"` | — | Optional | `hot` | — |
+| `HOSTED_UI_OAUTH_CALLBACK_PATH` | `string` | `"/oauth-bridge.html"` | — | Optional | `hot` | — |
+| `HOSTED_UI_CONNECTORS_PATH` | `string` | `"/connectors"` | — | Optional | `hot` | — |
 
 ## InteractionsRedisSettings
 
@@ -823,7 +837,7 @@ Module `tai42_backend_rq.settings`.
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
 | `RQ_MANIFEST_KEY` | `string` | `"MANIFEST_KEY"` | — | Optional | `recycle` | — |
-| `RQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `hot` | — |
+| `RQ_TASK_TIMEOUT` | `integer` | `300` | — | Optional | `recycle` | The dispatch's job budget in seconds: the longest a dispatched job may run on the worker, and how long a synchronous dispatch waits for its result. Worker-side limits are bound when the worker starts, so a change converges through a process recycle. |
 | `RQ_TOOL_NAME_ARG` | `string` | `"backend_tool_name"` | — | Optional | `recycle` | — |
 | `RQ_REDIS_URL` | `string` | `"redis://localhost:6379/0"` | [`TAI_DEFAULT_REDIS_URL`](/concepts/config-and-secrets#default-connection-namespace) | Optional | `hot` | — |
 | `RQ_RQ_PREFIX` | `string` | `"rq:"` | — | Optional | `hot` | — |
@@ -872,7 +886,6 @@ Module `tai42_sandbox_local.settings`.
 
 | Env var | Type | Default | Fallback | Required | Reload | Description |
 |---|---|---|---|---|---|---|
-| `SANDBOX_LOCAL_DEFAULT_TTL_SECONDS` | `integer` | `3600` | — | Optional | `hot` | — |
 | `SANDBOX_LOCAL_REAP_INTERVAL_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
 | `SANDBOX_LOCAL_EXEC_DEFAULT_TIMEOUT_SECONDS` | `integer` | `300` | — | Optional | `hot` | — |
 | `SANDBOX_LOCAL_ROOT` | `string` | `"/var/lib/tai-sandbox-local"` | — | Optional | `recycle` | — |
@@ -943,7 +956,6 @@ Module `tai42_tools_stripe._internal.tools.stripe_client`.
 | `STRIPE_REQUEST_TIMEOUT_SECONDS` | `number` | `20` | — | Optional | `hot` | — |
 | `STRIPE_RECONCILE_ANSWER_INTERVAL_SECONDS` | `number` | `1.2` | — | Optional | `hot` | — |
 | `TAI_BRIDGE_CALLBACK_SECRET` | `string` | — | — | Optional | `hot` | Secret. |
-| `INTERACTIONS_PUBLIC_BASE_URL` | `string` | — | — | Optional | `hot` | — |
 
 ## SubMcpRedisSettings
 
