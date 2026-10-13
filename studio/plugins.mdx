@@ -1,10 +1,10 @@
 ---
 title: "Author a Studio plugin"
-description: "Extend the Studio shell with pages, panels, tabs, and nav entries."
+description: "Extend the Studio shell with pages, panels, tabs, nav entries, and route panels."
 icon: "puzzle-piece"
 ---
 
-A Studio plugin extends the browser shell itself — it contributes full pages, rich tool-run panels, settings tabs, and sidebar nav entries to a running Studio. It is distinct from a server code plugin, which runs in the Python process and adds HTTP surface, while a Studio plugin is a browser ESM bundle that the shell loads at runtime.
+A Studio plugin extends the browser shell itself — it contributes full pages, rich tool-run panels, settings tabs, sidebar nav entries, and conversation route panels to a running Studio. It is distinct from a server code plugin, which runs in the Python process and adds HTTP surface, while a Studio plugin is a browser ESM bundle that the shell loads at runtime.
 
 A deployment turns a Studio plugin on by naming its **package** in the server [manifest](/concepts/manifest)'s `studio_plugins` list. Each named package ships its plugin dist alongside a `studio-manifest.json`; the skeleton serves the assets under `/api/plugins/{name}/studio/` and injects them into the shell.
 
@@ -23,12 +23,13 @@ export const register: PluginEntry = (context) => {
 };
 ```
 
-The four methods are:
+The five methods are:
 
 - **`registerPage`** — a full page mounted under `/plugins/{pluginId}/{path}`.
 - **`registerToolPanel`** — a rich run panel for a tool by name, replacing the auto-generated form.
 - **`registerSettingsTab`** — a tab in the settings area.
 - **`registerNavEntry`** — a sidebar link to one of *this plugin's* pages.
+- **`registerRoutePanel`** — a panel on the drill-in of every conversation route on one channel.
 
 The context is **sealed** once `register` settles: a registration made afterward (from a deferred timer or a post-resolve microtask) throws instead of silently dropping, and a `register` that throws commits nothing. The host stamps each contribution with the plugin's identity, so a plugin never supplies its own id and two plugins may register the same `path` without colliding.
 
@@ -61,6 +62,38 @@ Navigate between a plugin's own pages with the `usePluginNavigation` hook, whose
 The optional `section` names the sidebar group the entry renders in — one of the built-in sections (`Capabilities`, `Connections`, `Triggers`, `Activity`, `Administration`). A named built-in section places the entry inside that group, after its core rows; omit it (or name an unrecognised section) and the entry renders in a single shared **Plugins** section placed after the core sections. Every undeclared entry — from every contributing plugin — lands in that one group, each keeping its own title and its own host-applied provenance badge. The field is additive — an older bundle without it simply lands in the shared **Plugins** section, so the plugin API version does not move.
 
 The same set is declared statically in the plugin's `studio-manifest.json` under `contributions.nav_entries`, so the server-side catalog and read surfaces can report a nav-contributing plugin without executing its bundle. That manifest field is the declarative parity of the runtime `registerNavEntry` for the page path only — its schema is a `list[str]` of page paths and cannot carry `section`, which is a runtime-API field alone. It carries the same backing rule: every `nav_entries` entry must appear in the plugin's `pages`, or manifest load fails loudly.
+
+## Route panels
+
+A channel plugin decorates the conversations drill-in of its own channel's routes with `registerRoutePanel`. The slot is keyed by the channel **name** — the route row's `channel` — and the host names no channel: it looks the drilled route up in the route catalogue and renders the panel registered for that row's channel, if any, above the thread list.
+
+```ts
+export const register: PluginEntry = (context) => {
+  const base = context.routeBase('relay'); // this plugin's route item, or null
+  setRelayBase(base);
+  context.registerRoutePanel({
+    channel: 'relay',
+    title: 'Relay settings',
+    component: RelayPanel, // receives { pluginId, route }
+    ...(base === null ? {} : { requiredCapabilities: { routes: [`${base}/settings`] } }),
+  });
+};
+```
+
+- The panel receives `{ pluginId, route }`, where `route` is the `channel`-door row as `GET /api/conversations` lists it.
+- One panel per channel deployment-wide: a second registration for the same channel, by this or another plugin, throws and that plugin loads nothing.
+- The panel renders inside a region named by its `title`; a panel that throws is contained in an error card labelled with that title, and the rest of the drill-in keeps working.
+- `requiredCapabilities` gates it like every other contribution — absent means a full projection only.
+- The manifest lists the same channels under `contributions.route_panels`. A bundle whose registered route panels differ from its manifest fails to load loudly.
+
+## Reaching the plugin's own routes
+
+A plugin's route items are mounted under bases a deployment may remap, so a bundle never hard-codes its paths:
+
+- **`context.routeBase(itemName)`** returns the resolved absolute base of one of this plugin's route items (for example `/api/channels/web`), or `null` when the item has no mount on this deployment — an optional router not listed, a channel not loaded. It never throws, so a missing optional router never takes the plugin's other contributions off the Studio. Call it during `register` and keep the value; each feature that needs the base shows its own unavailable state for `null`.
+- **`useApi().request(path, schema, options)`** is the host's authenticated request for those routes: the same auth header, error classes and `{ data }` unwrap as every core call. The plugin passes its own zod schema; an answer that misses it throws the api-client's `ApiSchemaError`. A 401 throws the api-client's `ApiUnauthorizedError` — the host's own query cache does not see a plugin's calls, so the plugin routes it to sign-in with the SDK's `useOnUnauthorized()` handler (in its own query cache's `onError`, or where it awaits the call). The api-client's errors are recognised by `error.name`, since a plugin bundle does not import the api-client's classes. Core routes use the client's named methods.
+
+The bases come from the authed plugin listing (`GET /api/plugins`), whose entries carry `mounts`: the plugin's route items and the base each is served under, read off the routes the server is serving now.
 
 ## The built-in jq editor
 
@@ -108,7 +141,7 @@ Every plugin ships a `studio-manifest.json` next to its dist. It is parsed stric
 - **`api_version`** — the Studio-plugin API version the bundle targets (see below).
 - **`entry`** — the ESM bundle filename the host imports.
 - **`integrity`** — a map of every emitted asset filename (the entry bundle and every lazy chunk, plus any stylesheet) to its `sha384-<base64>` subresource-integrity hash. The host serves only integrity-listed files and injects each with its SRI hash.
-- **`contributions`** — the declared `tool_panels`, `pages`, `settings_tabs`, and `nav_entries`.
+- **`contributions`** — the declared `tool_panels`, `pages`, `settings_tabs`, `nav_entries`, and `route_panels` (channel names; defaults to none).
 
 ## The api_version gate
 
