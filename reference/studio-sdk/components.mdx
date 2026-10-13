@@ -874,7 +874,7 @@ query library.
 
 | Property | Type | Description |
 |---|---|---|
-| `data` | `({ condition?: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; description: string; orphaned?: boolean; policy_data: unknown; principal?: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; scopes: string[]; user_id: string })[] \| undefined` | — |
+| `data` | `({ condition: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; description: string; orphaned: boolean; policy_data: Record<string, unknown> \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; scopes: string[] \| null; user_id: string })[] \| undefined` | — |
 | `error` | `unknown` | — |
 | `isError` | `boolean` | — |
 | `isPending` | `boolean` | — |
@@ -1046,7 +1046,7 @@ function ExtensionComboBuilder(props: ExtensionComboBuilderProps): ReactNode
 
 | Prop | Type | Description |
 |---|---|---|
-| `available` | `readonly ({ kind: string; name: string })[]` | The extension catalog the combos are drawn from (caller-fetched). |
+| `available` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The extension catalog the combos are drawn from (caller-fetched). |
 | `availableReady?` | `boolean` | Whether the `available` catalog has finished loading. Default `true` (existing consumers keep today's behavior). While `false` the builder reports VALID and suppresses the unknown-name notes, so a stale-seeded combo does not flash invalid before the catalog resolves. |
 | `disabled?` | `boolean` | — |
 | `idPrefix?` | `string` | — |
@@ -1067,7 +1067,7 @@ interface ExtensionComboBuilderProps
 
 | Property | Type | Description |
 |---|---|---|
-| `available` | `readonly ({ kind: string; name: string })[]` | The extension catalog the combos are drawn from (caller-fetched). |
+| `available` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The extension catalog the combos are drawn from (caller-fetched). |
 | `availableReady?` | `boolean` | Whether the `available` catalog has finished loading. Default `true` (existing consumers keep today's behavior). While `false` the builder reports VALID and suppresses the unknown-name notes, so a stale-seeded combo does not flash invalid before the catalog resolves. |
 | `disabled?` | `boolean` | — |
 | `idPrefix?` | `string` | — |
@@ -1089,7 +1089,7 @@ One base tool and every extension entry that branches from it.
 | Property | Type | Description |
 |---|---|---|
 | `base` | `string` | The base tool name (the segment before the first underscore). |
-| `members` | `readonly ({ kind: string; name: string })[]` | The family's entries, ordered by full name. |
+| `members` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The family's entries, ordered by full name. |
 
 
 ## ExtensionKindGroup
@@ -1105,8 +1105,8 @@ One extension `kind` and every catalog entry of that kind.
 | Property | Type | Description |
 |---|---|---|
 | `kind` | `string` | The serialized kind value (`wrapper` / `transformer` / `backend`). |
-| `members` | `readonly ({ kind: string; name: string })[]` | The kind's entries, ordered by name. |
-| `nonStackable` | `boolean` | Whether this kind is non-stackable (single-select in the picker). |
+| `members` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The kind's entries, ordered by name. |
+| `multiple` | `boolean` | Whether a combo may carry several extensions of this kind; `false` is single-select  in the picker. Served per kind by the catalog. |
 
 
 ## ExtensionPicker
@@ -1119,7 +1119,7 @@ function ExtensionPicker(props: ExtensionPickerProps): Element
 
 | Prop | Type | Description |
 |---|---|---|
-| `available` | `readonly ({ kind: string; name: string })[]` | The extension catalog (`GET /api/extensions`) the checklist is drawn from. |
+| `available` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The extension catalog (`GET /api/extensions`) the checklist is drawn from. |
 | `disabled?` | `boolean` | — |
 | `idPrefix?` | `string` | — |
 | `onChange` | `(names: string[]) => void` | Fired with the next ordered selection whenever a box toggles. |
@@ -1138,7 +1138,7 @@ interface ExtensionPickerProps
 
 | Property | Type | Description |
 |---|---|---|
-| `available` | `readonly ({ kind: string; name: string })[]` | The extension catalog (`GET /api/extensions`) the checklist is drawn from. |
+| `available` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | The extension catalog (`GET /api/extensions`) the checklist is drawn from. |
 | `disabled?` | `boolean` | — |
 | `idPrefix?` | `string` | — |
 | `onChange` | `(names: string[]) => void` | Fired with the next ordered selection whenever a box toggles. |
@@ -1311,9 +1311,10 @@ function FleetReport(props: FleetReportProps): ReactNode
 interface FleetReportProps
 ```
 
-Render a fleet broadcast's failure state. Returns `null` for a converged/absent
-report (nothing to warn about) so callers can always mount it unconditionally
-beside their own success line.
+Render a fleet broadcast's failure state and its workers awaiting a respawn. Returns
+`null` for an absent report or a converged one with no worker awaiting a respawn
+(nothing to warn about) so callers can always mount it unconditionally beside their
+own success line.
 
 **Properties**
 
@@ -1655,6 +1656,7 @@ function JsonTree(props: JsonTreeProps): ReactElement
 | `data` | `unknown` | — |
 | `defaultExpanded?` | `boolean` | Opts the whole tree out of the depth-guarded default: `true` expands every node (up to the depth cap), `false` collapses to the root. Omitted, the tree opens through AUTO_EXPAND_DEPTH and collapses everything below. |
 | `label?` | `string` | The region's accessible name, applied only while the pane actually scrolls. |
+| `openPaths?` | `readonly readonly string[][]` | Paths whose containers open beside the baseline, at any depth: each path lists the keys from the root (an array item by its index, as a string), and the root, every container along it and the one it ends at open. The reader's own toggle still wins, and collapse-all closes them like every other node. |
 
 **Related:** [JsonTreeProps](/reference/studio-sdk/components#jsontreeprops)
 
@@ -1672,6 +1674,7 @@ interface JsonTreeProps
 | `data` | `unknown` | — |
 | `defaultExpanded?` | `boolean` | Opts the whole tree out of the depth-guarded default: `true` expands every node (up to the depth cap), `false` collapses to the root. Omitted, the tree opens through AUTO_EXPAND_DEPTH and collapses everything below. |
 | `label?` | `string` | The region's accessible name, applied only while the pane actually scrolls. |
+| `openPaths?` | `readonly readonly string[][]` | Paths whose containers open beside the baseline, at any depth: each path lists the keys from the root (an array item by its index, as a string), and the root, every container along it and the one it ends at open. The reader's own toggle still wins, and collapse-all closes them like every other node. |
 
 
 ## LinkButtonProps
@@ -1770,6 +1773,44 @@ Marketplace: a shopping bag.
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
+## MediaDocument
+
+```ts
+function MediaDocument(props: MediaDocumentProps): ReactNode
+```
+
+One document: a labelled download affordance. The served route sends
+`Content-Disposition: attachment` for documents, so the anchor `download`-hints and
+opens in a new tab; `rel="noreferrer"` stops the Studio URL leaking to the media
+host. A url that fails `isRenderableMediaSrc` is the caller's notice, never a
+live href.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `label` | `string` | The download label: the item's filename or caption, or the caller's default. |
+| `renderNotice` | `(url: string) => ReactNode` | Render the notice shown when the url fails the src gate. |
+| `url` | `string` | — |
+
+**Related:** [MediaDocumentProps](/reference/studio-sdk/components#mediadocumentprops)
+
+
+## MediaDocumentProps
+
+```ts
+interface MediaDocumentProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `label` | `string` | The download label: the item's filename or caption, or the caller's default. |
+| `renderNotice` | `(url: string) => ReactNode` | Render the notice shown when the url fails the src gate. |
+| `url` | `string` | — |
+
+
 ## MediaImage
 
 ```ts
@@ -1811,6 +1852,47 @@ interface MediaImageProps
 | `altFallback?` | `string` | The `alt` text when the item carries no caption. |
 | `caption?` | `string` | — |
 | `renderNotice?` | `(state: "failed" \| "blocked", url: string) => ReactNode` | Render the notice shown when no image is displayed: `state` is `'blocked'` when the url fails the src gate and `'failed'` when an admitted url fails to LOAD, and `url` is that url. When omitted, the SDK's own danger-badge notice (with the url) is rendered. |
+| `url` | `string` | — |
+
+
+## MediaPlayer
+
+```ts
+function MediaPlayer(props: MediaPlayerProps): ReactNode
+```
+
+A native `<audio>`/`<video controls>` player. `referrerPolicy` is not a valid
+attribute on `<audio>`/`<video>`, so a remote load has no per-element referrer
+control; the player therefore admits ONLY the platform's own served-media reference
+(`isServedMediaUrl`: same-origin, leaking no page URL to a media host), and any
+other url, a bare `https:` one included, is the caller's notice. The load-failure
+flag keys on the url that failed so a new url at the same position gets a fresh load.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `kind` | `"audio" \| "video"` | — |
+| `label` | `string` | The player's accessible label. |
+| `renderNotice` | `(state: "failed" \| "blocked", url: string) => ReactNode` | Render the notice shown when no player is displayed: `state` is `'blocked'` when the url is not a served reference and `'failed'` when it fails to LOAD. |
+| `url` | `string` | — |
+
+**Related:** [MediaPlayerProps](/reference/studio-sdk/components#mediaplayerprops)
+
+
+## MediaPlayerProps
+
+```ts
+interface MediaPlayerProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `kind` | `"audio" \| "video"` | — |
+| `label` | `string` | The player's accessible label. |
+| `renderNotice` | `(state: "failed" \| "blocked", url: string) => ReactNode` | Render the notice shown when no player is displayed: `state` is `'blocked'` when the url is not a served reference and `'failed'` when it fails to LOAD. |
 | `url` | `string` | — |
 
 
@@ -1880,17 +1962,6 @@ not a destination the navigation surfaces list. Keyed by the token type, so
 adding a route to `RouteToken` fails the build here until it gets a mark.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent), [RouteToken](/reference/studio-sdk/navigation#routetoken)
-
-
-## NON_STACKABLE_KIND
-
-```ts
-const NON_STACKABLE_KIND: "backend"
-```
-
-The single non-stackable extension kind: at most one `backend` extension may
-appear in a combo (the `backend` kind is declared non-stackable, `multiple=False`).
-The `ExtensionPicker` enforces single-select for this kind.
 
 
 ## NotificationsIcon
@@ -2478,6 +2549,7 @@ The GROUPED listbox: labelled clusters, each carrying its own options.
 
 | Property | Type | Description |
 |---|---|---|
+| `aria-describedby?` | `string` | IDREFs of elements that describe the trigger. An enclosing `Field` owns entries in the same list (its description and error), so the two are concatenated, caller's first, exactly as the text inputs do. |
 | `aria-label?` | `string` | Accessible name for the trigger when it is not wired to an enclosing `Field`. A `Field` wins where both are given — it names the trigger from visible text, and `aria-label` would override that native label and leave the visible text out of the accessible name (WCAG 2.5.3). |
 | `defaultValue?` | `string` | — |
 | `disabled?` | `boolean` | — |
@@ -2517,6 +2589,7 @@ The FLAT listbox: one ungrouped run of options.
 
 | Property | Type | Description |
 |---|---|---|
+| `aria-describedby?` | `string` | IDREFs of elements that describe the trigger. An enclosing `Field` owns entries in the same list (its description and error), so the two are concatenated, caller's first, exactly as the text inputs do. |
 | `aria-label?` | `string` | Accessible name for the trigger when it is not wired to an enclosing `Field`. A `Field` wins where both are given — it names the trigger from visible text, and `aria-label` would override that native label and leave the visible text out of the accessible name (WCAG 2.5.3). |
 | `defaultValue?` | `string` | — |
 | `disabled?` | `boolean` | — |
@@ -2538,6 +2611,19 @@ const ServedEndpointsIcon: IconComponent
 Served endpoints: a broadcast node radiating to the tools it serves.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## ServedMediaGrammar
+
+```ts
+type ServedMediaGrammar = unknown
+```
+
+The served-media grammar the contract publishes, read from the injected client
+(`useApi().constants`): the served route prefix and the stored-media id pattern. Media is
+stored by reference and served from the API origin at `MEDIA_ROUTE_PREFIX + <id>`; a record
+carries it as a RELATIVE url of exactly that shape, resolved to the API base at render time
+(`resolveMediaSrc`), not assumed same-origin as the SPA page.
 
 
 ## SettingsIcon
@@ -3559,7 +3645,7 @@ all resolve to `tool`; `x_chain` and `x_batch` both resolve to `x`.
 ```ts
 function buildSubject(
   v: { key: string; kind: string; target: string },
-): { ok: true; subject: { key: string; kind: string; target_kind: "tool" | "agent"; target_name: string } | null } | { message: string; ok: false }
+): { ok: true; subject: { key: string; kind: string; target_kind: "agent" | "tool"; target_name: string } | null } | { message: string; ok: false }
 ```
 
 Build a `StateSubject` from the sub-form values: `null` when untouched (no
@@ -3680,19 +3766,20 @@ function formatRangeLabel(
 
 ```ts
 function groupByKind(
-  extensions: readonly ({ kind: string; name: string })[],
+  extensions: readonly ({ kind: string; multiple: boolean; name: string })[],
 ): ExtensionKindGroup[]
 ```
 
 Group a flat extension list by `kind`, for the picker. Groups are ordered by
 kind and each group's members by name, so the render order is stable regardless
-of the server's list order. The `backend` group is flagged non-stackable.
+of the server's list order. Each group carries its kind's served `multiple`; a kind
+whose entries disagree is a catalog fault and throws.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `extensions` | `readonly ({ kind: string; name: string })[]` | — | — |
+| `extensions` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | — | — |
 
 **Related:** [ExtensionKindGroup](/reference/studio-sdk/components#extensionkindgroup)
 
@@ -3701,7 +3788,7 @@ of the server's list order. The `backend` group is flagged non-stackable.
 
 ```ts
 function groupIntoFamilies(
-  extensions: readonly ({ kind: string; name: string })[],
+  extensions: readonly ({ kind: string; multiple: boolean; name: string })[],
 ): ExtensionFamily[]
 ```
 
@@ -3713,7 +3800,7 @@ order is stable regardless of the server's list order.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `extensions` | `readonly ({ kind: string; name: string })[]` | — | — |
+| `extensions` | `readonly ({ kind: string; multiple: boolean; name: string })[]` | — | — |
 
 **Related:** [ExtensionFamily](/reference/studio-sdk/components#extensionfamily)
 
@@ -3730,7 +3817,7 @@ Resolved, and holding no key at all.
 
 | Prop | Type | Description |
 |---|---|---|
-| `data` | `({ condition?: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; description: string; orphaned?: boolean; policy_data: unknown; principal?: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; scopes: string[]; user_id: string })[] \| undefined` | — |
+| `data` | `({ condition: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; description: string; orphaned: boolean; policy_data: Record<string, unknown> \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; scopes: string[] \| null; user_id: string })[] \| undefined` | — |
 | `error` | `unknown` | — |
 | `isError` | `boolean` | — |
 | `isPending` | `boolean` | — |
@@ -3743,7 +3830,11 @@ Resolved, and holding no key at all.
 ## isRenderableMediaSrc
 
 ```ts
-function isRenderableMediaSrc(url: string, allowDataImage: boolean): boolean
+function isRenderableMediaSrc(
+  url: string,
+  grammar: ServedMediaGrammar,
+  allowDataImage: boolean,
+): boolean
 ```
 
 The media src gate: a media element renders ONLY for an `https:` URL, the
@@ -3765,7 +3856,10 @@ admitted reference to the API base for the actual load.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `url` | `string` | — | — |
+| `grammar` | `ServedMediaGrammar` | — | — |
 | `allowDataImage` | `boolean` | `false` | — |
+
+**Related:** [ServedMediaGrammar](/reference/studio-sdk/components#servedmediagrammar)
 
 
 ## isSafeHttpUrl
@@ -3786,11 +3880,11 @@ True only for an absolute `http://`/`https://` URL. Everything else is unsafe.
 ## isServedMediaUrl
 
 ```ts
-function isServedMediaUrl(url: string): boolean
+function isServedMediaUrl(url: string, grammar: ServedMediaGrammar): boolean
 ```
 
 Whether `url` is the platform's own served-media reference: a relative
-`MEDIA_ROUTE_PREFIX + <id>` with a well-formed 43-char urlsafe-base64 id. A served
+`MEDIA_ROUTE_PREFIX + <id>` whose id matches `MEDIA_ID_PATTERN` whole. A served
 reference is same-origin to the API base (`resolveMediaSrc`) and leaks no page
 context on load, so a sink with no per-element referrer control (`<audio>`/`<video>`,
 where `referrerPolicy` is not a valid attribute) admits ONLY this form.
@@ -3800,6 +3894,9 @@ where `referrerPolicy` is not a valid attribute) admits ONLY this form.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `url` | `string` | — | — |
+| `grammar` | `ServedMediaGrammar` | — | — |
+
+**Related:** [ServedMediaGrammar](/reference/studio-sdk/components#servedmediagrammar)
 
 
 ## kindVariant
@@ -3927,7 +4024,7 @@ rather than being discarded.
 ## resolveMediaSrc
 
 ```ts
-function resolveMediaSrc(url: string, baseUrl: string): string
+function resolveMediaSrc(url: string, baseUrl: string, grammar: ServedMediaGrammar): string
 ```
 
 The URL an admitted media element actually loads. An `https:` url is already
@@ -3944,6 +4041,9 @@ join never double-slashes.
 |---|---|---|---|
 | `url` | `string` | — | — |
 | `baseUrl` | `string` | — | — |
+| `grammar` | `ServedMediaGrammar` | — | — |
+
+**Related:** [ServedMediaGrammar](/reference/studio-sdk/components#servedmediagrammar)
 
 
 ## safeHttpUrl

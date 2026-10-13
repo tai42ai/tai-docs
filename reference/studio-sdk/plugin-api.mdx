@@ -7,6 +7,15 @@ icon: "plug"
 
 The plugin contract a Studio plugin implements — the context, contribution types, and the compatibility gate.
 
+## ChannelConversationRoute
+
+```ts
+type ChannelConversationRoute = Extract<ConversationRouteView, { door: "channel" }>
+```
+
+A conversation route row as `GET /api/conversations` lists it, on the `channel` door.
+
+
 ## NavEntryContribution
 
 ```ts
@@ -82,10 +91,12 @@ silently dropping, so every registration must happen during `register`.
 |---|---|---|
 | `registerNavEntry` | `(contribution: NavEntryContribution) => void` | Register a sidebar nav entry linking to one of this plugin's pages at `/plugins/{pluginId}/{path}`. The `path` must match a page the plugin also registers (a nav entry with no page is a dead link and is rejected loudly). |
 | `registerPage` | `(contribution: PageContribution) => void` | Register a full page mounted under `/plugins/{pluginId}/{path}`. |
+| `registerRoutePanel` | `(contribution: RoutePanelContribution) => void` | Register a panel for the routes of one channel. The plugin's manifest must list the same channels under `contributions.route_panels`, or the plugin fails to load. |
 | `registerSettingsTab` | `(contribution: SettingsTabContribution) => void` | Register a settings tab. |
 | `registerToolPanel` | `(contribution: ToolPanelContribution) => void` | Register a rich run panel for a tool by name (overrides the auto-form). |
+| `routeBase` | `(itemName: string) => string \| null` | The resolved absolute base of one of this plugin's route items, e.g. `/api/channels/web`, or `null` when the item has no mount on this deployment (an optional router not listed, a channel not loaded). Never throws; a feature that needs the base shows its own unavailable state for `null`. Call it during `register` and keep the value. |
 
-**Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+**Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [RoutePanelContribution](/reference/studio-sdk/plugin-api#routepanelcontribution), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
 
 
 ## PluginContributions
@@ -102,10 +113,11 @@ Everything a single plugin bundle has registered at import time.
 |---|---|---|
 | `navEntries` | `readonly RegisteredNavEntry[]` | — |
 | `pages` | `readonly RegisteredPage[]` | — |
+| `routePanels` | `ReadonlyMap<string, RegisteredRoutePanel>` | Route panels keyed by the channel they decorate. |
 | `settingsTabs` | `readonly RegisteredSettingsTab[]` | — |
 | `toolPanels` | `ReadonlyMap<string, ToolPanelContribution>` | — |
 
-**Related:** [RegisteredNavEntry](/reference/studio-sdk/plugin-api#registerednaventry), [RegisteredPage](/reference/studio-sdk/plugin-api#registeredpage), [RegisteredSettingsTab](/reference/studio-sdk/plugin-api#registeredsettingstab), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+**Related:** [RegisteredNavEntry](/reference/studio-sdk/plugin-api#registerednaventry), [RegisteredPage](/reference/studio-sdk/plugin-api#registeredpage), [RegisteredRoutePanel](/reference/studio-sdk/plugin-api#registeredroutepanel), [RegisteredSettingsTab](/reference/studio-sdk/plugin-api#registeredsettingstab), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
 
 
 ## PluginEntry
@@ -227,6 +239,27 @@ without colliding.
 **Related:** [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [PluginPageParamsSchema](/reference/studio-sdk/plugin-api#pluginpageparamsschema), [PluginPageProps](/reference/studio-sdk/plugin-api#pluginpageprops), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
 
 
+## RegisteredRoutePanel
+
+```ts
+interface RegisteredRoutePanel extends RoutePanelContribution
+```
+
+A route panel as stored in the registry, stamped with the plugin that registered it.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `channel` | `string` | The channel name whose routes this panel decorates (`ConversationRouteView.channel`). |
+| `component` | `ComponentType<RoutePanelProps>` | — |
+| `pluginId` | `string` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | Names the panel region (its aria-label and the error card label). |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities), [RoutePanelContribution](/reference/studio-sdk/plugin-api#routepanelcontribution), [RoutePanelProps](/reference/studio-sdk/plugin-api#routepanelprops)
+
+
 ## RegisteredSettingsTab
 
 ```ts
@@ -272,6 +305,43 @@ the UI advertises.
 | Property | Type | Description |
 |---|---|---|
 | `routes` | `readonly string[]` | — |
+
+
+## RoutePanelContribution
+
+```ts
+interface RoutePanelContribution
+```
+
+A panel the conversations drill-in renders above the thread list of every route on
+one channel. One panel per channel deployment-wide.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `channel` | `string` | The channel name whose routes this panel decorates (`ConversationRouteView.channel`). |
+| `component` | `ComponentType<RoutePanelProps>` | — |
+| `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
+| `title` | `string` | Names the panel region (its aria-label and the error card label). |
+
+**Related:** [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities), [RoutePanelProps](/reference/studio-sdk/plugin-api#routepanelprops)
+
+
+## RoutePanelProps
+
+```ts
+interface RoutePanelProps
+```
+
+Props a contributed route panel receives.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `pluginId` | `string` | — |
+| `route` | `{ callback_url: null; cancel_expr: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; channel: string; door: "channel"; error_reply_text: string \| null; execution_key: string; execution_key_fingerprint: string; extras_expr: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; initial_mode: "manual" \| "agent"; locale: string \| null; our_identity: string; overlap: { deliver: "all" \| "one"; running: "continue" \| "cancel"; settle_seconds: number }; reply_expr: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; resume_expr: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; route_name: string; start_expr: { content?: string; id?: string; kwargs?: Record<string, unknown> } \| null; target_kind: "agent" \| "tool"; target_name: string; turns_per_hour_override: number \| null }` | The route row the panel decorates; its `channel` is the contribution's channel. |
 
 
 ## STUDIO_PLUGIN_API_VERSION
