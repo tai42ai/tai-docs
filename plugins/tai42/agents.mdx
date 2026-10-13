@@ -68,6 +68,7 @@ Limits shared by every agent in this package:
 | `TAI_AGENTS_DEFAULT_RECURSION_LIMIT` | `50` | Default LangGraph `recursion_limit` when a run pins none; a caller-supplied limit wins. |
 | `TAI_AGENTS_SYSTEM_PROMPT_CACHE_DEFAULT` | `true` | Mark the per-run system prompt for prompt caching on providers that support it (see [System-prompt caching](#system-prompt-caching)). |
 | `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` | `3` | How many times a run re-prompts a model whose response fails to parse against a requested `response_format` before it ends with a typed outcome (see [Structured-output outcomes](#structured-output-outcomes)). |
+| `TAI_AGENTS_GRAPH_CACHE_SIZE` | `64` | How many compiled tools-agent graphs each event loop keeps for reuse (an LRU); a tool registration change or a settings reload makes the next run compile afresh. |
 
 ### Structured-output outcomes
 
@@ -100,7 +101,22 @@ Redis URL:
 | `TAI_AGENTS_REDIS_URL` | falls back to `TAI_DEFAULT_REDIS_URL` | The park index store. With neither set there is no durable park index, so a park-capable run refuses the async ask loudly rather than parking where it cannot be resumed. |
 
 The park index is the agents plugin's own Redis, independent of the checkpoint provider
-and the interactions store.
+and the interactions store. It is the platform kit's shared park index library
+(`tai42_kit.interactions.park_index`) under the agents' own key namespace (`agent:park`);
+the settings above are unchanged.
+
+A parked run needs a durable checkpoint provider (`redis` or `postgres`), which keeps a
+thread `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` (default 7 days) after its last
+write. The park write is the parked run's last write, so every async ask must carry a
+deadline within that horizon: an ask with no deadline, or one past the horizon, is refused
+loudly before anything is parked. While a park's barrier is live, the checkpoint sweep
+spares its thread.
+
+A run with no `thread_id` mints its own thread and marks it finished when it ends without
+a park, so the checkpoint sweep removes it
+`LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` (default 1 day) later. A
+caller-supplied `thread_id` is the caller's: a run on it takes it out of the finished set
+when it starts and never marks it.
 
 When the ask is answered (or expires), the platform resumes the parked run and drives it
 to its next outcome. The resumed run's final outcome is delivered by the **platform** to the
@@ -109,12 +125,28 @@ the agent through a door that receives it out of band (a conversation route). A 
 kill (a cancel, a thread delete, a person erase) tears the parked run down and delivers a
 single failed outcome to that address.
 
+A resumed run that **fails** — its graph raises, for example a model or provider error that
+outlasts the model client's own retries — ends as a failed terminal instead of being retried:
+an outermost run's address receives a failed outcome, and a run nested under another run (a
+flow holding the agent, an agent calling it) reaches that caller as a **failure**, so the
+caller's own error handling runs (a flow holder's `on_error`). The same holds when the
+platform gives up on a park whose resume could not be driven at all within the redelivery
+horizon: the caller the parked run was nested under is told it failed rather than waiting
+out its own deadline.
+
 An async ask may address the run's own **caller** (`ask(to="caller")`) instead of a human
 (`to="user"`): the run parks the same way and resumes when the caller answers, so an agent
 can hand a question back up to whatever invoked it. When an agent's own tool call drives a
 nested run that async-parks, the agent parks on that **call** rather than blocking; once the
 nested run reaches its terminal the agent's turn resumes with that terminal as the tool's
 result, and a non-success terminal comes back as a model-visible tool error.
+
+The parking agents (`tools_agent`, `langchain_deep_agent`, `claude_code`) set `parks = True`,
+so the platform declares their run tools as tools that can pause; the hidden `agent_resume` and
+`deliver_chained_park` tools declare it themselves (`meta={"tai42/pauses": True}`). A caller's
+park recognition accepts the park they return. A tool an agent calls that returns a park signal
+without that declaration fails the agent's run with `UndeclaredPauseError` naming the tool; the
+model is not handed a tool error to retry around.
 
 ### Parking tools
 
@@ -157,6 +189,77 @@ Which faces carry it:
 | `langchain_deep_agent` | default at the model build (the mark rides the deep agent's per-run system message) |
 | `retrieval_tools_agent` | excluded — its graph prepends the system prompt into the message list it rolls to the newest breakpoint, so a system mark there is stripped by any later turn mark; use `user_content_kwargs` to mark the user turn |
 | `claude_code` | not applicable — the system prompt is handed to the Agent SDK verbatim, never as a content block |
+
+### Per-provider history shaping
+
+Each provider answers two questions about the outgoing request, and every agent applies
+the answers at the model call only — nothing is written to the stored thread:
+
+- **A leading user turn.** When a history's first non-system message is an assistant turn
+  (an operator opened the thread), a provider that requires a user turn first gets an inert
+  `[conversation start]` user turn added to that one request.
+- **A rolling cache breakpoint.** A provider that takes a per-block cache mark keeps only the
+  newest marked block per request, so per-turn marking stays within the provider's per-request
+  breakpoint cap.
+
+## Final text
+
+`run` and `astream` hand back the same final text: the reply text of the last message — its
+plain text, or its text blocks joined with nothing between them. Thinking, reasoning, tool-use
+and server-tool blocks are never part of it.
+
+## Run keywords
+
+Each agent's `run` and `astream` declare the keywords that agent reads — the platform's four
+(`thread_id`, `user_message`, `tool_names`, `response_format`) plus the agent's own knobs, the
+fields of its tool input. A keyword an agent does not declare is refused with a `TypeError`
+naming it, never dropped; a platform key an agent cannot honor is refused with a `RuntimeError`
+naming the reason (the voting and refine agents take role-named messages instead of
+`user_message` and per-role configs instead of `thread_id`; the voting agent always produces
+its `VotingOutput`; the vqa agent runs one completion with no tools and no thread).
+
+| Agent | Keywords beyond the platform's four |
+| --- | --- |
+| `tools_agent` | `tools`, `presets`, `system_message`, `system_content_kwargs`, `user_content_kwargs`, `llm_provider`, `llm_kwargs`, `checkpoint_provider`, `resume`, `resume_checkpoint_id`, `recursion_limit`, `langgraph_config` |
+| `langchain_deep_agent` | `tools`, `subagents`, `skills`, `inline_skills`, `system_message`, `interrupt_on`, `user_content_kwargs`, `resume`, `recursion_limit`, `llm_provider`, `checkpoint_provider`, `store_provider`, `llm_kwargs`, `langgraph_config` |
+| `retrieval_tools_agent` | `tools`, `presets`, `system_message`, `embedding_provider`, `llm_provider`, `checkpoint_provider`, `store_provider`, `overwrite_store`, `tools_limit`, `embedding_kwargs`, `llm_kwargs`, `user_content_kwargs`, `resume_checkpoint_id`, `recursion_limit`, `langgraph_config` |
+| `refine_agent` | `evaluator_message`, `critic_message`, `max_iterations`, `evaluator_llm_provider`, `critic_llm_provider`, `checkpoint_provider`, `evaluator_llm_kwargs`, `critic_llm_kwargs`, `evaluator_langgraph_config`, `critic_langgraph_config`, `user_content_kwargs` |
+| `voting_agent` | `judge_tools`, `voter_tools`, `judge_message`, `voter_message`, `judge_llm_provider`, `checkpoint_provider`, `judge_llm_kwargs`, `voters`, `judge_langgraph_config`, `voter_langgraph_config`, `user_content_kwargs` |
+| `vqa_agent` | `image_url`, `query`, `llm_provider`, `llm_kwargs` |
+| `claude_code` | `system_message`, `skills`, `inline_skills`, `max_turns`, `subagents` |
+
+Live in-process `tools` are the platform's framework-neutral `ClientTool` handles (from
+`tai42_app.tools.get_client_tools`, or any object with `name`, `description`, `input_schema` and
+an async `invoke`); this plugin adapts each to its LangChain runtime, and every tool name the model
+is handed is held to the 64-character bound — a longer one is refused, never truncated. A preset is
+handed under its own name, so a short-named preset over a longer-named base tool binds.
+
+Each agent also reports the memory its run keywords address (`addressed_memory`): the thread and
+checkpoint ids its `langgraph_config` (or per-role configs) and `resume_checkpoint_id` carry, and
+the continuity keys (`resume`, `resume_checkpoint_id`, `checkpoint_provider`) it reads. The
+platform refuses an id in its reserved `bridge:` namespace from that answer, and a conversation
+route refuses a start that sets a continuity key.
+
+## Session credentials
+
+`claude_code` and `langchain_deep_agent` turn their operator `creds` list into what a
+session receives by one rule:
+
+| Entry | Resolved channel | Where it lands |
+| --- | --- | --- |
+| `static` | its value | the session env, under its `env_name` |
+| `connection` | the `env` channel | the session env, under its own names (either delivery) |
+| `connection`, `delivery: env` | the access token | the session env, RAW, under the cred's `env_name` |
+| `connection`, `delivery: bearer` | the access token and the headers | one credential-helper file named after the cred's `env_name`: `Authorization: Bearer <token>` then one `<Name>: <value>` line per header |
+
+Refused loudly, naming the cred:
+
+- `connection cred '<env_name>' resolved HTTP headers, which delivery='env' cannot carry; use delivery='bearer'`
+- `required connection cred '<env_name>' resolved to no usable credential for the current caller (connection '<connection_id>')`
+
+A non-required connection cred that resolves to nothing injects nothing. The session env is
+fixed when the session is created: a persistent session keeps its create-time env until it is
+recreated, while bearer files are re-written every turn.
 
 ## Tool-error resilience
 
@@ -226,13 +329,15 @@ be a digest reference (a bare tag is rejected at run start).
 | `TAI_AGENTS_CLAUDE_CRASH_RESUME` | `false` | Re-dispatch a recycled detached run at-least-once (re-executes from scratch). Recycle-class. |
 
 Session creds (`TAI_AGENTS_CLAUDE_CREDS`) are a list of static values or per-caller
-connection references injected into a CLEAN session env (static) or a per-turn bearer
-credential-helper file (refreshable) — never the host env. A connection-reference cred
-resolves per-caller and fails closed on a door with no bound execution identity.
+connection references injected into a CLEAN session env or a per-turn bearer
+credential-helper file — never the host env. A connection-reference cred resolves per-caller
+and fails closed on a door with no bound execution identity. See
+[Session credentials](#session-credentials) for the one rule both sandbox agents apply.
 
 **Adapter-proxied platform tools.** Granted `tool_names` run under the run's own execution
 identity through the same `run_tool` seam every agent uses — the session reaches no
-platform network surface and holds no key or MCP endpoint. A non-empty `tool_names` on a
+platform network surface and holds no key or MCP endpoint. The model sees each granted tool
+with its own description and argument schema. A non-empty `tool_names` on a
 door with no bound execution identity is refused loudly (fail-closed).
 
 **Stated residual (security is configuration).** The one injected model credential lives in
