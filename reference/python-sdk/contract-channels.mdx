@@ -282,9 +282,9 @@ submits its own text as the free-text answer; every other format carries none.
 | `data` | `FormData \| None` |
 | `pages` | `list[FormPage] \| None` |
 | `reactions` | `FormReactions \| None` |
+| `wording` | `Wording \| None` |
 | `media` | `list[MediaItem] \| None` |
 | `on_mismatch` | `AnswerMismatchPolicy` |
-| `mismatch_notice` | `str \| None` |
 | `callback_url` | `str` |
 | `timeout_at` | `datetime` |
 
@@ -430,6 +430,7 @@ channel — never silently downgraded.
 | `data` | `FormData \| None` |
 | `pages` | `list[FormPage] \| None` |
 | `form_tag` | `str \| None` |
+| `wording` | `Wording \| None` |
 
 
 ## ChannelTemplate
@@ -494,7 +495,7 @@ once the reply is forwarded, withdrawn or expired.
 | `interaction_id` | `str` |
 | `ttl_deadline` | `datetime` |
 | `on_mismatch` | `AnswerMismatchPolicy` |
-| `mismatch_notice` | `str \| None` |
+| `wording` | `Wording \| None` |
 
 
 ## CorrelationStore
@@ -847,6 +848,8 @@ check_interactive_composition(
     schema: dict[str, Any] | None,
     header: MediaItem | None,
     footer: str | None,
+    wording: Wording | None,
+    has_pages: bool,
     noun: str,
 ) -> None
 ```
@@ -866,6 +869,10 @@ so the two can never drift. ``noun`` names the carrier for the raised messages
   (a form's fields OR a choice list), never both.
 * ``header`` and ``footer`` compose an interactive message, so each REQUIRES ``options`` or
   ``sections`` present.
+* each per-send ``wording`` member is admitted only on the surface that draws it — a form
+  (``schema``), a flat ``options`` list, or a sectioned ``sections`` list (the one admission
+  table, `check_wording_for_notification`);
+  ``wording.form.submit`` is refused when the form carries ``pages`` (``has_pages``).
 * ``template`` is the standalone out-of-window send: exclusive with every other content and
   interactive field (``media``, ``location``, ``options``, ``sections``, ``schema``; and
   transitively ``header``/``footer``, which require ``options``/``sections``).
@@ -883,6 +890,8 @@ so the two can never drift. ``noun`` names the carrier for the raised messages
 | `schema` | `dict[str, Any] \| None` | — | — |
 | `header` | `MediaItem \| None` | — | — |
 | `footer` | `str \| None` | — | — |
+| `wording` | `Wording \| None` | — | — |
+| `has_pages` | `bool` | — | — |
 | `noun` | `str` | — | — |
 
 

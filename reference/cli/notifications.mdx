@@ -32,13 +32,14 @@ The rich-send forms are JSON strings validated into their contract models before
 request — a list of `MediaItem` for `--media`, a discriminated `Option` list
 (reply/link) for `--options`, an `OptionSection` list for `--sections`, a
 `ChannelTemplate` for `--template`, a `LocationElement` for `--location`, a
-`MediaItem` for `--header`, a JSON object for `--schema`, a `FormData` for `--data`
-and a `FormPage` list for `--pages` — so a mis-shaped value
-(including an unknown template/location/header/data key, which the contract would otherwise
-silently drop) raises loudly here; the contract's cross-field rules (caps, non-blank,
-the options-XOR-sections choice surface, header/footer requiring a choice surface,
-template exclusivity, the channel-deliverable form subset, and the form data/pages
-requiring a schema and matching its properties) are enforced by the server.
+`MediaItem` for `--header`, a JSON object for `--schema`, a `FormData` for `--data`,
+a `FormPage` list for `--pages` and a `Wording` for `--wording` — so a
+mis-shaped value (including an unknown template/location/header/data/wording key, which
+the contract would otherwise silently drop) raises loudly here. The contract's cross-field
+rules (caps, non-blank, the options-XOR-sections choice surface, header/footer requiring a
+choice surface, template exclusivity, the channel-deliverable form subset, the form data/pages
+requiring a schema and matching its properties, and each `wording` member admitted only on the
+surface that draws it) are enforced by the server.
 
 Example: `tai notifications notify "Deploy finished" --channel telegram`
 
@@ -64,4 +65,5 @@ $ tai notifications notify [OPTIONS] {message}
 | `--schema` `&lt;str&gt;` | JSON object holding an ask-less form's answer schema (channel-only; the message is the form's prompt), e.g. '&#123;"type":"object","properties":&#123;"name":&#123;"type":"string"&#125;&#125;&#125;'. |
 | `--data` `&lt;str&gt;` | JSON object of per-send form data over --schema — `values` prefills properties and `options` supplies a per-send choice list per property, e.g. '&#123;"values":&#123;"name":"Ada"&#125;,"options":&#123;"tier":[&#123;"value":"gold"&#125;]&#125;&#125;'. |
 | `--pages` `&lt;str&gt;` | JSON array of stepped-form pages over --schema, each `&#123;"title":"…","fields":[…]&#125;` naming the properties on one step (every property appears exactly once), e.g. '[&#123;"title":"You","fields":["name"]&#125;]'. |
+| `--wording` `&lt;str&gt;` | JSON object of the notification's per-send platform-drawn texts, grouped by what each decorates — form (a form send's chrome), choice (a choice list's control words) and status (in-flight status copy), e.g. '&#123;"form":&#123;"open":"Fill in","submit":"Send"&#125;&#125;'. Each member is admitted only on the surface that draws it; an unknown key is rejected. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
