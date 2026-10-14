@@ -2,22 +2,24 @@
 """Assert a bijection between the staged flow-editor screenshots and their page embeds.
 
 The editor screenshot sweep writes ``<key>-light.png`` / ``<key>-dark.png`` pairs
-into a staging dir (``SHOTS_OUT``). The flow-author pages under ``babelfish/`` embed
+into a staging dir (``SHOTS_OUT``), one dir per stack state the sweep runs on; the
+staged set is their union. The flow-author pages under ``babelfish/`` embed
 those images as ``/images/studio/<key>-<theme>.png``. This check reads both sides and
 requires them to be exactly equal, in both directions:
 
-* every image a flow-author page embeds is present in the staging dir -- otherwise a
+* every image a flow-author page embeds is present in a staging dir -- otherwise a
   page shows a shot the sweep never produced;
 * every staged shot is embedded by some flow-author page -- otherwise a shot is dead
   weight that no page displays.
 
-Either mismatch -- or a shot present in only one theme, or a filename that is not a
-themed ``<key>-<theme>.png`` pair -- fails loudly, naming the offending file and the
+Either mismatch -- or a shot present in only one theme, a shot staged in more than one
+dir, or a filename that is not a themed ``<key>-<theme>.png`` pair -- fails loudly, naming the offending file and the
 page it came from, so a broken or partial set is never copied into the docs.
 
 Usage::
 
-    check_editor_shots.py --shots-dir <staging dir> [--pages-root <flow-author docs dir>]
+    check_editor_shots.py --shots-dir <staging dir> [--shots-dir <staging dir> ...]
+        [--pages-root <flow-author docs dir>]
 """
 
 from __future__ import annotations
@@ -78,9 +80,14 @@ def find_embedded_shots(pages_root: Path) -> dict[str, list[str]]:
     return embedded
 
 
-def find_staged_shots(shots_dir: Path) -> list[str]:
-    """Return every file staged in ``shots_dir`` as bare filenames, sorted."""
-    return sorted(p.name for p in shots_dir.iterdir() if p.is_file())
+def find_staged_shots(*shots_dirs: Path) -> dict[str, list[str]]:
+    """Map each file staged in any of ``shots_dirs`` (bare filename) to the dirs holding it."""
+    staged: dict[str, list[str]] = {}
+    for shots_dir in shots_dirs:
+        for p in sorted(shots_dir.iterdir()):
+            if p.is_file():
+                staged.setdefault(p.name, []).append(str(shots_dir))
+    return staged
 
 
 def _themes_by_key(filenames: set[str]) -> dict[str, set[str]]:
@@ -94,7 +101,7 @@ def _themes_by_key(filenames: set[str]) -> dict[str, set[str]]:
     return keyed
 
 
-def check_parity(embedded: dict[str, list[str]], staged: list[str]) -> list[str]:
+def check_parity(embedded: dict[str, list[str]], staged: dict[str, list[str]]) -> list[str]:
     """Return every parity violation between embedded and staged shots (empty when equal)."""
     malformed_hint = "expected <key>-light.png / <key>-dark.png"
     errors: list[str] = [
@@ -104,7 +111,14 @@ def check_parity(embedded: dict[str, list[str]], staged: list[str]) -> list[str]
         if split_shot(fn) is None
     ]
     errors.extend(
-        f"staged shot {fn!r} is not a themed editor shot ({malformed_hint})" for fn in staged if split_shot(fn) is None
+        f"staged shot {fn!r} is not a themed editor shot ({malformed_hint})"
+        for fn in sorted(staged)
+        if split_shot(fn) is None
+    )
+    errors.extend(
+        f"staged twice: {fn} is in {' and '.join(staged[fn])}; each shot belongs to one stack state"
+        for fn in sorted(staged)
+        if len(staged[fn]) > 1
     )
 
     embedded_files = {f for f in embedded if split_shot(f) is not None}
@@ -134,7 +148,13 @@ def check_parity(embedded: dict[str, list[str]], staged: list[str]) -> list[str]
 def main(argv: list[str] | None = None) -> int:
     """Check parity and report; return 1 on any violation, else 0."""
     parser = argparse.ArgumentParser(description="Check editor-screenshot parity before copy.")
-    parser.add_argument("--shots-dir", type=Path, required=True, help="staging dir of <key>-<theme>.png shots")
+    parser.add_argument(
+        "--shots-dir",
+        type=Path,
+        action="append",
+        required=True,
+        help="staging dir of <key>-<theme>.png shots; repeat it for each stack state's dir",
+    )
     parser.add_argument(
         "--pages-root",
         type=Path,
@@ -143,15 +163,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if not args.shots_dir.is_dir():
-        print(f"check_editor_shots: staging dir does not exist: {args.shots_dir}", file=sys.stderr)
+    missing = [d for d in args.shots_dir if not d.is_dir()]
+    if missing:
+        for shots_dir in missing:
+            print(f"check_editor_shots: staging dir does not exist: {shots_dir}", file=sys.stderr)
         return 1
     if not args.pages_root.is_dir():
         print(f"check_editor_shots: flow-author docs tree does not exist: {args.pages_root}", file=sys.stderr)
         return 1
 
     embedded = find_embedded_shots(args.pages_root)
-    staged = find_staged_shots(args.shots_dir)
+    staged = find_staged_shots(*args.shots_dir)
     errors = check_parity(embedded, staged)
 
     if errors:
