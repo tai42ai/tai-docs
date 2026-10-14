@@ -20,6 +20,26 @@ path within the form (a property key at the root, a dotted path when nested);
 completion-backed input when a provider is supplied.
 
 
+## DateRangePair
+
+```ts
+interface DateRangePair
+```
+
+A START/END pair drawable as one range control, resolved off a page's properties.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `endName` | `string` | — |
+| `endSchema` | `JsonSchema` | — |
+| `startName` | `string` | — |
+| `startSchema` | `JsonSchema` | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
 ## Discriminator
 
 ```ts
@@ -148,6 +168,32 @@ free of the jq subgraph. `JqField` satisfies it structurally; a test pins that.
 **Related:** [ExpressionInputKey](/reference/studio-sdk/schema-forms#expressioninputkey)
 
 
+## FormControl
+
+```ts
+type FormControl = "chips" | "textarea"
+```
+
+The CONTROL a surface draws for a property in place of the default for the
+property's shape. `chips` draws a choice (a `string` with an `enum`, or an
+`array` of such strings) as a tap-to-select chip grid instead of the
+radio/select or checkbox group. `textarea` draws a `string` as a multi-line
+text control instead of a single-line box. It changes what is DRAWN, never what
+is accepted — the value and its validation stay the property's own.
+
+
+## FormInputMode
+
+```ts
+type FormInputMode = "text" | "numeric" | "decimal" | "tel" | "email" | "url"
+```
+
+The input KIND a `string` field collects, drawn as the matching keyboard or
+native control. The vocabulary is the HTML `inputmode`/control naming of the
+concept: `numeric`/`decimal` set a text box's keyboard hint; `tel`/`email`/`url`
+select the matching native control. It draws, it does not validate.
+
+
 ## JsonSchema
 
 ```ts
@@ -171,12 +217,14 @@ runtime classification concern the renderer handles.
 | `contentEncoding?` | `string` | Media annotations (see the `SchemaForm` module). `contentEncoding: "base64"` together with `contentMediaType` (or `format: "data-url"`) opts a string field into the upload control; `contentMaxBytes` pins a per-field size cap.  `contentMaxBytes` is a NONSTANDARD JSON-Schema extension keyword — a standard JSON-Schema validator ignores it. The client-side caps it drives (see the `media` module) are UX guards, NOT a security boundary: the SERVER MUST independently validate the decoded size of any uploaded content. |
 | `contentMaxBytes?` | `number` | — |
 | `contentMediaType?` | `string` | — |
+| `control?` | `FormControl` | The CONTROL to draw for this property in place of its shape's default — a platform keyword (see FormControl). `chips` draws a `string`-with-`enum` or an `array` of such strings as a chip grid; `textarea` draws a `string` as a multi-line text control. It DRAWS, it does not validate — the answer door still enforces the property's `type`, `enum`, `maxLength` and the rest. A value outside the set is read as absent (the server ask door is the authority that refuses it). |
 | `default?` | `unknown` | — |
 | `definitions?` | `Readonly<Record<string, JsonSchema>>` | — |
 | `description?` | `string` | — |
 | `discriminator?` | `Discriminator` | — |
 | `enum?` | `readonly unknown[]` | — |
 | `format?` | `string` | — |
+| `inputMode?` | `FormInputMode` | The input KIND a `string` field collects — a platform keyword (see FormInputMode). The renderer draws the matching keyboard or native control: `numeric`/`decimal` a text box with that keyboard hint (the value stays the typed string, so `"007"` keeps its leading zeros), `tel`/`email`/`url` the matching native control, `text` or absent a plain text box. It DRAWS, it does not validate — the answer door still enforces `type`, `pattern` and `format`. When present it OUTRANKS `format` for the control. A value outside the set is read as absent (the server ask door is the authority that refuses it). |
 | `items?` | `JsonSchema` | — |
 | `maxDate?` | `string` | — |
 | `maxDays?` | `number` | — |
@@ -198,7 +246,7 @@ runtime classification concern the renderer handles.
 | `unavailableDates?` | `readonly string[]` | — |
 | `visibleWhen?` | `VisibleWhen` | A declarative visibility predicate on a property: the field shows only when the predicate holds against the current form values. Static form description evaluated by the renderer (never a consumer reaction); a hidden field is not rendered and not validated. Absent = always visible. See VisibleWhen. |
 
-**Related:** [Discriminator](/reference/studio-sdk/schema-forms#discriminator), [JsonSchemaType](/reference/studio-sdk/schema-forms#jsonschematype)
+**Related:** [Discriminator](/reference/studio-sdk/schema-forms#discriminator), [FormControl](/reference/studio-sdk/schema-forms#formcontrol), [FormInputMode](/reference/studio-sdk/schema-forms#forminputmode), [JsonSchemaType](/reference/studio-sdk/schema-forms#jsonschematype)
 
 
 ## JsonSchemaType
@@ -272,6 +320,7 @@ input schema); a scalar/array/union root renders as a single field group.
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
+| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -305,6 +354,7 @@ interface SchemaFormProps
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
+| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -369,6 +419,31 @@ interface SecretRefFieldProps
 | `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
 
 **Related:** [SecretRef](/reference/studio-sdk/schema-forms#secretref)
+
+
+## dateRangePairs
+
+```ts
+function dateRangePairs(
+  properties: readonly readonly [string, JsonSchema][],
+): readonly DateRangePair[]
+```
+
+The date-range pairs among `properties` that are drawable as ONE control. A pair
+qualifies when: the END names an existing sibling START in `rangeStart`; BOTH are
+`format: date`; both carry the SAME `visibleWhen` (deep-equal, or both absent); AND
+no OTHER field's `visibleWhen` names either end — otherwise merging the pair would
+leave that field's predicate pointing at a control that no longer draws on its own,
+so the pair stays two date fields (the documented degrade). `properties` is ONE
+page's ordered list; a field is used in at most one pair.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `properties` | `readonly readonly [string, JsonSchema][]` | — | — |
+
+**Related:** [DateRangePair](/reference/studio-sdk/schema-forms#daterangepair), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
 
 ## defaultValueForSchema
