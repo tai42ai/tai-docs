@@ -125,6 +125,20 @@ state or state-template upload door by its `kind`.
   <img className="hidden dark:block" src="/images/studio/states-list-dark.png" alt="The States screen listing declared states with subject-kind badges and record and consumer counts." />
 </Frame>
 
+A **Pending saves** card sits above the list whenever the store is on: the
+[pending saves](/concepts/states#pending-saves) not yet applied, refreshed every ten seconds,
+with a summary of how many are outstanding and how many failed. It opens on the **Failed** tab
+(or **All outstanding** when nothing has failed) and pages with **Load more**. Each row shows the
+save's status badge (Pending, Calls queued, Calling, or Failed), its first subject and how many
+more, the calls it runs, its run, age, attempts, and last error. A failed row offers **Retry**,
+which reports whether the save applied, was queued again, or failed again, and **Discard**,
+behind a confirm that warns its writes and calls will never be applied.
+
+<Frame caption="The Pending saves card on its All outstanding tab: a failed save with Retry and Discard, and the newer save on the same subject waiting behind it.">
+  <img className="block dark:hidden" src="/images/studio/states-pending-saves-light.png" alt="The Pending saves card listing a failed save with its validation error, Retry and Discard actions, below the newer pending save on the same subject." />
+  <img className="hidden dark:block" src="/images/studio/states-pending-saves-dark.png" alt="The Pending saves card listing a failed save with its validation error, Retry and Discard actions, below the newer pending save on the same subject." />
+</Frame>
+
 Opening a state leads to a detail page with four tabs. The **Declaration** tab edits
 the base JSON Schema as a nested field tree — attached subtrees are read-only and
 badged with their template — or points it at a stored template whose rendered value
@@ -145,11 +159,21 @@ as fields. Below the attachments, a **State templates** section lists the platfo
 state-template documents, each with its attached-on count and a **shipped default** badge,
 and an **Upload template** action; deleting a template that is still attached is refused.
 
-{/* screenshot: states screen state-templates tab — both themes */}
+<Frame caption="The Templates tab: the state's attachments above the platform state templates.">
+  <img className="block dark:hidden" src="/images/studio/states-templates-light.png" alt="The Templates tab listing one attachment with its template, path, parameter and declaration counts and the edit and detach actions, above the State templates section with its Upload template action." />
+  <img className="hidden dark:block" src="/images/studio/states-templates-dark.png" alt="The Templates tab listing one attachment with its template, path, parameter and declaration counts and the edit and detach actions, above the State templates section with its Upload template action." />
+</Frame>
 
 The **Records** tab looks up one subject — a kind, a key, and a conversation target —
 lists a state's subjects with a keyed **Load more**, and searches records by document
-content. A found record opens the record page.
+content. A found record opens the record page. When some of the listed subjects are held by a
+failed pending save, a line above the table counts them, says their rows show the last applied
+data, and links to the Pending saves card.
+
+<Frame caption="The Records tab's subjects with the line that counts the subjects a failed pending save holds.">
+  <img className="block dark:hidden" src="/images/studio/states-records-held-light.png" alt="The Records tab's Subjects table of thread subjects t-001 and t-002, below a line saying one subject on this state is held by a failed pending save and shows its last applied data, with a link to Pending saves." />
+  <img className="hidden dark:block" src="/images/studio/states-records-held-dark.png" alt="The Records tab's Subjects table of thread subjects t-001 and t-002, below a line saying one subject on this state is held by a failed pending save and shows its last applied data, with a link to Pending saves." />
+</Frame>
 
 <Frame caption="The Records tab: the subject lookup form above the state's subjects.">
   <img className="block dark:hidden" src="/images/studio/states-records-light.png" alt="The Records tab with a subject lookup form above a list of the state's subjects." />
@@ -215,7 +239,11 @@ The **Routes** tab is the route picker: it lists every route with the door it an
 at, and the agent or tool a turn runs. **Create route** opens an upsert dialog, and
 each row edits or deletes its route. The dialog authors the route through a schema
 form whose fields follow the target and door — each door shows only its own delivery
-fields. Either target kind carries the route's jq programs — `start_expr`,
+fields — and whose rules come from the contract's published route document: a route
+name of lowercase letters, digits and hyphens, an optional absolute `https` callback URL
+with no user name or password (leave it blank for a poll-only route), a `:`-free channel
+name, and an error reply of up to 2,000 characters. A value that breaks its rule is
+refused in the form with that field's own message, before anything is sent. Either target kind carries the route's jq programs — `start_expr`,
 `reply_expr`, and the door-contract `cancel_expr` / `resume_expr` / `extras_expr` —
 each rendering the [visual jq editor](/studio/jq-editor) in place. An
 `api`-door save that sets a `callback_url` mints a fresh `callback_secret` and **reveals
@@ -275,10 +303,17 @@ An open thread also carries two destructive actions, each behind the house confi
 
 - **Delete thread** forgets this one thread — its transcript records and the agent's
   checkpoint memory of it — so a later message on the same address starts fresh.
-- **Erase person** is the GDPR right-to-erasure action, offered only on a linked
-  person's aggregated thread. It erases the person entirely — their aggregated thread
-  and checkpoint, their person row, and every address-to-person link — across every
-  route they ever wrote under. The confirm states that blast radius plainly.
+- **Erase person** is the GDPR right-to-erasure action, offered only when the thread's
+  transcript names a linked person. It erases the person entirely — their aggregated
+  thread and checkpoint, their person row, and every address-to-person link — across
+  every route they ever wrote under. The confirm states that blast radius plainly. A
+  thread whose transcript reads as not found (every record pruned) names no person, so
+  the action is not offered there; erasure stays reachable through
+  `DELETE /api/conversations/persons/{person_id}` and the CLI.
+
+A route's drill-in also shows the panel its channel's Studio plugin contributes, when
+one does — for a web route, the web channel's **Entry gate** panel, where the
+deployment lists `tai42_channel_web` under `studio_plugins`.
 
 The **Per-target configs** tab is the per-target admin surface: each row is a stored
 config for one target (its kind and name), whether the target opts into person linking,
@@ -469,8 +504,10 @@ or editor on the right:
 - **Notifications** *(Activity)* — the [notifications](/concepts/notifications) inbox.
 - **Settings** *(Administration)* — server configuration, environment values, and API
   keys (see [Admin console](/studio/admin-console) and [API keys](/studio/api-keys)).
+  An environment save of a recycle-class setting shows the worker recycle it rolled.
   A **Reload config** control re-reads env and re-initializes the deployment from its
-  manifest in place, applied on the serving worker and broadcast to the fleet.
+  manifest in place, applied on the serving worker and broadcast to the fleet; a worker
+  whose reload left a recycle-class setting waiting for a restart is listed with it.
 - **Storage** *(Administration)* — the [stored-resource](/concepts/storage-and-resources)
   backend surface.
 

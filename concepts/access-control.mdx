@@ -108,6 +108,12 @@ path may set the owner claim; the gate strips any owner claim a non-minting
 provider returns, so an external issuer can never assert ownership it did not
 earn.
 
+The owner every door reads is the one recorded on the key's **stored policy** at
+mint. Where a credential is verified, the owner it carries must equal that stored
+owner: a credential whose owner claim differs is denied (a `403` at the request
+gate; a `400` where a key is named as input, as at claim-link creation) and the
+mismatch is logged as an error, never resolved silently in favour of either copy.
+
 <Note>
 A key that carries an owner claim is an **owned key** — a capped, isolated
 sub-identity you can hand to a teammate, a device, or a machine. The delegation
@@ -116,23 +122,53 @@ the claim-link channels, and which scopes are safe to grant live on
 [Owned keys](/concepts/owned-keys).
 </Note>
 
-## The login namespace is public; `/api/auth` stays reserved
+## The login routes are public; `/api/auth` stays reserved
 
 Human [login](/studio/login) flows live under the `/api/login` namespace — the
 methods listing, the credential-submit routes, the setup door and invite flows.
-That namespace is **public by default**: a browser must reach it *before* it has
-any credential, so its public-ness is a code-side default, not a route mapping an
-operator has to remember to add. The `/api/auth` provisioning and policy routes
-stay **reserved** behind the gate — minting keys, editing policies, and managing
-principals all require an authenticated, authorized caller. Sign-in is open;
-administration is not.
+Each login route is **public by its own declaration**: a browser must reach it
+*before* it has any credential, so the route says so where it is registered, not in
+a route mapping an operator has to remember to add. The `/api/auth` provisioning and
+policy routes stay **reserved** behind the gate — minting keys, editing policies,
+and managing principals all require an authenticated, authorized caller. Sign-in is
+open; administration is not.
 
-Two reserved routes carry a carve-in so a scoped identity can still onboard and
-introspect: `GET /api/auth/me` (the [capability projection](/concepts/owned-keys))
-is authenticated-implies-allowed — any authenticated caller reaches it regardless
-of the route table — and `POST /api/auth/claim-links` is carved into the seeded
-`editor`/`viewer` roles so a role-holder may share its own key. Both stay behind
-the gate; neither is public.
+## Routes declare their reach
+
+Beside its public-ness, a route declares the reach the gate gives it, with three
+flags on its registration (`custom_route`, or the plugin route module's own call):
+
+- **`pre_auth`** — a pre-authentication route (login, recovery, claim exchange). A
+  credential presented on it is **never verified**, so a stale session or key the
+  browser still sends cannot lock a caller out of the door that replaces it; the route
+  is public and no policy layer runs, at the HTTP edge and when it is reached as a
+  tool alike. Only a public route may declare it. Every login route the platform and
+  its accounts plugins ship declares it. Any other public route still verifies a
+  presented credential, so it keeps the caller's identity when one is sent.
+- **`any_authenticated`** — reachable by **any** authenticated identity, whatever
+  its scopes and whatever the route table maps: `GET /api/auth/me` (the
+  [capability projection](/concepts/owned-keys)) declares it, so a scoped key that
+  holds no `"*"` can still introspect. The base-tier role condition still applies,
+  and an unauthenticated caller is refused `401`. The reach is the same at the HTTP
+  edge and when the route is reached as a tool — over MCP or by a background run: the
+  scope test is skipped, and the jq conditions and the per-tag access-level pass still
+  run. Only an authenticated route may declare it.
+- **`self_service`** — a caller self-service surface under the reserved `/api/auth`
+  area: own keys, the tokens payload, claim-link creation, the read-only scopes
+  listing, logout, and a provider's own-credential routes. The seeded `editor` and
+  `viewer` role conditions are **built from these declarations** on the methods each
+  route serves, so a plugin that ships such a route is carved in without the platform
+  naming it. A `viewer` reaches only the state-changing ones among them; an
+  admin-only action class (the policy history and rollback) still fences a route
+  whatever it declares.
+
+A flag that contradicts the route's public-ness — `pre_auth` on an authenticated
+route, `any_authenticated` on a public one — is a registration error. The boot also
+refuses a registry holding an authenticated route that declares `pre_auth`, the flag
+that skips credential verification. None of these is a setting: an operator's own
+always-public prefixes (`ACCESS_CONTROL_ALWAYS_PUBLIC_PATH_PREFIXES`) still feed the
+same credential skip, for a login page the deployment serves outside the registered
+routes, and default to none.
 
 ## The Studio SPA shell is public; its data is not
 
@@ -145,8 +181,10 @@ visitor sees only the login page. Deep links therefore work with **no manual
 public pin** for `/` or any SPA path. Because the guard resolves deny-wins, an
 over-broad protected mapping that also covers SPA paths suppresses this fallback, so
 the refresh meets a `401` rather than the shell — scope a protected pattern to a real
-surface, never the whole site. The fallback is GET-only and never touches
-`/api` or `/mcp`, so it can never open the control plane; a headless deployment
+surface, never the whole site. The fallback is GET-only and never touches the
+**control plane** — `/api` plus the path the streamable-http MCP transport is mounted
+at (`/mcp` by default, the configured path otherwise; an SSE-only deployment has
+`/api` alone) — so it can never open it; a headless deployment
 turns it off by setting `spa_shell_public` to `false`. See
 [deploying the Studio](/operate/studio#deep-links-under-access-control).
 
@@ -178,6 +216,15 @@ door's declaration is fixed in the platform code; to close a plugin door, declin
 at the install-time public-acceptance gate or uninstall the plugin. Remapping only
 relocates the public route, it does not protect it. The operator's own hand-pin door
 stays for the operator's own routes.
+
+A scope mapping would read as protecting such a route while it stays open, so the
+scope writer refuses one: mapping a URL into a scope (`POST /api/auth/scopes` over
+HTTP or as a tool, `tai scopes add`) is refused with a `400`, nothing written, when a route
+declared public serves that URL on any method, and an `access_control` restore names
+such a mapping in its section's errors and restores the rest. The routes listing
+(`GET /api/auth/routes`, `tai scopes routes`) marks each route public by its own
+declaration with `declared_public: true`, read through the same predicate as this
+tier.
 
 The reserved namespace still wins. A declared public route resolving under a
 reserved prefix — `/api/auth` by default — is refused at boot, not quietly opened,
@@ -214,20 +261,29 @@ shared `/api` segment dropped:
 | `POST /api/channels/slack/inbound` | `channels_slack` — one family per channel |
 
 Two segments is what keeps a deployment's families disjoint without splitting one
-door's own surface: the six `/api/channels/web/*` web-chat doors all fold into
-`channels_web`, while every other channel keeps a family of its own. A path
+door's own surface, while every channel keeps a family of its own. A path
 parameterised from its first segment — the SPA catch-all `/{spa_path}` — has no stem
 and folds into `root`.
 
+A route may name its family instead (`DeclaredRouteMetadata.rate_limit_family`): the
+web chat's doors declare `channels_web` and its upload door `channels_web_uploads`, so
+their families hold whatever mount base the plugin is installed under.
+
 ### Budgets
 
-Every family is charged **600 requests a minute** with a **120-request burst in any
-10 seconds** unless a tighter budget applies. The runtime holds the three
-single-request doors — `trigger`, `universal_webhook`, and `interactions_callback` —
-at 60 a minute and 10 in 10 seconds, because one request there buys real work: a
-webhook fan-out, a ticket redemption, a tool run. It holds the web-chat family —
-`channels_web` — at 120 a minute and 30 in 10 seconds, wide enough for one first page
-load, which is the chat page plus every bundle file it links in a single burst.
+A route declares its family's default budget
+(`DeclaredRouteMetadata.rate_limit_budget`, a `RateLimitBudget(limit=…, burst=…)`), and
+every public route of one family declares the same one: a family whose routes disagree —
+or where one route declares and another forgets — fails the boot, or the reload that
+installs it, before it serves. A family whose routes declare nothing is charged
+**600 requests a minute** with a **120-request burst in any 10 seconds**.
+
+The runtime's three single-request doors — `trigger`, `universal_webhook`, and
+`interactions_callback` — declare 60 a minute and 10 in 10 seconds, because one request
+there buys real work: a webhook fan-out, a ticket redemption, a tool run. The web chat
+declares `channels_web` at 120 a minute and 30 in 10 seconds, wide enough for one first
+page load (the chat page plus every bundle file it links in a single burst), and
+`channels_web_uploads` at 20 and 5.
 
 Over either window the door answers `429` with a `Retry-After` naming the seconds
 left in that window, and the refusal writes its own audit line as an unauthenticated
@@ -243,10 +299,12 @@ TAI_RATE_LIMIT_FAMILIES='{"trigger": {"limit": 240, "burst": 40}}'
 TAI_RATE_LIMIT_FAMILIES__TRIGGER__LIMIT=240
 ```
 
-Each field resolves on its own — an override naming only a limit keeps the shipped
-burst — and `TAI_RATE_LIMIT_DEFAULT_LIMIT`, `TAI_RATE_LIMIT_DEFAULT_BURST`, and
-`TAI_RATE_LIMIT_DEFAULT_ENABLED` move the floor every family that states nothing
-starts from.
+Each field resolves on its own, most specific first: the operator's override, then
+the budget the family's routes declare, then the default — so an override naming only a
+limit keeps the declared burst. `TAI_RATE_LIMIT_DEFAULT_LIMIT`,
+`TAI_RATE_LIMIT_DEFAULT_BURST`, and `TAI_RATE_LIMIT_DEFAULT_ENABLED` move the default
+every family whose routes declare nothing starts from. Switching a family off is the
+operator's alone: a route declares a budget, never an off switch.
 
 An override **tunes or disables** the door it names; it never widens coverage.
 `{"enabled": false}` passes that family through, and an entry for a family no route
@@ -271,6 +329,10 @@ Anything else fails closed to the socket address — an untrusted peer, a chain 
 short for the declared hop count, an entry naming no address — and the fallback is
 reported in the log, never silent. An IPv6 client buckets by its `/64`, since one
 host routinely holds a whole `/64`.
+
+The same resolution keys the setup door's wrong-token throttle and an accounts
+provider's login throttles, so one trust statement holds for every door that counts
+per client.
 
 With neither setting, `X-Forwarded-For` is ignored and the socket peer is the client:
 correct for a directly exposed deployment, and behind a proxy it collapses every
@@ -354,6 +416,15 @@ and request attributes without any custom code. The condition is compiled and
 evaluated by the policy enforcer; a backend error while reading the policy version
 **fails closed** by raising, which surfaces as a clean deny rather than a silent
 default.
+
+The condition reads the request as `.request.method` and `.request.path`. The path is
+the **canonical** request path, the same on every door that evaluates a condition (the
+HTTP gate, a tool call, a background fire): any mount prefix the app is served under
+(its ASGI `root_path`) is removed, each segment is percent-decoded once, repeated
+slashes are collapsed, `.` and `..` segments are resolved, and a trailing slash is
+dropped. A condition written as `.request.path | startswith("/api/auth")` therefore
+holds on a deployment mounted at `/mnt` exactly as at the root, and `/api/auth/me/`
+reads as `/api/auth/me`.
 
 A denied request never leaks internal detail: an authentication failure returns a
 fixed `401` and an authenticated-but-forbidden request a fixed `403`, with the full

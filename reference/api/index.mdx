@@ -107,7 +107,8 @@ annotation directly: an annotated field renders the
 
 ## The reload-gated 503
 
-When the server applies a configuration reload, routes that mutate state return
+When the server applies a configuration reload, routes that mutate state — and every
+door that would start a conversation turn, a channel's inbound webhook included — return
 `503` until the reload completes. The body sets `reloading` to `true` and the
 response carries a `Retry-After` header with the seconds to wait:
 
@@ -144,10 +145,62 @@ On the generic operation body-validation path (the adapter's `422`) and the
 connectors mutation doors, a validation failure names **which** fields failed and
 **how**, never **what** you sent: the body lists each offending field's path and
 its error type only, with the rejected input values stripped, so a secret
-submitted in a rejected field there does not ride back out. This stripping is not
-universal — some named-entity doors interpolate the raw validation error into
-their `400` body, and pydantic includes the submitted value in that text, so do
-not rely on the error response to withhold rejected input everywhere.
+submitted in a rejected field there does not ride back out.
+
+Seventeen doors take their operation's plain request model and are parsed by the shared operation
+adapter: `POST /api/auth/principals`, `PUT /api/auth/principals/{user_id}`, `POST /api/auth/roles`,
+`PUT /api/auth/roles/{name}`, `POST /api/auth/roles/{name}/rollback`,
+`POST /api/auth/roles/{name}/grants`, `POST /api/auth/member-actions/invoke`, `POST /api/login/claim`,
+`POST /api/config/reload`, `POST /api/marketplace/install`, `POST /api/marketplace/install/preview`,
+`POST /api/marketplace/uninstall`, `POST /api/marketplace/update`, `POST /api/notifications`,
+`POST /api/resources/get`, `POST /api/tools/reload` and `POST /api/tools/remove`. On these a body that
+does not parse answers `400 malformed request body`, and a non-object body or a model break answers
+`422` with the field list above. Every other door of the platform's own that takes a JSON body
+reads it itself — the interaction answer, reaction and callback doors included — and answers one set of `400` texts:
+`invalid JSON body` for a body that does not parse (a deeply nested one included), `body must be a
+JSON object` for one that is not an object, and `invalid <what>: <field>: <rule>; …` for a body that
+breaks its model — each declared field path beside the message pydantic gives for the bound it
+violates (`invalid hook params: topic: String should have at least 1 character`). A door then names
+a missing required field in its own words (`body must contain 'answer'`). Four of them answer a
+model break with a fixed text instead: the three connector mutation doors (connect, reconnect,
+sub-services) answer `400 invalid request body` with the failing fields' paths and types under
+`fields`, and the setup door answers `422 invalid request body`. The public webhook ingress
+doors (`/universal_webhook/{topic}`, `/trigger/{token}`) are not among them: they accept any JSON
+value and refuse a malformed one in their own ingest envelope, `{"status": "rejected", "error": "malformed JSON body: …"}` (the
+topic door's envelope also carries its `topic`). A plugin's doors (a channel's, an accounts
+provider's) answer the texts the plugin documents. A model's own named rule (a hook topic or a sub-MCP slug that is not one lowercase path
+segment) quotes the value it refuses, so do not rely on every error response to withhold
+rejected input.
+
+## The published specification
+
+The `tai42-skeleton` package ships its OpenAPI specification as a committed file,
+`tai42_skeleton/schemas/openapi.json`, so a client can generate its types from the
+exact version it installs. The file covers the platform's core routes; each plugin
+publishes its own routes. Regenerate it after a route or response-model change with:
+
+```bash
+tai openapi --out core/skeleton/src/tai42_skeleton/schemas/openapi.json
+```
+
+The skeleton's tests fail when the committed file no longer matches a fresh build,
+naming each path and component that drifted. Its `info.version` is the package
+version, written by the release tooling with every release, so a version-only
+difference is reported on its own line.
+
+Two details a client generator reads:
+
+- Every response field with a closed set of values publishes them as an `enum` (a
+  route's methods, a plugin's delivery, a thread's control mode, a run's status, …),
+  so a generated client refuses a value outside the set.
+- A path parameter that matches across `/` separators carries
+  `"x-tai42-converter": "path"`; the path template itself drops the converter.
+
+The contract package publishes the companion JSON-schema bundle,
+`tai42_contract/schemas/contract-schema.json` (regenerated with
+`tai42-contract-schemas --out`): the served documents, the conformance vectors, and
+the served `constants` a client reads instead of re-spelling (`PERSON_KIND`,
+`MEDIA_ROUTE_PREFIX`, `MEDIA_ID_PATTERN`).
 
 <Tip>
   Regenerate this reference from the running code with `tai openapi --out

@@ -36,8 +36,18 @@ condition**](/babelfish#run-condition) — a jq predicate that gates whether the
 runs at all. A false condition *skips* the node: it does not execute, its output is
 null, its status reads **skipped** in Run mode, and the flow continues past it (the
 gate stops the one node, not the path). The field is absent on a node that runs only as
-a Recovery, since such a node is dispatched directly and never scheduled. When
-an agent node carries a [structured-output
+a Recovery, since such a node is dispatched directly and never scheduled. A runnable's Settings
+also carry **Run after the reply** — the [`after_reply`](/babelfish#run-after-the-reply) toggle,
+"Call the tool after the reply". With it on, the node's tool is called after the run has
+answered; in Run mode the node settles with a clock glyph labelled **Node call runs after the
+reply** and a muted ring, and its run popup shows the status `deferred`.
+
+<Frame caption="A finished run: the node set to run after the reply settles with the clock glyph and a muted ring.">
+  <img className="block dark:hidden" src="/images/studio/run-view-deferred-node-light.png" alt="A finished run on the canvas: the runnables warmup and answer settled with a success check, and the runnable later, set to run after the reply, settled with the clock glyph and a muted ring." />
+  <img className="hidden dark:block" src="/images/studio/run-view-deferred-node-dark.png" alt="A finished run on the canvas: the runnables warmup and answer settled with a success check, and the runnable later, set to run after the reply, settled with the clock glyph and a muted ring." />
+</Frame>
+
+When an agent node carries a [structured-output
 schema](/babelfish#structured-agent-output), the Output tab renders that schema live
 and its label reads **Output (structured)**. Editing that schema to **remove** a field
 surfaces a non-blocking honesty note on the agent's Settings: static analysis scans the
@@ -57,11 +67,17 @@ interactions](/concepts/asking-the-caller). Its Settings form is the holder pane
 whose controls read top to bottom:
 
 - **Target.** A Flow Call picks its held flow or agent here, from a select scoped to
-  saved flows and agents — never a plain tool. Every load state is drawn: the select
-  disables with a "Loading…" placeholder while the registry is in flight, a load
-  failure shows inline, and an empty target is a loud field error, so a placed-but-
-  unconfigured Flow Call cannot apply. An agent card holds no Target picker — its
-  target is the agent itself.
+  saved flows, every registered agent and the presets over them — never a plain tool;
+  each option is labelled with its kind (`(flow)` or `(agent)`). Every load state is
+  drawn: the select disables with a "Loading…" placeholder while the registry is in
+  flight, a load failure shows inline, and an empty target is a loud field error, so a
+  placed-but-unconfigured Flow Call cannot apply. While the agents list is still loading
+  the flows are offered and the agents are not yet listed; if it fails to load, the panel
+  says so under the field — "Could not load the agents list, so agents cannot be picked as
+  a target" — the flows stay selectable, and a holder already holding an agent keeps its
+  target shown. Picking `tools_agent` (or a preset over it) turns the node into an Agent
+  card; any other agent stays a holder with this panel. An agent card holds no Target
+  picker — its target is the agent itself.
 - **Cancel.** One jq over the [node envelope with `$parked`](/babelfish/jq-editor#the-variables-beside-the-input)
   that emits null, one parked-ask id, or a list of ids to cancel — a whole-chain
   cancel of each named call.
@@ -110,8 +126,6 @@ disagree, because the derivation, not an authored field, owns it.
 
 ## The test panel's caller asks
 
-{/* screenshot: the test panel's caller-ask controls — both themes */}
-
 Running a flow in-page against a **subject** surfaces the caller asks waiting on that
 subject. The run controls carry a subject input — a target kind, target name, kind,
 and key — threaded into the run and every interaction call; left empty, no subject is
@@ -145,6 +159,66 @@ schema's shape at the top level falls back to the plain JSON tree with a small n
 rather than a crash. A per-instance **Raw** toggle flips the whole view to the plain
 tree, so the underlying data is never more than one click away, and a flow (or node)
 that declares no output shape keeps the plain results tree throughout.
+
+## Values the run state does not keep
+
+A run keeps of each node's inputs and outputs only what a later step reads (see [Run
+state](/babelfish#run-state)). A node's run popup shows each section from the first place that
+has it:
+
+- **Kept in the run state** — the node's newest value, shown directly.
+- **Recorded by a monitoring plugin** — the popup reads the value from the step that recorded
+  it: a muted *Loading this step's recorded data…* line with a spinner, then the value exactly
+  as a kept one. When the value cannot be read yet, *Could not load this step's recorded data:*
+  and the reason show with a **Retry** button.
+- **Not written for this node** — the section is hidden.
+
+With no monitoring plugin, a popup missing a value says once, under its sections: *Values that
+no later step reads are not kept in the run state. A monitoring plugin records every step's
+input and output.*
+
+<Frame caption="A result node's popup: its kept output, and the note for the input the run state does not keep.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-kept-light.png" alt="A node's run popup showing its output and the note that values no later step reads are not kept in the run state." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-kept-dark.png" alt="A node's run popup showing its output and the note that values no later step reads are not kept in the run state." />
+</Frame>
+
+<Frame caption="A node's popup opened before its step was ingested: the read's error with Retry.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-recorded-error-light.png" alt="A node's run popup showing Could not load this step's recorded data: Run span not found, with a Retry button." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-recorded-error-dark.png" alt="A node's run popup showing Could not load this step's recorded data: Run span not found, with a Retry button." />
+</Frame>
+
+<Frame caption="With a monitoring plugin: the input and output read from the step that recorded them, shown as kept values.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-recorded-light.png" alt="A node's run popup showing its input and output loaded from the recorded step, with no note." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-recorded-dark.png" alt="A node's run popup showing its input and output loaded from the recorded step, with no note." />
+</Frame>
+
+A node inside a loop body shows one row per iteration — from the running loop's results, the
+loop's published output, or, with a monitoring plugin, the recorded body steps under each
+finished iteration (rows of a nested loop's node read *Iteration 0 › 1*). Before any iteration
+finishes the popup says *No iteration of this loop has finished yet.*; a node that ran in none
+says *This node did not run in any finished iteration.*; with no monitoring plugin it says
+*Per-iteration detail for this node is not kept in the run state. A monitoring plugin records
+it.*
+
+<Frame caption="A loop body node's popup: one row per iteration, from the loop's kept output.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-loop-rows-light.png" alt="A loop body node's run popup listing one row per iteration with each iteration's output." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-loop-rows-dark.png" alt="A loop body node's run popup listing one row per iteration with each iteration's output." />
+</Frame>
+
+<Frame caption="An interior loop body node's popup with no monitoring plugin.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-body-note-light.png" alt="A loop body node's run popup saying its per-iteration detail is not kept in the run state and a monitoring plugin records it." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-body-note-dark.png" alt="A loop body node's run popup saying its per-iteration detail is not kept in the run state and a monitoring plugin records it." />
+</Frame>
+
+<Frame caption="An interior loop body node with a monitoring plugin: one row per iteration from the recorded body steps, one errored.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-body-rows-light.png" alt="An interior loop body node's run popup listing three iteration rows, the second errored with its failure." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-body-rows-dark.png" alt="An interior loop body node's run popup listing three iteration rows, the second errored with its failure." />
+</Frame>
+
+<Frame caption="A nested loop's body node: its rows labelled Iteration i › j.">
+  <img className="block dark:hidden" src="/images/studio/run-popup-nested-rows-light.png" alt="A nested loop body node's run popup listing rows Iteration 0 › 0 through Iteration 1 › 1 with each value." />
+  <img className="hidden dark:block" src="/images/studio/run-popup-nested-rows-dark.png" alt="A nested loop body node's run popup listing rows Iteration 0 › 0 through Iteration 1 › 1 with each value." />
+</Frame>
 
 ## The Router card
 

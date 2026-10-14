@@ -109,10 +109,34 @@ owns:
 A state template is data and the store is generic: nothing in a template is a use-case
 feature — it is a mechanism any state can reuse. A `name` is a **slug** —
 `^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,62}$`, so no leading, trailing, or consecutive hyphens —
-because the jq prelude maps `-`→`_` to build the `tjq_<template>__<name>` handle, and only a
-slug makes that encoding unambiguous. A document that carries keys outside its own schema is
-refused, so an operator who pastes a whole consumer document is told exactly where those
-belong.
+because a template name is a URL path segment (`/api/state-templates/{name}`). A document that
+carries keys outside its own schema is refused, so an operator who pastes a whole consumer
+document is told exactly where those belong.
+
+Every section is typed:
+
+| Section | Shape |
+|---|---|
+| `parameters` | `{name: {schema, default?}}` — `default` is absent when the parameter has none (an explicit `null` is a default) |
+| `regimes` | `[{path, regime}]` — `path` is a list of non-empty keys or `"*"` (`[]` is the root); `regime` is `single`, `composing`, or `free` |
+| `trace` | `{enabled}` — a boolean, `false` when the template declares no switch |
+
+<Frame caption="A state template in the studio, each section shown typed.">
+  <img className="block dark:hidden" src="/images/studio/state-template-typed-light.png" alt="The studio page of the state template display on its Template tab: the Fields schema, a Write policies table with the path density under the single regime, a Parameters table with default_density, its enum schema of compact and comfortable and the default comfortable, and the line Trace writes: On." />
+  <img className="hidden dark:block" src="/images/studio/state-template-typed-dark.png" alt="The studio page of the state template display on its Template tab: the Fields schema, a Write policies table with the path density under the single regime, a Parameters table with default_density, its enum schema of compact and comfortable and the default comfortable, and the line Trace writes: On." />
+</Frame>
+
+A shipped default template (a seed) is validated exactly like an upload; a seed that does not
+validate stops the boot, naming it.
+
+### Rendered templates
+
+The platform also serves a template **rendered**: every program body (inline or a stored `id`)
+as jq text, a stored fragment as its schema, and the input programs in dependency order
+(`input_order`). The states facet serves it three ways — `get_rendered_template(name)`,
+`rendered_attachments(state)` (every attachment on a state with its rendered template), and
+`render_template(document)` for a candidate not yet stored. Each carries an opaque `version`
+that changes whenever anything the rendering read changes; compare it for equality only.
 
 ### Template jq
 
@@ -136,6 +160,34 @@ a subject's record, each declaring a **`purpose`**:
   validated only for **structure** — that it resolves against the fragment — while the
   **write regime** (that a `writes` path lies under a declared-writable regime) is enforced at
   apply by the store guard.
+
+A program is named by reference, resolved by one rule wherever a reference is used — an
+evaluate or apply call over HTTP, MCP or the CLI, a binding validated or saved on a door or a
+babelfish node, and a binding's run:
+
+- **`<template>.<name>`** names that template's program. The template must be attached on the
+  state and declare the program, else `404`.
+- An **unqualified `<name>`** resolves to the one template attached on the state that declares
+  it. None declaring it is `404`; two or more is `422`, naming them and asking to qualify it as
+  `<template>.<name>`.
+- The program's **purpose** must be the caller's: an evaluation or an input injection needs an
+  `input` program, an apply or an update an `update` program; a mismatch is `422`
+  (`template_jq 'x' on template 't' has purpose 'update', needs 'input'`).
+
+A door binding validated without attaching (a dry run) resolves as though each of its own
+templates not yet attached were attached at `[<template>]`, so the reference it accepts is the
+one its runs resolve. A babelfish node binding resolves through the same rule and also refuses a
+reference to a program of a template the binding does not attach.
+The states facet serves the rule as `resolve_template_jq(state, name, *, purpose, declared=())`,
+returning a `ResolvedTemplateJq` (`template`, `program`, `purpose`, `params`, `path`); `declared`
+names templates a caller is about to attach. `resolve_template_jq_batch(refs)` resolves a list of
+`TemplateJqReference`s (`state`, `name`, `purpose`, `declared`) in one call: one statement reads
+every named state's declaration version, and each reference resolves against its state's catalog at
+that version. A write that lands on a state during the call can make any reference on that state —
+the first one too — read the catalog's current rows and resolve against the newer version. Its answer holds one item per reference, in order:
+the `ResolvedTemplateJq`, or the `StateNotFoundError` / `ValueValidationError` that
+`resolve_template_jq` raises for that reference, with the same message, so one refused reference
+never hides the others' verdicts.
 
 Sibling `input` programs are ordered dependency-first, so one may call another by name. A
 [binding](/babelfish#state-templates) on any door (or a babelfish node) injects an `input`
@@ -161,9 +213,10 @@ The effective schema is the base schema with every attached fragment composed in
 two fragments at overlapping paths, attaching a second template at an already-occupied path,
 or attaching where the base schema already carries the property is a conflict (`409`) naming
 the colliding path. A consumer may register an **attach validator** on the states facet with
-`register_attach_validator`: given the template document, the attachment's declaration values,
-and the state's effective schema, it raises loudly to refuse an attach or a declarations
-write — it is consulted before every attach and every declarations write.
+`register_attach_validator`: given the state name, the template document, the attachment's
+declaration values, and the state's effective schema, it raises loudly to refuse an attach or a
+declarations write — it is consulted before every attach, every declarations write, and every
+template replace (once per live attachment).
 
 ### Attach reconciliation
 
@@ -240,6 +293,28 @@ A tool run with no ambient context — a sync run-tool call, a background run, t
 MCP edge — is the `api` door and a state tool it calls must carry an explicit
 subject; called with none it raises `no subject in scope`.
 
+### Subject references
+
+A binding's `subject_expr` result and a builtin tool's `subject` argument are both a
+**subject reference**, resolved by one platform rule — the states facet's
+`resolve_subject(state, ref)`:
+
+| Reference | Resolves to |
+|---|---|
+| `{target_kind, target_name, kind, key}` | that subject, validated |
+| `{kind, key}` | the ambient context's target, with that kind and key |
+| a key string | the ambient target, the state's `default_subject_kind`, that key |
+| omitted | the ambient target and the context's candidate for the state's `default_subject_kind` |
+
+A reference that cannot be resolved is refused (`422`, `SubjectRefusedError`) naming the rule
+that fired: a mapping giving only one of `target_kind`/`target_name`, no ambient context where
+the form needs one, a blank key, no ambient candidate for the default kind, a mapping that does
+not validate (naming each failing field), or any other shape. An undeclared state is `404`: a
+key string or an omitted subject reads the declaration's `default_subject_kind` and is refused
+there, while an object form resolves without reading the declaration and the record read or write
+it addresses refuses it. A builtin tool's `subject` argument takes the two object forms or is
+omitted.
+
 ### A binding's subject and scope
 
 A [binding](/babelfish#binding-a-node-to-a-state) — on any door definition (a preset,
@@ -247,10 +322,12 @@ hook, schedule, or channel route) and, in babelfish, per node — resolves its s
 a jq `subject_expr` and gates itself with an optional jq `scope_expr`. Both mean the same
 on every door and every node:
 
-- **`subject_expr`** is **required** and non-empty, and yields either a full subject object
-  `{target_kind, target_name, kind, key}` or a bare **key** string — for a bare key the
-  `kind` is the state's declared subject kind and the target is the run's ambient target.
-  A missing or empty `subject_expr` is refused (`422`).
+- **`subject_expr`** is **required** and non-empty, and yields a
+  [subject reference](#subject-references): a full subject object
+  `{target_kind, target_name, kind, key}`, a `{kind, key}` object, or a bare **key** string —
+  for a bare key the `kind` is the state's declared subject kind; for a key or a `{kind, key}`
+  object the target is the run's ambient target. A `null` result, like a missing or empty
+  `subject_expr`, is refused (`422`), and so is a reference that does not resolve.
 - **`scope_expr`** is an optional **boolean** predicate over the run's inputs, evaluated
   first: `false` skips the state for that run — no input injections and no updates; a
   non-boolean is refused loudly; an absent expression means engaged.
@@ -263,6 +340,33 @@ no-op.
 A binding fires on every door it reaches through, the MCP edge included: an MCP `tools/call`
 that omits `arguments` still receives the binding's input injections — absent arguments are
 treated as an empty argument object, never a skipped injection.
+
+### Saving a binding
+
+A binding is checked when the definition carrying it is **written** — a hook registered, a
+schedule created, a preset created, saved as a version, or rolled back, a per-target
+conversation config set. Each of these has one write service that the HTTP door and the
+[backup restore](/operate/backup-and-restore#restoring-stored-definitions) both run: it compiles
+the binding's jq slots, resolves each state's named template jqs in one `resolve_template_jq_batch`
+call, and **attaches** every named template (attach-on-use, idempotent) before the definition is
+stored. A refusal stores nothing.
+
+At a door, the refusal maps by its exact error type:
+
+| Refusal | Status |
+| --- | --- |
+| The binding names an undeclared state, a template that does not exist, or an unknown template jq | `404` |
+| A named template's attach path is already occupied | `409` |
+| A jq slot that does not compile, or binding content the store refuses | `400` |
+| The states store is unbound or fails | `500` — a store failure is never reported as a bad binding |
+
+The preset [validate](/concepts/presets) dry run runs the same checks **without attaching**,
+and reports a refused binding as an invalid verdict; a store failure there is a `500` too,
+never an invalid verdict.
+
+In a backup restore the `states` section replays right after `templates` and before every
+section that restores a binding, so the states and templates a restored binding names exist
+by the time its definition is written.
 
 ### The turn subject block
 
@@ -301,8 +405,9 @@ reference.
 Four LLM-facing tools read and write the calling subject's document. Each resolves
 its subject from the ambient context, or from an explicit `subject` argument
 (`{target_kind, target_name, kind, key}`, or `{kind, key}` with the target taken
-from the context); with neither resolvable it refuses, naming the state, kind, and
-door.
+from the context), by the same rule as a binding (see
+[Subject references](#subject-references)); with neither resolvable it refuses, naming the
+state, kind, and door.
 
 | Tool | Effect |
 |---|---|
@@ -339,23 +444,44 @@ and a hook's keyed write get the same stamp.
 A consumer that stages several writes and lands them together opens a **unit of
 work** over the states facet, bound to the scope it owns. Every write set staged
 against the unit runs through the same applier the persisted write path runs — the
-guards, the path ops, the composing-shape rule, and the whole-document schema — and
-is projected, not stored: a validation, composing-shape, or schema error raises at
-stage time, exactly as it would on a committed write.
+guards, the path ops, the composing-shape rule — and is projected, not stored. The
+whole-document schema is checked **once per touched subject per staged batch**, on the
+document the batch leaves: a batch is accepted or refused exactly as one multi-op apply
+would be (an intermediate document between two of its writes is never checked on its
+own). A validation, composing-shape, or schema error raises at stage time and leaves
+nothing of the refused batch staged.
 
 While the unit is open, a read of a subject the unit has staged is served from the
 **projection** — the committed document overlaid with the scope's staged writes in
 order, so a later step reads its own earlier writes — while every other scope still
 sees only the committed document.
 
-`commit` applies every staged batch onto the latest committed documents in one
-transaction, all-or-nothing: any failing write rolls the whole commit back and
-raises loudly, and nothing lands. It reports each op's ledger answer and any
-**divergence** between the staged projection and the answer the commit recorded —
-the guards and `op_id` idempotency are authoritative at commit, so a divergence
-naming each staged-vs-committed mismatch is a visible, logged field, never swallowed.
+`commit` writes the unit's validated intent — every staged batch, plus any calls deferred
+with `defer_call` — as one **pending save** in one small transaction. On the serving loop `commit` returns before
+the records are applied, so the run's reply never waits on the record writes; the save is applied
+after the reply (see [Pending saves](#pending-saves)): every staged subject lands in one
+transaction, all-or-nothing, and the save is removed in that same transaction. A subject whose
+committed record and declaration are unchanged since it was staged gets its already validated
+projected document written as it stands; a subject whose record, declaration, or `op_id` ledger
+moved in the meantime has its writes replayed onto the latest committed document instead, under
+the declaration as it stands at apply: a subject kind it no longer declares is refused, and the
+schema is checked once per staged batch. The guards and `op_id` idempotency are authoritative at
+apply; a replay whose answer differs from the staged projection is logged and counted. `commit`
+returns the staged answers, the pending save's id, and the number of deferred calls. A unit that
+staged nothing and deferred nothing writes no save.
 `discard` drops the staging. A unit left open when its scope ends is discarded at
 teardown and the discard is logged.
+
+A committed or discarded unit refuses any further stage, savepoint, commit, discard, or
+deferred call with `StateUnitClosedError` (a `RuntimeError`).
+
+`defer_call(tool, arguments, *, run_id=None)` queues a tool call to run after the save's
+records apply. The arguments must be plain JSON and the tool must exist, or the call is refused
+at once with `DeferredCallRefusedError`. The call runs later under the identity, run attribution,
+state context, and trace the caller had when it deferred it, as an outermost tool dispatch (so
+authorization, retry policy, run recording, and tracing all apply), with the idempotency key
+`<save id>:<index>` in its extras under `tai42/idempotency_key`. A discarded unit, or a
+savepoint rolled back, drops the calls it deferred.
 
 A **savepoint** nests inside a unit: writes staged in the child scope are kept on a
 clean exit and dropped on an exception, rolling back only the child's writes and
@@ -364,6 +490,96 @@ writes within the enclosing unit.
 
 The unit of work is a programmatic facet API for in-process consumers; it has no HTTP
 route.
+
+### Caches and consistency
+
+Each process keeps derived artifacts of the catalog — a declaration's effective schema and its
+document validator, its composed regime paths, a template's validated form, and its rendered
+programs. Every declaration and template row carries a `version` drawn from one database sequence
+on each write to it (an attachment write and an attached template's replace included), so a
+version never repeats for a name, even when the row is deleted and re-created. Each artifact is
+served only for the version read inside the statement that serves it, so a change made through
+any process is seen by every other on its next read. A rendered program also keys on the resource
+manager that rendered it, so a stored-resource upload, a cache eviction, or a reload re-renders;
+a rendered template's `version` also changes whenever a re-render (after the template cache's
+TTL, or on every read while that cache is off) produces different text.
+
+## Pending saves
+
+A **pending save** is the durable intent a unit commit writes before the reply: the staged
+writes of every subject the run touched, and the calls it deferred. It is applied after the
+reply, and every reader of its subjects waits for it, so a participant's next message reads its
+own previous turn.
+
+**Who writes one.** A flow run's unit commit, a door binding's updates on a tool call, and a
+parked run's deferred binding updates each write one pending save.
+
+**Applying.** On the serving loop the save is applied in its own task right after the commit
+returns. Off it — a backend whose jobs run on their own loop, such as Celery — the records are
+applied inline and the deferred calls are left to the next sweep pass; a backend whose jobs run
+on the process's serving loop, such as ARQ, runs them in the worker right after the job. A
+**sweep** runs in every serve process and backend worker every `STATES_OUTBOX_SWEEP_SECONDS`,
+and applies any save left behind (a crash, a lost task, a retry that is due).
+
+**Per-subject order.** Saves that share a subject apply their records in the order they were
+written. A save applies its records and removes itself in one transaction; when it carries
+deferred calls it moves on to them after the records land, and its calls start only once every
+older save on its subjects is gone, so deferred calls on a subject run in order too. The records part is applied exactly once. A deferred call runs at least once: a
+call interrupted by a process exit is re-run only when its tool declares `tai42/crash_resume`,
+and otherwise the save fails.
+
+**Readers wait.** A read, write, fold, erase, template-jq call, or write-history read of a
+subject first applies the subject's pending save (or waits for the one being applied), bounded by
+`STATES_OUTBOX_DRAIN_TIMEOUT_SECONDS`. When nothing is pending this costs no extra round trip:
+the check rides on the subject lookup the read already makes. A subject's write history includes
+its pending save. A tool call, a hook or schedule fire, a parked run's continuation, and a turn
+also apply their subjects' pending saves when they start, and wait for those saves' deferred
+calls to finish, so a run never starts behind its subject's earlier save.
+
+**Failures.** A transient failure (a lost connection, a timeout, an unavailable dependency) is
+retried with an exponential backoff from `STATES_OUTBOX_RETRY_BASE_SECONDS`, capped at
+`STATES_OUTBOX_RETRY_CAP_SECONDS`, up to `STATES_OUTBOX_MAX_ATTEMPTS` attempts. Any other
+failure, or the last attempt, marks the save **failed**, and the failure is loud: an ERROR log,
+an entry in the operator notifications inbox, the `states_outbox_save_failed` platform event (see
+[Hooks](/concepts/hooks)), and the `tai42_state_outbox_*` metrics (see
+[Observe](/operate/observe)).
+
+### Held subjects
+
+A failed save **holds** its subjects until an operator retries or discards it. A newer save that
+shares a subject with it is held behind it. A read or write of a held subject raises
+`StatePendingSaveFailedError` (`409`, naming the save) rather than serve a record that silently
+lacks the save; a wait that runs out raises `StatePendingSaveTimeoutError` (`503`). The run-tool
+door answers the same `409` / `503`, and a turn that meets a held subject fails through the
+route's ordinary error reply. On the agents stream the `stream.error` frame names the held subject.
+
+The scans over a whole state treat a held save in one of two ways:
+
+| Scan | Held save |
+|---|---|
+| backup export and restore of the state, `fold`, `erase`, deleting the declaration | refused, naming the save |
+| `list_subjects`, `search`, `stats`, retention prune, attach, updating an attachment's declarations | skipped: the scan serves the committed records, logs a WARNING, and names the held saves in its `held` field |
+| re-declare (`PUT /api/states/{name}`) | counted: the held saves' records count as present, so a re-declare that would invalidate one, or remove a subject kind one writes, is refused (`409`, naming the saves); any other re-declare is accepted and names the held saves in `held` |
+
+A widening re-declare followed by a retry therefore repairs a save that failed on the
+declaration. A tool rename waits for a pending save under the tool, and is refused while a held
+save, or a save still running its deferred calls, writes under it.
+
+### Retry and discard
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/state-pending-saves` | list outstanding saves, newest first (`?status=` `outstanding` or `failed`, `?limit=`, `?cursor=`), with the totals of outstanding and failed saves |
+| `POST /api/state-pending-saves/{id}/retry` | retry a failed save: its attempts reset and its records apply at once; answers its status after the records phase |
+| `DELETE /api/state-pending-saves/{id}` | discard a failed save: its writes and calls are never applied and its subjects are released |
+
+Only a failed save can be retried or discarded (`409` otherwise). A listed save carries its
+status (`pending`, `calls`, `running`, or `failed`), run, states, subjects, the calls it runs
+(kind and target), attempts, last error, failed phase, and times — never its record data or
+call arguments. A discard is logged at WARNING with the principal who made it and writes an
+operator notification. The same three operations are MCP tools, and `tai states pending-saves
+list|retry|discard` on the command line (`discard` requires `--yes`). The
+[Studio's States screen](/studio/screens#states) shows them in its Pending saves card.
 
 ## The HTTP surface
 
@@ -380,7 +596,7 @@ state literally named `templates` stays reachable at `GET /api/states/templates`
 | `GET /api/states/{name}` | declaration, effective schema, attachments, regimes |
 | `PUT /api/states/{name}` | declare (`?replace=`) |
 | `DELETE /api/states/{name}` | delete a declaration |
-| `GET /api/states/{name}/stats` | record and subject counts |
+| `GET /api/states/{name}/stats` | record and subject counts, and the held saves |
 | `GET /api/states/{name}/attachments` | list attachments |
 | `GET /api/states/{name}/attachments/{template}` | read an attachment (404 if not attached) |
 | `PUT /api/states/{name}/attachments/{template}` | attach a template |
@@ -430,8 +646,9 @@ refuses loudly.
 | `POST /api/state-retention/prune` | prune expired records |
 
 Errors map to status: `501` when the store's database is unbound (a stable code
-`states-not-configured`), `404` not found, `409` exists / in use / conflict, and
-`422` validation (schema, subject, regime, path, value).
+`states-not-configured`), `404` not found, `409` exists / in use / conflict / a subject held by
+a failed pending save, `422` validation (schema, subject, regime, path, value), and `503` when a
+subject's pending save is still not applied after `STATES_OUTBOX_DRAIN_TIMEOUT_SECONDS`.
 
 ## The command line
 
@@ -441,7 +658,8 @@ attachments, subjects, records, and the audit trail — `list`, `get`, `put`, `d
 carrying the per-operation reconcile directives),
 `detach`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `template-jq`
 (`eval` an input program, `apply` an update program), `erase`,
-`fold`, `writes`, `consumers`, and `prune`. `tai state-templates` manages template
+`fold`, `writes`, `consumers`, `prune`, and `pending-saves` (`list`, `retry`,
+`discard`). `tai state-templates` manages template
 documents — `list`, `get`, `put`, `delete`. Record commands take
 `--target-kind`, `--target-name`, `--kind`, and `--key`; `apply`, `replace`, and
 `merge` read their JSON from `--data` or a `--file`. See the

@@ -119,13 +119,12 @@ thread.
 
 An async ask's `expiry_at` is the **deadline** — the moment the question stops
 mattering, which fires its [`on_expiry`](#sync-and-async) policy. The **checkpoint retention** is a
-different clock: the paused run's checkpoint lives in the checkpointer's own store,
-kept forever unless the deployment bounds it deliberately, after which a sweep
-reclaims the idle thread. The two must agree. If a paused run's checkpointer evicts idle threads at a
-bounded retention horizon, an async ask whose `expiry_at` lies beyond that horizon
-would lose its paused graph before the answer or expiry ever arrives — so the park
-is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
-the horizon it exceeded. A keep-forever retention has no horizon and never refuses.
+different clock: the paused run's checkpoint lives in the checkpointer's own store for the
+[waiting retention](/operate/checkpoints#retention-two-horizons) after its last write (7 days by
+default), after which it is reclaimed. The two must agree: an async ask whose `expiry_at` lies
+beyond that horizon would lose its paused graph before the answer or expiry ever arrives — so
+the park is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
+the horizon it exceeded.
 
 ## Answer formats
 
@@ -352,7 +351,11 @@ document) an optional `filename`:
 - **`kind`** — one of five. The **file kinds** `image`, `document`, `video`, and
   `audio` carry a fetchable body and render as the matching bubble (an `image`
   inline, the others as the matching file element); a `link` renders as a labelled
-  anchor the person clicks through.
+  anchor the person clicks through. In the Studio inbox a `document` is a download
+  link labelled by its `filename` or `caption`, and `audio`/`video` play in a native
+  player only from the deployment's own `/api/interactions/media/<id>` reference (a
+  player has no referrer control); an item the inbox cannot show reads
+  "Media item N could not be shown." in its place, and the question stays answerable.
 - **`url`** — the source. A file kind is an absolute **`https`** URL or a same-origin
   **`/api/interactions/media/<id>`** reference to media the deployment serves by id;
   `image` **additionally** admits an inline `data:image/*` URI (that inline form is
@@ -432,6 +435,41 @@ GET confirm flow — validated against the question's schema when one is declare
 it wraps a tool that builds an external resource and drives the whole flow. The
 wrapped tool takes a `callback_url` parameter and returns the URL to visit.
 
+A `verifier` binds a registered [webhook verifier](/concepts/triggers-and-webhooks#webhook-verifiers)
+to the callback so a signed server-to-server answer is authenticated before it is
+recorded. It is the same `{"verifier": <name>, "config": {...}}` binding a hook topic
+uses (the contract's `TopicVerifierBinding`), whether it is passed to `ask(verifier=...)`
+or bound as `ask_external`'s author config:
+
+```yaml
+extensions:
+  create_resource:
+    - - name: ask_external
+        config:
+          verifier:
+            verifier: shared_secret
+            config: {header: X-Signature-Token, secret_env: CALLBACK_SECRET}
+```
+
+A binding of any other shape is refused when the ask is made (`ValueError`) and when
+the manifest loads (`ask_external`'s config); a stored binding that does not validate
+answers every callback `500` and records nothing.
+
+### The callback URL and its pin
+
+Every callback URL the platform mints has one shape:
+`{INTERACTIONS_PUBLIC_BASE_URL}/api/interactions/callback/{ticket}`. A plugin reads the
+prefix from `tai42_app.interactions.callback_url_prefix()` (`None` when no public base is
+configured). Every component that POSTs to a stored callback URL — the platform's own
+inbound answer ladder, the web channel's answer and reaction doors, a tool that answers a
+question it opened — first pins it with `tai42_kit.interactions.pin_callback_url(url,
+prefix=...)`: only the exact minted shape passes (same scheme, host and effective port,
+no userinfo, query or fragment, one ticket segment), and anything else raises
+`CallbackUrlRefusedError` with a reason (`host_mismatch`, `path_mismatch`,
+`malformed_url`) and the target host — never the URL, which carries the ticket. A
+deployment that changes `INTERACTIONS_PUBLIC_BASE_URL` while questions are open refuses
+their callbacks loudly.
+
 ## Delivering to a channel
 
 By default a pending question surfaces on the authenticated stream — the Studio
@@ -442,6 +480,11 @@ the person on that medium, and the reply comes back through the same callback
 door. The asking tool blocks exactly as before — only the delivery leg changes.
 An unknown channel name, or a delivery failure, raises loudly before the run
 would wait on an answer that can never arrive.
+
+The platform never hands a channel a question whose deadline has already passed: the
+delivery fails with a non-retryable error ("already timed out … nothing was sent"), the
+question is pruned and the `interactions_delivery_failed` event fires — checked again after
+every retry backoff, so a deadline that passes mid-retry is refused before the next send.
 
 A reply that arrives after the question is already gone or expired is not lost:
 with a channel route bound it enters the conversation as an ordinary inbound
@@ -514,6 +557,32 @@ When you don't need to **wait** for the answer, send the form as a
 no expiry, no validation loop — and the submission enters the conversation as an
 ordinary message from the person. The ask is for answers the caller blocks on; the
 ask-less form is for submissions that are welcome whenever they arrive.
+
+### For channel authors
+
+A channel plugin reads the platform's rules from their owners instead of copying them:
+
+- **Callback-link formats** — `tai42_contract.interactions.CALLBACK_LINK_FORMATS`
+  (`confirm`, `external`) are completed by opening the callback link alone; every other
+  format expects a reply the channel correlates.
+- **Reaction events** — a channel routes a form reaction to `tai42_app.interactions.react`
+  as a typed `FormReactionEvent`: `FieldChangedEvent(field=...)`,
+  `PageAdvancedEvent(page=...)` or `SubmittedEvent()`. The HTTP react doors take the same
+  event as JSON; an unknown `kind` or an extra key is refused `400`.
+- **Form vocabulary** — `tai42_kit.interactions` exports the `visibleWhen` operators and
+  evaluator (`evaluate_visible_when`, `hidden_fields`), `RADIO_OPTION_THRESHOLD`,
+  `DATE_CONSTRAINT_KEYS` and `FORM_WEEKDAYS`, so a channel shows, hides and draws a form
+  exactly as the answer check enforces it.
+- **Inbound media faults** — `tai42_kit.net.media_faults`: catch
+  `MEDIA_FETCH_AND_INGEST_FAULTS`, re-raise when `media_fault_is_transient(exc)` (so the
+  vendor redelivers), else reject with `media_rejection_reason(exc)`;
+  `inbound_media_kind_for_mime(mime)` maps a vendor mime type to the media kind.
+- **Entry params** — `tai42_kit.conversations.entry_params.bound_entry_params(params,
+  mode=..., door=...)` before `accept`: a door that answers a waiting caller passes
+  `REFUSE` (the bound error is the caller's), a webhook door whose vendor redelivers a
+  `5xx` passes `DROP` (the set is dropped, logged at `WARNING` and counted, and the turn
+  proceeds). `put_entry_param` drops one over-cap value the same way.
+- **Deadlines** — no expired-delivery check in `deliver`: the dispatcher never hands one.
 
 ### Form capabilities per channel
 
@@ -637,7 +706,8 @@ A `reaction_tool` with no trigger, or a `reactions` block with no handler, is re
 ### The handler contract
 
 The handler receives exactly three things: the `interaction_id`, the `event` (its
-`kind` and the `field` or `page` it concerns), and the partial `values` filled so far.
+`kind` and the `field` or `page` it concerns — the contract's `FormReactionEvent`, received
+as its JSON form), and the partial `values` filled so far.
 It returns a **form update** — validated against this form's own schema before it
 reaches the surface:
 

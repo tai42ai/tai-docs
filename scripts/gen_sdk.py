@@ -167,6 +167,13 @@ PAGES: list[dict] = [
         "modules": ["tai42_contract.plugins"],
     },
     {
+        "slug": "contract-interactions",
+        "title": "Interaction outcomes (tai42_contract.interactions)",
+        "description": "The typed outcomes a resumed run returns: suspended, buffered, and failed.",
+        "icon": "comments",
+        "modules": ["tai42_contract.interactions.models.response"],
+    },
+    {
         "slug": "kit-plugins",
         "title": "Plugin I/O and env (tai42_kit.plugins)",
         "description": "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires.",
@@ -186,6 +193,13 @@ PAGES: list[dict] = [
         "description": "Pooled Postgres/Redis clients and connection settings.",
         "icon": "network-wired",
         "modules": ["tai42_kit.clients"],
+    },
+    {
+        "slug": "kit-postgres",
+        "title": "Postgres client (tai42_kit.clients.impl.postgres)",
+        "description": "The pooled Postgres client, autocommit reads, pinned and dedicated connections.",
+        "icon": "database",
+        "modules": ["tai42_kit.clients.impl.postgres"],
     },
     {
         "slug": "kit-llm",
@@ -216,6 +230,20 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.net"],
     },
     {
+        "slug": "kit-interactions",
+        "title": "Park index and park seams (tai42_kit.interactions)",
+        "description": (
+            "The shared park index, the terminal chain notice, and the give-up handler seam a driver "
+            "that parks registers so an abandoned park's waiter is told."
+        ),
+        "icon": "square-parking",
+        "modules": [
+            "tai42_kit.interactions.park_index",
+            "tai42_kit.interactions.park_adoption",
+            "tai42_kit.interactions.park_giveup",
+        ],
+    },
+    {
         "slug": "kit-logging",
         "title": "Logging (tai42_kit.logging)",
         "description": "Structured logging settings and setup.",
@@ -239,7 +267,8 @@ PAGES: list[dict] = [
 ]
 
 # The public Protocols/ABCs a plugin author implements, the escape-hatch
-# accessor, and the guarded fetch helper. Every one MUST appear as a rendered
+# accessor, the guarded fetch helper, and the Postgres client's connection
+# helpers. Every one MUST appear as a rendered
 # heading or the run fails.
 REQUIRED_SYMBOLS = [
     "Agent",
@@ -259,6 +288,15 @@ REQUIRED_SYMBOLS = [
     "PluginSpec",
     "fastmcp",
     "fetch_url",
+    "RunFailed",
+    "ParkIndex",
+    "terminal_chain_notice",
+    "ParkGiveUpOutcome",
+    "register_park_giveup_handler",
+    "fire_park_giveup",
+    "PostgresClient",
+    "read_connection",
+    "pinned_connection",
 ]
 
 

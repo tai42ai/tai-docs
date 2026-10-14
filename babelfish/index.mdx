@@ -23,7 +23,11 @@ Babelfish Flows ships as one installable plugin carrying two halves:
   [tools](/concepts/tools-and-extensions) through the public contract — run a
   flow, step it, read its state, and abort it. Because they are tools, everything
   the platform already does to a tool applies: access control, backends,
-  schedules, and tracing.
+  schedules, and tracing. Aborting a flow parked on an async ask while an answer to
+  it is being driven does not cut that drive short: the abort is **requested** of it
+  (`flow_abort` reports `found: true` with `mode: "requested"`) and the drive honours it.
+  Only such a requested abort waits for the live drive; an abort reported
+  `found: false` lapses within 60 seconds and never aborts a later resume.
 - **A flow editor in the Studio.** A front-end bundle the runtime serves to the
   [Studio](/studio) through its integrity-pinned import map, contributing a
   top-level **Babelfish Flows** page and its sidebar entry; the states a flow binds
@@ -154,6 +158,75 @@ a `failed` outcome in-body, a partial failure simply appears as failed slots in 
 transcript rather than aborting the whole map. Scale a large list with the parallel
 mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 
+## How a run runs: tool calls, loops and abort
+
+In autopilot a node awaits a tool that does not declare `tai42/pauses` inside the node;
+the run pauses only at a declared pausing tool or a holder. A node keeps the pause — its
+tool call becomes a pause the run resumes from — when its own tool can pause (a flow call,
+an async ask, any [tool that can pause](/guides/build-a-tool#tools-that-can-pause)), when
+its On Error handler tool can pause, or, inside a loop body, when any tool of the body (its
+On Error handlers and nested bodies included) can pause or the body holds a holder. A
+stepped run (`flow_step`) pauses at every tool call, since its caller runs the tools.
+
+`config.max_iterations` (default 100) is the ceiling on the loop rounds a flow may run:
+the items or rounds an iterate may plan, a `while` loop's default cap, and the bound a
+node's own cap or a router's `maxRuns` must stay under. The engine bounds the graph steps
+one run segment may take from these caps; a flow within its caps never meets that bound.
+There is no setting for it.
+
+`config.checkpoint_retention` declares how long this flow's run memory is kept, in minutes:
+`waiting_minutes` while a run may still continue (a pause), `finished_minutes` after it
+reached its terminal. Either may be left out: an unset waiting is the platform's, an unset
+finished is the platform's capped at the waiting. Both are bounded by the platform's two
+[retention values](/operate/checkpoints#a-threads-own-retention): a flow may shorten them,
+never lengthen them. An empty object, a value that is not a positive whole number, or a
+finished value longer than the waiting one is refused wherever the flow is parsed; a value
+above the platform's is refused by the editor's save gate and by every run and query of the
+flow, before any node runs, naming both values. Every checkpoint of the run — the top level,
+every loop body, every pending write — is kept that long, and an async ask's deadline must fit
+the declared waiting. A child flow a node calls declares its own; the parent's never crosses
+the call. The [agent session threads](#agent-session-continuity) a run owns keep the
+platform's waiting retention and take the flow's finished retention at the run's terminal.
+
+```json
+{"config": {"entry_points": ["fetch"], "checkpoint_retention": {"waiting_minutes": 10, "finished_minutes": 5}}}
+```
+
+In the editor the declaration is the Start node's "Checkpoint retention (this flow)" group
+(the Sub-Flow Start form carries the same group for a sub-flow). Empty inputs keep the
+platform's values; the form itself refuses a finished run longer than the waiting run, and the
+save gate's banner carries the engine's refusal of a value above the platform's.
+
+<Frame caption="The Start form's checkpoint retention group with nothing declared.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-empty-light.png" alt="The Checkpoint retention (this flow) group on the Start form: its description, and the Waiting run and Finished run minute inputs, both empty with the placeholder platform." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-empty-dark.png" alt="The Checkpoint retention (this flow) group on the Start form: its description, and the Waiting run and Finished run minute inputs, both empty with the placeholder platform." />
+</Frame>
+
+<Frame caption="A finished run longer than the waiting run, refused by the form.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-error-light.png" alt="The same group with Waiting run 5 and Finished run 6, and the error Finished run must not exceed waiting run under it." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-error-dark.png" alt="The same group with Waiting run 5 and Finished run 6, and the error Finished run must not exceed waiting run under it." />
+</Frame>
+
+<Frame caption="A save refused by the engine: the waiting run is above the platform's.">
+  <img className="block dark:hidden" src="/images/studio/checkpoint-retention-refused-light.png" alt="The flow editor after Save: the banner The engine rejected the flow: with the line checkpoint retention waiting_minutes (20000 min) exceeds the platform's 10080 min (LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES)." />
+  <img className="hidden dark:block" src="/images/studio/checkpoint-retention-refused-dark.png" alt="The flow editor after Save: the banner The engine rejected the flow: with the line checkpoint retention waiting_minutes (20000 min) exceeds the platform's 10080 min (LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES)." />
+</Frame>
+
+A loop is an iterate node: a cycle of edges, conditional branch paths, holder ask exits
+(`on_ask`) or the route from a holder with an ask exit to a conditional that lists it in
+`inputs` is refused at validation.
+
+A cooperative `flow_abort` stops the run before or after a node's tool call, or between
+graph invocations; a running tool call finishes first (`hard=True` cancels it). The abort
+reaches every worker by event, and a worker that misses the event still sees the request
+within 20 seconds.
+
+A tool that returns a park signal without declaring `tai42/pauses` fails its node: a node
+failure of source `app` the node's On Error sees, with `.upstream_outputs.error_type`
+`UndeclaredPauseError`, `.upstream_outputs.error_kind` `unknown`, and the tool named in
+the message. Inside a loop body it is a failed iteration like any body node failure, and a
+run it fails runs the flow-level On Error.
+
 ## Inputs and results
 
 Each flow declares its own inputs and results — the values it expects when it starts
@@ -192,9 +265,9 @@ the subflow's path into the Studio problems panel like the parent's.
 
 A node that starts, resumes, and cancels a **parkable call** — a **Flow Call**, a
 **custom node** (a saved flow published to the palette), or an **agent** — is a
-**holder**. On the wire its `type` is `"holder"`, it holds a saved flow or an agent
-(the `tool` / `tool_kwargs` pair), and the runtime decides which of the two the call
-is by resolving `tool`, never a second field. A holder has no plain expression input;
+**holder**. On the wire its `type` is `"holder"`, it holds a saved flow or any registered
+agent — or a preset over one — (the `tool` / `tool_kwargs` pair), and the runtime decides
+which of the two the call is by resolving `tool`, never a second field. A holder has no plain expression input;
 instead it carries jq slots evaluated over the [node
 envelope](/babelfish/jq-editor#what-each-field-seeds) with the held call's parked
 interactions bound as `$parked`:
@@ -217,11 +290,24 @@ interactions bound as `$parked`:
 When none of a holder's expressions reference `$parked`, the engine does not fetch
 the held call's parked list before running them.
 
+**A parking target must be a holder.** A saved flow parks, and an agent parks when its kind
+declares that it can (the platform's agent registry says so for each registered agent). A
+plain runnable that calls a parking agent, or a preset over one, is refused at validation:
+`Node '<id>': agent '<agent>' can park, so it must be a 'holder' node, not a plain runnable.`
+(for a preset: `Node '<id>': tool '<preset>' is a preset over agent '<agent>', which can park,
+so it must be a 'holder' node, not a plain runnable.`). An agent that does not park may be
+called by a plain runnable or held. A held agent **can ask its caller** when it parks and its
+static tool set — the kind's own fixed tools, a preset's saved `tool_names`, and the holder's
+own `tool_kwargs.tool_names` — names the `ask` tool.
+
+A held call that **fails** — an agent whose resumed run raised (a model or provider error,
+say), or one whose resume the platform gave up on — reaches the holder as a failure, never
+as a result: the holder fails, so its [On Error](#handling-a-nodes-error) runs, or the flow
+fails when none is set.
+
 The [holder panel](/babelfish/studio#the-holder-panel) in the editor authors these
 slots; a [hand-authored outcome](/babelfish/wire-form) routes the held call's result
 the same way the editor's chips do.
-
-{/* screenshot: the holder edit panel — both themes */}
 
 <Frame caption="The holder node's edit panel: the Cancel, Resume and Start expressions and the send-up switch.">
   <img className="block dark:hidden" src="/images/studio/holder-panel-light.png" alt="The holder node's edit panel: the Cancel, Resume and Start expressions and the send-up switch." />
@@ -235,9 +321,24 @@ the holder settles that two ways:
 
 - **An ask exit (`on_ask`).** Name a node in the flow as the ask exit and the holder
   routes to it when the held call settles with asks; its other outcomes take the
-  ordinary edges. The card grows an extra **ask** exit handle, and wiring it is
-  required — an unwired exit is a save error on a holder that can ask. The exit settles
-  the held call's caller asks itself and does not re-park on them.
+  ordinary edges. The card grows an extra **ask** exit handle, and wiring it is required
+  — an unwired exit is a save error on a holder that can ask. The exit settles the held
+  call's caller asks itself and does not re-park on them: taking it **releases** the
+  held run, which stays parked on its own ask, standalone. A holder — later in this run
+  or in a later one — resumes it with its own `resume_expr` row and settles on the held
+  run's result; a released run's result never re-enters the run that released it. The
+  release is kept for twice the platform's interactions idle TTL
+  (`INTERACTIONS_IDLE_TTL_SECONDS`, 48 hours by default), counted from the exit and
+  never extended, and a released agent must finish inside it. An ask exit whose held
+  step's reported deadline (the earliest of its open asks) does not end at least the
+  park margin (one hour) before the window closes is refused before anything is written;
+  an answer that still arrives after the window — a later ask of the same step, or a new
+  ask the agent raises after a resume — is refused at delivery as a failure, never as
+  the agent's result (`no park-index entry for interaction_id '<chain key>'; cannot
+  resume`): the resuming holder fails, so its On Error runs, or the flow fails when none
+  is set. Keep every ask of a released agent inside the window, and the held step's
+  earliest deadline inside it by at least an hour. A held flow is not chained: its ask
+  exit has no release and no window.
 - **Send up (`send_up`).** Turn the send-up switch on and the holder parks the ask as a
   nested park and hands it **up** to this flow's own caller unchanged, for a run
   further up to answer. With send-up on, there is no ask exit to wire.
@@ -245,7 +346,14 @@ the holder settles that two ways:
 A holder that can ask its caller needs one or the other, or a caller ask has nowhere to
 go.
 
-{/* screenshot: a node card with its ask exit wired — both themes */}
+**A run a holder resumed cannot park on it again.** When a holder resumes or takes a held
+run and that run asks this run's caller again with send-up off, the new asks route to the
+ask exit as usual. When it parks again instead — on a user ask, or on a caller ask with
+send-up on — the holder refuses the park with a conflict error: the resumed run keeps the
+routing of its first park, so this run could never be continued by its answer. The holder
+fails, so its [On Error](#handling-a-nodes-error) runs, or the flow fails when none is set.
+Answer such an ask through its own path, or route caller asks through the ask exit with
+send-up off.
 
 <Frame caption="A node card with its ask exit wired.">
   <img className="block dark:hidden" src="/images/studio/ask-exit-light.png" alt="A node card with its ask exit wired." />
@@ -295,7 +403,14 @@ be filled, an output that fails the node's declared schema, a per-round shape th
 not match the node's loop depth, and an answer a static ask format rejects are all loud
 refusals — then consumed per node.
 
-{/* screenshot: the holder panel's warm-start rows — both themes */}
+A raw `ask` node's fill is checked against its question format when that format is
+**static**: the ask's own `answer_format` (with `options` for a select and `schema` for a
+form) is set in its tool arguments, and the node has no expression and no declared inputs
+that could rewrite them at run time. The check uses the platform's own question format for
+those arguments, so an off-set answer is refused (`warm-start answer for node '<id>' does
+not fit its question format: answer must be one of […]`), and arguments the ask itself
+refuses are refused too (`warm-start cannot check node '<id>': …`). A node whose format is
+built or overridable at run time is filled unchecked.
 
 <Frame caption="The holder panel's warm-start rows.">
   <img className="block dark:hidden" src="/images/studio/warm-start-light.png" alt="The holder panel's warm-start rows." />
@@ -385,6 +500,15 @@ outcome does not carry, on a completed run and on a paused one alike. A paused o
 carries no `missing_results` at all means the list could not be computed and is unknown —
 never that nothing was missing.
 
+A run whose result cannot be built fails. When a node's return expression raises, the
+caller receives the run's error (`Flow run failed (app/<type>): …`) whether the run
+completed or was cut short by a stop or an abort. When a run that must return a result has
+none, a completed or stopped run fails the same way; an aborted run was cut short on
+purpose, so it returns the `aborted` status with the missing results listed in
+`missing_results`. The error is an *application* error, since the expression and the check
+are the flow's own logic: the flow-level On Error sees it, and it is not retried as an
+infrastructure fault.
+
 ## Handling a node's error
 
 A node — a **runnable**, an **agent**, a conditional's **branch**, or the flow itself
@@ -407,8 +531,8 @@ predecessor outputs use, alongside the ordinary run channels:
 | `.upstream_outputs.error` | The exception payload as raised — a dict is carried verbatim so jq can navigate it (`.upstream_outputs.error.code == 404`), anything else is its string form. |
 | `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
-| `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"app"` when the flow's own logic raised or `"infrastructure"` when the platform beneath it did, so recovery can gate on which. |
-| `.inputs` / `.outputs` | The failed node's inputs, and the run's outputs at failure. |
+| `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"infrastructure"` when a transport the platform owns failed, and `"app"` for every other failure (see [Who handles a failure](#who-handles-a-failure)). |
+| `.inputs` / `.outputs` | The run's inputs and outputs channels at failure — what the [run state](#run-state) keeps. |
 | `$states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
 An On Error dispatches one of two ways, and they are exclusive — declaring both
@@ -452,6 +576,35 @@ A finished run shows what the On Error did. A node that failed and was rescued r
 as recovered, and the On Error that ran — whether the inline tool or the wired
 Recovery — reads as having run on the error path rather than as an ordinary
 step. A node reached both ways keeps its own status and gains the On Error mark.
+
+### Who handles a failure
+
+Two questions about a failure are answered apart.
+
+**Who handles it — `error_source`.** A failure is `infrastructure` only when a transport the
+platform owns failed, as that transport's owner declares it: a standard timeout or connection
+error, a dropped or unconnectable pooled client, an HTTP transport error, a closed or broken
+stream, or the MCP client's own read timeout. No author caused such a failure and no On Error
+can mend it, so it **skips** the node's On Error and reaches the run's error path. Every other
+failure is `app` and **reaches** the On Error, whatever its kind — including an MCP tool's own
+error, an unanswered sync ask, a spent turn budget, a sandbox command that timed out, a
+sandbox, states or other capability that is not available, a tool that paused without
+declaring it, a barrier that timed out, and any error raised from a transport error (only the
+error itself is read, never its cause). A failure replayed on resume keeps the source it had
+when it happened.
+
+| Raised in a node | `error_source` |
+| --- | --- |
+| A standard timeout or connection error, a dropped pooled client, an HTTP transport error, a closed or broken stream, an MCP read timeout (code 408) | `infrastructure` — the node's On Error is skipped |
+| An MCP error with any other code | `app` — the node's On Error runs |
+| An unanswered sync ask, a turn budget, a sandbox exec timeout, a missing sandbox, states or capability, an undeclared pause | `app` — each is stamped `timed_out` or `unavailable` for a reason that is the flow's own, and the node's On Error runs |
+| Any error raised from a transport error, a barrier timeout | `app` |
+
+**Whether it is retried — the error kind.** A tool that opts into the platform's retries is
+retried on the error kinds the platform treats as retryable. The transport errors above carry a
+kind too: an HTTP timeout reads `timed_out`, other HTTP transport errors and a closed or broken
+stream read `unavailable`, and an MCP error leased through the platform's client reads the kind
+its code means — so `.upstream_outputs.error_kind` names them rather than `unknown`.
 
 ### When a loop's failure reaches the flow's On Error
 
@@ -527,6 +680,37 @@ already ran. This is inherent to interrupt-resume re-execution: a condition over
 that can change while the node waits carries the edge, one over the node's settled
 fan-in does not.
 </Note>
+
+## Run after the reply
+
+A runnable node can call its tool **after the run has answered** instead of during the run:
+set `after_reply: true` on the node. Use it for a call the reply does not depend on — saving a
+transcript, notifying a team — so the participant never waits on it.
+
+When the node is reached and its run condition holds, the engine does not call the tool. It
+queues the call, with its resolved inputs, on the run's states unit of work, and the node settles
+at once with a `null` output and the status `deferred` (shown in Run mode as **Node call runs
+after the reply**). When the run ends cleanly the call is written with the run's
+[pending state save](/concepts/states#pending-saves) and runs after the save's records apply, in
+order with every other save on the same subjects — so the call sees the state the run saved. It
+runs under the identity, attribution, state context, and trace the run had, with the
+idempotency key `<save id>:<index>`. A run that ends any other way (an error, an abort) drops the
+call, and a resume never queues it twice.
+
+The node has no output and no place in the rest of the flow, so the engine refuses:
+
+- an `after_reply` node with no `tool`, with `return_result` or `return_expr`, with its own
+  `on_error`, or with a `session_thread`;
+- an edge out of it, a node naming it in `inputs`, or the node inside an iterate body;
+- a state binding with updates on it.
+
+A failed call is not reported to the flow — the run has already answered. A transient failure
+is retried; any other failure marks the save failed and holds its subjects, loudly, until an
+operator retries or discards it (see [failures](/concepts/states#pending-saves)). Delivery is at
+least once: a call interrupted by a process exit runs again only when its tool declares
+`tai42/crash_resume`, and otherwise the save fails. A call that parks for an answer fails the
+save, since nothing waits for it after the reply. The node needs the
+[state store](#enable-the-state-store).
 
 ## Routing on a verdict
 
@@ -749,9 +933,20 @@ match. The single **otherwise** route still fires only when nothing else on the 
 under Loop it carries an explicit condition over every kind and when route, so it never
 double-fires beside a matched kind.
 
-{/* screenshot: router once canvas — both themes */}
-{/* screenshot: router loop canvas — both themes */}
-{/* screenshot: router dispatch form — both themes */}
+<Frame caption="A Router on Once: every kind chip is a plain routing line.">
+  <img className="block dark:hidden" src="/images/studio/router-once-canvas-light.png" alt="A Router card on Once with the kind chips alpha, beta and gamma, each wired by a plain line to its own runnable, beside the + when and otherwise chips; no loop badge and no result chip." />
+  <img className="hidden dark:block" src="/images/studio/router-once-canvas-dark.png" alt="A Router card on Once with the kind chips alpha, beta and gamma, each wired by a plain line to its own runnable, beside the + when and otherwise chips; no loop badge and no result chip." />
+</Frame>
+
+<Frame caption="The same Router on Loop: each chip starts a body, and the result chip continues when every body is done.">
+  <img className="block dark:hidden" src="/images/studio/router-loop-canvas-light.png" alt="The same Router card on Loop: the loop badge, the kind chips alpha, beta and gamma each wired to the body it runs, and the wired result chip the collected output leaves through." />
+  <img className="hidden dark:block" src="/images/studio/router-loop-canvas-dark.png" alt="The same Router card on Loop: the loop badge, the kind chips alpha, beta and gamma each wired to the body it runs, and the wired result chip the collected output leaves through." />
+</Frame>
+
+<Frame caption="The Router's Dispatch field with Loop chosen and a repeat condition revealed.">
+  <img className="block dark:hidden" src="/images/studio/router-dispatch-form-light.png" alt="The Router's Dispatch field with Loop chosen: the Once and Loop control, the Order choice, the Repeat while a condition holds checkbox with its jq condition, and the Max runs cap." />
+  <img className="hidden dark:block" src="/images/studio/router-dispatch-form-dark.png" alt="The Router's Dispatch field with Loop chosen: the Once and Loop control, the Order choice, the Repeat while a condition holds checkbox with its jq condition, and the Max runs cap." />
+</Frame>
 
 ### Per-route On Error
 
@@ -912,13 +1107,13 @@ which subject.
   injection and update forms are in
   [Binding a node to a state](#binding-a-node-to-a-state). In a run, every bound state's
   record is available to jq as `$states.<name>`, seeded once at run start.
-- **Subjects.** A `subject_expr` is **required** on every binding and resolves to either a
-  full subject object `{target_kind, target_name, kind, key}` or a bare **key** string —
-  for a bare key the `kind` is the state's declared subject kind and the target is the run's
-  ambient target. It means the same on every door and every node; see
+- **Subjects.** A `subject_expr` is **required** on every binding and resolves to a
+  [subject reference](/concepts/states#subject-references) — a full subject object
+  `{target_kind, target_name, kind, key}`, a `{kind, key}` object, or a bare **key** string —
+  which the platform resolves at run start by the same rule as every door; see
   [A binding's subject and scope](/concepts/states#a-bindings-subject-and-scope). A
-  `subject_expr` resolving to `null` or the wrong keys is a loud mint-door error naming
-  the state and the resolved value.
+  `subject_expr` resolving to `null` is a loud mint-door error naming the state and the
+  expression; a reference the platform refuses fails the run with the platform's refusal.
 - **Write through updates.** An update's op batch may carry
   [keyed list ops](#keyed-state-list-ops) and per-op compare-and-set
   [guards](#cross-flow-state-writers) — the coordination primitives for many writers on
@@ -955,6 +1150,17 @@ it runs:
   ['x'] that are not bound on this node; bound states are […]."* A binding whose
   `subject_expr` cannot resolve is likewise a loud mint-door error naming the state and the
   resolved value.
+
+A call to a [template jq](#state-templates) is judged per environment too. Every flow jq
+is compiled when the flow is saved, so a program that is not valid jq — a syntax error,
+an undeclared `$variable`, a `tjq_<name>` call without its one argument — is refused at
+every save door. Whether the template a `tjq_<name>` call names is attached depends on
+the environment: a preset write, which carries no environment, admits the call; flow
+validation by the flow's name (the editor's save) and a conversation-route bind refuse it
+as an **error** when the flow's bound states do not attach the template — *"B: expr:
+failed to compile: jq: error: tjq_total/1 is not defined …"* — fixed by attaching the
+template or binding a state that attaches it; and a run in an environment that never
+attaches it fails the node with the same compile text.
 
 Binding is refused at the bind door for a state that is **not declared** (*"state 'x'
 is not declared"*), for a missing or blank `subject_expr` (it is required and must be a
@@ -1119,7 +1325,10 @@ states as its subset options — never the parent's.
 
 In the Studio the control sits on the node's State/Settings surface beside the wait
 knobs, and a refresh lands in the run's [state-change trace](#flow-states) as a
-"refreshed" marker carrying no new writes.
+"refreshed" marker carrying no new writes. The marker holds the document the node read when
+the run's trace does not record it yet (a write from outside this run), and no document when it
+does — a node of this run, a subflow of this run or an earlier drive of this run wrote it; the
+node's records reference that record.
 
 ### Enable the state store
 
@@ -1193,9 +1402,12 @@ with zero states (`{"states": []}`) is refused (`422`). "No binding" is spelled 
 binding, and export carries no empty binding document (a node with no binding contributes
 nothing to the [`state_bindings` sidecar](#portable-flow-files)).
 
-The engine validates the binding at save: every named template jq must exist on an attached
-template with the purpose it is used as (`input` for an injection, `update` for an update; an
-unknown name, an ambiguous unqualified name, or the wrong purpose is refused); an adapter — required
+The engine validates the binding at save: every named template jq resolves through the
+platform's [template jq resolution](/concepts/states#template-jq) — so a name the platform
+would refuse at run time (unknown, declared by two templates attached on the state, or used
+with the wrong purpose: `input` for an injection, `update` for an update) is refused at save
+with the platform's message — and must name a program of a template the binding attaches; an
+adapter — required
 on a named update — and a custom update's jq must **compile**. It does NOT re-check the ops a
 custom update produces: those are constrained at RUN time by the platform's write-regime
 chokepoint (there are no binding-declared paths for a custom update). An adapter's output is
@@ -1203,7 +1415,8 @@ validated against the update jq's declared input at APPLY time — a missing or 
 refused.
 
 The **single-writer** check runs at save over the REAL write paths. A `single`-regime path
-admits at most one writer, and a second is refused naming both. A template update is one writer
+of any template attached on the state (one the save itself attaches on use included) admits at
+most one writer, and a second is refused naming both. A template update is one writer
 identified by `(template, attachment, program)` on its declared `writes` rebased under the
 attachment path — so the same template update applied from any node or door on one state is ONE
 writer — while a custom update is the node's own writer, `(flow, node)`, counted as a writer of
@@ -1211,6 +1424,11 @@ the **whole attached subtree** (its attachment's path). A `composing` path admit
 [keyed ops](#keyed-state-list-ops) or an append `set` (a path ending `'-'`); a whole-path write
 is refused, and the platform store additionally refuses a `composing`-shape violation at write
 time, so the rule holds even for a write that never passed the bind door.
+
+The save resolves every named template jq it checks — its own and those of the stored bindings
+on the same states — in one call to the platform's batch resolver, under the same per-state lock
+the single-writer check reads the stored bindings with. A stored binding whose reference no longer
+resolves (its template was detached) contributes no writer and never fails the save.
 
 ### The template-jq prelude
 
@@ -1225,20 +1443,33 @@ def tjq_<name>($params): <the program body, with $params, $declarations and $par
 so an expression calls it as `tjq_<name>({…})` — always exactly one object argument (`{}` when
 the program declares no params), for example `tjq_due_set({run: .turn.run})` or `tjq_x({})`.
 Inside the body `.` is the attached record subtree, and `$declarations`/`$parameters` are the
-attachment's declarations and parameters. Sibling input programs are emitted dependency-first,
-so one may call another by its `tjq_<name>({…})` handle.
+attachment's declarations and parameters. The engine reads each template already
+[rendered by the platform](/concepts/states#rendered-templates) — every body as jq text, the
+input programs in the platform's dependency order — so one program may call a sibling by its
+`tjq_<name>({…})` handle; the engine parses no template document of its own.
 
 The prelude also emits a generic `attachment($state; $template)` locator: it yields the
 attachment envelope, and `attachment($state; $template).data` the record subtree an `input`
 program reads — so `attachment($state; $template).data | tjq_<name>({…})` is the explicit form
 of a call whose `.` is that subtree.
 
-When a program name is unique across the state's attachments the engine emits both the short
-`tjq_<name>` and the qualified `tjq_<template>__<name>` — the template name slug-encoded
-`-`→`_`, so `my-tally` gives `tjq_my_tally__<name>`; when it is shared it emits only the
-qualified form (never a silent pick). An unknown name raises loudly. There is no update/write
-callable in an expression — updates happen only through a binding's `updates`
+When a program name is unique across the attachments in scope the engine emits the qualified
+`tjq_<template>__<name>` — the template name slug-encoded `-`→`_`, so `my-tally` gives
+`tjq_my_tally__<name>` — and the short `tjq_<name>` as an alias of it; when the name is shared
+it emits only the qualified form (never a silent pick). An unknown name raises loudly. There is
+no update/write callable in an expression — updates happen only through a binding's `updates`
 ([above](#binding-a-node-to-a-state)).
+
+Two different programs never share a handle: a short handle can spell another template's
+qualified one (template `t`'s program `a__x` and template `a`'s program `x` both give
+`tjq_a__x`), and every such pair is refused loudly, naming both programs, wherever the prelude is
+built — at a binding save (over every state the flow binds), at flow validation and route
+binding, in `validate_jq`, at a run's start, and at an attach, declarations edit, or template
+replace on a state a flow binds. Rename one program or template to resolve it.
+
+A run builds its prelude once per distinct set of rendered attachment versions and every later
+run on the same versions reuses it; an attachment change or a re-rendered template builds it
+anew. A run also reads its flow's bindings once.
 
 ### Trace, declarations, and the effective schema
 
@@ -1300,48 +1531,100 @@ server calling its own HTTP. The document is the source of truth, and a default 
 operator edit by a content hash. A state-template document a resource ships is registered as a
 platform state-template seed on the [state store](/concepts/states#templates-and-attachments).
 
-## Checkpoint retention
+## Run state
 
-A run's pause/resume memory lives in its durable checkpointer, and on the
-`postgres` provider that history is kept until a thread is explicitly deleted —
-so completed and abandoned runs accumulate. An opt-in retention window bounds
-them, mirroring the states record-retention idiom: configure the window, then
-drive an explicit prune on a cadence (a schedule or your own cron) — never a
-silent background loop.
+A run's state keeps of each node's inputs and outputs only what a later step reads, worked
+out once per flow version over every scope — the top-level graph and every loop body:
 
-```bash
-FLOW_CHECKPOINT_RETENTION_DAYS=90
-```
+- **Every value, in order** of `.outputs.<node>` / `.inputs.<node>` when an expression of the
+  flow reads that node by name — a node's expression, run condition or result shaping, a
+  holder's expressions, a conditional's and its branches', a loop's drivers, any On Error.
+- **The newest value** when only the engine reads it: a node's inputs, a flagged result, a
+  loop's output, branch routing.
+- **Nothing** otherwise. A monitoring plugin still records every step's input and output.
 
-`POST /api/babelfish/checkpoints/prune` reaps every thread whose newest
-checkpoint is older than the window and answers `{pruned, provider}` — plus a
-`reason` whenever it did nothing. A **live async park is always spared**, whatever
-its age; on this provider the window also doubles as the park-admission horizon, so
-an async ask whose deadline lies beyond it is refused loudly at suspend rather than
-parking a run whose checkpoints could be reaped before the answer arrives. Under a
-bounded window an ask carrying **no** deadline is refused too — a park that cannot
-be proven durable is never admitted.
+An expression the engine cannot bound — one that reads `.outputs` or `.inputs` as a whole
+(`.outputs | keys`, `getpath(...)`, `..`, a function over the channel) or uses a construct the
+analysis does not cover (an inline `def`, an assignment, `label`, destructuring) — makes the
+flow keep every node's full history. Validating or saving such a flow reports a
+`state_read_unbounded` **warning** naming the expression; the flow still saves and runs.
+
+The state also holds `node_visits`: per node visit, the step a monitoring plugin recorded it
+as, for a holder what the visit did, and where in that step's record the node's result and
+its evaluated inputs sit. A value one step writes for another node — a branch handing its
+target an input, a loop publishing its output — is listed under that node too, naming the
+step that wrote it. An On Error entry keeps the error and its context, not copies of the
+run's channels; a loop's per-iteration results leave the state once its output is published.
+
+A run records the stored format it was written in and what it keeps. A resume is refused —
+the waiting caller receives FAILED with the reason — when the state was written in another
+format, or when the flow was edited since to read something that run did not keep (the
+message names it, for example `outputs.x (history)`). An edit that only removes reads, or
+reads what the run already kept, resumes. Drain in-flight runs before upgrading to an engine
+release that changes the stored format.
+
+Large node values ride the checkpoint like any other value; the platform compresses them
+above `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES`. `FLOW_REDIS_URL` serves the engine's run
+markers and park index.
+
+## Monitoring a flow
+
+With a [monitoring plugin](/operate/observe), a flow run records each value once, in the
+record of the step that produced it, and every other record holds a
+[reference](/operate/observe#each-value-recorded-once) to it — the Resolved view assembles
+the full value:
+
+| Record | What it holds |
+|---|---|
+| `flow:input` | A fresh run's input: its arguments, its state documents and its warm-start fills. A subflow's input references the records its dispatching run's trace already holds. |
+| `flow:attachments` | The attachment envelope a stateful run's expressions read as `$attachments` (each attached template's path, parameters and declarations), recorded at the fresh start and again at each resume, which renders it anew. A subflow whose expressions read the envelope its dispatching run recorded references that record; a subflow bound to other states records its own. A run whose states attach no template has none. |
+| `LangGraph` (graph root) | The state a run segment, or one loop iteration, started from and ended with. A resumed segment's root holds the answer the run resumed with. |
+| A node's step | The state the node received and what it wrote. Inside a loop, the step also names its node and its iteration path (`loop[1]/inner[0]`) and points at the values it wrote. |
+| A router (`decided_route:`, `branch_route:`, `iterate_route:`) | The state it read and the route it chose. |
+| A tool call | The call's arguments and result in full, over the call's window. |
+| An expression (`expr:<node>`, `foreach_expr:<node>`, …) | A sub-step of its node: the data and variables the expression read, and its result. A state document its node received is a reference to the record that holds it: `flow:input` or the step that last wrote the state; for a state the node re-read (`refresh_states`), the record that already holds it — the `state:<name>` event of that read when the read brought a document the trace did not record. The attachment envelope it read is a reference to the `flow:attachments` of the start or resume its run — or its dispatching run — runs in. |
+| `flow:result` | The run's final state and the result it returns, under the run's own trace. On a failed run the step carries the failure (level ERROR, the error text the caller receives) and the error envelope; the flow-level `on_error` handler's expressions are its sub-steps and the handler's tool call is a tool call of the run. A run has one `flow:result`: when shaping or checking the result fails, that same step ends at ERROR. |
+
+A run's node popup reads a node's result and inputs through these records. Without a
+monitoring plugin nothing is recorded, and the [run state](#run-state) keeps only what a later
+step reads.
+
+## Checkpoint retention and durability
+
+A run's pause/resume memory lives in its checkpointer, and the platform owns how long it
+lives — see [Checkpoints and retention](/operate/checkpoints). A flow run marks its own
+session thread finished at its terminal (success, error, stop or abort — never at a pause),
+together with every [agent session thread](#agent-session-continuity) it owns (a
+`session_thread` template that contains `{flow_run_id}`), and takes them out of the finished
+set when a run, a restart, a resume or a step starts on the session. The platform's
+`sweep_checkpoints` removes a finished thread after
+`LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` and any other one after
+`LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, and spares a session whose latest
+checkpoint still holds a pending interrupt — a parked run, whatever its age. A flow may
+declare shorter values for its own runs (`config.checkpoint_retention`, see
+[How a run runs](#how-a-run-runs-tool-calls-loops-and-abort)). An async ask
+must carry a deadline within the waiting retention; one without a deadline, or past it, is
+refused loudly at suspend. A holder that parks on its held call (a send-up caller ask, or a
+held flow's own park) parks under the earliest deadline among the held call's open asks, so
+the same bound applies to it.
+
+<Note>
+`FLOW_CHECKPOINT_RETENTION_DAYS` and `POST /api/babelfish/checkpoints/prune` are gone: the
+platform's two retention values and its `sweep_checkpoints` operation replace them. The engine
+owns the `FLOW_` prefix, so a deployment that still sets `FLOW_CHECKPOINT_RETENTION_DAYS`, or
+any other name under `FLOW_` the engine does not read, is refused at boot and on every settings
+write, naming it.
+</Note>
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `FLOW_CHECKPOINT_RETENTION_DAYS` | unset | Day window the checkpoint prune reaps past, and the park-admission horizon on `postgres`; unset = keep forever, prune is a no-op. |
+| `FLOW_CHECKPOINT_DURABILITY` | unset | LangGraph's durability mode for every graph invoke: `sync`, `async` or `exit`. Unset leaves LangGraph's default (`async`). |
 
-A non-positive value, or one past the integer ceiling, is a loud configuration
-error rather than a silently ignored setting.
-
-<Note>
-The sweep covers the `postgres` checkpoint provider only. On **any** other provider
-it reports a benign no-op naming that reason — `redis` bounds itself with its native
-idle TTL (`LLM_PROVIDER_CHECKPOINT_TTL_MINUTES`), and `memory`/`sqlite` are dev-only
-and never durable enough to park on at all.
-</Note>
-
-<Warning>
-The prune sweeps the checkpoint tables, which the `postgres` provider shares with
-every other graph pointed at the same connection — conversation and agent threads
-included. It reaps any aged, unparked thread it finds there, not only a flow's. Point
-the flow checkpointer at its own database if that blast radius is not what you want.
-</Warning>
+`sync` writes a step's checkpoint before the next step runs; `async` writes it while the
+next step runs. `exit` writes only when the graph stops — at a pause (a tool call, a tool
+that parks, a holder hand-over) or at the run's end. Under `exit` every step since the last
+pause is persisted only at the next pause or the end, so a crash in between re-runs all of
+those steps on recovery.
 
 ## Agent session continuity
 

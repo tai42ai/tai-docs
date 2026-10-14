@@ -133,6 +133,17 @@ joined. Confirmation is by reality, not successor identity — a recycle is acce
 on two facts: the targeted old lives are **gone** (their slots absent, expired, or
 already at a higher generation), and **fresh ready capacity** of each kind has
 booted under the new config, counted per kind to cover the recycled workers.
+The targets are the workers on the census when the apply started together with those
+on it when the roll begins, so a worker that briefly dropped off the census is waited
+for rather than skipped. A row that is not `recycled` is where the roll stopped:
+`timed-out` (within the step budget the old life did not go or fresh capacity did not
+boot, or the target never returned to ready) or `failed` (the worker refused the op,
+or the bus could not be reached while it was in hand), with a `detail` naming why; the
+roll also stops when the bus cannot be read before a target is reached. The response's
+`recycle_stopped` names where the roll stopped and why: its `name` is empty when the bus
+could not be read before a target was reached, and it is `null` when every target
+recycled. Later targets and the applier's own recycle are then not attempted, and the
+call still answers `200` with the report, as every fleet mutation does.
 
 ## Reloading is a first-class state
 
@@ -142,6 +153,17 @@ header, rather than serving against a half-swapped registry. A client treats it 
 a transient condition and retries — the reload is a state the API describes, not an
 error.
 
+The refusal holds on every door that schedules a conversation turn, not only on the
+API's own message and event routes: a channel webhook (a vendor's inbound message, the
+web chat's send) that arrives during a reload is answered the same retriable `503`, and
+nothing of it is recorded, so the vendor's redelivery is processed in full. A
+conversation door tool reached off the HTTP gate — from a hook, a schedule, an agent's
+tool call, or a detached run — fails loudly with the `unavailable` error kind instead of
+running, and is retried only where the tool's retry policy opts in.
+
+A plugin route opts into the same refusal by declaring `reload_gated` on its
+registration; the route surface enforces it around the handler.
+
 ## Soft restart
 
 `reload_config` is the soft restart: it refreshes environment values and reloads the
@@ -149,7 +171,17 @@ manifest registries in place. Combined with [live config](/concepts/config-and-s
 and manifest updates, it lets a server pick up configuration and capability changes
 without dropping its process. Across a fleet, `tai fleet reload-config`
 soft-restarts every worker on the bus (or only `--target` ones) and returns the
-per-worker report — see [Manage a fleet](/operate/manage-a-fleet).
+per-worker report — see [Manage a fleet](/operate/manage-a-fleet). The soft restart
+never respawns a process, so a recycle-class value changed in the stored env outside
+the pipeline (a hand edit of `.env`, a `kubectl edit` of the config Secret) is named by
+the reload instead: each worker's report lists it under `awaiting_respawn` (its value
+differs from the one the worker bound — at boot, or when the plugin that declares it was
+loaded), the worker
+that ran the reload command logs one ERROR line naming every such worker, and it takes
+effect when that worker is respawned through the deployment's supervisor (on a bare
+server, a restart). The response of an env write or a profile apply names under
+`awaiting_respawn` the workers still awaiting a respawn after its roll — empty when the
+roll converged.
 
 ## The kinds summary
 

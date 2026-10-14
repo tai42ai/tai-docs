@@ -61,6 +61,11 @@ route to and no door could address. The value is never sanitized: a violation is
 rejected at registration with a `400`, its message naming the offending field and
 the pattern.
 
+A hook that carries a state binding has it checked and its templates attached at
+registration; a refused binding stores no hook. A binding naming an undeclared state is a
+`404`, an occupied attach path a `409`, and a states-store failure a `500` — see [saving a
+binding](/concepts/states#saving-a-binding).
+
 ## The ingress door
 
 External systems deliver events to the public `POST /universal_webhook/{topic}`
@@ -103,6 +108,20 @@ fails the fire loudly, like any hook error. Leaving `subject` unset leaves the f
 with no ambient state context, so a state tool it calls must carry an explicit
 subject. The Studio's [Hooks screen](/studio/hooks) surfaces the subject as an
 optional group on the register form.
+
+## Platform events
+
+The platform also fires topics of its own, for a background event an operator should hear
+about. A hook registered on such a topic fires exactly as it does for an external event, so a
+deployment routes the alert wherever it wants — a chat-line, a pager, a ticket. Two of them:
+
+| Topic | Fired when | Payload |
+|---|---|---|
+| `interactions_ask_expired_unanswered` | an ask expires with no answer ([Interactions](/concepts/interactions)) | `interaction_id`, `group_id`, `channel`, `recipient`, `expired_at` |
+| `states_outbox_save_failed` | a pending state save fails and holds its subjects ([States](/concepts/states#pending-saves)) | `save_id`, `run_id`, `phase` (`records` or `calls`), `subject_keys`, `error_kind`, `error` |
+
+A failure to fire a platform event is logged at WARNING and never stops the work that raised
+it; the event's cause is already logged on its own.
 
 ## Managing hooks live
 

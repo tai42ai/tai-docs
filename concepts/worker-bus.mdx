@@ -159,9 +159,10 @@ the report names, honestly, every worker the change did not cleanly reach:
   ack window.
 - **departed** — the worker's presence key expired; it went away (a rolling
   restart or a `SIGKILL` mid-reload).
-- **timed_out** — the worker acknowledged the op but did not finish applying it by
-  the deadline. The op usually still applies once its reload gate frees; verify
-  with the fleet census or a fleet reload.
+- **timed_out** — the worker acknowledged the op but did not finish applying it
+  inside the apply window, which covers its full drain budget: its reload is stuck
+  past it. Read that worker's log (the retire names the step that overran) and
+  verify with the fleet census or a fleet reload.
 - **resyncing** — the worker is mid-resync (a boot or a reconnect) and was not in
   a ready state to take the op; it converges on its own resync.
 - **recycling** — the worker is departing under a recycle; it converges by ending
@@ -176,16 +177,23 @@ could not expect an answer from. None of these outcomes is hidden: a worker the
 broadcast could not converge is reported, logged, and surfaced in the UI — a
 failed propagation is never a fake success.
 
-A recycle-class [settings-profile](/concepts/config-and-secrets#settings-profiles)
-apply drives one more thing over the bus: after the reload fans out, the applier
-censuses the fleet on the bus and orchestrates a process recycle across the
+A recycle-class env change — a [settings-profile](/concepts/config-and-secrets#settings-profiles)
+apply or an env write (`tai config env set`, the Studio editor, a backup restore, a
+plugin install) — drives one more thing over the bus: after the reload fans out, the
+writer censuses the fleet on the bus and orchestrates a process recycle across the
 serve/backend workers it names. Confirmation is by reality, not by tracking a name
 to its successor — a recycle is accepted when two facts hold: the targeted **old
 lives are gone** (their slots absent, expired, or already advanced to a higher
 generation), and **fresh ready capacity** of each kind has booted under the new
 config, counted per kind to cover the recycled workers. The report never claims a
 particular new life is a particular old one's replacement; it confirms the old
-lives ended and the fleet came back to strength. Because that census rides the bus
+lives ended and the fleet came back to strength. A target the bus could not confirm
+(it was still applying the reload, so the recycle op got no acknowledgement) is
+awaited on the census within the step budget; it may still recycle once its reload
+returns, and its generation then bumps on `tai fleet workers`. The roll stops at the
+first target that does not converge — reported `timed-out` or `failed` with a
+`detail` — or when the bus cannot be read, and attempts neither the later targets nor
+the writer's own recycle; `recycle_stopped` in the response names where and why. Because that census rides the bus
 itself, the bus URL is one key a recycle can never carry — replacements would
 register on a new bus the running census cannot see — so a profile changing
 `TAI_BUS_REDIS_URL` is refused on every shape.
@@ -207,8 +215,9 @@ lands on the same end state.
 On a persist-across-jobs backend — a **celery prefork** pool, whose forked
 children hold their own in-memory caches for the life of the child — a
 template-eviction or any registry-mutating fleet op turns the pool over **once**
-after it applies, so a forked child can never keep serving a stale compilation or
-a stale registry from before the change.
+after it applies, so a forked child can never take new work with a stale
+compilation or a stale registry from before the change; a child finishing a job it
+already holds exits after it and takes no further job.
 
 ## Documented limitations
 
@@ -238,14 +247,20 @@ whether or not a rule fires.
 ## Operational knobs
 
 The timing knobs have safe defaults; change them only for a deployment whose
-reloads legitimately run long.
+reloads legitimately run long. The apply window is never below three drain budgets
+(`TAI_TOOL_RUNS_SHUTDOWN_DRAIN_SECONDS`): a reload's retire drains in-flight
+requests, background runs and retired client pools in sequence, each within the
+drain budget, and a worker draining real work must answer inside the window. A
+bus-enabled process refuses to boot or reload, and a config change is refused, when
+the window is below that floor; raise the window with the drain budget, adding the
+reload's own time.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `TAI_BUS_REDIS_URL` | unset | Redis URL that enables the bus. Unset = bus off (single-worker, `file` mode, no backend only). |
 | `TAI_BUS_NAMESPACE` | `tai` | Prefixes the control channel, reply channels, and presence keys. Unique per stack on a shared Redis. |
 | `TAI_BUS_ACK_TIMEOUT` | `2.0` | Seconds the collector waits for the fast liveness acknowledgements before it budgets the rest of its wait toward the apply deadline. |
-| `TAI_BUS_APPLY_TIMEOUT` | `30.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Budgets a worst-case reload plus the post-apply hooks; each post-apply handler receives the seconds left of it, measured from the worker's receipt of the op. |
+| `TAI_BUS_APPLY_TIMEOUT` | `90.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Never below three drain budgets (refused at boot, on every reload and on every config change). The default covers three default drains, the fork quiesce, the MCP re-probes, the rebuild and the post-apply hooks; each post-apply handler receives the seconds left of it, measured from the worker's receipt of the op. |
 | `TAI_BUS_HEARTBEAT_TTL` | `15.0` | Presence-key TTL. A worker refreshes it at a third of this; a transport blip leaves the key to this TTL and the worker re-verifies its slot on reconnect (presence survives a brief wobble), while a frozen or killed worker's row goes stale and then leaves the census within one TTL rather than blocking every op. |
 
 ## See also

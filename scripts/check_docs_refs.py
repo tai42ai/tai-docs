@@ -3,18 +3,19 @@
 
 Unlike the generated reference (guarded by ``check_drift.py``), these values are
 hand-authored in the narrative ``.mdx`` pages and rot the moment a source renames
-a distribution or repository or changes a compose default. The check fails loudly
--- exit non-zero, naming every offending ``file:line`` -- so a source change the
-docs did not follow is caught on the docs gate. Each check function's own docstring
+a distribution, a console script or a repository, or changes a compose default. The
+check fails loudly -- exit non-zero, naming every offending ``file:line`` -- so a
+source change the docs did not follow is caught on the docs gate. Each check function's own docstring
 states what it compares and against which source.
 
 Every check is NETWORK-FREE and gated on the source it reads: a source absent
 offline yields a loud note and is skipped; a source present is a hard compare; a
 source present but unloadable (the settings registry check 5 reads) FAILS rather
 than silently skipping. The distribution set (check 1) comes from the committed
-registry snapshot, so most checks need no source env; check 5 imports the bundled
-plugins' settings, so run from the monorepo skeleton environment (``uv sync
---all-packages --all-extras``) when tai-distribution is present::
+registry snapshot plus the ``tai42-*`` console scripts of the installed environment,
+so most checks need no source env; check 5 imports the bundled plugins' settings, so
+run from the monorepo skeleton environment (``uv sync --all-packages --all-extras``)
+when tai-distribution is present::
 
     cd tai42/core/skeleton && uv run python ../../../tai-docs/scripts/check_docs_refs.py
 """
@@ -103,7 +104,7 @@ _BUNDLED_PLUGIN_ENV_ROW_RE = re.compile(r"\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s
 # substitution, with the surrounding quotes already stripped by the YAML load.
 _COMPOSE_SUBST_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*(?P<op>:-|:\?)(?P<rest>.*)\}$")
 
-# A `tai42-<name>` distribution token. The leading lookbehind anchors the token at
+# A `tai42-<name>` token: a distribution or console-script name. The leading lookbehind anchors the token at
 # the start of its hyphenated word, so a LONGER identifier that merely ENDS in a
 # distribution-shaped suffix is not mistaken for one -- the vendor annotation
 # `x-tai42-expression` names no distribution. It mirrors the trailing lookahead:
@@ -212,14 +213,19 @@ def _iter_matches(text: str, pattern: re.Pattern[str], group: int = 0):
 
 
 def check_distribution_names(docs: list[tuple[str, str]], valid_dists: set[str]) -> list[str]:
-    """Return a problem for each documented distribution name absent from ``valid_dists``."""
+    """Return a problem for each documented ``tai42-<name>`` token absent from ``valid_dists``.
+
+    ``valid_dists`` holds every real name such a token may carry: the distributions and
+    the installed ``tai42-*`` console scripts.
+    """
     problems: list[str] = []
     for rel, text in docs:
         for lineno, name in _iter_matches(text, _DIST_RE):
             if name not in valid_dists:
                 problems.append(
-                    f"{rel}:{lineno}: '{name}' is not a real distribution "
-                    f"(absent from plugins/_registry.json packages and this repo's pyproject sources)"
+                    f"{rel}:{lineno}: '{name}' is not a real distribution or console script "
+                    f"(absent from plugins/_registry.json packages, this repo's pyproject sources "
+                    f"and the installed tai42-* console scripts)"
                 )
     return problems
 
@@ -493,6 +499,11 @@ def _compose_env_presets(compose_text: str) -> dict[str, str | None]:
     return {key: _resolve_compose_subst(text) for key, text in raw.items()}
 
 
+def _console_script_names() -> set[str]:
+    """The ``tai42-*`` console scripts the installed distributions declare."""
+    return {ep.name for ep in importlib.metadata.entry_points(group="console_scripts") if ep.name.startswith("tai42-")}
+
+
 def _installed_dist_names() -> set[str]:
     """The lower-cased names of every installed distribution in this environment."""
     return {(dist.metadata["Name"] or "").lower() for dist in importlib.metadata.distributions()}
@@ -678,7 +689,7 @@ def evaluate(
     problems: list[str] = []
     notes: list[str] = []
 
-    problems += check_distribution_names(docs, set(dist_map))
+    problems += check_distribution_names(docs, set(dist_map) | _console_script_names())
 
     p, n = check_repo_urls(docs, workspace_root)
     problems += p

@@ -20,12 +20,27 @@ Every routing operation requires the Redis conversations backend
 | `POST /api/conversations/{route_name}` | `tai conversations create <name> …` | Create **or replace** a route (an upsert). |
 | `DELETE /api/conversations/{route_name}` | `tai conversations delete <name>` | Delete a route; unknown name → `404`. |
 
-`create` is an authority-changing, admin-adjacent operation: it **binds** the
-route's `execution_key` (a pass-role decision) before any write, so a refused bind
-leaves an existing row untouched. The `target_name` — the agent or tool the turn
-runs — must merely exist. A `channel` row's `(channel, our_identity)` pair must be
-unclaimed. An `api` row that declares a `callback_url` mints a `callback_secret`
-returned **once** in the create result and never re-readable.
+`create` is an authority-changing, admin-adjacent operation. It checks, in order, and a
+refusal at any step leaves an existing row untouched:
+
+1. The `target_name` — the agent or tool the turn runs — must merely exist (`404`
+   otherwise).
+2. The caller must be allowed to **bind** the route's `execution_key` (a pass-role
+   decision).
+3. The route write: the target's bind check (a refusal is a `422` carrying the refusal
+   lines), then the route's jq programs compile, then a `channel` row's
+   `(channel, our_identity)` pair is stored canonical and must be unclaimed. The expression,
+   identity and claim refusals are a `400` prefixed `invalid conversation route:` — for example
+   `invalid conversation route: invalid start_expr: …` or
+   `invalid conversation route: channel 'twilio' identity '+14155238886' is already routed by 'chat-line'`.
+   Last, a change of `door` on a route that holds threads is refused with a `400` of its own
+   text, for example
+   `conversation route 'chat-line' holds 2 thread(s) opened on its 'api' door and cannot be changed to 'channel': delete the route …`.
+
+An `api` row that declares a `callback_url` mints a `callback_secret` returned **once** in
+the create result and never re-readable. A [backup restore](/operate/backup-and-restore#restoring-stored-definitions)
+runs the same route write (step 3) per row; the target's existence is checked only at this
+door.
 
 ```bash
 tai conversations create chat-line \
@@ -111,8 +126,20 @@ instead answers a pending `ask`. The values
 are **untrusted transport**: the platform caps and delivers them but attaches no
 signature, expiry, or meaning, so a value a flow must trust is a secret the flow
 checks in its own store. Bounds: at most **16** params, each key
-`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized
-— a violation is refused at the door.
+`^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized.
+Each door applies one declared policy to a violation:
+
+| Door | `door` label | Over a bound |
+| --- | --- | --- |
+| Web channel — page, messages, forms, answers | `web` | **refused** (`422`; the page answers a `400` refusal page) |
+| Interactions callback (a forwarded answer's `params`) | `interactions-callback` | **refused** (`400 invalid params: …`) |
+| Telegram, WhatsApp, Slack, Twilio webhooks | `telegram`, `whatsapp`, `slack`, `twilio` | **dropped** — the set (or one over-cap value) is dropped and the turn proceeds |
+
+A refusing door answers a caller who is waiting; a dropping door's vendor would redeliver a
+`5xx` forever, so it never loses the participant's message to a params bound. Every drop is
+logged at `WARNING` (naming the door and the bound or key, never a value) and counted on
+`tai_entry_params_dropped_total{door, unit}` on `GET /metrics`, where `unit` is `set` or
+`value`.
 
 The payload also carries a **`turn`** block on **every** tool turn — whichever door
 it entered through:
@@ -523,6 +550,10 @@ caller-safe projections. A record whose inbound message brought an
 structured object as **`inbound_form`**, in both projections, beside the rendered
 `inbound_text` that stays the message every consumer reads.
 
+The transcript page carries `person_id` beside its records: the linked person a
+`bridge:@person:{person_id}` thread aggregates, `null` for a route-keyed thread. A thread
+that answers the uniform `404` carries none.
+
 **Unreadable rows are counted, not hidden.** Every listing — the thread listing, message
 search, the transcript, and the route and config listings — returns an `unreadable` count
 beside its rows. A stored row the platform cannot decode, or whose row has gone from under its
@@ -658,7 +689,7 @@ API-door id carries a percent-encoded principal that no path spelling round-trip
 Forgetting is **absolute**. A valid id on its own route always succeeds, and the
 answer's `removed` count is `0` when nothing was left to clear — an aged-out thread
 whose records already expired under `answer_retention_ttl_seconds`, or one never seen
-— never a `404`. The checkpoint is deleted regardless, so keep-forever memory is not
+— never a `404`. The checkpoint is deleted regardless, so retained memory is not
 left behind once the records lapse.
 
 Authority is the door's **write** action — the **same conversations write grant that
@@ -889,26 +920,30 @@ rate-cap notice is fixed:
 
 ## Checkpoint retention
 
-Conversation continuity is the checkpoint store's. Idle-thread expiry is governed by
-the LLM checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*`
-setting:
+Conversation continuity is the checkpoint store's. Thread expiry is governed by the LLM
+checkpoint settings (the `LLM_PROVIDER_*` group), not a `CONVERSATIONS_*` setting:
 
 | Setting | Env | Default |
 | --- | --- | --- |
 | `checkpoint` | `LLM_PROVIDER_CHECKPOINT` | `redis` |
-| `checkpoint_ttl_minutes` | `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` | *(unset — keep forever)* |
+| `checkpoint_retention_waiting_minutes` | `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `10080` (7 days) |
 
-`checkpoint_ttl_minutes` is an **idle** TTL: a thread lives as long as it keeps
-receiving messages and expires only after it sits idle past the lifetime. Unset
-means threads are kept forever.
+A conversation thread is never marked finished — it stays open for its next turn — so it
+lives the waiting retention after its last write: a thread that keeps receiving messages
+keeps living, and one that sits idle past the retention expires. A turn's agent that
+checkpoints on the thread takes it out of the store's finished set when its run starts; an
+agent that keeps no checkpoints touches no checkpoint store. How the window is enforced
+depends on the provider:
 
-How the idle window is enforced depends on the provider:
-
-- `redis` carries a native per-key TTL, refreshed on each checkpoint write — idle
-  expiry is automatic.
-- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes
-  every thread whose newest checkpoint is older than the cutoff.
+- `redis` stamps every key a checkpoint write stores with the retention as its TTL, and a
+  read never extends it — expiry is automatic.
+- `postgres` / `sqlite` have no native expiry; the **sweep operation** deletes every thread
+  whose newest checkpoint is older than the cutoff.
 - `memory` is process-lifetime.
+
+See [Checkpoints and retention](/operate/checkpoints) for both horizons, the threads other
+owners mark finished, and the live-thread filters that spare a thread a parked run still
+needs.
 
 <Note>
 The `postgres` checkpoint and store tables are **self-managed by LangGraph**: the
@@ -922,9 +957,11 @@ first use.
 ### The sweep operation
 
 `sweep_checkpoints` (`POST /api/checkpoints/sweep`, `tai checkpoints sweep`) is
-**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes
-stale threads on a DB-backed provider and is a reported no-op on `redis`/`memory`
-or with the TTL unset. It runs on either recurrence path:
+**admin-tier** (a fenced, deployment-wide destructive memory purge). It deletes finished
+threads past the finished retention on every provider and, on a DB-backed provider, every
+thread past the waiting retention; a thread a live-thread filter claims (a live park) is
+spared and listed. See [the checkpoint sweep](/operate/checkpoints#the-checkpoint-sweep) for
+its result. It runs on either recurrence path:
 
 - **Native schedules** — recurrence needs the tool branched with the backend's
   `schedule_task` extension: wrap the sweep in a small manifest tool carrying
@@ -995,7 +1032,8 @@ system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
 Every setting reads the `CONVERSATIONS_` env prefix (so `max_concurrent_turns` is
 `CONVERSATIONS_MAX_CONCURRENT_TURNS`). Startup validators reject an invalid
-combination loudly.
+combination loudly. The `CONVERSATIONS_` prefix is owned: an env name under it that names no
+setting below is refused at boot and on every env write.
 
 ### Backend
 
@@ -1019,11 +1057,21 @@ combination loudly.
 | `intake_claim_refresh_seconds` | `30` | Intake-lease refresh interval; must stay **below** the lease. |
 | `thread_lease_seconds` | `120` | Seconds a running turn's cross-worker thread lease stays live; only on expiry (a crashed holder) may another worker take the thread. |
 | `thread_lease_refresh_seconds` | `30` | Thread-lease refresh interval; must stay below the lease. |
-| `thread_lease_poll_seconds` | `0.5` | Seconds a waiter sleeps between thread-lease acquisition attempts. |
 | `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
 | `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one turn's [working-on-it](#the-working-on-it-signal) refresh loop; `0` disables the loop entirely (the kill switch). |
 | `working_signal_refresh_margin_seconds` | `5` | Seconds subtracted from a channel's vendor-indicator lifetime to pick the refresh interval, so each refresh lands before the indicator lapses. |
+
+A turn waiting for a busy thread starts when the running turn releases the thread (a
+notification), or when a crashed holder's lease expires.
+
+The notification is Redis pub/sub on the conversations Redis: a release publishes the thread id
+on the channel `<prefix>:thread_lease_released`, and a waiting turn subscribes to it. When the
+conversations Redis user is a restricted ACL user (Redis 7 creates new ACL users with
+`resetchannels`), grant it the `PUBLISH` and `SUBSCRIBE` commands and that channel (for example
+`+publish +subscribe &conversations:thread_lease_released` with the default `prefix`). Without
+them every release logs `conversations: releasing thread lease … failed; its TTL is the hard
+bound` and every turn that has to wait for a busy thread fails on its subscribe.
 
 ### Delivery bounds
 

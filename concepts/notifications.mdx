@@ -298,6 +298,20 @@ oldest past it. It rides on the [interactions](/concepts/interactions) Redis sto
 so a deployment with that store unconfigured cannot record and lists an empty
 inbox.
 
+### Entries the platform writes
+
+Besides the notifications tools and doors send, the platform writes entries of its own to the
+shared feed (no `audience`, so every unrestricted operator reads them) when an operator must act:
+
+- `A pending state save failed; its subjects are held until it is retried or discarded. Save
+  {id}, run {run}, phase {phase}: {error}` — see [pending saves](/concepts/states#pending-saves).
+- `Pending state save {id} was discarded; its writes and calls will never be applied.` — an
+  operator discarded a failed save.
+
+When the feed cannot take such an entry (its store is unconfigured, or the write fails), the
+platform logs an ERROR naming the save and counts it in
+`tai42_state_outbox_notify_failures_total`.
+
 <Note>
 The CLI `tai notifications notify` exposes `--channel`, `--recipient`, `--media`,
 `--template`, `--options`, `--sections`, `--location`, `--header`, `--footer`, and

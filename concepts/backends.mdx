@@ -41,19 +41,63 @@ or the server refuses to start.
 - **Background** — submit a tool run and poll its result, for a run that outlives
   one request. The background tool-runs HTTP surface loads as a router module.
 - **Scheduled** — schedule a tool to run later or on a cadence. A schedule names
-  the `tool_name`, its `tool_kwargs`, and the schedule parameters the backend's
-  scheduling tool consumes. The tool must carry the backend's `schedule_task`
-  extension to be scheduled on a cadence — see the
-  [schedule-a-tool guide](/guides/schedule-a-tool) for attaching it.
+  the base `tool_name`, its `tool_kwargs`, and a typed `cadence` (an interval or a
+  crontab). The tool must carry the backend's `schedule_task` extension to be
+  scheduled on a cadence — see the [schedule-a-tool guide](/guides/schedule-a-tool)
+  for attaching it.
 - **Distributed** — the worker backend spreads runs across workers.
 
 Manage schedules from the CLI:
 
 ```bash
 tai schedules list
-tai schedules add report --schedule-kw cron='0 9 * * *'
+tai schedules add report --cron '0 9 * * *'
 tai schedules delete <name>
 ```
+
+## The job budget
+
+Every backend bounds a dispatched job by one setting, the dispatch group's
+`task_timeout` (`<PREFIX>_TASK_TIMEOUT`, 300 seconds by default): it is the longest a
+job may run on the worker, and how long a synchronous dispatch waits for its result.
+It covers every job the worker runs — a dispatched task, a schedule fire, a callback.
+Celery applies it as `task_time_limit`, RQ's worker sets it as the timeout of every job
+it runs (whatever timeout the job was stored with), and arq as the worker's
+`--job-timeout` default. The worker binds it when it starts, so a change converges
+through a process recycle.
+
+A backend never retries a tool body. A tool that wants retries declares a
+[`ToolRetryPolicy`](/concepts/tools-and-extensions#retrying-a-tool-call), applied by
+the platform's dispatch seam on every door. What a backend still retries is its own
+transport — publishing a message on connection loss, reconnecting to its broker.
+
+## Writing a scheduling backend
+
+The scheduling protocol is declared once, in `tai42_contract.backend.scheduling` (also
+re-exported by `tai42_kit.backend`). A backend that implements it is a scheduling backend
+the schedules door, the CLI, Studio and backups work with unchanged:
+
+- **The tools.** Register `backend_list_schedules` and `backend_delete_schedule` (their
+  presence marks scheduling as available), and the backup pair
+  `backend_export_schedules` / `backend_import_schedules`.
+- **The extension.** Register a `schedule_task` `BACKEND` extension that branches a tool
+  into `<tool>_schedule_task`. The door dispatches that branch with the schedule's name
+  under `backend_schedule_name` and the dumped `ScheduleCadence` under `backend_schedule`;
+  validate it back with the contract's `ScheduleCadence`.
+- **The shapes.** The list tool returns `ScheduleListRow` dumps (name, tool, cadence,
+  enabled, next run, an optional `error` — never the stored arguments); export returns
+  `ScheduleRecord` dumps; import takes `ScheduleRecord` rows and a `skip`/`overwrite`
+  mode and returns a `ScheduleImportReport`, reporting a bad row in its `errors` rather
+  than dropping it.
+- **Your own keys.** A queued job carries the target tool under your backend's own
+  tool-name key. Split it out into the record's `tool` on export and list, and inject it
+  back on import; the platform reads only `tool`.
+- **What you cannot honour, refuse.** A backend that cannot honour an interval's
+  `relative` flag refuses it on create, update and import with a clear error.
+
+`tai42_kit.utils.runtime.normalize_schedule` parses the friendly specs a backend's own
+tools may accept (seconds, a crontab string, `{"type": "interval", "every": 5, "period":
+"minutes"}`) into the contract's cadence.
 
 ## Routing a tool to a backend
 

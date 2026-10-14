@@ -116,6 +116,23 @@ cardinality rule. Applying an extension **branches** the base tool into a new
 named variant rather than mutating it: attaching `monitor` to `mytool` binds a
 `mytool_monitor` branch, leaving `mytool` itself untouched.
 
+An extension whose branches can pause — a branch that dispatches a pausing tool and
+passes its park through — registers with `pauses=True`:
+
+```python
+from tai42_contract.app import tai42_app
+from tai42_contract.extensions import ExtensionKind
+
+
+@tai42_app.extensions.extension(kind=ExtensionKind.TRANSFORMER, name="relay", pauses=True)
+def relay(func, orig_name, orig_desc):
+    ...
+```
+
+A branch can pause when the tool it wraps declares `tai42/pauses` or when any extension in
+its stack registered with `pauses=True`; any other branch is plain, and a park it returns
+is refused like any [undeclared tool's](/guides/build-a-tool#tools-that-can-pause).
+
 ## Clipping an extension on
 
 Extensions are attached in the manifest, separately from tool selection. A tool's
