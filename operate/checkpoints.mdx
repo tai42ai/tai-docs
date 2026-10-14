@@ -20,8 +20,8 @@ A run may name another provider for itself (an agent's `checkpoint_provider`, a 
 
 | Provider | Survives a restart | How expired threads leave | Codec |
 | --- | --- | --- | --- |
-| `redis` | yes | the key TTL every write sets | the faithful JSON codec, large values compressed |
-| `postgres` | yes | the checkpoint sweep | the library's msgpack, large blobs compressed |
+| `redis` | yes | the key TTL every write sets | the faithful JSON codec, large values stored once per thread, compressed |
+| `postgres` | yes | the checkpoint sweep | the library's msgpack, large values stored once per thread, large blobs compressed |
 | `sqlite` | no | the checkpoint sweep | the library's msgpack |
 | `memory` | no | the end of the process | — |
 
@@ -35,6 +35,7 @@ paused run must be readable by whichever worker later resumes it.
 | `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `10080` (7 days) | How long a thread its owner may still continue lives after its last write. |
 | `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` | `1440` (1 day) | How long a thread its owner marked finished lives after the mark. Must not exceed the waiting value. |
 | `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES` | `65536` | A checkpoint value whose encoding is larger is stored compressed; `null` turns compression off. |
+| `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` | `65536` | On `redis` and `postgres`, a checkpoint value whose encoding is larger is stored once per thread and referenced; `null` stores every value inline. See [Large values are stored once](#large-values-are-stored-once). |
 
 A **waiting** thread is one its owner may still continue: a parked run, an open conversation,
 any thread nobody marked finished. A **finished** thread is one its owner marked finished.
@@ -168,7 +169,34 @@ format — or with no recorded generation — is refused at that first use with
 `CheckpointStoreFormatError` ("reset the checkpoint store before starting this version"): every
 run, query or sweep that needs it fails loudly until the store is reset. A deployment that
 uses no checkpoint store never builds a saver and never runs the check. The current generation
-is 3: a store written by an earlier version is reset before this one starts on it.
+is 4: a store written by an earlier version is reset before this one starts on it. Drain in-flight
+runs before the upgrade: the reset removes every open conversation's memory, every parked run and
+every flow session the store held.
+
+## Large values are stored once
+
+A run's state often carries the same large value in many checkpoints: a document that stays the
+same while others change, or a result every later step keeps. On `redis` and `postgres` a value
+whose encoding is larger than `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` is stored **once per
+thread**, keyed by the SHA-256 of its encoding, and every checkpoint and pending write that
+carries it holds a small reference in its place. The rule works on a value at any depth: a
+dictionary of documents keeps each large document as its own stored value, so changing one
+document stores only that one again. A value larger than `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES`
+is stored compressed.
+
+- On `redis` each stored value is a key `tai42:checkpoint:value:{<thread>}:<digest>`, and a set
+  `tai42:checkpoint:values:{<thread>}` lists the thread's values. Every write that references a
+  value stamps it with the waiting retention, so a value lives as long as the newest checkpoint
+  that references it.
+- On `postgres` the values are rows of the table `tai42_checkpoint_values`, next to the saver's
+  own tables.
+- A value leaves with its thread: deleting a thread (the checkpoint sweep, `tai conversations
+  delete-thread`, a flow restart) deletes its values after its checkpoints, and on `redis` a
+  thread nobody writes to again expires with its keys.
+- Reading a checkpoint fetches its referenced values in one extra round trip. A reference whose
+  value the store no longer holds fails the read with `CheckpointReferenceError`, naming the
+  thread and the value: that thread cannot be read; delete it.
+- `sqlite` and `memory` keep every value inline.
 
 ## What the Redis store keeps
 
