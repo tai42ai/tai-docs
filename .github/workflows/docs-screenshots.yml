@@ -6,12 +6,14 @@
 #
 #   studio -- boots a docs-demo skeleton, builds the Studio SPA, and drives
 #     tai-studio/e2e/scripts/docs-screenshots.sh to capture the Studio screens.
-#   editor -- boots the flow-editor stack (the same backend the engine's own
-#     browser e2e job provides) with the monitoring compose profile (Langfuse and
-#     the OpenTelemetry collector, from the platform's e2e harness at the release
-#     the engine locks) so the run popups read recorded steps, against the Studio
-#     SPA shell, runs the docs-bound screenshot sweep, asserts the captured set
-#     matches the images the flow-author pages embed, then copies that set in.
+#   editor -- boots the flow-editor stack against the Studio SPA shell twice: once
+#     as the engine's own browser e2e job provides it, once with the Langfuse
+#     monitoring plugin on the monitoring compose profile (Langfuse and the
+#     OpenTelemetry collector, from the platform's e2e harness at the release the
+#     engine locks). Each docs-bound shot is taken on the stack state its spec
+#     declares: the run popups' kept-value notes on the first, their recorded-value
+#     reads on the second. It asserts the union of both passes matches the images
+#     the flow-author pages embed, then copies it in.
 #
 # Both jobs write disjoint filenames, so their PRs never collide.
 #
@@ -21,7 +23,9 @@
 # the capture runs against that running stack. The Studio capture takes an
 # origin; the editor sweep takes an origin or the name of a target file in the
 # engine's e2e/targets, and skips any shot whose declared needs the target does
-# not meet. Unset, each job builds its own stack as described above.
+# not meet. The editor set spans both stack states, so a single running target
+# yields only the shots whose declared needs it meets and the parity step names
+# the rest. Unset, each job builds its own stack as described above.
 #
 # Triggers: manual (workflow_dispatch, which runs BOTH jobs) and a single
 # repository_dispatch fired by the notify-docs-screenshots hooks in the Studio
@@ -260,9 +264,6 @@ jobs:
       TAI_E2E_PG_HOST: localhost
       TAI_E2E_PG_PASSWORD: postgres
       TAI_E2E_CHECKPOINT_REDIS_URL: redis://localhost:6380
-      # The stack this job boots loads the Langfuse monitoring plugin on the monitoring
-      # compose profile started below (the run popups' recorded-value shots need it).
-      TAI_E2E_MONITORING: '1'
       # The capture target: a running stack to capture from instead of building one,
       # from the dispatch input or the TAI_E2E_TARGET repository variable.
       TAI_E2E_TARGET: ${{ inputs.e2e_target || vars.TAI_E2E_TARGET }}
@@ -364,24 +365,48 @@ jobs:
         working-directory: engine/e2e/ui
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Capture the editor docs screenshots
-        # The `@docs`-tagged sweep writes each `<key>-<theme>.png` into SHOTS_OUT, a
-        # clean staging dir outside the docs tree. A shot that does not render fails
-        # the run; one retry (from a cleared dir) absorbs a transient flake, and a
-        # second failure fails the job before any copy, so a partial set is never
-        # published.
+      - name: Capture the editor docs screenshots on the default stack
+        # The `@docs`-tagged specs of the `chromium` project (every spec that does not
+        # declare the monitoring kind) run on a stack without the monitoring plugin and
+        # write each `<key>-<theme>.png` into their own clean staging dir outside the
+        # docs tree. A shot that does not render fails the run; one retry (from a
+        # cleared dir) absorbs a transient flake, and a second failure fails the job
+        # before any copy, so a partial set is never published.
         working-directory: engine/e2e/ui
         env:
-          SHOTS_OUT: ${{ runner.temp }}/editor-shots
+          SHOTS_OUT: ${{ runner.temp }}/editor-shots/default
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit-default.xml
         run: |
           set -o pipefail
           capture() {
-            rm -rf "$RUNNER_TEMP/editor-shots"
-            mkdir -p "$RUNNER_TEMP/editor-shots"
+            rm -rf "$SHOTS_OUT"
+            mkdir -p "$SHOTS_OUT"
             pnpm exec playwright test --project=chromium --grep "@docs"
           }
           if ! capture; then
-            echo "::warning::first editor screenshot attempt failed -- retrying once"
+            echo "::warning::first default-stack screenshot attempt failed -- retrying once"
+            capture
+          fi
+
+      - name: Capture the editor docs screenshots on the monitored stack
+        # The `@docs`-tagged specs of the `chromium-monitoring` project (the specs that
+        # declare the monitoring kind) run on a stack that loads the Langfuse monitoring
+        # plugin against the monitoring compose profile, staged into a dir of their own,
+        # with the same one retry.
+        working-directory: engine/e2e/ui
+        env:
+          SHOTS_OUT: ${{ runner.temp }}/editor-shots/monitoring
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit-monitoring.xml
+          TAI_E2E_MONITORING: '1'
+        run: |
+          set -o pipefail
+          capture() {
+            rm -rf "$SHOTS_OUT"
+            mkdir -p "$SHOTS_OUT"
+            pnpm exec playwright test --project=chromium-monitoring --grep "@docs"
+          }
+          if ! capture; then
+            echo "::warning::first monitored-stack screenshot attempt failed -- retrying once"
             capture
           fi
 
@@ -400,13 +425,14 @@ jobs:
           paths: engine/e2e/ui/junit*.xml
 
       - name: Assert editor-shot parity with the flow-author pages
-        # Bijection between the staged shots and the images the flow-author pages
-        # embed: a page embed with no staged shot, or a staged shot no page embeds,
-        # fails here -- before any copy -- so the copied set equals the embedded set
-        # exactly.
+        # Bijection between the union of both passes' staged shots and the images the
+        # flow-author pages embed: a page embed with no staged shot, a staged shot no
+        # page embeds, or a shot staged by both passes fails here -- before any copy --
+        # so the copied set equals the embedded set exactly.
         run: |
           python3 tai-docs/scripts/check_editor_shots.py \
-            --shots-dir "$RUNNER_TEMP/editor-shots" \
+            --shots-dir "$RUNNER_TEMP/editor-shots/default" \
+            --shots-dir "$RUNNER_TEMP/editor-shots/monitoring" \
             --pages-root tai-docs/babelfish
 
       - name: Copy the editor screenshots into the docs tree
@@ -414,7 +440,8 @@ jobs:
         # editor filenames are disjoint from the Studio set, so this never collides.
         run: |
           mkdir -p tai-docs/images/studio
-          cp "$RUNNER_TEMP"/editor-shots/*.png tai-docs/images/studio/
+          cp "$RUNNER_TEMP"/editor-shots/default/*.png "$RUNNER_TEMP"/editor-shots/monitoring/*.png \
+            tai-docs/images/studio/
 
       - name: Open an automated PR when a screenshot changed
         # Never pushes to main; a differing capture lands as a bot PR that
