@@ -960,11 +960,12 @@ differ.
 Refusing is not the only answer to a park this caller does not own. `resolve_park_adoption`
 is the OBJECT seams' form of the guard, and it answers adopt-your-own or CHAIN: a nested dispatch
 a CHAIN routing (`ChainedResume`) was bound around parks on
-the nested CALL — a key of its own, owned by its own resume continuation — while the nested run
-keeps its park and its resume, and its terminal re-enters the caller through the routing's
-delivery tool. A dispatch nothing chained still gets the loud refusal. The CLAIM point cannot
-chain: a park reaching it as content belongs to no dispatch it could attribute the call to, so
-there it is adopt-or-refuse.
+the nested CALL — a key of its own, owned by its own resume continuation, recorded in the open
+ledger with the held step's deadline so a drive that never parks on it detaches it sized past that
+deadline — while the nested run keeps its park and its resume, and its terminal re-enters the
+caller through the routing's delivery tool. A dispatch nothing chained still gets the loud refusal.
+The CLAIM point cannot chain: a park reaching it as content belongs to no dispatch it could
+attribute the call to, so there it is adopt-or-refuse.
 
 Every driver builds the chain fires here too — `repark_notice` when a chained run re-parks,
 `terminal_chain_notice` at its terminal — so each payload has one shape.
@@ -1052,10 +1053,10 @@ The driver recorded a park on it, so it is no longer a dead chain. A no-op when 
 `tai42_kit.interactions.park_adoption.chained_park_claims`
 
 ```python
-chained_park_claims(claims: set[str] | None = None) -> Generator[set[str]]
+chained_park_claims(claims: dict[str, datetime | None] | None = None) -> Generator[dict[str, datetime | None]]
 ```
 
-Bind the per-drive ledger of chained keys `resolve_park_adoption` CLAIMED, yield the set.
+Bind the per-drive ledger of chained keys `resolve_park_adoption` CLAIMED, yield the dict.
 
 A driver opens one around each drive so it can tell, when the drive stops, which chained
 calls it actually parked on: it drops each key it persists, and whatever REMAINS is a
@@ -1063,12 +1064,17 @@ claim the drive never turned into a park (the run errored, or moved on without p
 Those are dead chains — the nested run will still fire its terminal at them — so the
 driver detaches them rather than leaving the fire to hunt a park that will never exist.
 
-The yielded set is mutated in place, so a claim recorded inside a task the drive spawns
+The ledger maps each claimed chained key to the HELD step's deadline — the ``expiry_at``
+`resolve_park_adoption` recorded for it, ``None`` when the held step carried none — so a
+driver sizes the dead-chain detach past that deadline (``expiry_ats=claims.values()``) and the
+tombstone outlasts the run that still fires the key until its own deadline.
+
+The yielded dict is mutated in place, so a claim recorded inside a task the drive spawns
 (every nested dispatch runs in a child context) is visible to the opener.
 
-``claims`` lets a caller pass an EXISTING set to re-bind rather than a fresh one. A driver
+``claims`` lets a caller pass an EXISTING ledger to re-bind rather than a fresh one. A driver
 that binds per drive-step — the resume binding cannot span a generator's yields, so it is
-re-entered around each ``__anext__`` — owns one accumulating set for the whole drive and
+re-entered around each ``__anext__`` — owns one accumulating ledger for the whole drive and
 re-binds it here each step, so a claim recorded in an early step survives to the reconcile
 at the end. Omit it (the default) to open a fresh ledger for the whole drive at once.
 
@@ -1076,7 +1082,7 @@ at the end. Omit it (the default) to open a fresh ledger for the whole drive at 
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `claims` | `set[str] \| None` | `None` | — |
+| `claims` | `dict[str, datetime \| None] \| None` | `None` | — |
 
 
 ## is_chained_park_key
@@ -1147,7 +1153,13 @@ Only a bound chain routing is notified, so no other delivery tool ever sees this
 `tai42_kit.interactions.park_adoption.resolve_park_adoption`
 
 ```python
-resolve_park_adoption(resume_owner: str | None, *, interaction_id: str, tool_name: str) -> tuple[str, str | None]
+resolve_park_adoption(
+    resume_owner: str | None,
+    *,
+    interaction_id: str,
+    tool_name: str,
+    expiry_at: datetime | None,
+) -> tuple[str, str | None]
 ```
 
 The park THIS run records for a returned park sentinel — ADOPT-your-own, or CHAIN.
@@ -1164,11 +1176,17 @@ nested call returned. Three outcomes, in this order:
   KEY instead, owned by this run's OWN resume continuation — because that park is genuinely
   this run's: it waits on the CALL, while the nested run keeps its own park and its own resume
   and re-enters here through the chain's delivery tool when it terminates. The key is recorded
-  in the open `chained_park_claims` ledger, so a drive that never turns the claim into a
-  park can detach it;
+  in the open `chained_park_claims` ledger against ``expiry_at`` — the held step's
+  deadline — so a drive that never turns the claim into a park detaches it sized past that
+  deadline;
 * otherwise `NestedParkOwnershipError`, exactly as
   `assert_park_adoptable` raises it: waiting on a foreign park with nothing chained would
   leave this run suspended behind a resume fired only at the nested run.
+
+``expiry_at`` is the returned sentinel's
+`expiry_at` — the held step's deadline,
+the latest of its open asks — carried so the ledger can size a dead-chain detach past it. It is
+recorded only on the CHAIN outcome; an adopted own park needs no chain claim and ignores it.
 
 Never returns a foreign interaction id, and never returns a key owned by anything but the
 continuation bound here — so the claim point downstream reaches the same verdict.
@@ -1180,6 +1198,7 @@ continuation bound here — so the claim point downstream reaches the same verdi
 | `resume_owner` | `str \| None` | — | — |
 | `interaction_id` | `str` | — | — |
 | `tool_name` | `str` | — | — |
+| `expiry_at` | `datetime \| None` | — | — |
 
 
 ## supersede_chain_notice
