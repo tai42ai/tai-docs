@@ -53,6 +53,28 @@ def test_equal_sets_pass(tmp_path: Path) -> None:
     assert check_editor_shots.check_parity(embedded, staged) == []
 
 
+def test_union_of_staging_dirs_passes(tmp_path: Path) -> None:
+    pages = tmp_path / "babelfish"
+    _write_page(pages, "index.mdx", KEYS)
+    default = _stage(tmp_path / "default", ("holder-panel", "ask-exit"))
+    monitoring = _stage(tmp_path / "monitoring", ("warm-start",))
+    embedded = check_editor_shots.find_embedded_shots(pages)
+    staged = check_editor_shots.find_staged_shots(default, monitoring)
+    assert check_editor_shots.check_parity(embedded, staged) == []
+
+
+def test_shot_staged_in_two_dirs_fails(tmp_path: Path) -> None:
+    pages = tmp_path / "babelfish"
+    _write_page(pages, "index.mdx", KEYS)
+    default = _stage(tmp_path / "default", KEYS)
+    monitoring = _stage(tmp_path / "monitoring", ("warm-start",))
+    embedded = check_editor_shots.find_embedded_shots(pages)
+    errors = check_editor_shots.check_parity(embedded, check_editor_shots.find_staged_shots(default, monitoring))
+    duplicates = [e for e in errors if "staged twice" in e]
+    assert len(duplicates) == 2, errors
+    assert all("warm-start" in e and str(default) in e and str(monitoring) in e for e in duplicates)
+
+
 def test_embedded_not_staged_fails(tmp_path: Path) -> None:
     pages = tmp_path / "babelfish"
     _write_page(pages, "index.mdx", KEYS)
@@ -163,6 +185,15 @@ def test_main_passes_on_equal_sets(tmp_path: Path) -> None:
     shots = _stage(tmp_path / "shots", KEYS)
     rc = check_editor_shots.main(["--shots-dir", str(shots), "--pages-root", str(pages)])
     assert rc == 0
+
+
+def test_main_accepts_repeated_shots_dir(tmp_path: Path) -> None:
+    pages = tmp_path / "babelfish"
+    _write_page(pages, "index.mdx", KEYS)
+    default = _stage(tmp_path / "default", ("holder-panel", "ask-exit"))
+    monitoring = _stage(tmp_path / "monitoring", ("warm-start",))
+    argv = ["--shots-dir", str(default), "--shots-dir", str(monitoring), "--pages-root", str(pages)]
+    assert check_editor_shots.main(argv) == 0
 
 
 def test_main_fails_on_mismatch(tmp_path: Path) -> None:
