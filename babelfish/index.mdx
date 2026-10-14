@@ -328,8 +328,16 @@ the holder settles that two ways:
   later in this run or in a later one — resumes it with its own `resume_expr` row and
   settles on the held run's result; a released run's result never re-enters the run
   that released it. The release is kept for twice the platform's interactions idle TTL
-  (`INTERACTIONS_IDLE_TTL_SECONDS`, 48 hours by default), so an ask exit over a held
-  step whose deadline outlives that window is refused before anything is written.
+  (`INTERACTIONS_IDLE_TTL_SECONDS`, 48 hours by default), counted from the exit and
+  never extended, and a released agent must finish inside it. An ask exit whose held
+  step's reported deadline (the earliest of its open asks) already outlives the window
+  is refused before anything is written; an answer that still arrives after it — a
+  later ask of the same step, or a new ask the agent raises after a resume — is refused
+  at delivery as a failure, never as the agent's result (`no park-index entry for
+  interaction_id '<chain key>'; cannot resume`): the resuming holder fails, so its On
+  Error runs, or the flow fails when none is set. Keep every ask of a released agent
+  inside the window. A held flow is not chained: its ask exit has no release and no
+  window.
 - **Send up (`send_up`).** Turn the send-up switch on and the holder parks the ask as a
   nested park and hands it **up** to this flow's own caller unchanged, for a run
   further up to answer. With send-up on, there is no ask exit to wire.
