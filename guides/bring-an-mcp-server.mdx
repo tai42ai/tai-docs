@@ -136,6 +136,8 @@ Each `health` entry has four fields:
 
 A tool call against a mounted server whose connection has dropped gets one automatic reconnect attempt. If the reconnect succeeds the call runs on the fresh session. If the server is still unavailable, the call returns a structured error whose `code` is `upstream_mcp_unavailable`, with a message that names the entry by its configured title. The raw disconnect detail never reaches that message — it is logged at the dispatch seam, not surfaced to the caller. A dispatch that fails for another reason — a transport error, a timeout, or an output-schema mismatch — returns a structured error whose `code` is `mcp_dispatch_failed`, naming the tool and the server rather than a generic `500`; the raw detail is logged and recorded on that server's `health` entry.
 
+A mounted entry that carries a connection's reference but whose `url` is not the server its provider defines for that sub-service is refused before any credential is sent: the call fails with a message that names the entry and both repairs. Reconnecting the account (or, for a provider without sign-in, saving the connection's services again) rewrites the entry the connector wrote for that connection. Any other entry that carries the reference is not the connector's own, so a reconnect leaves it as it is and it keeps being refused until the reference is removed from it.
+
 ## See also
 
 - [Transports](/concepts/transports) — the HTTP, SSE, stdio, and UDS paths a mounted server can use.
