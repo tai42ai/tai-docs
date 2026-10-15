@@ -193,9 +193,15 @@ is stored compressed.
 - A value leaves with its thread: deleting a thread (the checkpoint sweep, `tai conversations
   delete-thread`, a flow restart) deletes its values after its checkpoints, and on `redis` a
   thread nobody writes to again expires with its keys.
-- Reading a checkpoint fetches its referenced values in one extra round trip. A reference whose
+- Reading a checkpoint fetches all its referenced values, the values nested inside them included, in
+  one extra round trip; every place that holds a value receives its own copy. A reference whose
   value the store no longer holds fails the read with `CheckpointReferenceError`, naming the
   thread and the value: that thread cannot be read; delete it.
+- On `postgres` a value is written just before the checkpoint that references it. A process that
+  stops between the two leaves that value's row until its thread is deleted; for a thread whose
+  first checkpoint never landed, the sweep never sees the thread, so the row stays until that
+  thread id is deleted (`tai conversations delete-thread`). The library's own blob rows have the
+  same limit when a process stops in the middle of a thread's delete.
 - `sqlite` and `memory` keep every value inline.
 
 ## What the Redis store keeps
