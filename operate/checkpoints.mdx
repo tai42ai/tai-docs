@@ -18,12 +18,12 @@ A run may name another provider for itself (an agent's `checkpoint_provider`, a 
 
 ## Providers
 
-| Provider | Survives a restart | How expired threads leave | Codec |
-| --- | --- | --- | --- |
-| `redis` | yes | the key TTL every write sets | the faithful JSON codec, large values stored once per thread, compressed |
-| `postgres` | yes | the checkpoint sweep | the library's msgpack, large values stored once per thread, large blobs compressed |
-| `sqlite` | no | the checkpoint sweep | the library's msgpack |
-| `memory` | no | the end of the process | — |
+| Provider | Survives a restart | How expired threads leave | Codec | Large values stored once |
+| --- | --- | --- | --- | --- |
+| `redis` | yes | the key TTL every write sets | the faithful JSON codec, large values compressed | by default |
+| `postgres` | yes | the checkpoint sweep | the library's msgpack, large blobs compressed | when `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES` is `true` |
+| `sqlite` | no | the checkpoint sweep | the library's msgpack | no: it keeps no value store, and `true` is refused |
+| `memory` | no | the end of the process | — | no: it keeps no value store, and `true` is refused |
 
 Only `redis` and `postgres` can hold a **parked** run (one waiting on an async `ask`): a
 paused run must be readable by whichever worker later resumes it.
@@ -35,7 +35,8 @@ paused run must be readable by whichever worker later resumes it.
 | `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES` | `10080` (7 days) | How long a thread its owner may still continue lives after its last write. |
 | `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` | `1440` (1 day) | How long a thread its owner marked finished lives after the mark. Must not exceed the waiting value. |
 | `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES` | `65536` | A checkpoint value whose encoding is larger is stored compressed; `null` turns compression off. |
-| `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` | `65536` | On `redis` and `postgres`, a checkpoint value whose encoding is larger is stored once per thread and referenced; `null` stores every value inline. See [Large values are stored once](#large-values-are-stored-once). |
+| `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES` | unset | Whether large values are stored once per thread. Unset takes the provider's own default (`redis` on, `postgres` off); `true` or `false` sets it for every store this deployment opens. `true` on a provider that keeps no value store (`sqlite`, `memory`) is refused at the first use of the store, naming the provider. |
+| `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` | `65536` | Where large values are stored once, a sub-value whose encoding is larger is stored once per thread and referenced. See [Large values are stored once](#large-values-are-stored-once). |
 
 A **waiting** thread is one its owner may still continue: a parked run, an open conversation,
 any thread nobody marked finished. A **finished** thread is one its owner marked finished.
@@ -176,13 +177,20 @@ every flow session the store held.
 ## Large values are stored once
 
 A run's state often carries the same large value in many checkpoints: a document that stays the
-same while others change, or a result every later step keeps. On `redis` and `postgres` a value
+same while others change, or a result every later step keeps. Where storing once is on, a value
 whose encoding is larger than `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` is stored **once per
 thread**, keyed by the SHA-256 of its encoding, and every checkpoint and pending write that
 carries it holds a small reference in its place. The rule works on a value at any depth: a
 dictionary of documents keeps each large document as its own stored value, so changing one
 document stores only that one again. A value larger than `LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES`
 is stored compressed.
+
+It is on for `redis` by default: its saver writes every channel into every checkpoint, so a large
+value is otherwise copied into each one. It is off for `postgres` by default: its saver already
+stores a channel once per version, so storing sub-values once there saves bytes only inside a
+changing channel (in measured conversations the stored bytes fell to between about half and five
+sixths) at a small cost on every save and read (about 2 ms per save in the same measurement). A
+deployment turns it on or off for every store it opens with `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES`.
 
 - On `redis` each stored value is a key `tai42:checkpoint:value:{<thread>}:<digest>`, and a set
   `tai42:checkpoint:values:{<thread>}` lists the thread's values. Every write that references a
@@ -202,7 +210,11 @@ is stored compressed.
   first checkpoint never landed, the sweep never sees the thread, so the row stays until that
   thread id is deleted (`tai conversations delete-thread`). The library's own blob rows have the
   same limit when a process stops in the middle of a thread's delete.
-- `sqlite` and `memory` keep every value inline.
+- The switch decides what a write stores. A checkpoint written while values were stored once
+  reads back with its values whatever the switch says now; with the switch off a save and a read
+  cost nothing beyond the saver's own work.
+- `sqlite` and `memory` keep no value store: they keep every value inline, and
+  `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES=true` is refused for them.
 
 ## What the Redis store keeps
 
