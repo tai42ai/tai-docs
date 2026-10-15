@@ -1,0 +1,427 @@
+---
+title: "Checkpoint stores (tai42_kit.llm.checkpoint)"
+description: "The checkpoint-store seam: the provider registry and its facts, the resource and retention seams, and the protocols and helpers a store's registration builds on."
+icon: "floppy-disk"
+---
+
+
+Checkpoint savers for LLM graph state, their per-loop registry, and the retention seams every thread owner uses.
+
+The provider table, the owner-declared thread retention, the finished-thread ledger calls and the
+live-thread filter registry are exported here; the savers, codecs and store-format gate live in their own modules.
+
+## CHECKPOINT_PROVIDERS
+
+`tai42_kit.llm.checkpoint.providers.CHECKPOINT_PROVIDERS`
+
+```python
+CHECKPOINT_PROVIDERS: Final[Mapping[str, CheckpointProviderFacts]] = MappingProxyType({'redis': CheckpointProviderFacts(durable=True, retention='native_ttl', faithful_codec=True, inline_compress=True), 'postgres': CheckpointProviderFacts(durable=True, retention='sweep', faithful_codec=False, inline_compress=True), 'sqlite': CheckpointProviderFacts(durable=False, retention='sweep', faithful_codec=False, inline_compress=False), 'memory': CheckpointProviderFacts(durable=False, retention='process', faithful_codec=False, inline_compress=False)})
+```
+
+
+## CheckpointProviderFacts
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProviderFacts`
+
+```python
+class CheckpointProviderFacts
+```
+
+What the kit knows about one checkpoint provider.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `durable` | `bool` |
+| `retention` | `RetentionMode` |
+| `faithful_codec` | `bool` |
+| `inline_compress` | `bool` |
+
+
+## FinishedThreadLedger
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger`
+
+```python
+class FinishedThreadLedger(Protocol)
+```
+
+The per-thread retention record of one checkpoint store.
+
+It holds the finished marks and their due times, the declared waiting retentions, and lists the
+threads past their waiting horizon. Every method that takes thread ids takes any sequence; an
+empty one changes nothing, on every provider.
+
+### Members
+
+#### start
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.start`
+
+```python
+async start(self, thread_ids: Sequence[str], retention: ThreadRetention | None) -> None
+```
+
+A run starts on ``thread_ids``: remove their finished mark and record their declared waiting.
+
+The waiting is recorded wherever the store's saver does not carry it as a key TTL; ``None``
+(the platform's) removes a recorded one. A store whose saver stamps the waiting as the TTL of
+every key it writes records nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | — | — |
+
+
+#### mark
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.mark`
+
+```python
+async mark(self, thread_ids: Sequence[str], due_at: datetime) -> None
+```
+
+Record ``thread_ids`` as finished and deletable at or after ``due_at`` (a later mark moves it).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `due_at` | `datetime` | — | — |
+
+
+#### finished_before
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.finished_before`
+
+```python
+async finished_before(self, cutoff: datetime, limit: int) -> list[str]
+```
+
+Up to ``limit`` thread ids due at or before ``cutoff``, earliest due first.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `cutoff` | `datetime` | — | — |
+| `limit` | `int` | — | — |
+
+
+#### forget
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.forget`
+
+```python
+async forget(self, thread_ids: Sequence[str]) -> None
+```
+
+Remove ``thread_ids`` from the ledger: their finished mark and their declared waiting.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+#### declared_waiting
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.declared_waiting`
+
+```python
+async declared_waiting(self, thread_ids: Sequence[str]) -> dict[str, int]
+```
+
+The recorded declared waiting minutes of those of ``thread_ids`` that have one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+#### stale_threads
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.stale_threads`
+
+```python
+async stale_threads(self, saver: BaseCheckpointSaver, *, now: datetime, default_minutes: int) -> list[str]
+```
+
+The threads whose newest checkpoint is older than their waiting retention before ``now``, by id.
+
+A thread's waiting retention is the one its owner declared at run start, else
+``default_minutes``; its newest checkpoint is the newest in any of its namespaces. A store with
+an index of its own answers from it; otherwise ``saver`` (the store's own) is walked. ``now``
+must be timezone-aware.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `saver` | `BaseCheckpointSaver` | — | — |
+| `now` | `datetime` | — | — |
+| `default_minutes` | `int` | — | — |
+
+
+
+## LiveThreadFilter
+
+`tai42_kit.llm.checkpoint.liveness.LiveThreadFilter`
+
+```python
+LiveThreadFilter = Callable[[str, str | None, Sequence[str]], Awaitable[Collection[str]]]
+```
+
+
+## ThreadRetention
+
+`tai42_kit.llm.checkpoint.retention.ThreadRetention`
+
+```python
+class ThreadRetention
+```
+
+How long a checkpoint thread is kept, in minutes, bounded by the platform's values.
+
+``waiting_minutes``: after its last write, while its owner may still continue it.
+``finished_minutes``: after its owner marked it finished.
+
+Every value is checked when it is built, so every seam that takes one (the saver views, the
+finished-thread ledger, the park horizon) holds the platform's ceiling. Raises
+`ThreadRetentionError` for a value that is not positive, a value above the platform's
+for its horizon, or a finished longer than the waiting.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `waiting_minutes` | `int` |
+| `finished_minutes` | `int` |
+
+
+## ThreadRetentionError
+
+`tai42_kit.llm.checkpoint.retention.ThreadRetentionError`
+
+```python
+class ThreadRetentionError(ValueError)
+```
+
+A declared checkpoint retention is out of bounds; the message names the value and the bound it broke.
+
+
+## UnknownCheckpointProviderError
+
+`tai42_kit.llm.checkpoint.providers.UnknownCheckpointProviderError`
+
+```python
+class UnknownCheckpointProviderError(ValueError)
+```
+
+A checkpoint provider name the provider table does not know.
+
+
+## checkpoint_park_horizon
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_park_horizon`
+
+```python
+checkpoint_park_horizon(provider: str, retention: ThreadRetention | None = None) -> timedelta | None
+```
+
+How long a parked run's checkpoint is kept on ``provider``; ``None`` when the store does not outlive the process.
+
+On a durable provider a parked thread's last write is its park checkpoint, and the thread is kept its
+waiting retention after it — the owner's declared one, else the platform's — so a park may wait at
+most that long.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+
+
+## checkpoint_provider_facts
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_provider_facts`
+
+```python
+checkpoint_provider_facts(provider: str) -> CheckpointProviderFacts
+```
+
+Return the facts of ``provider``; an unknown name raises `UnknownCheckpointProviderError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+
+
+## durable_checkpoint_providers
+
+`tai42_kit.llm.checkpoint.providers.durable_checkpoint_providers`
+
+```python
+durable_checkpoint_providers() -> frozenset[str]
+```
+
+The providers whose checkpoints survive a process restart.
+
+
+## live_thread_filters
+
+`tai42_kit.llm.checkpoint.liveness.live_thread_filters`
+
+```python
+live_thread_filters() -> Mapping[str, LiveThreadFilter]
+```
+
+A read-only view of the registered filters by owner.
+
+
+## live_threads
+
+`tai42_kit.llm.checkpoint.liveness.live_threads`
+
+```python
+async live_threads(provider: str, conn_string: str | None, thread_ids: Sequence[str]) -> dict[str, str]
+```
+
+Map each candidate a registered filter claims to the owner that claimed it.
+
+Every filter is called; a filter's raise propagates.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `conn_string` | `str \| None` | — | — |
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+## mark_threads_active
+
+`tai42_kit.llm.checkpoint.ledger.mark_threads_active`
+
+```python
+async mark_threads_active(
+    thread_ids: Sequence[str],
+    *,
+    retention: ThreadRetention | None = None,
+    provider: str | None = None,
+    conn_string: str | None = None,
+) -> None
+```
+
+Take ``thread_ids`` out of the ledger before a run starts on them, recording ``retention``'s waiting.
+
+``retention`` is the owner's declaration for the threads (``None``: the platform's); the store
+records its waiting where the waiting horizon is swept. ``provider`` and ``conn_string`` resolve
+as in `mark_threads_finished`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+| `provider` | `str \| None` | `None` | — |
+| `conn_string` | `str \| None` | `None` | — |
+
+
+## mark_threads_finished
+
+`tai42_kit.llm.checkpoint.ledger.mark_threads_finished`
+
+```python
+async mark_threads_finished(
+    thread_ids: Sequence[str],
+    *,
+    retention: ThreadRetention | None = None,
+    provider: str | None = None,
+    conn_string: str | None = None,
+) -> None
+```
+
+Mark ``thread_ids`` finished now, in the ledger of the store that holds them.
+
+They become deletable their finished retention after now: ``retention``'s (the owner's
+declaration, see `resolve_retention`), else the
+platform's. ``provider`` and ``conn_string`` resolve independently: ``None`` is the deployment's
+configured checkpoint provider, respectively its configured connection string. A caller that
+checkpoints on a per-run provider passes it. An empty sequence is a no-op; a store error
+propagates.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+| `provider` | `str \| None` | `None` | — |
+| `conn_string` | `str \| None` | `None` | — |
+
+
+## platform_retention
+
+`tai42_kit.llm.checkpoint.retention.platform_retention`
+
+```python
+platform_retention() -> ThreadRetention
+```
+
+The platform's two retention settings: the default and the ceiling of every declaration.
+
+
+## register_live_thread_filter
+
+`tai42_kit.llm.checkpoint.liveness.register_live_thread_filter`
+
+```python
+register_live_thread_filter(owner: str, fn: LiveThreadFilter) -> None
+```
+
+Register ``fn`` as ``owner``'s live-thread filter; an owner registers once.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `owner` | `str` | — | — |
+| `fn` | `LiveThreadFilter` | — | — |
+
+
+## resolve_retention
+
+`tai42_kit.llm.checkpoint.retention.resolve_retention`
+
+```python
+resolve_retention(*, waiting_minutes: int | None = None, finished_minutes: int | None = None) -> ThreadRetention
+```
+
+Resolve an owner's declaration against the platform's values.
+
+An unset waiting is the platform's; an unset finished is the platform's finished capped at the
+resolved waiting (a finished thread is never kept longer than a waiting one). The resolved
+value is bounded where it is built (`ThreadRetention`), which raises
+`ThreadRetentionError` for a declaration out of bounds.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `waiting_minutes` | `int \| None` | `None` | — |
+| `finished_minutes` | `int \| None` | `None` | — |
+
