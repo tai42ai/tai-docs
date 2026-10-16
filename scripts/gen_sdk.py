@@ -274,12 +274,25 @@ PAGES: list[dict] = [
         "icon": "server",
         "modules": ["tai42_skeleton.asgi"],
     },
+    {
+        "slug": "skeleton-states",
+        "title": "State record validation (tai42_skeleton.states)",
+        "description": (
+            "The store-free record validator, the effective-schema composer, and the state-template document validator."
+        ),
+        "icon": "list-check",
+        "modules": [
+            "tai42_skeleton.states.schema",
+            "tai42_skeleton.states.templates.compose",
+            "tai42_skeleton.states.templates.validate",
+        ],
+    },
 ]
 
 # The public Protocols/ABCs a plugin author implements, the escape-hatch
-# accessor, the guarded fetch helper, and the Postgres client's connection
-# helpers. Every one MUST appear as a rendered
-# heading or the run fails.
+# accessor, the guarded fetch helper, the Postgres client's connection
+# helpers, and the store-free record validator. Every one MUST appear as a
+# rendered heading or the run fails.
 REQUIRED_SYMBOLS = [
     "Agent",
     "VersionedStore",
@@ -311,6 +324,7 @@ REQUIRED_SYMBOLS = [
     "PostgresClient",
     "read_connection",
     "pinned_connection",
+    "RecordValidator",
 ]
 
 

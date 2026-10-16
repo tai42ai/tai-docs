@@ -212,7 +212,41 @@ only `path`/`parameters`/`declarations`/`options` (the last a per-operation, nev
 The effective schema is the base schema with every attached fragment composed in. Composing
 two fragments at overlapping paths, attaching a second template at an already-occupied path,
 or attaching where the base schema already carries the property is a conflict (`409`) naming
-the colliding path. A consumer may register an **attach validator** on the states facet with
+the colliding path.
+
+A fragment's local `$ref`s keep the fragment's meaning once it is placed: a pointer
+reference (`#` or `#/…`) is rebased to the attach path, so `#/$defs/t` in a fragment
+attached at `["box"]` reads `#/properties/box/$defs/t` in the effective schema, while an
+anchor reference (`#name`) is left as it is. What a fragment may carry:
+
+- **With its parameters filled in**, the fragment must be a valid draft 2020-12 schema.
+- **At a path**, a pointer reference whose target sits inside a `const` or `enum` value is
+  refused: that value is data a record must equal, and rebasing the reference would change
+  it.
+- **At the root** (`path: []`), the fragment's root `type` must be `object`, and its root
+  may carry only `properties`, `required` and `$defs`, which merge into the state's root
+  (a key the root already holds is a conflict, as a property is). Annotation keywords
+  there (`title`, `description`, `$comment`, `examples`, `default`, `deprecated`,
+  `readOnly`, `writeOnly`, and a `$schema` naming draft 2020-12) are dropped; any other
+  root keyword is refused. A pointer reference must name a target under
+  `#/properties/<key>` or `#/$defs/<key>`; `#` or any other root pointer would name the
+  state's root once merged, so it is refused. Attach such a fragment at a path instead.
+
+The effective schema then meets the same rules as a declared schema. It is one draft
+2020-12 document, so:
+
+- every `$ref` is local and resolves, and a pointer reference's target is itself a valid
+  schema;
+- `$dynamicRef`, a `$schema` naming any other dialect, and a `$id` below the root are
+  refused;
+- an anchor name is unique across every `$anchor` and `$dynamicAnchor` in the schema;
+- a cycle of references that never descends into the document is refused.
+
+These rules are checked whenever an effective schema is composed, so a declaration, an
+attach, a declarations write, a detach or a template replace whose result breaks one is
+itself refused.
+
+A consumer may register an **attach validator** on the states facet with
 `register_attach_validator`: given the state name, the template document, the attachment's
 declaration values, and the state's effective schema, it raises loudly to refuse an attach or a
 declarations write — it is consulted before every attach, every declarations write, and every
@@ -609,7 +643,35 @@ after a declaration or attachment changes what the schema admits.
   an optional `?kind=`, and a `?limit=` — and `held` names the subjects a
   [failed pending save](#held-subjects) made the scan skip.
 
-Both are also on the command line — `tai states validate <name>` (`--data` / `--file`)
+- **Without a store.** The skeleton's
+  [`RecordValidator`](/reference/python-sdk/skeleton-states#recordvalidator) checks a
+  document against a state's effective schema the same way the candidate door does, with
+  no server: build it from the `effective_schema` a state's read serves, or compose one
+  with `compose_effective_schema` from the base schema and the attachments, then call
+  `validate`. The answer is the same `RecordValidation`, with the same path-ordered
+  `reasons`. Compiling the schema is the costly step, so build the validator once and
+  reuse it for every document.
+
+  ```python
+  from tai42_skeleton.states import RecordValidator
+  from tai42_skeleton.states.templates import compose_effective_schema, validate_template
+
+  # The `effective_schema` from GET /api/states/alerts, or composed from its parts:
+  template = validate_template(template_document)
+  effective_schema = compose_effective_schema(base_schema, [(template, ["box"], {})])
+
+  validator = RecordValidator(effective_schema)
+  result = validator.validate({"n": 1, "box": {"tag": 5}})
+  # With a fragment that declares `tag` a string: result.fits is False and
+  # result.reasons[0].path is "$.box.tag".
+  ```
+
+  Building the validator checks the schema by the declaration rules
+  ([above](#attaching)) and raises `SchemaValidationError` for a schema they refuse.
+  `validate` raises `ValueValidationError` for a document that is not a JSON object, and
+  for a `$ref` it cannot resolve while validating.
+
+The two doors are also on the command line — `tai states validate <name>` (`--data` / `--file`)
 and `tai states check <name>` (`--kind`) — and the Studio's
 [States screen](/studio/screens#states) runs the stored-records check from a card on a
 state's Records tab.
