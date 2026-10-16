@@ -1,0 +1,167 @@
+---
+title: "State record validation (tai42_skeleton.states)"
+description: "The store-free record validator, the effective-schema composer, and the state-template document validator."
+icon: "list-check"
+---
+
+
+Static validity of a state's JSON-Schema and its stored document.
+
+The pure draft 2020-12 validators the template document parser and the states service
+both lean on: an object-rooted schema check, ``$ref`` resolvability, full-document
+validation against an effective schema, and the conservative narrowing comparison two
+schemas are compared with. `RecordValidator` is the public face over these
+validators for a caller with no store bound. Depends only on the standard library,
+``jsonschema``/``referencing`` and the contract's states models.
+
+## RecordValidator
+
+`tai42_skeleton.states.schema.RecordValidator`
+
+```python
+class RecordValidator
+```
+
+Validates record documents against one schema, as a write to a declared state would.
+
+For a caller with no store bound (a test, a check before a deploy): give it the schema a
+record is validated WHOLE against — a declared state's effective schema (the base schema
+with its attachments composed in) — and call `validate` per document. The schema is
+checked once at construction by the same rules a declaration is (object-rooted, at least
+one property, a valid draft 2020-12 schema, no ``$schema`` naming another dialect, only
+resolvable local ``$ref``, no ``$dynamicRef``, no ``$id`` below the root, unique ``$anchor`` / ``$dynamicAnchor``
+names, no cycle of references that never descends into the document), and refused loudly with
+`SchemaValidationError`; the compiled validator is
+then reused for every document. A by-id schema is resolved by the caller first.
+
+### Members
+
+#### validate
+
+`tai42_skeleton.states.schema.RecordValidator.validate`
+
+```python
+validate(self, data: Any) -> RecordValidation
+```
+
+EVERY way ``data`` misfits the schema, ordered by JSON path; ``fits`` when there is none.
+
+A non-object ``data`` raises `ValueValidationError`,
+as does an unresolvable ``$ref`` met while validating.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `data` | `Any` | — | — |
+
+
+
+Composing attached fragments into the effective schema.
+
+Each attachment's substituted (and, when the template traces, ``_trace``-stamped) fragment
+is placed into a base schema at its path, refusing collisions and overlapping attach paths.
+A fragment placed at a path has its ``#`` and ``#/…`` references rebased to that path, so
+they keep resolving against the fragment; a fragment attached at the root merges its
+``properties``, ``required`` and ``$defs`` into the root and may carry no other validating
+root keyword, nor a pointer reference outside its ``properties`` and ``$defs``. The
+composed schema is checked by the declaration rules before it is returned.
+
+## compose_effective_schema
+
+`tai42_skeleton.states.templates.compose.compose_effective_schema`
+
+```python
+compose_effective_schema(
+    base_schema: dict[str, Any],
+    attachments: Sequence[tuple[StateTemplate, list[str], Mapping[str, Any]]],
+) -> dict[str, Any]
+```
+
+The base schema with each attachment's fragment placed at its path.
+
+Each attachment is ``(template, path, parameters)``: the template's fragment is
+substituted with ``defaults`` overlaid by ``parameters`` (an unsupplied no-default
+marker is a loud refusal), ``_trace``-stamped when the template traces, and placed at
+``path`` — creating intermediate ``{"type": "object", "properties": {}}`` levels. At a
+non-empty path every ``#`` / ``#/…`` ``$ref`` in the fragment is rebased to the placement
+pointer (``#/properties/<seg>/…``), so it resolves inside the fragment as it did alone;
+``#anchor`` refs are left as they are. At the root path the fragment's root ``type`` must
+be ``object``; its ``properties``, ``required`` and ``$defs`` are merged into the base
+root, its annotation keywords are dropped, and any other root keyword is refused, as is a
+``#`` / ``#/…`` ref outside the fragment's ``properties`` and ``$defs``. An attachment
+path that collides with an existing base property, a root ``$defs`` key that collides with
+the base's, a root type, keyword or ref that cannot be merged, or an attach path
+overlapping another attachment's path, is refused with
+`AttachConflictError`. A fragment its parameters leave
+malformed is refused with `SchemaValidationError`
+naming the template. The composed
+schema satisfies the declaration rules (object-rooted, at least one property, a valid
+draft 2020-12 schema, no ``$schema`` naming another dialect, every ``$ref`` local and
+resolvable, no ``$dynamicRef``, no ``$id``
+below the root, unique ``$anchor`` / ``$dynamicAnchor`` names, no cycle of references that
+never descends into the document), raising
+`SchemaValidationError` otherwise.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `base_schema` | `dict[str, Any]` | — | — |
+| `attachments` | `Sequence[tuple[StateTemplate, list[str], Mapping[str, Any]]]` | — | — |
+
+
+The platform state-template document parser and validator.
+
+Parses a raw JSON document into a `StateTemplate`:
+the document's shape (every section, the name law, no key outside the platform set) is the
+contract's `StateTemplateDocument`; this module adds the
+rules that span sections or need jq — parameter markers against declared parameters, the
+fragment as an object schema, regime and program paths inside the fragment, program names and
+params as jq identifiers, and every inline jq body compiling. A consumer keeps its own documents
+beside the template under its own kind (validated through its registered attach validator).
+
+## DECLARATIONS_CHECK_VARIABLES
+
+`tai42_skeleton.states.templates.validate.DECLARATIONS_CHECK_VARIABLES`
+
+```python
+DECLARATIONS_CHECK_VARIABLES: tuple[str, ...] = ('parameters',)
+```
+
+
+## RECONCILE_JQ_VARIABLES
+
+`tai42_skeleton.states.templates.validate.RECONCILE_JQ_VARIABLES`
+
+```python
+RECONCILE_JQ_VARIABLES: dict[str, tuple[str, ...]] = {'orphans': ('previous', 'new'), 'close': ('id', 'resolution'), 'resolutions': ()}
+```
+
+
+## validate_template
+
+`tai42_skeleton.states.templates.validate.validate_template`
+
+```python
+validate_template(doc: Any) -> StateTemplate
+```
+
+Parse and validate a raw platform state-template document into a `StateTemplate`.
+
+The document must carry ``kind == "state-template"`` and a dict fragment ``schema`` (a by-id
+fragment is resolved by the caller first) and parse as a
+`StateTemplateDocument`; then a no-default parameter
+must appear as a marker and every marker names a declared parameter, the defaults-substituted
+fragment passes ``_validate_schema``, regime and update-program paths lie inside the fragment
+(``"*"`` only over ``items``/``additionalProperties``), program names and params are jq
+identifiers, and every inline jq body compiles (a by-id body is rendered and compiled at the
+save door). Raises `TemplateValidationError` on the first
+violation.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `doc` | `Any` | — | — |
+
