@@ -504,20 +504,23 @@ message; one idle past it expires and the next message starts fresh. See
 [retention](/reference/conversation-bridge#checkpoint-retention).
 
 An operator can also **forget** one thread outright — its checkpoint, its answer
-records, and its indexes — with
+records, its indexes, and the thread's own [declared state](/concepts/states) — with
 [`tai conversations delete-thread`](/reference/cli/conversations) (the
 `DELETE …/thread` door), so the next message on that address starts fresh without
-waiting for a TTL. Forgetting is authorized by the same write grant that creates the
-route, and a valid id on its own route always succeeds. See [forgetting a
-thread](/reference/conversation-bridge#forgetting-a-thread).
+waiting for a TTL. A reset is a **complete forget**: the transcript and the
+conversation's own declared-state memory both go, and the delete response reports a
+`states_erased` count beside `removed`. Forgetting is authorized by the same write grant
+that creates the route, and a valid id on its own route always succeeds. See [forgetting
+a thread](/reference/conversation-bridge#forgetting-a-thread).
 
 A **linked person** can be erased ENTIRELY with
 [`tai conversations delete-person`](/reference/cli/conversations) (the
 `DELETE …/persons/{person_id}` door): its aggregated `bridge:@person:{id}` thread (checkpoint,
-records, indexes), its person row, and every address→person index mapping go together, so the
-next message from any of its addresses starts as a fresh provisional person. The erase is
-idempotent — a person already gone is not an error. See [forgetting a
-person](/reference/conversation-bridge#forgetting-a-person).
+records, indexes), its [declared state](/concepts/states) — both the person's own cross-thread
+memory and the aggregated thread's — its person row, and every address→person index mapping go
+together, so the next message from any of its addresses starts as a fresh provisional person.
+The erase reports its own `states_erased` count, and it is idempotent — a person already gone is
+not an error. See [forgetting a person](/reference/conversation-bridge#forgetting-a-person).
 
 A `tool` target keeps no **conversation** memory: the dispatch is stateless, so no
 conversation state is carried across messages and each message is answered on its own. Its thread key

@@ -680,10 +680,12 @@ A thread the index still holds but whose records have expired under
 
 `DELETE /api/conversations/{route_name}/thread?thread_id=…`
 (`tai conversations delete-thread <route> <thread>`) **forgets** one thread
-outright — its agent checkpoint, its answer records, and its thread indexes — so a
-later message on the same address starts a memory the deleted turns never touched. A
-linked person's aggregated `bridge:@person:{person_id}` thread is forgotten across
-every route index it spans.
+outright — its agent checkpoint, its answer records, its thread indexes, and the
+thread's [declared-state](/concepts/states) records — so a later message on the same
+address starts a memory the deleted turns never touched. It is a **complete forget**:
+the transcript and the conversation's own declared-state memory both go, not just the
+transcript. A linked person's aggregated `bridge:@person:{person_id}` thread is
+forgotten across every route index it spans.
 
 The thread id rides the **query string**, exactly as the transcript door takes it: an
 API-door id carries a percent-encoded principal that no path spelling round-trips.
@@ -697,7 +699,18 @@ left behind once the records lapse.
 Authority is the door's **write** action — the **same conversations write grant that
 creates a route** deletes routes and forgets threads, never a per-thread owner check.
 
-The answer is `{removed, route_name, thread_id}`. Refusals: a route-keyed id missing
+The answer is `{removed, states_erased, route_name, thread_id}`, where `removed`
+counts the answer records cleared and `states_erased` counts the thread-subject
+[declared-state](/concepts/states) records this call forgot across the routes the
+thread spans — `0` when the states feature is off or the thread held no declared
+state. The reset clears the thread's own **`thread`-subject** state only — the
+conversation's memory keyed on this thread; declared state a flow scoped to the
+`person` (deliberate cross-thread memory) is cleared by [forgetting the
+person](#forgetting-a-person), not a single-thread reset. State erasure runs last under
+the same in-flight/FIFO guard, so a live turn can never race it; a failure there raises
+loudly and the idempotent call is retried.
+
+Refusals: a route-keyed id missing
 the route's `bridge:{route_name}:` prefix is a `400` (it names another route) — the
 one guard stopping a delete on one route from wiping another's memory; a
 `bridge:@person:` thread whose person is unknown, or whose `route_name` is not one of
@@ -715,6 +728,9 @@ store scoped to that identity:
   **every route the person wrote under** its answer records, per-thread transcript indexes,
   route-thread index memberships and per-thread mode override (the [thread-forget
   machinery](#forgetting-a-thread), reused);
+- its [declared-state](/concepts/states) records — both the person's own
+  **`person`-subject** memory (the cross-thread memory a flow scoped to the person) and the
+  aggregated thread's **`thread`-subject** memory, across every route the person spans;
 - the person row `conversations:person:{person_id}`;
 - **every** `person_index` `door_address_key → person_id` mapping of its addresses.
 
@@ -728,8 +744,10 @@ re-reads it and a retry finishes. A person that is **already gone** — a retry,
 never existed — is not a `404`: its aggregated checkpoint is forgotten regardless (it defaults
 to keep-forever) and the call answers `erased: false`.
 
-The answer is `{person_id, removed, erased}`, where `removed` counts the answer records
-deleted across the person's routes and `erased` says whether **this** call removed the person
+The answer is `{person_id, removed, states_erased, erased}`, where `removed` counts the answer
+records deleted across the person's routes, `states_erased` counts the declared-state records
+this call forgot — the person's own (`person`-subject) and its aggregated thread's
+(`thread`-subject) memory — and `erased` says whether **this** call removed the person
 row. Refusals: a turn in flight on the aggregated thread is a `409` (re-checked under the
 per-thread FIFO before any teardown, so an admitted turn cannot re-create memory behind the
 erase; a full queue is the retriable `503`); a blank `person_id` is a `400`; no backend is a
