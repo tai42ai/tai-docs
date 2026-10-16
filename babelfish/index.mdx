@@ -235,6 +235,18 @@ to whatever calls it and the editor can prompt for the right inputs when you run
 Because a flow is a [tool](/concepts/tools-and-extensions), a parent flow can invoke
 another flow as a subflow through that same contract.
 
+A node's declared inputs are only part of what it receives: an edge into a node adds
+the producing node's output to the node's input, so a node often receives more than it
+declares (a fan-in [waits on](#node-waits) every declared **or edge-derived** input).
+The **`flow_resolved_inputs`** authoring tool makes that explicit — given a flow graph
+it returns, per node, both its **declared** inputs and the inputs the engine
+**resolves** it to actually receive at run time, the declared ones plus the edge-derived
+ones. It reads the graph passed to it — a held flow is its own graph — and computes
+without building, compiling, or running anything, so it is reachable like any other
+authoring tool (`validate_flow`, `validate_binding`, `read_flow`) through
+[run-tool](/studio/running-tools). The Studio's flow editor reads it to draw a node's
+[Receives from block](/babelfish/studio#the-node-edit-panel).
+
 A subflow also **joins the dispatching run's trace** rather than minting a separate
 one, and so does an agent a node drives — see [one run, one
 trace](/operate/observe#one-run-one-trace). The join survives parking, including a
