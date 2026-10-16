@@ -581,6 +581,39 @@ operator notification. The same three operations are MCP tools, and `tai states 
 list|retry|discard` on the command line (`discard` requires `--yes`). The
 [Studio's States screen](/studio/screens#states) shows them in its Pending saves card.
 
+## Checking records
+
+A record is validated against its state's **effective schema** — the base schema
+composed with every attachment — on every write. Two read-only doors check that same
+conformance without writing, so a schema can be checked before a document is stored and
+after a declaration or attachment changes what the schema admits.
+
+- **A candidate, before it is stored.** `POST /api/states/{name}/records/validate`
+  takes a candidate document as its whole body and checks it against the state's
+  effective schema exactly as a write would, but stores nothing. The answer is a
+  `RecordValidation` — `{fits, reasons}`. A document that fits is `{fits: true,
+  reasons: []}`; one that does not is a **`200`** with `fits: false` and every `reason`
+  a `{path, message}` ordered by JSON path, so a caller sees all of a document's misfits
+  at once rather than only the first. Only a non-object body or an effective schema with
+  a broken `$ref` is a `422`, and an undeclared state a `404`.
+
+- **The stored records, against the schema as it stands now.**
+  `GET /api/states/{name}/records/check` pages the state's stored records and reports the
+  ones that **no longer fit** the current effective schema — the records a
+  [re-declare](#re-declaring) or an attachment change left behind. The answer is a
+  `RecordCheckPage` — `{checked, items, next_cursor, held}`. `checked` counts the records
+  the page read, and `items` are the **misfits only**, each a `RecordCheckItem`
+  (`subject`, `updated_at`, and the same path-ordered `reasons`). A page that read
+  records but found none wanting therefore carries an empty `items` beside a non-zero
+  `checked`. It pages like the subjects listing and record search — a keyset `?cursor=`,
+  an optional `?kind=`, and a `?limit=` — and `held` names the subjects a
+  [failed pending save](#held-subjects) made the scan skip.
+
+Both are also on the command line — `tai states validate <name>` (`--data` / `--file`)
+and `tai states check <name>` (`--kind`) — and the Studio's
+[States screen](/studio/screens#states) runs the stored-records check from a card on a
+state's Records tab.
+
 ## The HTTP surface
 
 All routes are authed. Templates are a top-level sibling collection and prune is its
@@ -604,6 +637,8 @@ state literally named `templates` stays reachable at `GET /api/states/templates`
 | `DELETE /api/states/{name}/attachments/{template}` | detach |
 | `GET /api/states/{name}/subjects` | list subjects (`?kind=&limit=&cursor=`) |
 | `POST /api/states/{name}/records/search` | search records by document content |
+| `POST /api/states/{name}/records/validate` | check a candidate document against the effective schema, storing nothing |
+| `GET /api/states/{name}/records/check` | page the stored records that no longer fit the current effective schema |
 | `GET /api/states/{name}/consumers` | what binds this state |
 
 ### Records
@@ -656,7 +691,7 @@ Two command groups mirror the HTTP surface. `tai states` manages declarations,
 attachments, subjects, records, and the audit trail — `list`, `get`, `put`, `delete`,
 `stats`, `attachments`, `attach`, `get-attachment`, `update-attachment` (its `--options`
 carrying the per-operation reconcile directives),
-`detach`, `subjects`, `search`, `read`, `replace`, `merge`, `apply`, `template-jq`
+`detach`, `subjects`, `search`, `validate`, `check`, `read`, `replace`, `merge`, `apply`, `template-jq`
 (`eval` an input program, `apply` an update program), `erase`,
 `fold`, `writes`, `consumers`, `prune`, and `pending-saves` (`list`, `retry`,
 `discard`). `tai state-templates` manages template
