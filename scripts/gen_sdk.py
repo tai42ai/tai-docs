@@ -209,6 +209,16 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.llm", "tai42_kit.llm.classifier"],
     },
     {
+        "slug": "kit-checkpoint",
+        "title": "Checkpoint stores (tai42_kit.llm.checkpoint)",
+        "description": (
+            "The checkpoint-store seam: the provider registry and its facts, the resource and retention seams, "
+            "and the protocols and helpers a store's registration builds on."
+        ),
+        "icon": "floppy-disk",
+        "modules": ["tai42_kit.llm.checkpoint"],
+    },
+    {
         "slug": "kit-settings",
         "title": "Settings (tai42_kit.settings)",
         "description": "The base settings class and the settings registry.",
@@ -294,6 +304,10 @@ REQUIRED_SYMBOLS = [
     "ParkGiveUpOutcome",
     "register_park_giveup_handler",
     "fire_park_giveup",
+    "CheckpointProvider",
+    "CheckpointValueStore",
+    "FinishedThreadLedger",
+    "ValueEncoding",
     "PostgresClient",
     "read_connection",
     "pinned_connection",

@@ -1,0 +1,1604 @@
+---
+title: "Checkpoint stores (tai42_kit.llm.checkpoint)"
+description: "The checkpoint-store seam: the provider registry and its facts, the resource and retention seams, and the protocols and helpers a store's registration builds on."
+icon: "floppy-disk"
+---
+
+
+Checkpoint savers for LLM graph state: the provider registry, the per-loop registry, and the retention seams.
+
+A checkpoint store is a registration of `CheckpointProvider` (its name, its facts, the hooks the
+kit applies its features through); the kit's built-in stores register at this package's import. The
+owner-declared thread retention, the finished-thread ledger calls, the live-thread filter registry and
+the pieces a store's registration builds on (the shared-value chunker and resolver, the value store
+and ledger protocols, the msgpack value encoding) are exported here.
+
+## CHECKPOINT_STORE_FORMAT_GENERATION
+
+`tai42_kit.llm.checkpoint.store_format.CHECKPOINT_STORE_FORMAT_GENERATION`
+
+```python
+CHECKPOINT_STORE_FORMAT_GENERATION: Final[int] = 4
+```
+
+
+## REDIS_CHECKPOINT_NOT_CONFIGURED_MESSAGE
+
+`tai42_kit.llm.checkpoint.stores.redis.REDIS_CHECKPOINT_NOT_CONFIGURED_MESSAGE`
+
+```python
+REDIS_CHECKPOINT_NOT_CONFIGURED_MESSAGE: Final = not_configured_message('the Redis checkpoint', 'LLM_PROVIDER_CHECKPOINT_CONN_STRING', 'the base Redis URL REDIS_URL / TAI_DEFAULT_REDIS_URL') + ' The target Redis must provide the JSON and search modules (RedisJSON +' + ' RediSearch); a plain Redis fails mid-run on FT.* commands.'
+```
+
+
+## REFERENCING_TYPE_SUFFIX
+
+`tai42_kit.llm.checkpoint.checkpoint.REFERENCING_TYPE_SUFFIX`
+
+```python
+REFERENCING_TYPE_SUFFIX: Final = '+ref'
+```
+
+
+## ChannelStorage
+
+`tai42_kit.llm.checkpoint.providers.ChannelStorage`
+
+```python
+ChannelStorage = Literal['per_checkpoint', 'per_version']
+```
+
+
+## CheckpointCodec
+
+`tai42_kit.llm.checkpoint.envelope.CheckpointCodec`
+
+```python
+class CheckpointCodec(Protocol)
+```
+
+A codec the serialization guard installs around a saver's serializer.
+
+Every value the saver stores is written by the codec, and read back by it: a value the kit
+encoded ahead of the saver takes the codec's `inline_form`.
+
+### Members
+
+#### dumps_typed
+
+`tai42_kit.llm.checkpoint.envelope.CheckpointCodec.dumps_typed`
+
+```python
+dumps_typed(self, inner: Any, obj: Any) -> tuple[str, bytes]
+```
+
+Encode ``obj`` through ``inner``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `inner` | `Any` | — | — |
+| `obj` | `Any` | — | — |
+
+
+#### inline_form
+
+`tai42_kit.llm.checkpoint.envelope.CheckpointCodec.inline_form`
+
+```python
+inline_form(self, inner: Any, encoded: tuple[str, bytes]) -> tuple[str, bytes]
+```
+
+The ``(type, bytes)`` the saver stores for a value ``inner`` encoded as ``encoded``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `inner` | `Any` | — | — |
+| `encoded` | `tuple[str, bytes]` | — | — |
+
+
+#### loads_typed
+
+`tai42_kit.llm.checkpoint.envelope.CheckpointCodec.loads_typed`
+
+```python
+loads_typed(self, inner: Any, data: tuple[str, bytes]) -> Any
+```
+
+Decode ``data`` through ``inner``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `inner` | `Any` | — | — |
+| `data` | `tuple[str, bytes]` | — | — |
+
+
+
+## CheckpointProvider
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider`
+
+```python
+class CheckpointProvider(ABC)
+```
+
+One checkpoint store's registration: its name, its facts, and the hooks the kit applies its features through.
+
+The kit calls the hooks and applies everything else itself, the same way for every store: the
+serialization guard, large values stored once per thread, the store-format gate, the retention
+views and the sweep. A hook receives the settings it needs as arguments.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `name` | `str` |
+| `facts` | `CheckpointProviderFacts` |
+
+### Members
+
+#### open
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.open`
+
+```python
+async open(self, conn_string: str | None) -> tuple[CheckpointResource, Callable[[], Awaitable[None]]]
+```
+
+Open the store: its handle, its finished-thread ledger and its per-thread value store, set up.
+
+Returns the resource and the function that closes it. A ``None`` conn string means the store's
+default connection, or raises naming the setting to set.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `conn_string` | `str \| None` | — | — |
+
+
+#### saver
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.saver`
+
+```python
+saver(self, resource: CheckpointResource) -> BaseCheckpointSaver
+```
+
+The store's saver over ``resource``, as the library builds it; the kit guards and wraps it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `resource` | `CheckpointResource` | — | — |
+
+
+#### saver_with_waiting
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.saver_with_waiting`
+
+```python
+async saver_with_waiting(self, resource: CheckpointResource, waiting_minutes: int) -> tuple[BaseCheckpointSaver, CheckpointValueStore]
+```
+
+A saver over ``resource`` whose writes carry ``waiting_minutes`` as their key TTL, with its value store.
+
+The value store's writes carry the same TTL over the store's own key space. Required when the
+store's retention is ``native_ttl``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `resource` | `CheckpointResource` | — | — |
+| `waiting_minutes` | `int` | — | — |
+
+
+#### serializer
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.serializer`
+
+```python
+serializer(self, saver: BaseCheckpointSaver, compress_threshold: int | None) -> tuple[Any, CheckpointCodec | None]
+```
+
+The serializer the kit guards on ``saver`` and the codec it installs around it.
+
+The codec writes and reads back every value the saver stores, a value the kit encoded ahead of
+the saver included. ``compress_threshold`` is ``LLM_PROVIDER_CHECKPOINT_INLINE_COMPRESS_BYTES``.
+Default: the saver's own serializer and no codec.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `saver` | `BaseCheckpointSaver` | — | — |
+| `compress_threshold` | `int \| None` | — | — |
+
+
+#### value_encoding
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.value_encoding`
+
+```python
+value_encoding(self, saver: BaseCheckpointSaver, compress_threshold: int | None) -> ValueEncoding
+```
+
+How this store encodes a value for the chunker, its value store and the resolver.
+
+``saver`` carries the guarded serializer.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `saver` | `BaseCheckpointSaver` | — | — |
+| `compress_threshold` | `int \| None` | — | — |
+
+
+#### prepare_checkpoint
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.prepare_checkpoint`
+
+```python
+async prepare_checkpoint(
+    self,
+    write: CheckpointWrite,
+    checkpoint: Checkpoint,
+    new_versions: ChannelVersions,
+) -> tuple[Checkpoint, ChannelVersions]
+```
+
+The checkpoint and versions the saver is handed; every value they reference is held when this returns.
+
+Default: the kit's preparation for `facts`' ``channel_storage``. A store overrides it
+only with knowledge of its own saver's storage.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `write` | `CheckpointWrite` | — | — |
+| `checkpoint` | `Checkpoint` | — | — |
+| `new_versions` | `ChannelVersions` | — | — |
+
+
+#### prepare_writes
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.prepare_writes`
+
+```python
+async prepare_writes(self, write: CheckpointWrite, writes: Sequence[tuple[str, Any]]) -> Sequence[tuple[str, Any]]
+```
+
+The pending writes the saver is handed; every value they reference is held when this returns.
+
+Default: every write value chunked and pre-encoded.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `write` | `CheckpointWrite` | — | — |
+| `writes` | `Sequence[tuple[str, Any]]` | — | — |
+
+
+#### recorded_generation
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.recorded_generation`
+
+```python
+async recorded_generation(self, resource: CheckpointResource) -> int | None
+```
+
+The store-format generation the store records, or ``None`` when it records none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `resource` | `CheckpointResource` | — | — |
+
+
+#### record_generation
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.record_generation`
+
+```python
+async record_generation(self, resource: CheckpointResource, generation: int) -> None
+```
+
+Record ``generation`` unless one is recorded: concurrent first builds keep the first.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `resource` | `CheckpointResource` | — | — |
+| `generation` | `int` | — | — |
+
+
+#### holds_checkpoints
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProvider.holds_checkpoints`
+
+```python
+async holds_checkpoints(self, resource: CheckpointResource) -> bool
+```
+
+Whether the store holds any checkpoint.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `resource` | `CheckpointResource` | — | — |
+
+
+
+## CheckpointProviderFacts
+
+`tai42_kit.llm.checkpoint.providers.CheckpointProviderFacts`
+
+```python
+class CheckpointProviderFacts
+```
+
+What the kit reads about one checkpoint store.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `durable` | `bool` |
+| `retention` | `RetentionMode` |
+| `channel_storage` | `ChannelStorage` |
+
+
+## CheckpointReferenceError
+
+`tai42_kit.llm.checkpoint.chunking.CheckpointReferenceError`
+
+```python
+class CheckpointReferenceError(CheckpointSerializationError)
+```
+
+A stored checkpoint references a value its thread's value store does not hold, or holds altered.
+
+
+## CheckpointResource
+
+`tai42_kit.llm.checkpoint.checkpoint.CheckpointResource`
+
+```python
+class CheckpointResource
+```
+
+The long-lived resource behind one ``provider::conn_string`` checkpoint store.
+
+``handle`` is what the store's registration builds its saver on. ``ledger`` is the store's
+finished-thread ledger and ``values`` its per-thread value store, both kept in the same store as
+the checkpoints.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `provider` | `str` |
+| `handle` | `Any` |
+| `ledger` | `FinishedThreadLedger` |
+| `values` | `CheckpointValueStore` |
+
+
+## CheckpointSerializationError
+
+`tai42_kit.llm.checkpoint.checkpoint.CheckpointSerializationError`
+
+```python
+class CheckpointSerializationError(Exception)
+```
+
+A checkpoint value could not be stored faithfully, or a stored value could not be read back.
+
+The guard converts ormsgpack's ``MsgpackEncodeError`` into this typed error so a value
+the serializer cannot encode fails loudly — never a silent pickle fallback, never an
+opaque engine crash. The checkpoint guard owns the storage integer range: an integer
+outside the native msgpack range ``[-2**63, 2**64-1]`` has no encoding, and the message
+NAMES the offending path. A store's codec raises it for a value it cannot store
+faithfully and for a stored value it cannot decode.
+
+
+## CheckpointStoreFormatError
+
+`tai42_kit.llm.checkpoint.store_format.CheckpointStoreFormatError`
+
+```python
+class CheckpointStoreFormatError(RuntimeError)
+```
+
+The checkpoint store holds data written in a format this version does not read.
+
+
+## CheckpointValueRef
+
+`tai42_kit.llm.checkpoint.chunking.CheckpointValueRef`
+
+```python
+class CheckpointValueRef
+```
+
+A reference to a value stored once in its thread's value store.
+
+``digest``: the SHA-256 (hex) of the value's encoding. ``size``: the encoding's length in bytes.
+``closure``: the digests of every reference inside that value, transitively.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `digest` | `str` |
+| `size` | `int` |
+| `closure` | `tuple[str, ...]` |
+
+
+## CheckpointValueStore
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore`
+
+```python
+class CheckpointValueStore(Protocol)
+```
+
+Where one checkpoint store keeps its threads' shared values.
+
+### Members
+
+#### touch
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore.touch`
+
+```python
+async touch(self, thread_id: str, digests: Collection[str]) -> set[str]
+```
+
+Re-arm the retention of the held ``digests`` of ``thread_id``; return those it does not hold.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `digests` | `Collection[str]` | — | — |
+
+
+#### put
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore.put`
+
+```python
+async put(self, thread_id: str, blobs: Mapping[str, StoredBlob]) -> None
+```
+
+Store ``blobs`` (by digest) for ``thread_id``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `blobs` | `Mapping[str, StoredBlob]` | — | — |
+
+
+#### get
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore.get`
+
+```python
+async get(self, thread_id: str, digests: Collection[str]) -> dict[str, StoredBlob]
+```
+
+The held blobs among ``digests`` of ``thread_id``; a digest it does not hold is absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+| `digests` | `Collection[str]` | — | — |
+
+
+#### held_digests
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore.held_digests`
+
+```python
+async held_digests(self, thread_id: str) -> set[str]
+```
+
+Every digest ``thread_id`` holds.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+
+
+#### delete_thread
+
+`tai42_kit.llm.checkpoint.value_store.CheckpointValueStore.delete_thread`
+
+```python
+async delete_thread(self, thread_id: str) -> None
+```
+
+Delete every value ``thread_id`` holds.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_id` | `str` | — | — |
+
+
+
+## CheckpointWrite
+
+`tai42_kit.llm.checkpoint.providers.CheckpointWrite`
+
+```python
+class CheckpointWrite
+```
+
+What the kit hands a store's write preparation: the thread's value store and the kit's tools.
+
+``saver`` is the store's own saver, ``values`` the value store the write's large values go to,
+``encoding`` the store's value encoding and ``threshold`` the encoded size above which a value is
+stored once (a preparation runs only where sharing is on).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `saver` | `BaseCheckpointSaver` |
+| `config` | `RunnableConfig` |
+| `thread_id` | `str` |
+| `values` | `CheckpointValueStore` |
+| `encoding` | `ValueEncoding` |
+| `threshold` | `int` |
+
+### Members
+
+#### chunker
+
+`tai42_kit.llm.checkpoint.providers.CheckpointWrite.chunker`
+
+```python
+chunker(self) -> ValueChunker
+```
+
+A chunker over the store's encoding and the threshold.
+
+
+#### inline_form
+
+`tai42_kit.llm.checkpoint.providers.CheckpointWrite.inline_form`
+
+```python
+inline_form(self, encoded: tuple[str, bytes]) -> tuple[str, bytes]
+```
+
+The ``(type, bytes)`` to hand the saver for a value the store's encoding encoded as ``encoded``.
+
+It is the form the saver's guarded serializer stores, so the saver reads it back.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `encoded` | `tuple[str, bytes]` | — | — |
+
+
+#### store
+
+`tai42_kit.llm.checkpoint.providers.CheckpointWrite.store`
+
+```python
+async store(self, digests: Collection[str], blobs: Mapping[str, tuple[str, bytes]]) -> None
+```
+
+Re-arm every digest of ``digests`` and store the missing ones from ``blobs``, in their store form.
+
+A digest the value store does not hold and ``blobs`` does not encode raises
+`CheckpointReferenceError` naming the thread and the digest.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `digests` | `Collection[str]` | — | — |
+| `blobs` | `Mapping[str, tuple[str, bytes]]` | — | — |
+
+
+
+## FinishedThreadLedger
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger`
+
+```python
+class FinishedThreadLedger(Protocol)
+```
+
+The per-thread retention record of one checkpoint store.
+
+It holds the finished marks and their due times, the declared waiting retentions, and lists the
+threads past their waiting horizon. Every method that takes thread ids takes any sequence; an
+empty one changes nothing, on every provider.
+
+### Members
+
+#### start
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.start`
+
+```python
+async start(self, thread_ids: Sequence[str], retention: ThreadRetention | None) -> None
+```
+
+A run starts on ``thread_ids``: remove their finished mark and record their declared waiting.
+
+The waiting is recorded wherever the store's saver does not carry it as a key TTL; ``None``
+(the platform's) removes a recorded one. A store whose saver stamps the waiting as the TTL of
+every key it writes records nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | — | — |
+
+
+#### mark
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.mark`
+
+```python
+async mark(self, thread_ids: Sequence[str], due_at: datetime) -> None
+```
+
+Record ``thread_ids`` as finished and deletable at or after ``due_at`` (a later mark moves it).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `due_at` | `datetime` | — | — |
+
+
+#### finished_before
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.finished_before`
+
+```python
+async finished_before(self, cutoff: datetime, limit: int) -> list[str]
+```
+
+Up to ``limit`` thread ids due at or before ``cutoff``, earliest due first.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `cutoff` | `datetime` | — | — |
+| `limit` | `int` | — | — |
+
+
+#### forget
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.forget`
+
+```python
+async forget(self, thread_ids: Sequence[str]) -> None
+```
+
+Remove ``thread_ids`` from the ledger: their finished mark and their declared waiting.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+#### declared_waiting
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.declared_waiting`
+
+```python
+async declared_waiting(self, thread_ids: Sequence[str]) -> dict[str, int]
+```
+
+The recorded declared waiting minutes of those of ``thread_ids`` that have one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+#### stale_threads
+
+`tai42_kit.llm.checkpoint.ledger.FinishedThreadLedger.stale_threads`
+
+```python
+async stale_threads(self, saver: BaseCheckpointSaver, *, now: datetime, default_minutes: int) -> list[str]
+```
+
+The threads whose newest checkpoint is older than their waiting retention before ``now``, by id.
+
+A thread's waiting retention is the one its owner declared at run start, else
+``default_minutes``; its newest checkpoint is the newest in any of its namespaces. A store with
+an index of its own answers from it; otherwise ``saver`` (the store's own) is walked. ``now``
+must be timezone-aware.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `saver` | `BaseCheckpointSaver` | — | — |
+| `now` | `datetime` | — | — |
+| `default_minutes` | `int` | — | — |
+
+
+
+## LiveThreadFilter
+
+`tai42_kit.llm.checkpoint.liveness.LiveThreadFilter`
+
+```python
+LiveThreadFilter = Callable[[str, str | None, Sequence[str]], Awaitable[Collection[str]]]
+```
+
+
+## MsgpackValueEncoding
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding`
+
+```python
+class MsgpackValueEncoding
+```
+
+A store's msgpack encoding, for the chunker, its value store and the resolver.
+
+### Members
+
+#### encode
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding.encode`
+
+```python
+encode(self, value: Any) -> tuple[str, bytes]
+```
+
+The ``(type, bytes)`` the library serializer writes for ``value``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### reference
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding.reference`
+
+```python
+reference(self, ref: CheckpointValueRef) -> Any
+```
+
+The ``ref`` envelope, a plain dictionary in the msgpack blob.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ref` | `CheckpointValueRef` | — | — |
+
+
+#### as_reference
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding.as_reference`
+
+```python
+as_reference(self, value: Any) -> CheckpointValueRef | None
+```
+
+A reference as msgpack reads it back: the ``ref`` envelope dictionary.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### store_form
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding.store_form`
+
+```python
+store_form(self, encoded: tuple[str, bytes]) -> StoredBlob
+```
+
+The blob, zlib compressed under its own type tag when it is msgpack above the compress threshold.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `encoded` | `tuple[str, bytes]` | — | — |
+
+
+#### decode
+
+`tai42_kit.llm.checkpoint.value_encoding.MsgpackValueEncoding.decode`
+
+```python
+decode(self, blob: StoredBlob, ref: CheckpointValueRef, thread_id: Any) -> Any
+```
+
+Decompress and decode ``blob``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `blob` | `StoredBlob` | — | — |
+| `ref` | `CheckpointValueRef` | — | — |
+| `thread_id` | `Any` | — | — |
+
+
+
+## PreEncodedCheckpoint
+
+`tai42_kit.llm.checkpoint.checkpoint.PreEncodedCheckpoint`
+
+```python
+class PreEncodedCheckpoint(dict[str, Any])
+```
+
+A checkpoint the kit already encoded whole, carrying the checkpoint's keys for the library saver.
+
+The library saver reads the checkpoint's id and copies it before handing it to its serializer;
+the copy keeps the encoding, and the serializer returns ``encoded`` as it is. ``references``: as
+`PreEncodedValue`.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `encoded` | — |
+| `references` | — |
+
+### Members
+
+#### copy
+
+`tai42_kit.llm.checkpoint.checkpoint.PreEncodedCheckpoint.copy`
+
+```python
+copy(self) -> PreEncodedCheckpoint
+```
+
+A shallow copy that keeps the encoding.
+
+
+
+## PreEncodedValue
+
+`tai42_kit.llm.checkpoint.checkpoint.PreEncodedValue`
+
+```python
+class PreEncodedValue
+```
+
+A checkpoint value the kit already encoded: the saver's serializer returns ``encoded`` as it is.
+
+``references``: the value holds a reference to a shared value, so its type tag carries
+`REFERENCING_TYPE_SUFFIX`.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `encoded` | — |
+| `references` | — |
+
+
+## RetentionMode
+
+`tai42_kit.llm.checkpoint.providers.RetentionMode`
+
+```python
+RetentionMode = Literal['native_ttl', 'sweep', 'process']
+```
+
+
+## SharedSnapshot
+
+`tai42_kit.llm.checkpoint.chunking.SharedSnapshot`
+
+```python
+class SharedSnapshot(_DeltaSnapshot)
+```
+
+A ``_DeltaSnapshot`` whose payload holds a reference.
+
+
+## StoredBlob
+
+`tai42_kit.llm.checkpoint.value_store.StoredBlob`
+
+```python
+class StoredBlob
+```
+
+A value as its thread's value store holds it: a type tag and the stored bytes.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `type` | `str` |
+| `data` | `bytes` |
+
+
+## ThreadRetention
+
+`tai42_kit.llm.checkpoint.retention.ThreadRetention`
+
+```python
+class ThreadRetention
+```
+
+How long a checkpoint thread is kept, in minutes, bounded by the platform's values.
+
+``waiting_minutes``: after its last write, while its owner may still continue it.
+``finished_minutes``: after its owner marked it finished.
+
+Every value is checked when it is built, so every seam that takes one (the saver views, the
+finished-thread ledger, the park horizon) holds the platform's ceiling. Raises
+`ThreadRetentionError` for a value that is not positive, a value above the platform's
+for its horizon, or a finished longer than the waiting.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `waiting_minutes` | `int` |
+| `finished_minutes` | `int` |
+
+
+## ThreadRetentionError
+
+`tai42_kit.llm.checkpoint.retention.ThreadRetentionError`
+
+```python
+class ThreadRetentionError(ValueError)
+```
+
+A declared checkpoint retention is out of bounds; the message names the value and the bound it broke.
+
+
+## UnknownCheckpointProviderError
+
+`tai42_kit.llm.checkpoint.providers.UnknownCheckpointProviderError`
+
+```python
+class UnknownCheckpointProviderError(ValueError)
+```
+
+A checkpoint provider name no registration holds.
+
+
+## ValueChunker
+
+`tai42_kit.llm.checkpoint.chunking.ValueChunker`
+
+```python
+class ValueChunker
+```
+
+Chunk values above ``threshold`` into blobs; ``None`` keeps every value inline.
+
+``blobs`` maps every digest the chunked values reference, at any depth, to its encoding.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `blobs` | `dict[str, tuple[str, bytes]]` |
+
+### Members
+
+#### chunk
+
+`tai42_kit.llm.checkpoint.chunking.ValueChunker.chunk`
+
+```python
+chunk(self, value: Any) -> tuple[Any, tuple[str, bytes]]
+```
+
+``value`` with its sub-values above the threshold replaced by references, and its encoding.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+
+## ValueEncoding
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding`
+
+```python
+class ValueEncoding(Protocol)
+```
+
+One store's encoding of checkpoint values, as the chunker and the resolver use it.
+
+### Members
+
+#### encode
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding.encode`
+
+```python
+encode(self, value: Any) -> tuple[str, bytes]
+```
+
+The ``(type, bytes)`` the store's serializer writes for ``value``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### reference
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding.reference`
+
+```python
+reference(self, ref: CheckpointValueRef) -> Any
+```
+
+The value a checkpoint stores in place of the value ``ref`` names.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ref` | `CheckpointValueRef` | — | — |
+
+
+#### as_reference
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding.as_reference`
+
+```python
+as_reference(self, value: Any) -> CheckpointValueRef | None
+```
+
+The reference ``value`` is as the store reads it back, or ``None`` when it is none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+#### store_form
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding.store_form`
+
+```python
+store_form(self, encoded: tuple[str, bytes]) -> StoredBlob
+```
+
+The blob the value store holds for a value encoded as ``encoded``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `encoded` | `tuple[str, bytes]` | — | — |
+
+
+#### decode
+
+`tai42_kit.llm.checkpoint.chunking.ValueEncoding.decode`
+
+```python
+decode(self, blob: StoredBlob, ref: CheckpointValueRef, thread_id: Any) -> Any
+```
+
+The value ``blob`` holds; a blob whose encoding is not ``ref.size`` long raises.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `blob` | `StoredBlob` | — | — |
+| `ref` | `CheckpointValueRef` | — | — |
+| `thread_id` | `Any` | — | — |
+
+
+
+## as_utc
+
+`tai42_kit.llm.checkpoint.ledger.as_utc`
+
+```python
+as_utc(at: datetime) -> datetime
+```
+
+``at`` in UTC; a naive time raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `at` | `datetime` | — | — |
+
+
+## checkpoint_park_horizon
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_park_horizon`
+
+```python
+checkpoint_park_horizon(provider: str, retention: ThreadRetention | None = None) -> timedelta | None
+```
+
+How long a parked run's checkpoint is kept on ``provider``; ``None`` when the store does not outlive the process.
+
+On a durable provider a parked thread's last write is its park checkpoint, and the thread is kept its
+waiting retention after it — the owner's declared one, else the platform's — so a park may wait at
+most that long.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+
+
+## checkpoint_provider
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_provider`
+
+```python
+checkpoint_provider(name: str) -> CheckpointProvider
+```
+
+The registration of ``name``; an unknown name raises `UnknownCheckpointProviderError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+## checkpoint_provider_facts
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_provider_facts`
+
+```python
+checkpoint_provider_facts(provider: str) -> CheckpointProviderFacts
+```
+
+Return the facts of ``provider``; an unknown name raises `UnknownCheckpointProviderError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+
+
+## checkpoint_providers
+
+`tai42_kit.llm.checkpoint.providers.checkpoint_providers`
+
+```python
+checkpoint_providers() -> Mapping[str, CheckpointProviderFacts]
+```
+
+A read-only, name-sorted view of every registered provider's facts.
+
+
+## create_checkpoint_resource
+
+`tai42_kit.llm.checkpoint.checkpoint.create_checkpoint_resource`
+
+```python
+async create_checkpoint_resource(provider: str, conn_string: str | None = None) -> tuple[CheckpointResource, CleanupFn]
+```
+
+Open the store ``provider`` names, and check its store format.
+
+A ``None`` conn string is the store's default connection (its registration raises, naming the
+setting, when it has none). A store holding data written in an older format raises
+`CheckpointStoreFormatError` and is closed.
+
+The resource is cached for the life of the app by the registry; its connections stay open.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `conn_string` | `str \| None` | `None` | — |
+
+
+## create_saver_with_waiting
+
+`tai42_kit.llm.checkpoint.checkpoint.create_saver_with_waiting`
+
+```python
+async create_saver_with_waiting(provider: str, resource: CheckpointResource, waiting_minutes: int) -> BaseCheckpointSaver
+```
+
+A saver over ``resource`` whose writes carry ``waiting_minutes`` as their key TTL, guarded and wrapped.
+
+It reads, writes and deletes what the resource's own saver does, its shared values included; only
+the TTL it stamps differs.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `resource` | `CheckpointResource` | — | — |
+| `waiting_minutes` | `int` | — | — |
+
+
+## durable_checkpoint_providers
+
+`tai42_kit.llm.checkpoint.providers.durable_checkpoint_providers`
+
+```python
+durable_checkpoint_providers() -> frozenset[str]
+```
+
+The providers whose checkpoints survive a process restart.
+
+
+## envelope_reference
+
+`tai42_kit.llm.checkpoint.envelope.envelope_reference`
+
+```python
+envelope_reference(value: Any) -> CheckpointValueRef | None
+```
+
+The reference ``value`` is when it is a ``ref`` envelope as stored; ``None`` when it is not one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+
+
+## get_saver_from_resource
+
+`tai42_kit.llm.checkpoint.checkpoint.get_saver_from_resource`
+
+```python
+get_saver_from_resource(provider: str, resource: CheckpointResource) -> BaseCheckpointSaver
+```
+
+The saver a graph checkpoints through on ``resource``: the store's saver, guarded and wrapped.
+
+This is the one place a saver is built for a store's own retention, so every saver serializes
+through the guard and stores its large values once where sharing is on.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `resource` | `CheckpointResource` | — | — |
+
+
+## live_thread_filters
+
+`tai42_kit.llm.checkpoint.liveness.live_thread_filters`
+
+```python
+live_thread_filters() -> Mapping[str, LiveThreadFilter]
+```
+
+A read-only view of the registered filters by owner.
+
+
+## live_threads
+
+`tai42_kit.llm.checkpoint.liveness.live_threads`
+
+```python
+async live_threads(provider: str, conn_string: str | None, thread_ids: Sequence[str]) -> dict[str, str]
+```
+
+Map each candidate a registered filter claims to the owner that claimed it.
+
+Every filter is called; a filter's raise propagates.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+| `conn_string` | `str \| None` | — | — |
+| `thread_ids` | `Sequence[str]` | — | — |
+
+
+## mark_threads_active
+
+`tai42_kit.llm.checkpoint.ledger.mark_threads_active`
+
+```python
+async mark_threads_active(
+    thread_ids: Sequence[str],
+    *,
+    retention: ThreadRetention | None = None,
+    provider: str | None = None,
+    conn_string: str | None = None,
+) -> None
+```
+
+Take ``thread_ids`` out of the ledger before a run starts on them, recording ``retention``'s waiting.
+
+``retention`` is the owner's declaration for the threads (``None``: the platform's); the store
+records its waiting where the waiting horizon is swept. ``provider`` and ``conn_string`` resolve
+as in `mark_threads_finished`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+| `provider` | `str \| None` | `None` | — |
+| `conn_string` | `str \| None` | `None` | — |
+
+
+## mark_threads_finished
+
+`tai42_kit.llm.checkpoint.ledger.mark_threads_finished`
+
+```python
+async mark_threads_finished(
+    thread_ids: Sequence[str],
+    *,
+    retention: ThreadRetention | None = None,
+    provider: str | None = None,
+    conn_string: str | None = None,
+) -> None
+```
+
+Mark ``thread_ids`` finished now, in the ledger of the store that holds them.
+
+They become deletable their finished retention after now: ``retention``'s (the owner's
+declaration, see `resolve_retention`), else the
+platform's. ``provider`` and ``conn_string`` resolve independently: ``None`` is the deployment's
+configured checkpoint provider, respectively its configured connection string. A caller that
+checkpoints on a per-run provider passes it. An empty sequence is a no-op; a store error
+propagates.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `thread_ids` | `Sequence[str]` | — | — |
+| `retention` | `ThreadRetention \| None` | `None` | — |
+| `provider` | `str \| None` | `None` | — |
+| `conn_string` | `str \| None` | `None` | — |
+
+
+## platform_retention
+
+`tai42_kit.llm.checkpoint.retention.platform_retention`
+
+```python
+platform_retention() -> ThreadRetention
+```
+
+The platform's two retention settings: the default and the ceiling of every declaration.
+
+
+## reference_envelope
+
+`tai42_kit.llm.checkpoint.envelope.reference_envelope`
+
+```python
+reference_envelope(ref: CheckpointValueRef) -> dict[str, Any]
+```
+
+The ``ref`` envelope a checkpoint stores in place of the shared value ``ref`` names.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ref` | `CheckpointValueRef` | — | — |
+
+
+## register_checkpoint_provider
+
+`tai42_kit.llm.checkpoint.providers.register_checkpoint_provider`
+
+```python
+register_checkpoint_provider(cls: P) -> P
+```
+
+Register ``cls`` under its ``name``; usable as a class decorator.
+
+Raises ``TypeError`` for a class that is not a `CheckpointProvider`, misses a hook or
+declares facts that are not `CheckpointProviderFacts`, and ``ValueError`` for a malformed
+name, a ``native_ttl`` store without `saver_with_waiting`, or a name
+another class holds. The same class registered again is a no-op.
+
+
+## register_live_thread_filter
+
+`tai42_kit.llm.checkpoint.liveness.register_live_thread_filter`
+
+```python
+register_live_thread_filter(owner: str, fn: LiveThreadFilter) -> None
+```
+
+Register ``fn`` as ``owner``'s live-thread filter; an owner registers once.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `owner` | `str` | — | — |
+| `fn` | `LiveThreadFilter` | — | — |
+
+
+## resolve_references
+
+`tai42_kit.llm.checkpoint.chunking.resolve_references`
+
+```python
+async resolve_references(value: Any, encoding: ValueEncoding, fetch: FetchBlobs, thread_id: Any) -> Any
+```
+
+``value`` with every reference inside it, and inside the values it references, resolved.
+
+The referenced blobs, nested ones included (a reference names them), are fetched in one round trip.
+Every place that references a value receives its own object, as if the value were stored there. A
+blob the store does not hold, or one whose encoding is not the length its reference records, raises
+`CheckpointReferenceError`; nothing is returned partially resolved.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Any` | — | — |
+| `encoding` | `ValueEncoding` | — | — |
+| `fetch` | `FetchBlobs` | — | — |
+| `thread_id` | `Any` | — | — |
+
+
+## resolve_retention
+
+`tai42_kit.llm.checkpoint.retention.resolve_retention`
+
+```python
+resolve_retention(*, waiting_minutes: int | None = None, finished_minutes: int | None = None) -> ThreadRetention
+```
+
+Resolve an owner's declaration against the platform's values.
+
+An unset waiting is the platform's; an unset finished is the platform's finished capped at the
+resolved waiting (a finished thread is never kept longer than a waiting one). The resolved
+value is bounded where it is built (`ThreadRetention`), which raises
+`ThreadRetentionError` for a declaration out of bounds.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `waiting_minutes` | `int \| None` | `None` | — |
+| `finished_minutes` | `int \| None` | `None` | — |
+
+
+## resolve_tuple
+
+`tai42_kit.llm.checkpoint.chunking.resolve_tuple`
+
+```python
+async resolve_tuple(tup: CheckpointTuple, encoding: ValueEncoding, fetch: FetchBlobs) -> CheckpointTuple
+```
+
+``tup`` with every reference in its checkpoint and its pending writes resolved.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tup` | `CheckpointTuple` | — | — |
+| `encoding` | `ValueEncoding` | — | — |
+| `fetch` | `FetchBlobs` | — | — |
+
+
+## shared_value_threshold
+
+`tai42_kit.llm.checkpoint.providers.shared_value_threshold`
+
+```python
+shared_value_threshold(provider: str) -> int | None
+```
+
+The encoded size above which ``provider`` stores a checkpoint sub-value once per thread.
+
+``None`` when every value is stored inline. ``LLM_PROVIDER_CHECKPOINT_SHARED_VALUES`` decides when
+it is set; unset, a store that copies channel values into every checkpoint stores them once, and a
+store that keeps a channel once per version does not.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | — | — |
+
+
+## stale_threads_by_walk
+
+`tai42_kit.llm.checkpoint.ledger.stale_threads_by_walk`
+
+```python
+async stale_threads_by_walk(
+    saver: BaseCheckpointSaver,
+    declared_waiting: Callable[[Sequence[str]], Awaitable[dict[str, int]]],
+    *,
+    now: datetime,
+    default_minutes: int,
+) -> list[str]
+```
+
+The stale-thread listing of a store without an index of its own, by id.
+
+Reads the newest checkpoint ``ts`` of every thread, in every namespace, through
+``saver.alist(None)``, and compares it with the thread's ``declared_waiting`` (looked up page by
+page), else ``default_minutes``, before ``now``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `saver` | `BaseCheckpointSaver` | — | — |
+| `declared_waiting` | `Callable[[Sequence[str]], Awaitable[dict[str, int]]]` | — | — |
+| `now` | `datetime` | — | — |
+| `default_minutes` | `int` | — | — |
+
