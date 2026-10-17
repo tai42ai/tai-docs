@@ -8,11 +8,12 @@ icon: "list-check"
 Static validity of a state's JSON-Schema and its stored document.
 
 The pure draft 2020-12 validators the template document parser and the states service
-both lean on: an object-rooted schema check, ``$ref`` resolvability, full-document
-validation against an effective schema, and the conservative narrowing comparison two
-schemas are compared with. `RecordValidator` is the public face over these
-validators for a caller with no store bound. Depends only on the standard library,
-``jsonschema``/``referencing`` and the contract's states models.
+both lean on: an object-rooted schema check, the document rules every schema a record or a
+value is validated against holds (`check_document_rules`), full-document validation
+against an effective schema, and the conservative narrowing comparison two schemas are
+compared with. `RecordValidator` is the public face over these validators for a caller
+with no store bound. Depends only on the standard library, ``jsonschema``/``referencing``, the
+kit's JSON Schema rules and the contract's states models.
 
 ## RecordValidator
 
@@ -28,9 +29,7 @@ For a caller with no store bound (a test, a check before a deploy): give it the 
 record is validated WHOLE against — a declared state's effective schema (the base schema
 with its attachments composed in) — and call `validate` per document. The schema is
 checked once at construction by the same rules a declaration is (object-rooted, at least
-one property, a valid draft 2020-12 schema, no ``$schema`` naming another dialect, only
-resolvable local ``$ref``, no ``$dynamicRef``, no ``$id`` below the root, unique ``$anchor`` / ``$dynamicAnchor``
-names, no cycle of references that never descends into the document), and refused loudly with
+one property, and `check_document_rules`), and refused loudly with
 `SchemaValidationError`; the compiled validator is
 then reused for every document. A by-id schema is resolved by the caller first.
 
@@ -46,8 +45,7 @@ validate(self, data: Any) -> RecordValidation
 
 EVERY way ``data`` misfits the schema, ordered by JSON path; ``fits`` when there is none.
 
-A non-object ``data`` raises `ValueValidationError`,
-as does an unresolvable ``$ref`` met while validating.
+A non-object ``data`` raises `ValueValidationError`.
 
 **Parameters**
 
@@ -55,6 +53,84 @@ as does an unresolvable ``$ref`` met while validating.
 |---|---|---|---|
 | `data` | `Any` | — | — |
 
+
+
+## check_document_rules
+
+`tai42_skeleton.states.schema.check_document_rules`
+
+```python
+check_document_rules(schema: Any, *, subject: str) -> None
+```
+
+Refuse a schema a draft 2020-12 validator could not check a document against, naming the fault.
+
+The JSON Schema rules are the kit's
+(`check_schema_rules` with
+`Draft202012Validator`): the meta-schema, compiling ``pattern`` and
+``patternProperties`` regexes, finite numbers, one resource (no root ``$id`` naming a
+meta-schema, no ``$id`` below the root, unique anchor names, and, under a root ``$id``, no
+``$dynamicAnchor`` below the root whose name the meta-schema subschema a reference reaches binds
+dynamically or the reference names), every reference
+resolving inside the schema or into a meta-schema (none is fetched), every pointer indexing an
+array with an RFC 6901 index, and no cycle of references that never descends into the
+document. On top of them, a
+states document is one draft 2020-12 dialect without dynamic references: a ``$schema`` naming
+another dialect, or a ``$dynamicRef``, anywhere among the subschemas validation evaluates
+(`evaluated_subschemas`: under every applicator
+and at every reference target, whatever form the reference takes) is refused. ``subject``
+opens the message (``"state schema"``, a template's value-schema place). Every refusal raises
+`SchemaValidationError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `Any` | — | — |
+| `subject` | `str` | — | — |
+
+
+## iter_refs
+
+`tai42_skeleton.states.schema.iter_refs`
+
+```python
+iter_refs(node: Any)
+```
+
+Yield the ``$ref`` string of every node of the schema document's `schema_nodes`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `node` | `Any` | — | — |
+
+
+## schema_nodes
+
+`tai42_skeleton.states.schema.schema_nodes`
+
+```python
+schema_nodes(root: dict[str, Any]) -> list[dict[str, Any]]
+```
+
+``root``'s subschemas and every node a ``#/…`` pointer ref among them reaches, each once.
+
+``root``'s subschemas (`_subschemas`), closed over the target of every ``#/…`` pointer
+ref among them (an absolute ref is not followed): jsonschema evaluates a pointer's target as a
+schema wherever it sits (under an unknown or a data keyword too) and follows the refs inside
+it, so the target's subschemas join the set, to a fixpoint (a node already in the set is not
+walked again, so cyclic refs end). Each pointer is resolved against ``root``; one that does
+not resolve raises `SchemaValidationError`. A target outside the subschema positions —
+which ``root``'s own ``check_schema`` does not cover — is checked once as a draft 2020-12
+schema, so the walk stays linear in the schema's size and its ref count.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `root` | `dict[str, Any]` | — | — |
 
 
 Composing attached fragments into the effective schema.
@@ -95,12 +171,13 @@ the base's, a root type, keyword or ref that cannot be merged, or an attach path
 overlapping another attachment's path, is refused with
 `AttachConflictError`. A fragment its parameters leave
 malformed is refused with `SchemaValidationError`
-naming the template. The composed
-schema satisfies the declaration rules (object-rooted, at least one property, a valid
-draft 2020-12 schema, no ``$schema`` naming another dialect, every ``$ref`` local and
-resolvable, no ``$dynamicRef``, no ``$id``
-below the root, unique ``$anchor`` / ``$dynamicAnchor`` names, no cycle of references that
-never descends into the document), raising
+naming the template. The composed schema satisfies the declaration rules (object-rooted, at
+least one property, a valid draft 2020-12 schema, no ``$schema`` naming another dialect, every
+``$ref`` local and resolvable, no ``$dynamicRef``, no root ``$id`` naming a meta-schema, no
+``$id`` below the root, unique ``$anchor`` / ``$dynamicAnchor`` names, under a root ``$id`` no
+``$dynamicAnchor`` below the root whose name the meta-schema subschema a reference reaches binds
+dynamically or the reference names, every pointer's array index an RFC 6901 index, no cycle of
+references that never descends into the document), raising
 `SchemaValidationError` otherwise.
 
 **Parameters**
@@ -117,7 +194,8 @@ Parses a raw JSON document into a `StateTemplate`:
 the document's shape (every section, the name law, no key outside the platform set) is the
 contract's `StateTemplateDocument`; this module adds the
 rules that span sections or need jq — parameter markers against declared parameters, the
-fragment as an object schema, regime and program paths inside the fragment, program names and
+fragment as an object schema, each parameter and declarations schema as a schema whose
+references resolve inside it, regime and program paths inside the fragment, program names and
 params as jq identifiers, and every inline jq body compiling. A consumer keeps its own documents
 beside the template under its own kind (validated through its registered attach validator).
 
@@ -152,7 +230,8 @@ Parse and validate a raw platform state-template document into a `StateTemplate`
 The document must carry ``kind == "state-template"`` and a dict fragment ``schema`` (a by-id
 fragment is resolved by the caller first) and parse as a
 `StateTemplateDocument`; then a no-default parameter
-must appear as a marker and every marker names a declared parameter, the defaults-substituted
+must appear as a marker and every marker names a declared parameter, each parameter and
+declarations schema is a valid schema whose references resolve inside it, the defaults-substituted
 fragment passes ``_validate_schema``, regime and update-program paths lie inside the fragment
 (``"*"`` only over ``items``/``additionalProperties``), program names and params are jq
 identifiers, and every inline jq body compiles (a by-id body is rendered and compiled at the
