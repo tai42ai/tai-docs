@@ -27,15 +27,6 @@ to its own run through this index. One consumer namespace holds, on one Redis:
 The module imports no Redis client at import time: the client is reached lazily, so a consumer
 whose import graph excludes Redis may import this module. Every Redis error propagates.
 
-## BARRIER_TTL_MARGIN_SECONDS
-
-`tai42_kit.interactions.park_index.BARRIER_TTL_MARGIN_SECONDS`
-
-```python
-BARRIER_TTL_MARGIN_SECONDS: Final[int] = 3600
-```
-
-
 ## DRIVE_LEASE_HEARTBEAT_SECONDS
 
 `tai42_kit.interactions.park_index.DRIVE_LEASE_HEARTBEAT_SECONDS`
@@ -664,10 +655,12 @@ Drop every resolved super-step of a thread but ``keep`` (member tombstones and r
 `tai42_kit.interactions.park_index.ParkIndex.drop_resolution`
 
 ```python
-async drop_resolution(self, thread_id: str, superstep: str, *, member_ids: Iterable[str] = ()) -> None
+async drop_resolution(self, thread_id: str, superstep: str, *, member_ids: Iterable[str] = ()) -> list[str]
 ```
 
 Drop one resolved super-step: its record, its members' tombstones (and ``member_ids``), its index member.
+
+Returns the sorted member ids whose tombstones it dropped.
 
 **Parameters**
 
@@ -694,7 +687,7 @@ async detach(
 Tombstone keys that were claimed but never parked on, never overwriting an existing key.
 
 Each detached tombstone lives the held step's park-entry life — the entry floor, extended to
-outlast the LATEST of ``expiry_ats`` plus the margin (`barrier_ttl_seconds`) — so a run
+outlast the LATEST of ``expiry_ats`` by the redelivery horizon (`barrier_ttl_seconds`) — so a run
 whose chain was detached but which still fires the key until its own deadline finds the
 tombstone and its fire lands transparently, not a key the tombstone already dropped. A
 re-park grows it through `extend_horizon`. With no deadline the floor alone applies.
@@ -846,7 +839,7 @@ TombstoneKind = Literal['live', 'resolved', 'detached']
 barrier_ttl_seconds(expiries: Iterable[datetime | None]) -> int
 ```
 
-A barrier's TTL: the entry floor, extended to outlast the LATEST deadline it coordinates plus the margin.
+A barrier's TTL: the entry TTL (`entry_ttl_seconds`) of the LATEST deadline it coordinates.
 
 **Parameters**
 
@@ -900,7 +893,11 @@ and a plain value must be JSON-serializable.
 entry_ttl_seconds(expiry_at: datetime | None) -> int
 ```
 
-An entry's TTL: the floor, extended to outlast its ask's deadline plus the margin.
+An entry's TTL: the floor, extended to outlast its ask's deadline by the redelivery horizon.
+
+The platform keeps a park with a deadline resolvable for the redelivery horizon past that
+deadline, so a late expiry reaper still resolves it; the entry it reaches lives at least as
+long, by the same rule: the whole seconds remaining to the deadline plus the horizon.
 
 **Parameters**
 
