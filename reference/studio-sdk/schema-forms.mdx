@@ -320,7 +320,7 @@ input schema); a scalar/array/union root renders as a single field group.
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
-| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. |
+| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string; invalid?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. The entry's `invalid` sentence is not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry that sentence. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -354,7 +354,7 @@ interface SchemaFormProps
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
-| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. |
+| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string; invalid?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. The entry's `invalid` sentence is not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry that sentence. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -522,7 +522,9 @@ function validateAgainstSchema(
 Validate `value` against `schema`, returning a per-path error bag (empty =
 valid). The caller runs this before submit and feeds the result back to
 `SchemaForm` for display. `options.maxUploadBytes` mirrors the renderer's
-`maxUploadBytes` prop so a media field's byte cap is enforced identically here.
+`maxUploadBytes` prop so a media field's byte cap is enforced identically here;
+`options.fieldWording` puts a field's own `invalid` sentence in place of the
+SDK's word for any shape error on that field.
 
 **Parameters**
 
