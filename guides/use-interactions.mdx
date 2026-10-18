@@ -54,6 +54,18 @@ The first four are answered on the authenticated **in-client** surface. Example
 {"question": "Enter a contact", "answer_format": "form", "schema": {"type": "object", "properties": {"name": {"type": "string"}, "email": {"type": "string"}}, "required": ["name"]}}
 ```
 
+A form field may declare a shape, such as `"format": "email"`, and the sender may set its own
+sentence for a value that breaks it:
+
+```json
+{"question": "Where should we send the summary?", "answer_format": "form", "schema": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string", "format": "email", "title": "Email address"}}}, "wording": {"form": {"fields": {"email": {"invalid": "Enter your full address"}}}}}
+```
+
+On WhatsApp and the callback page the person sees *Enter your full address* under the field,
+inside the form, before the submit leaves it. Without `wording`, the callback page shows the
+platform's *Enter a valid email address*. Each surface's checks and words are set out in
+[Shapes are caught inside the form](/concepts/interactions#shapes-are-caught-inside-the-form).
+
 An optional `group_id` threads related questions, and `timeout` (seconds)
 overrides the configured default before the call raises.
 
@@ -158,7 +170,10 @@ last write (7 days by default) on both durable providers, `redis` and `postgres`
 Choose an `expiry_at` inside that window: a park
 whose deadline lies beyond the retention horizon could lose its checkpoint
 before the answer or expiry arrives, and the run refuses it loudly when it suspends
-rather than parking a run its own storage would later strand. An ask with no
+rather than parking a run its own storage would later strand. An agent run asks for one
+more margin: the platform may still deliver an answer or expiry up to
+`INTERACTIONS_IDLE_TTL_SECONDS` (1 day by default) after the deadline, so an agent's
+deadline must leave that much of the retention free (with the defaults, within 6 days). An ask with no
 `expiry_at` at all is rejected too — a deadline that cannot be proven durable is
 never parked.
 

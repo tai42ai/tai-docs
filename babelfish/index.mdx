@@ -184,8 +184,9 @@ finished value longer than the waiting one is refused wherever the flow is parse
 above the platform's is refused by the editor's save gate and by every run and query of the
 flow, before any node runs, naming both values. Every checkpoint of the run — the top level,
 every loop body, every pending write — is kept that long, and an async ask's deadline must fit
-the declared waiting. A child flow a node calls declares its own; the parent's never crosses
-the call. The [agent session threads](#agent-session-continuity) a run owns keep the
+the declared waiting less the redelivery horizon, as it fits the platform's (see
+[Checkpoint retention and durability](#checkpoint-retention-and-durability)). A child flow a
+node calls declares its own; the parent's never crosses the call. The [agent session threads](#agent-session-continuity) a run owns keep the
 platform's waiting retention and take the flow's finished retention at the run's terminal.
 
 ```json
@@ -339,18 +340,15 @@ the holder settles that two ways:
   held run, which stays parked on its own ask, standalone. A holder — later in this run
   or in a later one — resumes it with its own `resume_expr` row and settles on the held
   run's result; a released run's result never re-enters the run that released it. The
-  release is kept for twice the platform's interactions idle TTL
-  (`INTERACTIONS_IDLE_TTL_SECONDS`, 48 hours by default), counted from the exit and
-  never extended, and a released agent must finish inside it. An ask exit whose held
-  step's reported deadline (the earliest of its open asks) does not end at least the
-  park margin (one hour) before the window closes is refused before anything is written;
-  an answer that still arrives after the window — a later ask of the same step, or a new
-  ask the agent raises after a resume — is refused at delivery as a failure, never as
-  the agent's result (`no park-index entry for interaction_id '<chain key>'; cannot
-  resume`): the resuming holder fails, so its On Error runs, or the flow fails when none
-  is set. Keep every ask of a released agent inside the window, and the held step's
-  earliest deadline inside it by at least an hour. A held flow is not chained: its ask
-  exit has no release and no window.
+  release lasts as long as the held step's park would: the platform's 30-day park-entry
+  floor, or longer when the latest deadline the held step reported (its own ask's and every
+  caller ask's) plus the redelivery horizon (`INTERACTIONS_IDLE_TTL_SECONDS`, default 1 day)
+  ends later. Each later re-park of the released run grows it the same way past the new
+  deadline. No deadline refuses an ask exit. A terminal of the released run that arrives
+  after the release has lapsed is refused at delivery as a failure, never as the agent's
+  result (`no park-index entry for interaction_id '<chain key>'; cannot resume`): the
+  resuming holder fails, so its On Error runs, or the flow fails when none is set. A held
+  flow is not chained: its ask exit has no release.
 - **Send up (`send_up`).** Turn the send-up switch on and the holder parks the ask as a
   nested park and hands it **up** to this flow's own caller unchanged, for a run
   further up to answer. With send-up on, there is no ask exit to wire.
@@ -1617,11 +1615,15 @@ set when a run, a restart, a resume or a step starts on the session. The platfor
 `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, and spares a session whose latest
 checkpoint still holds a pending interrupt — a parked run, whatever its age. A flow may
 declare shorter values for its own runs (`config.checkpoint_retention`, see
-[How a run runs](#how-a-run-runs-tool-calls-loops-and-abort)). An async ask
-must carry a deadline within the waiting retention; one without a deadline, or past it, is
-refused loudly at suspend. A holder that parks on its held call (a send-up caller ask, or a
-held flow's own park) parks under the earliest deadline among the held call's open asks, so
-the same bound applies to it.
+[How a run runs](#how-a-run-runs-tool-calls-loops-and-abort)). The platform may still
+deliver an ask's answer or expiry up to its redelivery horizon (`INTERACTIONS_IDLE_TTL_SECONDS`,
+default 1 day) after the ask's deadline, so an async ask must carry a deadline at least that
+long before the waiting retention runs out (with the defaults, within 6 days); one without a
+deadline, or past that point, is refused loudly at suspend
+(`AsyncParkExpiryBeyondRetentionError`). An answer that still finds the run's checkpoint gone
+is answered failed with `ResumeCheckpointGoneError`. A holder that parks on its held call (a
+send-up caller ask, or a held flow's own park) parks under the latest deadline among the held
+call's open asks, so the same bound applies to it.
 
 <Note>
 `FLOW_CHECKPOINT_RETENTION_DAYS` and `POST /api/babelfish/checkpoints/prune` are gone: the

@@ -70,7 +70,7 @@ branches on what is already parked:
 
 | Expression | Yields | Effect |
 | --- | --- | --- |
-| `cancel_expr` | `null`, an id, or a list of ids | Cancel each named park (a whole-chain kill). |
+| `cancel_expr` | `null`, an id, or a list of ids | Cancel each named park (a whole-chain kill); the delivering channel releases its hold and nothing is delivered to the person. |
 | `resume_expr` | `null`, `{id, payload}`, a bare id, or a list of these | Resume an ask with an answer (`{id, payload}`), or **take** a waiting outcome (a bare id). |
 | `start_expr` | an object, or `null` | The kwargs the started target runs on; `null` starts nothing. No `start_expr` starts the door's own default kwargs. (A flows-engine [holder](/babelfish#calling-another-flow-cancel-resume-start) instead merges its `start_expr` result over the resolved node input, the expression's keys winning.) |
 | `extras_expr` | an object, or `null` | The [`extras`](#extras) mapping handed to the started target. |
@@ -102,8 +102,9 @@ At most **one** non-cancel action runs per visit: a door resumes, or takes, or s
   result is returned. Taking a `failed` outcome **raises**, so the taker fails as the
   resolved run did.
 - **Cancel** any parked interaction by naming its `id`: it and every run linked above
-  it are torn down for good. A run a door started with a receiver is delivered a single
-  failure.
+  it are torn down for good. The channel that delivered the ask releases what it held for
+  it, and a run a door started with a receiver is delivered `withdrawn`, so nothing is said
+  to the person (see [Withdrawing a parked ask](/concepts/interactions#withdrawing-a-parked-ask)).
 
 ## Waiting outcomes
 
@@ -131,7 +132,7 @@ the LLM-facing face of the same door contract:
 | --- | --- |
 | `list_parked()` | Return every parked interaction on the run's subject — the full entries above. |
 | `resume_parked(interaction_id, payload=…)` | With `payload`, resume that ask with the answer; with `payload` omitted, **take** the named waiting outcome. |
-| `cancel_parked(ids)` | Whole-chain kill each named interaction. |
+| `cancel_parked(ids)` | Whole-chain kill each named interaction; nothing is delivered to the person. |
 
 They read and write the same subject a door contract does, so an agent resolves a
 caller ask by hand exactly as a route resolves one by jq.
