@@ -51,8 +51,12 @@ any thread nobody marked finished. A **finished** thread is one its owner marked
   the checkpoint sweep. The mark records the time the thread becomes due, from the retention in
   force at the mark: changing the finished value later moves only new marks.
 
-An async `ask` must therefore carry a deadline within the waiting retention: a park with no
-deadline, or one past the horizon, is refused loudly before anything is parked.
+The platform may still deliver an ask's answer or expiry up to its redelivery horizon
+(`INTERACTIONS_IDLE_TTL_SECONDS`, default 1 day) after the ask's deadline, so an async `ask` of
+an agent run or a flow run must carry a deadline at least that long before the checkpoint's
+waiting retention runs out (with the defaults, within 6 days): a park with no deadline, or one
+past that point, is refused loudly before anything is parked. A resume that finds the thread's
+checkpoint gone ends the run as a failed terminal.
 
 ## A thread's own retention
 

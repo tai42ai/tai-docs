@@ -1,8 +1,8 @@
-# Screenshot regeneration pipeline (two capture sets, one dispatch type).
+# Screenshot regeneration pipeline (three capture sets, one dispatch type).
 #
-# Two dispatch-driven jobs regenerate the docs screenshots under
-# images/studio/*.png and each opens its own self-merging regeneration PR
-# (regen-automerge.yml auto-merges any docs/regenerate-* branch):
+# Three dispatch-driven jobs regenerate the docs screenshots and each opens its
+# own self-merging regeneration PR (regen-automerge.yml auto-merges any
+# docs/regenerate-* branch):
 #
 #   studio -- boots a docs-demo skeleton, builds the Studio SPA, and drives
 #     tai-studio/e2e/scripts/docs-screenshots.sh to capture the Studio screens.
@@ -14,25 +14,36 @@
 #     declares: the run popups' kept-value notes on the first, their recorded-value
 #     reads on the second. It asserts the union of both passes matches the images
 #     the flow-author pages embed, then copies it in.
+#   callback-page -- boots the platform's browser-e2e studio stack against the
+#     Studio SPA shell and runs the `@docs` specs of the platform's browser suite,
+#     which capture the server-rendered callback form page (one rendering, so one
+#     `<key>.png` per shot, no theme pair). It asserts the staged set matches the
+#     images the docs pages embed under /images/callback-page/, then copies it in.
 #
-# Both jobs write disjoint filenames, so their PRs never collide.
+# The studio and editor sets write disjoint filenames under images/studio/ and the
+# callback-page set writes images/callback-page/, so their PRs never collide.
 #
 # Target: with the `e2e_target` input of a manual run, or the TAI_E2E_TARGET
-# repository variable, set, neither job builds or boots a stack -- the
+# repository variable, set, neither the studio nor the editor job builds or boots
+# a stack -- the
 # stack-building steps (and the editor job's service containers) are skipped and
 # the capture runs against that running stack. The Studio capture takes an
 # origin; the editor sweep takes an origin or the name of a target file in the
 # engine's e2e/targets, and skips any shot whose declared needs the target does
 # not meet. The editor set spans both stack states, so a single running target
 # yields only the shots whose declared needs it meets and the parity step names
-# the rest. Unset, each job builds its own stack as described above.
+# the rest. Unset, each job builds its own stack as described above. The
+# callback-page job always builds its own stack: its spec reads the page's
+# callback ticket from the stack's Redis, whose address only a stack the run boots
+# hands over.
 #
-# Triggers: manual (workflow_dispatch, which runs BOTH jobs) and a single
-# repository_dispatch fired by the notify-docs-screenshots hooks in the Studio
-# and engine repos, each ONLY when its UI paths change. The jobs branch on a
-# neutral `set` payload field, never on a source repo name: the engine hook
-# sends `set: editor` (editor job only); an absent field is the Studio default
-# (Studio job) -- true for the Studio hook and for a manual dispatch.
+# Triggers: manual (workflow_dispatch, which runs ALL jobs) and a single
+# repository_dispatch fired by the notify-docs-screenshots hooks in the Studio,
+# engine and monorepo repos, each ONLY when its UI paths change. The jobs branch
+# on a neutral `set` payload field, never on a source repo name: the engine hook
+# sends `set: editor` (editor job only), the monorepo hook sends
+# `set: callback-page` (callback-page job only); an absent field is the Studio
+# default (Studio job) -- true for the Studio hook and for a manual dispatch.
 #
 # Secrets: TAI_CI_TOKEN (clone the private source repos) and TAI_DOCS_PR_TOKEN
 # (open the PR as a PAT so the PR triggers the docs `gate`, unlike GITHUB_TOKEN).
@@ -55,11 +66,11 @@ on:
   workflow_dispatch:
     inputs:
       e2e_target:
-        description: Capture from this running stack (an origin, or for the editor sweep the name of a target file) instead of building one
+        description: Capture the Studio and editor sets from this running stack (an origin, or for the editor sweep the name of a target file) instead of building one
         type: string
         default: ""
   repository_dispatch:
-    types: [studio-screenshots] # fired by the Studio and engine notify hooks on UI-path pushes to main
+    types: [studio-screenshots] # fired by the Studio, engine and monorepo notify hooks on UI-path pushes to main
 
 permissions:
   contents: read
@@ -70,8 +81,9 @@ env:
 jobs:
   studio:
     # An absent `set` is the Studio default: a manual dispatch (null payload) and
-    # the Studio hook both run this job; the engine's `set: editor` skips it.
-    if: github.event.client_payload.set != 'editor'
+    # the Studio hook both run this job; a named set (`editor`, `callback-page`)
+    # skips it.
+    if: github.event.client_payload.set != 'editor' && github.event.client_payload.set != 'callback-page'
     runs-on: ubuntu-latest
     # Independent from the editor group so an editor dispatch never cancels an
     # in-flight Studio capture; a burst from the Studio source still collapses to
@@ -430,10 +442,11 @@ jobs:
         # page embeds, or a shot staged by both passes fails here -- before any copy --
         # so the copied set equals the embedded set exactly.
         run: |
-          python3 tai-docs/scripts/check_editor_shots.py \
+          python3 tai-docs/scripts/check_shot_parity.py \
             --shots-dir "$RUNNER_TEMP/editor-shots/default" \
             --shots-dir "$RUNNER_TEMP/editor-shots/monitoring" \
-            --pages-root tai-docs/babelfish
+            --pages-root tai-docs/babelfish \
+            --embed-prefix /images/studio/ --theme light --theme dark
 
       - name: Copy the editor screenshots into the docs tree
         # The parity step has proven the staged set equals the embedded set; the
@@ -465,5 +478,180 @@ jobs:
             Self-merges once the required checks pass. If the only image diffs
             are noise (a timestamp or a counter) rather than a real UI change,
             the demo seed needs further pinning.
+          labels: documentation, automated, screenshots
+          delete-branch: true
+
+  callback-page:
+    # The platform hook sends `set: callback-page`; a manual dispatch runs this job too.
+    if: github.event_name == 'workflow_dispatch' || github.event.client_payload.set == 'callback-page'
+    runs-on: ubuntu-latest
+    # Independent from the Studio and editor groups: a callback-page burst collapses
+    # to one run without ever cancelling another set's capture.
+    concurrency:
+      group: docs-screenshots-callback-page
+      cancel-in-progress: true
+    permissions:
+      contents: write # push the regeneration branch
+      pull-requests: write # open the automated PR
+    # The callback-page spec boots the platform's studio stack; provide the same
+    # backend the platform's own browser e2e job provides. The spec reads the
+    # page's callback ticket from the Redis address the booted stack hands over, so
+    # it runs only on a stack this job builds and the capture target does not apply.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 3s --health-retries 20
+    env:
+      TAI_E2E_REDIS_URL: redis://localhost:6379
+      TAI_E2E_PG_HOST: localhost
+      TAI_E2E_PG_PASSWORD: postgres
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out source repositories
+        # The monorepo carries the callback page and the browser spec that captures
+        # it; the Studio SPA is the shell the stack serves. The monorepo may be
+        # private, so authenticate via a git url.insteadOf rewrite with TAI_CI_TOKEN.
+        # Both are cloned into fixed local directory names regardless of the source
+        # repo names.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+          SOURCE_OWNER: ${{ vars.SOURCE_REPO_OWNER || github.repository_owner }}
+          MONOREPO_REPO: ${{ vars.MONOREPO_REPO || 'tai42' }}
+          STUDIO_REPO: ${{ vars.STUDIO_REPO || 'tai-studio' }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" tai42
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            "https://github.com/${SOURCE_OWNER}/${STUDIO_REPO}.git" studio
+          # The source-clone credential rewrite is global; create-pull-request pushes
+          # to tai-docs with its own TAI_DOCS_PR_TOKEN, which takes precedence.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+
+      - run: uv python install 3.13
+
+      - name: Sync the e2e env (the studio stack the webServer boots)
+        # The Playwright webServer boots `.venv/bin/tai42-e2e-studio-stack` from the
+        # monorepo root, as the platform's own browser e2e job syncs it.
+        working-directory: tai42
+        run: uv sync --locked --package tai42-e2e
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Build the Studio SPA
+        # Build all workspace packages so the SPA bundle the stack serves is fresh;
+        # TAI_E2E_STUDIO_DIST_PATH points the stack at that dist.
+        working-directory: studio
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+          echo "TAI_E2E_STUDIO_DIST_PATH=$PWD/apps/studio/dist" >> "$GITHUB_ENV"
+
+      - name: Install the browser-suite workspace
+        working-directory: tai42/e2e/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Playwright browser
+        working-directory: tai42/e2e/ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture the callback-page docs screenshots
+        # The `@docs`-tagged specs of the `chromium` project write each `<key>.png`
+        # (the page has one rendering, so a shot has no theme) into a clean staging
+        # dir outside the docs tree. A shot that does not render fails the run; one
+        # retry (from a cleared dir) absorbs a transient flake, and a second failure
+        # fails the job before any copy, so a partial set is never published.
+        working-directory: tai42/e2e/ui
+        env:
+          SHOTS_OUT: ${{ runner.temp }}/callback-page-shots
+        run: |
+          set -o pipefail
+          capture() {
+            rm -rf "$SHOTS_OUT"
+            mkdir -p "$SHOTS_OUT"
+            pnpm exec playwright test --project=chromium --grep "@docs"
+          }
+          if ! capture; then
+            echo "::warning::first callback-page screenshot attempt failed -- retrying once"
+            capture
+          fi
+
+      - name: Upload the JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: callback-page-screenshots-junit
+          path: tai42/e2e/ui/junit.xml
+          if-no-files-found: error
+
+      - name: Summarize the JUnit report
+        if: ${{ !cancelled() }}
+        uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
+        with:
+          paths: tai42/e2e/ui/junit.xml
+
+      - name: Assert callback-page shot parity with the docs pages
+        # Bijection between the staged shots and the images the docs pages embed
+        # under /images/callback-page/: a page embed with no staged shot or a staged
+        # shot no page embeds fails here -- before any copy -- so the copied set
+        # equals the embedded set exactly.
+        run: |
+          python3 tai-docs/scripts/check_shot_parity.py \
+            --shots-dir "$RUNNER_TEMP/callback-page-shots" \
+            --pages-root tai-docs \
+            --embed-prefix /images/callback-page/
+
+      - name: Copy the callback-page screenshots into the docs tree
+        run: |
+          mkdir -p tai-docs/images/callback-page
+          cp "$RUNNER_TEMP"/callback-page-shots/*.png tai-docs/images/callback-page/
+
+      - name: Open an automated PR when a screenshot changed
+        # Never pushes to main; a differing capture lands as a bot PR that
+        # self-merges once the required checks pass (regen-automerge.yml). A no-op
+        # when nothing changed. `token` is TAI_DOCS_PR_TOKEN for the reason the
+        # editor job's step gives.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          token: ${{ secrets.TAI_DOCS_PR_TOKEN }}
+          path: tai-docs
+          branch: docs/regenerate-callback-page-screenshots
+          commit-message: "docs: regenerate callback-page screenshots"
+          title: "docs: regenerate callback-page screenshots"
+          body: |
+            Automated regeneration of the callback-page docs screenshots
+            (`images/callback-page/*.png`) from the platform's `main` page.
+
+            Self-merges once the required checks pass.
           labels: documentation, automated, screenshots
           delete-branch: true

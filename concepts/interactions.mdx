@@ -75,6 +75,29 @@ parked the run, so its checkpoint must live in shared storage; an in-memory,
 sqlite, or checkpointing-disabled setup cannot cross that boundary, and an async
 park on one raises loudly.
 
+### Withdrawing a parked ask
+
+A parked ask can also be taken down on purpose: by the cancel door
+(`POST /api/interactions/{id}/cancel`, `tai interactions cancel`), by a door contract's
+`cancel_expr` or the `cancel_parked` tool, or by erasing the conversation thread, route or
+person it belongs to. Each one tears the whole run chain down, exactly as an
+`on_expiry="kill"` lapse does.
+
+Every takedown, a lapse included, frees the channel's hold on the person at once. A channel
+that keeps one open question per person releases that person, so the next ask to them goes
+out straight away instead of being refused until the old one lapses. The question already
+sent stays on the medium. A late reply to it finds no open question and is treated like any
+[late reply](#delivering-to-a-channel): with a channel route bound it enters the conversation
+as an ordinary message (a late WhatsApp form submit arrives as a message carrying the form's
+values).
+
+What differs is the terminal the door that started the run receives. A run ends in one of
+three terminals: `succeeded` (its result is delivered), `failed` (any non-success; a
+conversation route sends its client-safe notice) and `withdrawn` (taken down on purpose;
+nothing is delivered). A deliberate takedown delivers `withdrawn`, so a conversation route
+sends nothing and announces nothing: the person is told nothing. Among takedowns, only an
+`on_expiry="kill"` lapse delivers `failed`.
+
 ### Parking several at once
 
 A run can raise more than one async `ask` before it suspends — a parallel
@@ -125,6 +148,25 @@ default), after which it is reclaimed. The two must agree: an async ask whose `e
 beyond that horizon would lose its paused graph before the answer or expiry ever arrives — so
 the park is refused **loudly when it suspends**, naming the interaction, its `expiry_at`, and
 the horizon it exceeded.
+
+The park's own records keep one more clock, the **retention horizon**. Every key an async park
+writes (its state, its group's stream and count, its run and thread indexes and its callback
+ticket) lives until `expiry_at` plus `INTERACTIONS_IDLE_TTL_SECONDS` (24 hours by default).
+The expiry reaper runs every `INTERACTIONS_EXPIRY_REAPER_INTERVAL_SECONDS` (30 seconds by
+default) and resolves a lapsed park whenever it reaches it inside that horizon, so a late or
+stalled reaper still applies `on_expiry`. Both answer doors stay open for the same window: the
+callback ticket lives as long as the park, and an answer is taken for as long as the park is
+still pending. A park the reaper reaches only after its horizon has passed can no longer be
+resolved: it is logged at ERROR and stated once as an `interactions_ask_expiry_abandoned`
+[platform event](/concepts/hooks#platform-events) carrying `interaction_id` and `expiry_at`.
+No `on_expiry` action runs and nothing is delivered to the door.
+
+An agent run holds its asks to a tighter deadline. The platform may still deliver an ask's
+answer or expiry up to that retention horizon after the deadline, so an
+[agent](/plugins/tai42/agents) parks only an ask whose deadline leaves the whole horizon
+before its checkpoint's retention runs out (with the defaults, within 6 days). An ask past
+that point is refused loudly before anything is parked, and a resume that finds the
+checkpoint gone ends the run as a failed terminal.
 
 ## Answer formats
 
@@ -539,27 +581,112 @@ the [date-constraint keys](#date-constraints), and any property a
 on the answer. A form on the default inbox surface keeps full JSON-schema freedom; the
 subset binds only a channel-delivered form.
 
-A `string` property may also carry a **`format`** of `date`, `time`, or `date-time`;
-any other `format` value, or a `format` on a non-string property, is refused, naming
-the property. The answer door validates the value's shape: `date` is `YYYY-MM-DD` (a
-real calendar date), `time` is `HH:MM` or `HH:MM:SS`, and `date-time` is an RFC 3339
-timestamp (a mandatory `Z` or `±HH:MM` offset). A `format` alongside an `enum` is
+A `string` property may also carry a **`format`** of `date`, `time`, `date-time` or
+`email`; any other `format` value, or a `format` on a non-string property, is refused,
+naming the property. The answer door validates the value's shape: `date` is `YYYY-MM-DD` (a
+real calendar date), `time` is `HH:MM` or `HH:MM:SS`, `date-time` is an RFC 3339
+timestamp (a mandatory `Z` or `±HH:MM` offset), and `email` is one `@`, a dot in the
+domain, and no whitespace (`^[^@\s]+@[^@\s]+\.[^@\s]+$`). A `format` alongside an `enum` is
 allowed — the enum's choice control is rendered and the format is still validated on
 the answer.
 
 Each surface renders a `format` string as its medium's native control where one
-exists, and as a plain text input — still validated at the door — where none does:
+exists, and as a plain text input where none does. Where the shape is checked is set out in
+[Shapes are caught inside the form](#shapes-are-caught-inside-the-form); the answer door
+always checks it again:
 
 | `format` | WhatsApp | Slack | Callback page¹ | Web widget | Studio |
 | --- | --- | --- | --- | --- | --- |
-| `date` | native date picker (returns `YYYY-MM-DD`) | `datepicker` | `<input type="date">` | `<input type="date">` | browser date input |
-| `time` | text (validated at the door) | `timepicker` (`HH:mm`, 24-hour, no seconds) | text (validated at the door) | text (validated at the door) | browser time input |
-| `date-time` | text (validated at the door) | text (validated at the door) | text (validated at the door) | text (validated at the door) | text (validated at the door) |
+| `date` | calendar picker (returns `YYYY-MM-DD`) | `datepicker` | `<input type="date">` | `<input type="date">` | browser date input |
+| `time` | text, checked inside the form | `timepicker` (`HH:mm`, 24-hour, no seconds) | text, checked on the page | text (validated at the door) | browser time input |
+| `date-time` | text, checked inside the form | text (validated at the door) | text, checked on the page | text, checked inside the form | text, checked inside the form |
+| `email` | email keyboard, checked at the data endpoint | `email_text_input` | `<input type="email">`, checked on the page | `<input type="email">`, checked inside the form | email input, checked inside the form |
 
 ¹ The callback page renders the Telegram web-app button, the external-link door, and
 the web channel — each answers on the same server-rendered form page. A `date` prefill
 must be `YYYY-MM-DD` and a `time` prefill `HH:MM`; a prefill a native control cannot
 display (a `time` carrying seconds on Slack, say) is refused when the form is built.
+
+### Shapes are caught inside the form
+
+A field's declared shape (`required`, `pattern`, `format`, `minLength`/`maxLength`,
+`minimum`/`maximum`, `minItems`/`maxItems`, the date constraints) is checked inside the form
+wherever the surface can, so the person sees a plain sentence under the field before the
+submit leaves it. Whatever a surface does not check itself, the answer door checks on submit,
+and it checks every shape again in any case: it refuses a broken answer with the platform's
+sentence for the first failing field, naming that field. Where each shape is checked:
+
+| Shape | WhatsApp | Slack | Callback page¹ | Web widget / Studio |
+| --- | --- | --- | --- | --- |
+| `required` | the control | the modal | the browser | the form |
+| `pattern` | the control on a text or numeric keyboard, else the data endpoint | the door | the page | the form |
+| `format: email` | the data endpoint | the door (drawn as `email_text_input`) | the page | the form |
+| `format: time` / `date-time` | the control and the data endpoint | the door (`time` drawn as `timepicker`) | the page | `date-time` the form, `time` the door |
+| `minLength` / `maxLength` | the control's limits (a text area's minimum: the data endpoint) | the input's own limits | the page | the form |
+| `minimum` / `maximum` | the data endpoint | drawn as `number_input` `min_value`/`max_value` | the page | the form |
+| exclusive bounds, `multipleOf` | the data endpoint | the door | the door | the door |
+| `minItems` / `maxItems` | the selection limits | the door | the door | the form |
+| date constraints | the calendar picker (a range's order and span, when the range is drawn as two fields: the data endpoint) | the door | the page | the form |
+
+The sentence the person reads depends on the surface:
+
+- **WhatsApp, the callback page, the web widget and Studio** show the sentence the sender set
+  as `wording.form.fields[<name>].invalid`: their own words, in the end user's language, used
+  for every shape error on that field but never for a missing required value. Without it,
+  WhatsApp shows its own short word for the broken shape, the callback page shows the
+  platform's sentence naming the bound (*Enter at least 10 characters*), and the web widget
+  and Studio, which check the form with the Studio SDK, show its own words (*must be at least
+  10 character(s)*); an unavailable day on the callback page shows the page's own line.
+  WhatsApp caps the `invalid` sentence at 30 characters on a text field or text area and 80
+  on a calendar or choice control; a longer one is refused at deliver, naming the field.
+- **Slack** pins the door's sentence for the failing field under it (*Enter a valid email
+  address*), wrapped by the sender's `wording.answer.rejected` when set.
+
+<Frame caption="The callback page showing the platform's sentence under a field whose value is not an email address.">
+  <img src="/images/callback-page/form-field-error.png" alt="A callback form with an Email address field holding alice@ and the sentence Enter a valid email address under it." />
+</Frame>
+
+A number's `minimum`/`maximum` (or their exclusive forms) that no value lies within (for an
+`integer`, no whole number, as in `minimum: 1.2`, `maximum: 1.8`), a `minLength` above
+`maxLength` and a `minItems` above `maxItems` are refused when the form is asked, naming the
+property, on every channel and for a form answered in the in-app inbox.
+
+A form whose schema breaks the JSON Schema rules is refused when the form is asked, naming the
+property and where in it the value sits, on every channel and for a form answered in the
+in-app inbox. That covers a bound that is not a number, a negative `minLength`, a `pattern`
+or `patternProperties` key that does not compile (one too large or too deeply nested to
+compile included), `patternProperties` keys that cannot be combined into the one expression
+`additionalProperties` checks, and a number that is not finite (`Infinity`, `NaN`) anywhere in
+the schema. A `free` or `external` ask's schema is held to the same rules. A `$schema` that is
+not a URI string is refused, at the root or on any subschema; a subschema naming another
+dialect is held to that dialect's rules.
+
+References follow the same rules. A `$ref` or `$dynamicRef` must resolve to a valid subschema
+inside the schema itself (`#`, a `#/…` pointer, a `#anchor`, or an absolute reference under the
+schema's own root `$id`), or into a JSON Schema meta-schema by its URI. A reference naming any
+other schema is refused, since no schema is ever fetched, and so is a cycle of references that
+never descends into the answer. A `#/…` pointer indexes an array only with `0` or a whole
+number without a leading zero (`-1`, `+1` and `01` are refused). A pydantic model's
+`$defs`/`$ref` resolve this way.
+
+A schema is one resource. A `$id` below the root, or an anchor name declared twice, is refused.
+So is a root `$id` (or draft-04 `id`) that is the URI of a JSON Schema meta-schema, with or
+without a trailing `#`, since the schema would take that meta-schema's place; this includes a
+meta-schema pasted as it is. When the root has a `$id`, a `$dynamicAnchor` below the root is
+refused if a reference into a meta-schema would jump back into the schema at it: its name is
+one the part of the meta-schema the reference leads to (or any part that part refers to) uses
+for its own `$dynamicRef` (`meta` in the draft 2020-12 meta-schema and its core, applicator,
+content and unevaluated vocabularies), or the name the reference itself points at, such as
+`https://json-schema.org/draft/2020-12/schema#meta`. A reference to a part that never refers
+to the name is accepted: draft-07, the 2020-12 validation vocabulary, or a pointer such as
+`https://json-schema.org/draft/2020-12/meta/core#/$defs/anchorString`.
+
+A form may not name a top-level property or a display slot `__proto__`: JavaScript reads that
+name as an object's prototype, so a form drawn in a browser cannot keep it. Such a form is
+refused wherever it enters: when it is asked (on every channel and for a form answered in the
+in-app inbox), when it is sent in a notification, and when it is carried in a conversation
+answer part. It is the only reserved name; `constructor`, `toString` and other names are
+allowed.
 
 When you don't need to **wait** for the answer, send the form as a
 [notification](/concepts/notifications#ask-less-forms) instead: `notify_user` with a
@@ -592,6 +719,13 @@ A channel plugin reads the platform's rules from their owners instead of copying
   `REFUSE` (the bound error is the caller's), a webhook door whose vendor redelivers a
   `5xx` passes `DROP` (the set is dropped, logged at `WARNING` and counted, and the turn
   proceeds). `put_entry_param` drops one over-cap value the same way.
+- **Form shapes** — `tai42_app.interactions.form_shape_errors(question, values, fields=...,
+  partial=...)` returns one `FormShapeError` (`field`, `kind`, `params`, `message`) per failing
+  field, judged on the answer door's own schema; `fields` limits it to one step and `partial`
+  leaves unfilled fields alone. `SHAPE_KEYWORDS`, `FormShapeKind` and `FormShapeError` live in
+  `tai42_contract.interactions`, and the per-format regexes in
+  `tai42_kit.interactions.FORMAT_PATTERNS`, so a channel draws and checks a shape exactly as
+  the door does.
 - **Deadlines** — no expired-delivery check in `deliver`: the dispatcher never hands one.
 
 ### Form capabilities per channel
@@ -799,10 +933,11 @@ the answer door has.
 
 ### WhatsApp data endpoint (operator setup)
 
-A reacting form on WhatsApp is published as a native Flow with a **data endpoint** Meta
-calls as the person fills it. The endpoint decrypts each request, so before a reacting
-form can be published the operator provisions the vendor's key material (loud failure
-when any is missing — a reacting form never publishes silently inert):
+A reacting form, or one carrying a shape only the data endpoint can check, is published on
+WhatsApp as a native Flow with a **data endpoint** Meta calls as the person fills it. The
+endpoint decrypts each request, so before such a form can be published the operator
+provisions the vendor's key material (loud failure when any is missing — such a form never
+publishes silently inert):
 
 - generate a business **RSA-2048 key pair**;
 - set the **private key** as the secret `CHANNEL_WHATSAPP_FLOW_PRIVATE_KEY` (with
@@ -815,7 +950,8 @@ when any is missing — a reacting form never publishes silently inert):
   which derives it from the private key and registers it, so the operator copies no key
   material by hand.
 
-A static (non-reacting) WhatsApp form never touches this key material. See the
+A static WhatsApp form whose shapes the controls check themselves never touches this key
+material. See the
 [channel-whatsapp plugin page](/plugins/tai42/channel-whatsapp) for the full operator
 steps.
 
@@ -829,7 +965,7 @@ are public:
 | `GET /api/interactions` | authenticated | paged list of pending questions (`page`/`pageSize`) |
 | `GET /api/interactions/stream` | authenticated | tail-only SSE feed of live `add`/`answered`/`removed` frames |
 | `POST /api/interactions/{id}/answer` | authenticated | the human answer door (in-client formats) |
-| `POST /api/interactions/{id}/cancel` | authenticated | withdraw a pending ask without answering it (fires no continuation) |
+| `POST /api/interactions/{id}/cancel` | authenticated | withdraw a pending ask without answering it (fires no continuation; the delivering channel releases its hold on the person and nothing is said to them) |
 | `POST /api/interactions/{id}/react` | authenticated | the in-app [mid-form reaction](#forms-that-react-while-open) door (`channel=None`) — runs the reaction, records nothing |
 | `GET /api/interactions/media/{id}` | **public** | serves media stored by reference — the id is the capability |
 | `POST /api/interactions/callback/{ticket}` | **public** | the data door — sensitive answers ride the JSON body |

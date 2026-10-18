@@ -232,19 +232,30 @@ anchor reference (`#name`) is left as it is. What a fragment may carry:
   `#/properties/<key>` or `#/$defs/<key>`; `#` or any other root pointer would name the
   state's root once merged, so it is refused. Attach such a fragment at a path instead.
 
-The effective schema then meets the same rules as a declared schema. It is one draft
-2020-12 document, so:
+The effective schema then meets the same rules as a declared schema. It is held to the same
+JSON Schema rules as a [form's schema](/concepts/interactions#shapes-are-caught-inside-the-form),
+and it is one draft 2020-12 document, so:
 
-- every `$ref` is local and resolves, and a pointer reference's target is itself a valid
-  schema;
-- `$dynamicRef`, a `$schema` naming any other dialect, and a `$id` below the root are
-  refused;
-- an anchor name is unique across every `$anchor` and `$dynamicAnchor` in the schema;
+- a value a validator cannot use is refused: a `pattern` that does not compile,
+  `patternProperties` keys that cannot be combined, a bound that is not a finite number;
+- every `$ref` resolves to a valid schema: `#`, a `#/…` pointer, a `#anchor` or an absolute
+  reference under the root `$id`, or into a JSON Schema meta-schema by its URI (no schema is
+  ever fetched); a `#/…` pointer indexes an array only with `0` or a whole number without a
+  leading zero;
+- `$dynamicRef`, a `$schema` naming a dialect other than draft 2020-12, and a `$id` below the
+  root are refused, and so is a root `$id` that is a meta-schema's URI;
+- an anchor name is unique across every `$anchor` and `$dynamicAnchor` in the schema, and a
+  `$dynamicAnchor` below the root that a meta-schema a reference leads to would jump back to
+  is refused, as for a form;
 - a cycle of references that never descends into the document is refused.
 
 These rules are checked whenever an effective schema is composed, so a declaration, an
 attach, a declarations write, a detach or a template replace whose result breaks one is
 itself refused.
+
+A template's parameter `schema` and its `declarations.schema` are held to the same rules:
+each must be a valid draft 2020-12 schema whose `$ref`s resolve by the rules above. A template
+breaking this is refused when it is saved, previewed or seeded.
 
 A consumer may register an **attach validator** on the states facet with
 `register_attach_validator`: given the state name, the template document, the attachment's
