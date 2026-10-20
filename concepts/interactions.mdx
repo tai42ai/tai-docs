@@ -93,10 +93,19 @@ values).
 
 What differs is the terminal the door that started the run receives. A run ends in one of
 three terminals: `succeeded` (its result is delivered), `failed` (any non-success; a
-conversation route sends its client-safe notice) and `withdrawn` (taken down on purpose;
+conversation route sends the failing target's reply when the failure carries one, else the
+route's `error_reply_text`, else the built-in line) and `withdrawn` (taken down on purpose;
 nothing is delivered). A deliberate takedown delivers `withdrawn`, so a conversation route
 sends nothing and announces nothing: the person is told nothing. Among takedowns, only an
 `on_expiry="kill"` lapse delivers `failed`.
+
+A door receives its terminal through the delivery address it binds before the run starts
+(`set_park_completion`, a tool plus an opaque context). The platform fires that tool with
+the bound context merged with the fire's own keys: `thread_id`, `result`, `completion_id`,
+`status` and, only on a `failed` fire whose failure carries a target reply, `reply`. A bound
+context that carries any of those five keys is refused when the address is bound, so a
+context can never stand in for the fire's own data. An address tool for a door that shows
+text to a person accepts an optional `reply` and shows it in place of its fixed failure line.
 
 ### Parking several at once
 

@@ -128,12 +128,32 @@ answer payload; correlate it by `message_id`:
 ```
 
 On a turn that errored, the shape is identical but `status` is `error` and `answer`
-is **generic client-safe text** — never an internal detail:
+is **client-safe text** — never an internal detail the platform holds. By default it is
+the generic line:
 
 ```json
 { "message_id": "4f1c…", "thread_id": "bridge:account:user-42",
   "status": "error", "answer": "Sorry, something went wrong handling your message. Please try again." }
 ```
+
+The `answer` is the first of: the failing target's own reply, when its failure carries
+one; the route's `error_reply_text`; the built-in line above. A tool target supplies its
+reply on the failure it raises, and the internal outcome stays out of the answer:
+
+```python
+from tai42_contract.app import tai42_app
+from tai42_contract.interactions import RunTerminalFailed
+
+
+@tai42_app.tools.tool
+async def usage_report(reason: str) -> str:
+    # `{"reason": ...}` is the internal outcome; `reply` is what the person reads.
+    raise RunTerminalFailed({"reason": reason}, reply="That report is not available right now.")
+```
+
+The reply is text of 1 to 2,000 characters, not blank, and you own that it is safe for the
+person reading it. See [failure replies](/reference/conversation-bridge#failure-replies)
+for the failures that always keep the fixed text.
 
 On a **silent** turn — a `tool` target whose mapped reply was `null` or blank, or an
 ordinary inbound on a [`manual`-mode

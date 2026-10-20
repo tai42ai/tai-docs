@@ -557,7 +557,8 @@ is refused rather than silently preferring one:
 
 An On Error may also be a bare expression that shapes a replacement value without
 dispatching anything. Baseline kwargs without a tool to receive them are refused, and
-an On Error with no tool, node, or expression at all is refused as inert.
+an On Error with no tool, node, expression, or (on the flow-level On Error)
+[Reply](#the-participant-reply-on-a-failed-run) at all is refused as inert.
 
 <Warning>
 A **Recovery-only** node — one no ordinary routing reaches — never runs as a
@@ -575,8 +576,9 @@ Recovery-only.
 
 **A flow-level On Error is a different job.** An On Error attached to the flow itself —
 the Start-attached one — runs only on the terminal error path, and the run still
-**fails**. It decorates the failure: it can send a notification or shape the error
-that surfaces, but it cannot rescue the run.
+**fails**. It decorates the failure: it can send a notification, shape the error that
+surfaces, or give the person on a conversation route a
+[Reply](#the-participant-reply-on-a-failed-run), but it cannot rescue the run.
 
 To recover from a failure and keep running, put the On Error on the failing node
 instead. The editor names which of the two you are editing on the form itself, so
@@ -586,6 +588,52 @@ A finished run shows what the On Error did. A node that failed and was rescued r
 as recovered, and the On Error that ran — whether the inline tool or the wired
 Recovery — reads as having run on the error path rather than as an ordinary
 step. A node reached both ways keeps its own status and gains the On Error mark.
+
+### The participant reply on a failed run
+
+When a conversation route runs the flow and the run fails, the person reads the route's
+failure line. The flow-level On Error's **Reply** gives that person the flow's own text
+instead: a jq expression (inline or a stored template) whose result is the reply. It
+runs once, at the end of the failed run, and the route sends its result in place of its
+`error_reply_text` or the built-in line
+([failure replies](/reference/conversation-bridge#failure-replies)).
+
+- **Flow-level only.** A node's, route's, or branch's On Error cannot carry a Reply; the
+  build refuses it there and the editor shows the field only on the flow-level form. Only
+  the run's own failure reaches the person, so a nested flow's Reply stays with that run
+  and never becomes its parent's reply.
+- **It reads the handler's context.** The Reply sees the same `.upstream_outputs` error
+  fields, `.flow_graph_kwargs`, and `$states` as the On Error's condition and expression,
+  plus the handler's outcome in `.upstream_outputs.additional.handler_result` (or
+  `.upstream_outputs.additional.handler_error` when the handler failed). It runs after the
+  handler step, whatever the handler's result, so a failed notification never takes the
+  reply away.
+- **Only a failed run gives one.** A failure the run recovers from gives no reply. When a
+  branch hits its iteration limit, the flow-level On Error runs in-graph as that branch's
+  fallback: with a tool, node, or expression handler the run goes on and ends as a
+  success, so the Reply is never evaluated.
+- **The condition gates it.** When the On Error's condition is false for the failure,
+  neither the handler nor the Reply applies, and the route sends its own failure line. A
+  condition that raises is logged at ERROR and gives no reply.
+- **What it returns.** Text of 1 to 2,000 characters that is not blank, or `null` for no
+  reply. Any other result — a non-string, blank text, text over 2,000 characters, a jq
+  error, or a template that does not render — is a fault: it is logged at ERROR, recorded
+  on the On Error's trail entry as `additional.reply_error`, and the failure goes out with
+  no reply, so the route's fixed line is kept. A reply fault never replaces the run's own
+  failure.
+- **A Reply on its own is valid.** A flow-level On Error with only a Reply runs no handler
+  and records neither `handler_result` nor `handler_error`; the run still fails, carrying
+  the reply.
+- **Infrastructure failures skip it.** A failure of source `infrastructure` skips the On
+  Error entirely (see [Who handles a failure](#who-handles-a-failure)), so it carries no
+  reply.
+
+<Warning>
+The person reads the Reply exactly as written. Its context holds internal details — the
+error text and the handler's outcome — so never echo them into the reply. The flow's author
+owns that the reply is safe for the person reading it, just as a route admin owns the
+route's `error_reply_text`.
+</Warning>
 
 ### Who handles a failure
 
