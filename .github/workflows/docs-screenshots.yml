@@ -183,15 +183,17 @@ jobs:
         # docs-screenshots.sh builds the SPA + reference plugin (from the fresh
         # package dists above), boots a docs-demo skeleton (docker brings up its own
         # loopback Redis + Postgres -- both preinstalled on ubuntu-latest), seeds the
-        # demo, and captures every screen into ../tai-docs/images/studio, failing
-        # (never shipping a broken shot) if a screen does not render. One retry absorbs
-        # a transient Playwright/boot flake.
+        # demo, and captures every screen into a clean staging dir outside the docs
+        # tree (OUT_DIR), failing (never shipping a broken shot) if a screen does not
+        # render. One retry (from a cleared dir) absorbs a transient Playwright/boot
+        # flake.
         #
         # SKIP_NONDETERMINISTIC_SHOTS skips the QR screens, whose QR encodes a freshly-
         # minted random token each run and would otherwise churn every regeneration;
         # they are recaptured only on a manual full run when their dialog UI changes.
         env:
           SKIP_NONDETERMINISTIC_SHOTS: "1"
+          OUT_DIR: ${{ runner.temp }}/studio-shots
         run: |
           set -o pipefail
           cleanup() {
@@ -199,11 +201,45 @@ jobs:
             docker ps -aq --filter "name=tai-studio-e2e" | xargs -r docker rm -f
             docker network rm tai-studio-e2e_default 2>/dev/null || true
           }
-          if ! bash e2e/scripts/docs-screenshots.sh; then
+          capture() {
+            rm -rf "$OUT_DIR"
+            mkdir -p "$OUT_DIR"
+            bash e2e/scripts/docs-screenshots.sh
+          }
+          if ! capture; then
             echo "::warning::first screenshot attempt failed -- cleaning up and retrying once"
             cleanup
-            bash e2e/scripts/docs-screenshots.sh
+            capture
           fi
+
+      - name: Move the docs checkout to the latest base commit
+        # The capture takes minutes and the base branch may move meanwhile (a previous
+        # regeneration PR of this set merging is the common case). create-pull-request
+        # builds the PR branch on the checked-out commit and re-fetches the base only
+        # when the checkout is on a different branch, so a stale checkout opens the PR
+        # on the old base, conflicting with every image that moved. The capture is
+        # staged outside the docs tree, so the untouched checkout is reset to the
+        # branch's latest commit before the shots are copied in: the copied shots
+        # replace the images this set owns and every other file matches the base.
+        # Anything already changed in the checkout fails the step instead of being
+        # discarded.
+        working-directory: tai-docs
+        run: |
+          branch="$(git symbolic-ref --short HEAD)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the tai-docs checkout changed before the move to the latest ${branch}"
+            git status --short
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+          git reset --hard "origin/${branch}"
+
+      - name: Copy the Studio screenshots into the docs tree
+        # The Studio filenames are disjoint from the editor set, so this never
+        # collides.
+        run: |
+          mkdir -p tai-docs/images/studio
+          cp "$RUNNER_TEMP"/studio-shots/*.png tai-docs/images/studio/
 
       - name: Open an automated PR when a screenshot changed
         # Never pushes to main; a differing capture lands as a bot PR that
@@ -436,6 +472,21 @@ jobs:
         with:
           paths: engine/e2e/ui/junit*.xml
 
+      - name: Move the docs checkout to the latest base commit
+        # The capture is staged outside the docs tree, so the untouched checkout is
+        # reset to the branch's latest commit before the parity check and the copy,
+        # for the reason the Studio job's step gives.
+        working-directory: tai-docs
+        run: |
+          branch="$(git symbolic-ref --short HEAD)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the tai-docs checkout changed before the move to the latest ${branch}"
+            git status --short
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+          git reset --hard "origin/${branch}"
+
       - name: Assert editor-shot parity with the flow-author pages
         # Bijection between the union of both passes' staged shots and the images the
         # flow-author pages embed: a page embed with no staged shot, a staged shot no
@@ -619,6 +670,21 @@ jobs:
         uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
         with:
           paths: tai42/e2e/ui/junit.xml
+
+      - name: Move the docs checkout to the latest base commit
+        # The capture is staged outside the docs tree, so the untouched checkout is
+        # reset to the branch's latest commit before the parity check and the copy,
+        # for the reason the Studio job's step gives.
+        working-directory: tai-docs
+        run: |
+          branch="$(git symbolic-ref --short HEAD)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the tai-docs checkout changed before the move to the latest ${branch}"
+            git status --short
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+          git reset --hard "origin/${branch}"
 
       - name: Assert callback-page shot parity with the docs pages
         # Bijection between the staged shots and the images the docs pages embed
