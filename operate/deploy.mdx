@@ -64,6 +64,18 @@ tai serve --transport streamable-http --workers 4 --stateless-http
 A single-worker deployment may run on the default in-memory store.
 </Note>
 
+### When a worker dies
+
+The serve process checks each worker on a health ping and replaces any worker that dies. Each replacement logs one `WARNING` on the `uvicorn.error` logger. It gives the worker's pid, why it died, and its exit code or the signal that ended it:
+
+| Line | What happened |
+| --- | --- |
+| `Child process [N] died (exited by itself): killed by signal SIGSEGV (-11)` | The worker ended on its own. The status is its own: a crash signal (`SIGSEGV`, `SIGABRT`), `SIGKILL` from outside the server (for example the kernel's out-of-memory killer), or `exit code N`. |
+| `Child process [N] died (did not answer the health check within 5s and was killed): killed by signal SIGKILL (-9)` | The worker was alive but did not answer the ping in time, so the server killed it. The limit is uvicorn's health-check timeout, 5 seconds by default; pass `--timeout-worker-healthcheck SECONDS` after the `tai serve` options to change it. |
+| `Child process [N] died (crashed and was dumping core when it missed the health check, so it was killed): killed by signal SIGKILL (-9)` | The worker crashed. It was still writing its core dump when it missed the ping, so the server killed it. |
+
+Every worker and the serve process also enable Python's fault handler. A worker that crashes in native code writes `Fatal Python error: ...` and the stack of every thread to stderr before it dies, unless `PYTHONFAULTHANDLER` already configures it.
+
 ## Point at a manifest and environment
 
 The server loads a manifest and reads its environment at startup. Point at the manifest with `--manifest-path`, or set `TAI_MANIFEST_PATH` as the flag's default. Provide the environment your tools need — see the repository's `.env.example`.
