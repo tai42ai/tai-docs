@@ -168,9 +168,11 @@ nothing is sent to the client. On an `api` route the silence is **communicated**
 turn rides the normal delivery pipeline and its callback (or sync-wait reply) carries
 `status: "silent"` with no `answer` text, so the caller still gets a terminal result.
 A mapping fault, a denied or failed dispatch, a wrong-typed result, or a tool turn
-that ends on a **non-success terminal status** (`aborted`, `stopped`, `error`) is a
-client-safe `error` outcome instead — `reply_expr` maps only the success shape, so a
-non-success terminal never reaches the mapping and diverts straight to the error reply.
+whose run **fails** is a client-safe `error` outcome instead. A failing target raises the
+contract's `RunTerminalFailed` (a flow's `error`, `stopped`, or `aborted` terminal arrives
+this way), and `reply_expr` maps only a returned result, so a failure never reaches the
+mapping and goes straight to the [failure reply](#failure-replies): the target's own reply
+when the failure carries one, else the route's error reply.
 
 ### A flow preset as a tool target
 
@@ -911,9 +913,9 @@ record view under `pending_receipt`.
 
 When a reachable channel terminally refuses a turn's reply — an answer over the
 channel's cap, an unrenderable part, a permanent input refusal, or a non-retryable
-send rejection — the record stays `failed` and the participant is sent the same
-uniform could-not-deliver notice a failed resumed reply gets (the route's configured
-`error_reply_text` when set); a transport exhaustion — retryable failures that spend
+send rejection — the record stays `failed` and the participant is sent the platform's
+fixed could-not-deliver notice (the route's configured `error_reply_text` when set, else
+the built-in default); a transport exhaustion — retryable failures that spend
 every attempt — stays `failed` with no such notice, the failed-delivery listing being
 the only signal.
 
@@ -926,18 +928,44 @@ corrupt row counted `unreadable` on any other listing (a thread, transcript, rou
 listing) has no `failed` twin — the sweep only transitions delivery-lifecycle rows, so those
 counts stand on their own.
 
-Client-facing text on the failure paths is always client-safe — an internal detail
-never crosses to the participant. The turn-error reply is configurable per route; the
-rate-cap notice is fixed:
+### Failure replies
 
-- **Turn error** — the route's own `error_reply_text` (set with `--error-reply-text`)
-  when it carries one, otherwise the built-in default `"Sorry, something went wrong
-  handling your message. Please try again."` An `error` answer never carries an
-  internal detail; the detail is retained in the record's `error` field for the admin
-  read door only.
+The platform never puts an internal detail into the text a participant reads. Its own
+failure text is fixed and client-safe; a target that fails may supply a reply of its own,
+and the platform sends that reply exactly as the target wrote it.
+
+- **Turn error** — when a turn fails, the participant reads the first of:
+  1. the **target's reply**, when its failure carries one;
+  2. the route's own `error_reply_text` (set with `--error-reply-text`);
+  3. the built-in default `"Sorry, something went wrong handling your message. Please
+     try again."`
+
+  On a live turn the internal detail is kept in the record's `error` field, for the
+  admin read door only. A failure delivered when a parked run resumes keeps no `error`
+  detail on its record.
 - **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
   Please wait a moment and try again."` — sent once per cooldown window; further
   over-limit messages are dropped as `shed`.
+
+A target supplies its reply on the failure it reports. A tool raises
+`RunTerminalFailed(outcome, reply="...")`; a parked run that fails on resume raises the
+same, or returns `RunFailed(outcome=..., reply="...")`. A flow supplies one through its
+flow-level On Error's [Reply](/babelfish#the-participant-reply-on-a-failed-run). The reply follows the same rule as
+`error_reply_text`: a string of 1 to 2,000 characters that is not blank. An invalid reply
+is refused where the target raises or returns it, and a reply that reaches a completion
+delivery malformed is refused loudly there, with no record written.
+
+The target's reply covers only the target's own failure. Every failure the platform owns
+keeps the fixed text above: an infrastructure error or any other exception raised in place
+of a reported failure (a timeout among them), a door contract or `reply_expr` fault, a
+denied run, a stranded turn, a channel refusal notice, and a give-up with no handler result.
+A transport exhaustion sends no notice at all.
+
+<Warning>
+A target's reply is shown to the participant as written. Its author owns that it is safe
+for the participant and carries no internal detail, just as a route admin owns
+`error_reply_text`.
+</Warning>
 
 ## Checkpoint retention
 
