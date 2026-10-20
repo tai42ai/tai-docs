@@ -21,10 +21,15 @@ keyed by its tool name.
 At the centre of the feature is a bind kernel that builds the live tool: it takes
 a base tool and fixes some of its arguments, producing a hidden transform of the
 original. The baked values fill in behind the scenes, so a caller supplies only
-the arguments that were left open. The base tool is any registered tool —
-including a management [operation](/concepts/live-operations) projected as a tool,
-so you can save a configured variant of a live-ops action just as you would any
-other tool.
+the arguments that were left open. The base tool is any registered tool that is
+neither a preset nor derived from one — a management
+[operation](/concepts/live-operations) projected as a tool included, so you can save
+a configured variant of a live-ops action just as you would any other tool. A tool
+derived from a preset is an extension branch the preset produces (such as
+`<preset>_<extension>`); the platform knows each branch's origin, and create
+refuses it with a `400` naming the preset it comes from. A stored record whose base
+is a preset or a preset's branch is quarantined at load, whatever order the
+records load in.
 
 ## The store view
 
@@ -167,8 +172,10 @@ Beyond the create/version/rollback core, the surface carries four more doors:
   behavioral holder that wires against the name** — a schedule that fires it, a hook
   that targets it, a conversation route pointing at it, a tool-extensions map entry
   carrying it, a parked interaction whose resume continuation is it, and any
-  plugin-held reference a plugin declares through the rename-referee seam. Each
-  holder is named individually.
+  plugin-held reference a plugin declares through the rename-referee seam. A rename
+  also moves every extension branch tool the preset produces, so the union covers
+  references to those branch names too (a preset composing `<preset>_<extension>`,
+  a schedule firing it, and so on). Each holder is named individually.
 - **`rename`** — a preset's name *is* its live tool name, so a rename rebinds the
   tool (new name bound before the old is torn down). Rename integrity is enforced
   atomically **at this one gate**: it runs create's name pre-checks on the new name

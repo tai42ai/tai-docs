@@ -24,6 +24,8 @@ Export the named sections as a backup document. The document prints to stdout �
 tai backup export --section access_control > backup.json
 ```
 
+A section that fails to export is left out of the document and named with its message under the document's `errors` map: `tai backup export` still prints the document, writes each failed section and its message to stderr, and exits `1`, and the Studio's **Backup** tab keeps the download and shows a warning naming each failed section and its message.
+
 ## Import
 
 Import selected sections from a backup document file. Name each section to apply; a section in the file that you do not name is left untouched.
@@ -43,7 +45,7 @@ An import runs under one **mode**, applied per record: `skip` (the default) or `
 - Under `skip`, a record whose key already exists on the server is left exactly as it stands — its live value is never replaced — and only records with a new key are created.
 - Under `overwrite`, an existing record is upserted from the backup; new records are still created.
 
-The natural key is per section: a hook by its `name`, a topic verifier by its `topic`, a template by its path, a sub-MCP app by its slug, a stored connection by its id, an access-control route by its url. New records are created under both modes; the mode only decides what happens when a key collides with a live one.
+The natural key is per section: a hook by its `name`, a topic verifier by its `topic`, a stored object by its path, a sub-MCP app by its slug, a stored connection by its id, an access-control route by its url. New records are created under both modes; the mode only decides what happens when a key collides with a live one.
 
 Mode is a property of the HTTP import door, not the CLI: `POST /api/backup/import` takes a `"mode"` field in its body (an unrecognized value is a `400`). The `tai backup import` command sends no mode, so **the CLI always restores in the default `skip`** — the non-destructive choice. To overwrite, call the door with `"mode": "overwrite"`.
 
@@ -92,6 +94,8 @@ Each section returns a report: `created`, `updated`, and two distinct skip count
 Restoring the `manifest` or `env` section applies **live and fleet-wide**: the import runs the same [mutation pipeline](/concepts/live-operations#the-mutation-pipeline) a config change does — validate, persist, reload the calling process, then broadcast on the [worker bus](/concepts/worker-bus). The import report carries the per-origin fleet report of that reload, so a worker a restore did not reach is named rather than hidden.
 
 A restore that writes the `connector_connections` section also moves each restored connection's token cache entry to the restored version once the database write commits, so no worker keeps serving the pre-restore token. A connection restored with an already-lapsed session leaves no cached token behind. If that cache write fails — the connector-store Redis is unreachable — the section reports the error and the import answers `ok: false`, although the restored rows are already committed; once Redis is back, re-import the section with `"mode": "overwrite"` to rewrite the cache.
+
+The `templates` section carries every object of the deployment's content store, whatever its bytes are. An object whose bytes are UTF-8 text travels as `content_text`, any other object as `content_base64`, and every entry carries the `content_type` the store reports. A restore writes each entry back byte for byte; a storage provider that records content types keeps the entry's `content_type`, and one that infers the type from the path infers it again on the restored object. A storage provider that holds text only cannot keep a binary object, so it rejects such an entry, naming its path in the section's `errors`; the rest of the section still restores.
 
 A restore that writes the `templates` section clears the compiled-template cache **fleet-wide** over the same bus and cycles the prefork pool once, so no worker — and no forked pool child — keeps serving a template compiled from the pre-restore content.
 
