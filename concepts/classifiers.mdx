@@ -27,7 +27,9 @@ Every question is one of three kinds, chosen by its `type`. Each carries free-te
 - **`choice`** — a categorical judgment. `criteria` is a fixed set of labels, each
   mapped to a description; the classifier picks **one label** and reports a
   **probability for every label**. For example, over an **account**: *"Which status
-  fits?"* with labels `active`, `dormant`, `closed` → `active` at `0.7`.
+  fits?"* with labels `active`, `dormant`, `closed` → `active` at `0.7`. The labels
+  are the question's allowed set, and the platform enforces it (see
+  [Answers stay inside what the request declares](#answers-stay-inside-what-the-request-declares)).
 - **`score`** — an ordinal judgment. `criteria` is an **ordered rubric** of two or
   more levels; the classifier returns the **expected value** over that rubric plus the
   per-level distribution. For example, over an **alert**: *"Rate the severity"* over
@@ -89,6 +91,26 @@ A `noul` answer carries just its `noul` probability; a `choice` answer carries t
 chosen `choice`, the per-label `probabilities`, and a `confidence`; a `score` answer
 carries the expected `score`, the level `legend` and `probabilities` keyed by level
 index, and a `confidence`. Either token count may be unreported.
+
+## Answers stay inside what the request declares
+
+A request declares a set of answers it will accept, and the platform checks every
+response against it, whatever the provider:
+
+- **The questions.** The answers are keyed by exactly the request's question names, one
+  answer per question, and each answer is of its question's kind.
+- **A `choice` question's labels.** The labels are the keys of its `criteria`. The
+  chosen `choice` must be one of them, and the `probabilities` must be keyed by exactly
+  the labels, one probability per label.
+- **A `score` question's levels.** The levels are `0` up to one less than the number of
+  rubric entries. The `legend` and the `probabilities` must be keyed by exactly the
+  levels, and the `score` must lie between the first and the last level.
+
+A response outside any of these never reaches the caller: the call fails with a
+`ClassifierAnswerError` naming the question, what the provider gave, and what the request
+declared. Its error kind is `upstream_error`, because the request was valid and the
+provider broke the contract. A caller, a tool, or a flow can therefore read every answer
+as its own question declared it, without checking it.
 
 ## Configuring a classifier
 
