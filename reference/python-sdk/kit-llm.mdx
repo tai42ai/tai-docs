@@ -763,6 +763,12 @@ provider-keyed runnable that accepts a `ClassifyRequest` and returns a
 shape behind the factory. The models take no vendor import, so the contract can
 be read and constructed without any provider package installed.
 
+Every set a request declares is enforced by the factory's runnable on every
+call, whatever the provider: one answer per question name, of the question's
+kind; a ``choice`` label from the keys of its ``criteria``; a ``score`` over
+its levels. A response outside any of them raises `ClassifierAnswerError`,
+so a caller never receives an answer it did not declare.
+
 ## QuestionContent
 
 `tai42_kit.llm.classifier.QuestionContent`
@@ -946,6 +952,25 @@ ClassifyAnswer = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, Field(discri
 ```
 
 An answer of one of the three kinds, discriminated on ``type``.
+
+
+## ClassifierAnswerError
+
+`tai42_kit.llm.classifier.ClassifierAnswerError`
+
+```python
+class ClassifierAnswerError(Exception)
+```
+
+The provider's response falls outside a set its request declares.
+
+A request declares its question names and each question's kind; a ``choice`` question
+declares its labels (the keys of its ``criteria``) and a ``score`` question its levels
+(``0`` to ``len(criteria) - 1``). A response that answers other questions, answers one
+with another kind, picks a label outside the labels, scores outside the levels, or keys
+its probabilities or legend by anything but exactly those labels or levels breaks the
+classifier contract. The request was valid, so the failure is the provider's, and the
+message names the question, what the provider gave, and what was declared.
 
 
 ## ClassifyUsage
