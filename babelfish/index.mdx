@@ -77,7 +77,13 @@ optional `options` as tap-to-send suggested replies), `confirm` (a yes/no —
 declining is an answer), `select` (one pick from `options`), `form` (an answer
 validated against `schema`), or `external` (an action completed on a surface
 reached through `link`, with the callback payload as the answer) — and the same
-format drives the face's variant picker. A `form` ask also takes two per-send extras
+format drives the face's variant picker. An answered ask ends `{outcome: "answered",
+answer, reply_to, params}`: `reply_to` is the message the answering reply quoted
+(`{message_id, status, text}`, `status` one of `found`, `not_found`, `sensitive` or
+`no_text`; `null` when the reply quoted nothing or did not come over a channel), and
+`params` the string values the channel sent beside the answer (`null` when none). See
+[replies to an earlier
+message](/reference/conversation-bridge#replies-to-an-earlier-message). A `form` ask also takes two per-send extras
 layered over the schema for ONE send — the same
 [`data` and `pages`](/concepts/interactions#prefilling-per-send-options-and-pages)
 the platform's ask surface carries: `data.values` prefills top-level properties (each
@@ -394,6 +400,8 @@ guesswork:
   exact shape the derivation reads.
 - **A raw `ask` runnable** sets its behaviour on the ask itself: its **On expiry**
   control is **end the run** (the default) or **resume with the expired marker**.
+  Every `ask` a flow parks on resumes with `{answer, reply_to, params}` as its result; on
+  expiry `answer` is the expired marker and the other two are `null`.
 
 ## Warm start
 
@@ -595,7 +603,7 @@ When a conversation route runs the flow and the run fails, the person reads the 
 failure line. The flow-level On Error's **Reply** gives that person the flow's own text
 instead: a jq expression (inline or a stored template) whose result is the reply. It
 runs once, at the end of the failed run, and the route sends its result in place of its
-`error_reply_text` or the built-in line
+`reply_texts.error` or the built-in line
 ([failure replies](/reference/conversation-bridge#failure-replies)).
 
 - **Flow-level only.** A node's, route's, or branch's On Error cannot carry a Reply; the
@@ -632,7 +640,7 @@ runs once, at the end of the failed run, and the route sends its result in place
 The person reads the Reply exactly as written. Its context holds internal details — the
 error text and the handler's outcome — so never echo them into the reply. The flow's author
 owns that the reply is safe for the person reading it, just as a route admin owns the
-route's `error_reply_text`.
+route's `reply_texts.error`.
 </Warning>
 
 ### Who handles a failure

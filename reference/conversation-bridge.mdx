@@ -78,8 +78,8 @@ A route's `target_kind` chooses what an inbound turn runs:
   `person_addresses` too when the target's multichannel is on, and `event` on an
   [event turn](#the-event-door) — emitting exactly
   one JSON object: the started run's kwargs (a `tool` dispatch's kwargs, or an `agent`
-  run's `astream` kwargs). Omitted, the kwargs are the fixed `{message, sender, turn}`
-  for a tool (plus `event` on an event turn), or the default `{user_message}` from the
+  run's `astream` kwargs). Omitted, the kwargs are the fixed `{message, sender,
+  our_identity, channel, route, turn}` for a tool (plus `event` on an event turn), or the default `{user_message}` from the
   rendered turn text for an agent. An `agent` `start_expr` must not set the route-owned
   run identity (`thread_id` or a checkpoint key), refused at create. `person_id` is the
   person the sending address resolves to and `person_addresses` its address rows;
@@ -89,7 +89,7 @@ A route's `target_kind` chooses what an inbound turn runs:
   `null` (silent), a string, or a list of answer parts. Omitted, a tool result must
   itself be a string or `null`, and an agent's structured final is serialized to one
   string. It binds three [variables](/concepts/jq-variables#route-reply): `$turn` (the
-  turn ids and subject this reply answers), `$asks` (the run's caller-ask entries when
+  turn ids, subject and reply window this reply answers), `$asks` (the run's caller-ask entries when
   it [asked its caller](/concepts/asking-the-caller) instead of finishing — an empty
   list on a plain result), and `$parked`.
 - **`cancel_expr` / `resume_expr` / `extras_expr`** — the [door
@@ -107,7 +107,7 @@ The payload also carries a **`form`** object when the inbound message brought an
 copy of the values whose rendered text is the `message` itself. The key is present
 **only** when the inbound carried one, so a `start_expr` over a form-less inbound
 sees a byte-identical payload, and the default no-expr kwargs stay the fixed
-`{message, sender}` either way — a route maps the form deliberately or not at all.
+`{message, sender, our_identity, channel, route, turn}` either way — a route maps the form deliberately or not at all.
 Without a `start_expr` an `agent` target never sees it — it reads the rendered text
 only; an `agent` `start_expr` may map `.form` into the run's kwargs exactly as a tool
 route does. The values
@@ -144,23 +144,49 @@ logged at `WARNING` (naming the door and the bound or key, never a value) and co
 `tai_entry_params_dropped_total{door, unit}` on `GET /metrics`, where `unit` is `set` or
 `value`.
 
-The payload also carries a **`turn`** block on **every** tool turn — whichever door
-it entered through:
+The payload also carries a **`turn`** block on **every** turn — tool and agent targets alike,
+whichever door it entered through:
 
 ```json
-{ "id": "<turn id>", "inbound": { "id": "<inbound id>", "kind": "message", "source": "<source>" } }
+{
+  "id": "<turn id>",
+  "inbound": { "id": "<inbound id>", "kind": "message", "source": "<source>" },
+  "subject": { "target_kind": "tool", "target_name": "<target>", "person": null, "thread": "<thread id>", "locale": null },
+  "reply_window": { "state": "open", "closes_at": "2026-10-23T09:30:00Z" }
+}
 ```
 
 `turn.id` is the turn's stable id — the answer record's `message_id`, not a new mint.
 `turn.inbound` describes the entry: `inbound.kind` is `"message"` or `"event"`,
 `inbound.id` is the channel provider message id / the [event](#the-event-door)'s own
 `event_id` / (on the api message door) the record's `message_id`, and `inbound.source`
-is the channel registry name / `event:<kind>` / `api`. On an **event turn** the payload
-also carries an **`event`** block `{id, kind, payload}` (the submitted event) and both
-`message` and `sender` are `null` — an event has no human sender and no text. The
-default no-`start_expr` kwargs therefore become `{message, sender, turn}` (plus
-`event` on an event turn); a `start_expr` reads `.turn` and `.event` off the payload
-and forwards what it needs.
+is the channel registry name / `event:<kind>` / `api`. `turn.subject` is the scope a
+flow's subject reads: the route's target, the `person` id (null unless the target's
+multichannel is on) and the resolved `thread` id, with the turn's `locale`.
+
+`turn.reply_window` says whether a free-form reply can reach the client right now, as the
+channel reports it for the pair the turn replies on (`our_identity`, the client's address):
+
+| `state` | Meaning | `closes_at` |
+| --- | --- | --- |
+| `open` | A free-form reply is allowed until `closes_at`. | The UTC close time, in whole seconds (`YYYY-MM-DDTHH:MM:SSZ`). |
+| `closed` | The medium allows only a pre-approved template now. | `null` |
+| `none` | The channel has no such window (web, Telegram, Slack, an SMS number), or the turn has no channel (the api door). | `null` |
+
+The window is read once per turn, when the turn starts; a reply delivered later (a parked
+tool resumed out of band) reads it again at delivery time. The platform only reports it and
+gates no send on it: a flow uses it to choose between a free-form reply and a template, and the
+vendor's own refusal of a free-form send outside the window (WhatsApp `131047`, Twilio `63016`)
+stays final and fails the delivery loudly. Which channels report a window, and what opens it,
+is on each [plugin page](/plugins). A read that fails (the channel's store is unreachable)
+ends the turn as a client-safe `error` outcome.
+
+On an **event turn** the payload also carries an **`event`** block `{id, kind, payload}` (the
+submitted event) and both `message` and `sender` are `null` — an event has no human sender and
+no text; its `turn.reply_window` is the window of the thread's pair. With no `start_expr` a tool
+receives the fixed kwargs `{message, sender, our_identity, channel, route, turn}` (plus `event`
+on an event turn); a `start_expr` reads `.turn` and `.event` off the payload and forwards what
+it needs.
 
 A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
 on the door. On a `channel` route the record ends in the terminal `silent` state and
@@ -277,7 +303,8 @@ Under `deliver: one` the tool payload is unchanged from the default. Under `deli
 `tool` target) the payload gains two keys:
 
 - **`messages`** — the batch in order, each `{id, text, accepted_at}`, plus `form` /
-  `attachments` / `location` when that message carried them.
+  `attachments` / `location` / `reply_to` when that message carried them (`reply_to` is the
+  message it [replied to](#replies-to-an-earlier-message)).
 - **`superseded`** — present only when non-empty: the earlier messages dropped in favour of
   this turn, in the same shape.
 
@@ -286,7 +313,7 @@ acceptance order, joined with a blank line — so a route with no `start_expr` a
 target both see the whole turn with no new seam. A manual-mode thread appends the whole turn
 to its memory — the superseded texts then the batch texts, the same order as the joined
 `message`. The lead's own
-top-level `form` / `attachments` / `location` keys stay the lead's. Map `messages` and
+top-level `form` / `attachments` / `location` / `reply_to` keys stay the lead's. Map `messages` and
 `superseded` in a `start_expr` exactly as any other payload key.
 
 ### The overlap outcomes
@@ -323,7 +350,7 @@ marker could expire before the watcher next reads it. See [Settings](#settings).
 `POST /api/conversations/{route_name}/messages` (authed) accepts one API-door
 message and runs its turn as the route's execution key. Body: `external_user_id`,
 `text`, optional `wait_seconds`, optional `params`, optional `form`, optional
-`attachments`, optional `location`.
+`attachments`, optional `location`, optional `reply_to_message_id`.
 
 `form` is an optional structured participant submission (an
 [ask-less form](/concepts/notifications#ask-less-forms)'s answers) riding **with**
@@ -349,6 +376,17 @@ consumes) and reaches a **tool** target's payload under its own `attachments` /
 both are untrusted transport, never schema-validated. See
 [structured participant messages](/concepts/client-conversations#structured-participant-messages).
 
+`reply_to_message_id` names the message this one replies to: the platform `message_id` of a
+message the platform delivered to the caller under it — the `message_id` on a `200` answer,
+in a signed callback body, or on a poll-door record. The platform resolves it against the
+same thread's records into the text delivered under that id (a turn's answer, an operator's
+hand-sent message, an event turn's answer) and hands it on as
+[`reply_to`](#replies-to-an-earlier-message). An id that names nothing in this thread reads
+`not_found`; an id under which nothing with text was delivered — a `silent`, `merged` or
+`superseded` marker, an answer of media only, a turn not finished yet — reads `no_text`. The
+caller's own submitted text is not what the id quotes. The value must be a UUID4; anything
+else is a `400`.
+
 - `202 {message_id, thread_id}` — accepted; the answer is delivered later by the
   route's signed callback, or — when the route declares no `callback_url` — read back
   from `GET /api/conversations/{route_name}/messages/{message_id}`.
@@ -367,9 +405,62 @@ both are untrusted transport, never schema-validated. See
 `send_conversation_message` tool — no HTTP request and no route key handed to the run.
 The turn runs **as** the route's execution key; the run's execution identity is the
 accountable principal the door buckets on, and the **same** authorization the HTTP door
-applies is applied first. The tool returns the accepted receipt at once — its answer is
+applies is applied first. Its `reply_to_message_id` argument is the same field, under the
+same rules. The tool returns the accepted receipt at once — its answer is
 delivered by the route's own configured delivery, never inline.
 </Note>
+
+### Replies to an earlier message
+
+When a person's message replies to an earlier message, the platform looks the earlier
+message up in the conversation's own records and hands the turn a typed **`reply_to`**
+beside the text: the quoted message's text, or the reason there is none. The text comes
+from the conversation record of the same thread, never from the medium, so it lives as long
+as that record does (the [retention](#checkpoint-retention) of the thread's answer records)
+and is forgotten with it.
+
+Each medium marks a reply its own way; the channel passes on only the id of the message
+replied to:
+
+| Channel | What marks a reply |
+| --- | --- |
+| WhatsApp | `context.id` on the inbound message: the message replied to. |
+| Telegram | `reply_to_message` in the same chat. A message from another chat or topic (`external_reply`) names no message of this chat and quotes none; a forum-topic message whose `reply_to_message` is the topic's first message is a reply only when the person replied to another message. |
+| Slack | `thread_ts` on a thread reply: the thread's parent message. Slack has threads, not per-message replies, so a reply in a thread quotes the parent; the parent itself quotes nothing. |
+| Twilio | `OriginalRepliedMessageSid`, sent only for WhatsApp over Twilio and only for a reply to a message of the last 7 days. An SMS has no reply field. |
+| Web | None: the chat widget has no reply action. |
+| API door | The body's `reply_to_message_id` ([the message door](#the-message-door)). |
+
+A **button tap** is a reply to the tapped message on WhatsApp, Telegram and Slack: a tap
+that answers a question quotes the question. Twilio sends no buttons, and a Slack modal
+submission names no message, so it quotes none.
+
+`reply_to` is `{message_id, status, text}`. `message_id` is the id the person's side names
+the quoted message by — the medium's message id on a channel, the platform `message_id` on
+the API door. `text` is set only when `status` is `found`:
+
+| `status` | Meaning |
+| --- | --- |
+| `found` | The thread's record holds the quoted message; `text` is its text. A message the medium sent as several records (one per file) quotes as their texts joined by a blank line. |
+| `not_found` | Replying to a message this thread's record does not hold. It may be in an earlier thread of this conversation, whose text is not shown here, or it expired, was forgotten or was never recorded. |
+| `sensitive` | The quoted message is an answer to a [sensitive question](/concepts/secret-values#sensitive-questions); its text is never kept. |
+| `no_text` | The record holds the message and it has no text — a media-only message, or on the API door a record under which no text was delivered. |
+
+A quote is looked up only in the thread the reply arrives in, never under another address
+or caller. A person who [links a second address](/guides/link-a-person-across-channels)
+writes in their `bridge:@person:{person_id}` thread from then on, while a message quoted
+from before the link stays in the route's own thread, so it reads `not_found` (and the
+reverse after the person is erased). A deployment with no conversations store looks nothing
+up.
+
+A `tool` target reads the quote under its payload's `reply_to` key, present only when the
+message replied to one; an `agent` target reads it through its `start_expr`. The record
+keeps it as `inbound_reply_to`, which the [read doors](#the-read-doors) serve.
+
+When the reply **answers a pending question**, the asker receives the same `reply_to`
+beside the unchanged answer, resolved in the question's own thread (see [Block or park:
+sync and async](/guides/use-interactions#block-or-park-sync-and-async)). The question's
+send record keeps it as `ask_reply.reply_to`.
 
 ### Inbound media
 
@@ -407,7 +498,9 @@ provider does not redeliver in a loop; the event makes an otherwise-silent drop 
   the provider signalled a message type it will not deliver — for example a WhatsApp
   "unsupported message type" notice), `too_large` (a byte-ingested file over its per-kind cap),
   or `could_not_receive` (the byte source could not be fetched, or no storage provider is
-  configured). The participant receives one fixed generic notice — `"This content type is not
+  configured). The participant receives the route's own notice for that reason when the route
+  sets one (`reply_texts.rejected_unsupported_type`, `rejected_too_large` or
+  `rejected_could_not_receive`), else one fixed generic notice — `"This content type is not
   supported here."`, `"That file is too large to accept here."`, or `"That attachment could not
   be received."` — and this event records the drop, so unsupported content is visible rather
   than silently discarded.
@@ -486,6 +579,10 @@ Responses:
   agent, so only a `tool` target may run one.
 - `400` — a bad body: the `address`/`thread_id` rule, a blank/over-long
   `event_id`, a malformed `kind`, or an over-bound `payload`.
+- `400` — a `thread_id` naming a linked person's thread whose records are all send records:
+  `thread <id> holds no message from the participant to address the event to; submit the event by address`.
+  On a linked person's thread the event goes where the person last wrote
+  from, and a send record does not count as writing.
 - Also loud: `401` unauthorized, `429` address rate cap, `501` no backend, `503` thread
   queue full.
 
@@ -549,8 +646,9 @@ wrong-route or unknown address, never an authorization verdict.
 
 Every record carries an `origin` — `client` for an inbound message's turn, `operator`
 for a message an operator sent into the thread [by
-hand](#operator-messages-and-control-mode) — published in both the admin and the
-caller-safe projections. A record whose inbound message brought an
+hand](#operator-messages-and-control-mode), `send` for a message the platform sent to a
+participant on its own (see [send records](#send-records)) — published in both the admin
+and the caller-safe projections. A record whose inbound message brought an
 [ask-less form](/concepts/notifications#ask-less-forms) submission also publishes the
 structured object as **`inbound_form`**, in both projections, beside the rendered
 `inbound_text` that stays the message every consumer reads.
@@ -569,7 +667,9 @@ listing carries a nonzero `unreadable` you can act on rather than a silent gap.
 route was being removed is kept and delivered, and carries `route_missing: true` in both the
 admin and caller-safe reads. Because its thread indexes were never written, no transcript
 names it — the flag is how you recognise such an orphaned-route record rather than assuming it
-was lost, and the platform logs the orphaned record loudly when it is created.
+was lost, and the platform logs the orphaned record loudly when it is created. A send record
+that completes or ends while its route is being removed is kept the same way, with
+`route_missing: true`, and no transcript names it.
 
 The failed-delivery listing spans every route and caller, so it is admin-only.
 
@@ -600,9 +700,15 @@ the route's indexed threads (or, under a filter, the matches the scan found), `n
 | `message_count` | Exchanges the thread holds. |
 | `last_delivery_status` | The delivery state of the thread's newest readable record. |
 
+A send record counts like any other record: a thread a send started is listed, its
+`message_count` includes the send, and when the newest record is a send its address and
+delivery state are the ones shown.
+
 `status` is validated against the delivery-status vocabulary (`accepted`,
-`pending_delivery`, `provisional`, `delivered`, `failed`, `shed`, `silent`); an unknown value
-is a **loud `400`**, never a silently ignored filter.
+`pending_delivery`, `sending`, `provisional`, `delivered`, `failed`, `outcome_unknown`,
+`shed`, `silent`, `merged`, `superseded`); `outcome_unknown` can match a thread, while
+`sending` never matches one, because a send still going out is not in any thread yet. An
+unknown value is a **loud `400`**, never a silently ignored filter.
 
 <Note>
 **Filters are a bounded post-scan.** The per-status indexes are global over message ids, not
@@ -679,6 +785,44 @@ A thread the index still holds but whose records have expired under
 `total`** — not a `404` — until the prune pass reclaims the members.
 </Note>
 
+### Send records
+
+Every message the platform sends to a participant on a channel with a bridge route is
+recorded in that participant's thread, as a record with `origin: "send"`: a `notify_user`
+send, a question an `ask` delivers on a channel, the platform's own notices (a refusal, an
+ask retry or closed notice, a rejected-inbound notice), and a message a channel plugin sends
+on its own. The record carries the text in `answer` and an empty `inbound_text`. A send on a
+channel with no bridge route, or on a deployment with no conversations store, still goes
+out and is not recorded.
+
+| Field | Meaning |
+| --- | --- |
+| `sent_by` | The path the send took: `notify` (every `notify_user` door alike, whoever called it), `ask`, `notice` (a platform notice) or `channel` (a message a channel plugin sent on its own). |
+| `turn_message_id` | The `message_id` of the turn the send was made in, set only when the send went to that turn's own participant; `null` on a send outside a turn. It is what marks a send made inside a turn. |
+| `ask` | On an ask: `interaction_id`, `answer_format`, `sensitive`, `attempts` and `timed_out_attempts`. The caller-safe projection keeps `sensitive` only. |
+| `ask_reply` | The participant's reply over the channel: `answer`, `answered_at`, `medium_message_id` and `reply_to` (the message the reply [quoted](#replies-to-an-earlier-message), or `null`). The caller-safe projection keeps `answer` and `reply_to`. |
+| `sends` | Admin only: one entry per part sent, `{part, chars, provider_message_ids}`. |
+
+A send lands in the thread an inbound message from the same participant would use, and may
+start it; a later message from them continues it. A completed send is placed by the address
+the medium reports (so a Telegram send to an `@username` lands in the thread of its numeric
+chat), a send that never completed by the address resolved before sending. A send made
+during a turn to that turn's participant stays in the turn's thread.
+
+Only a reply that came over the channel is recorded in `ask_reply`. For a question asked
+as `sensitive` the record keeps that the reply came, when, and its message id, never its
+body: `answer` is `null` in every view, and the transcript, message search and a quote of
+that reply show no body. An answer given through the answer door, or a caller resume,
+writes nothing to the record: it keeps the delivery state its send reached and has no
+`ask_reply`.
+
+Message search (`q`) also matches the text of an `ask_reply` answer.
+
+A participant record carries `inbound_reply_to`: the message it
+[quoted](#replies-to-an-earlier-message) as `{message_id, status, text}`, or `null`. Both
+the admin and the caller-safe view serve it. Operator, send and event records never carry
+one.
+
 ## Forgetting a thread
 
 `DELETE /api/conversations/{route_name}/thread?thread_id=…`
@@ -688,7 +832,8 @@ thread's [declared-state](/concepts/states) records — so a later message on th
 address starts a memory the deleted turns never touched. It is a **complete forget**:
 the transcript and the conversation's own declared-state memory both go, not just the
 transcript. A linked person's aggregated `bridge:@person:{person_id}` thread is
-forgotten across every route index it spans.
+forgotten across every route index it spans, including a route one of the person's
+addresses was later unlinked from and a route a send to the person used.
 
 The thread id rides the **query string**, exactly as the transcript door takes it: an
 API-door id carries a percent-encoded principal that no path spelling round-trips.
@@ -698,6 +843,20 @@ answer's `removed` count is `0` when nothing was left to clear — an aged-out t
 whose records already expired under `answer_retention_ttl_seconds`, or one never seen
 — never a `404`. The checkpoint is deleted regardless, so retained memory is not
 left behind once the records lapse.
+
+The forgotten records include the thread's send records and their ask replies. Each
+record's message-refs, outbound receipt index entries and ask index entry are removed in
+the same step as the record, so a later quote of one of its messages resolves to nothing,
+and a delivery receipt for one of them reaches only the run trace. A reply over the channel
+to a question of the forgotten thread is not recorded (a WARNING is logged when the forget
+lands while the reply is being written). A send still going out when the thread is
+forgotten is forgotten with it when it ends in that thread: the message may still reach
+the participant, but no record of it is kept, the thread is not re-created, and a WARNING
+names the record. A send whose medium answer places it in another thread (a handle
+resolved to a numeric chat id) is recorded in that thread. A quote's text lives only on the
+records this deletes, so it is forgotten with them. A parked ask in the forgotten thread is
+withdrawn before any record is deleted, so no continuation runs with a quote; a synchronous
+ask still waiting reads `not_found` for a quote into the forgotten thread.
 
 Authority is the door's **write** action — the **same conversations write grant that
 creates a route** deletes routes and forgets threads, never a per-thread owner check.
@@ -728,14 +887,57 @@ is `501`.
 store scoped to that identity:
 
 - its aggregated `bridge:@person:{person_id}` thread — the agent checkpoint, and across
-  **every route the person wrote under** its answer records, per-thread transcript indexes,
+  **every route the person wrote under** (including a route one of its addresses was later
+  unlinked from, and a route a send to the person used) its answer records, per-thread transcript indexes,
   route-thread index memberships and per-thread mode override (the [thread-forget
   machinery](#forgetting-a-thread), reused);
 - its [declared-state](/concepts/states) records — both the person's own
   **`person`-subject** memory (the cross-thread memory a flow scoped to the person) and the
   aggregated thread's **`thread`-subject** memory, across every route the person spans;
 - the person row `conversations:person:{person_id}`;
-- **every** `person_index` `door_address_key → person_id` mapping of its addresses.
+- **every** `person_index` `door_address_key → person_id` mapping of its addresses;
+- **every thread only this person and the persons it absorbed wrote in**, on every route:
+  the chat each of its addresses had on its own channel, before and after a link, written
+  by a message or by a send alone, including on a route deleted or moved to another target
+  since, each with its checkpoint, records and indexes and its `thread`-subject declared
+  state. On a route deleted before the erase, that thread's records are left to their
+  retention period, as the route delete leaves them; its checkpoint and state are cleared.
+- **every person it absorbed by a link** (a `/link` keeps the person created first and
+  absorbs the other; a chain of links is followed to its end): each absorbed person's own
+  `bridge:@person:{id}` thread on every route it wrote under, with its checkpoint, records
+  and indexes, and its `person`-subject declared state, cleared before the person row goes.
+
+**A thread another person also wrote in is left to them**: a chat someone else wrote in
+before the link, or continued after it (an address unlinked from the person and written on
+by whoever holds it now, or a route edited or created again under its name and written on
+under its new target or number). It keeps its messages until their retention period, is
+not counted in `removed`, and a turn in flight in it is no `409`: the erase waits for the
+turn before leaving the thread, up to the same bound as for a thread it clears. It is
+cleared once every person who wrote in it has been erased, or by the erase of a person who
+absorbed them all, even when their erases run at the same time.
+
+The person's own replies and sends that land in a thread after a link are cleared with that
+thread. A message that lands in a thread while the erase is clearing it is cleared with it,
+whoever sent it, as for a thread deleted while a message arrives. A message to or from one
+of the person's addresses that lands in a thread after that thread was cleared (by this
+erase, by the erase of the other person in a chat it left to them, or by a
+[thread delete](#forgetting-a-thread)) is kept: it starts that thread again, and it is
+cleared by the erase of whoever next holds that address, whether or not they write in that
+thread, by a thread delete, or by the erase of another person who wrote in that chat
+before. One that lands in a chat left to another person who still writes there stays with
+that chat and is cleared by that person's erase. When an erase stops part-way with an error
+and someone else writes in a thread it was clearing before the retry, the retry leaves that
+thread to them. An erase that fails does not bring back what it already cleared, and that
+includes a chat shared with another person that this person's erase was leaving to them:
+if that person's own erase cleared the chat while the failed erase ran, it stays cleared.
+A message from one of the person's addresses that starts a thread on another route in the
+last moment of the erase makes the erase answer `409` ("a write by … in the thread …
+landed while the erase of … ran; retry the erase, which clears that thread too"); the
+person stays marked as being erased, and a retry finishes the erase and clears that thread
+too.
+
+A send still going out to the person when it is erased is forgotten with it, as for a
+[forgotten thread](#forgetting-a-thread).
 
 The person id rides the **path** — it is a uuid4 with no percent-encoded principal, so unlike
 a thread id it round-trips a path segment cleanly. Authority is the door's **write** action —
@@ -747,20 +949,67 @@ re-reads it and a retry finishes. A person that is **already gone** — a retry,
 never existed — is not a `404`: its aggregated checkpoint is forgotten regardless (it defaults
 to keep-forever) and the call answers `erased: false`.
 
-The answer is `{person_id, removed, states_erased, erased}`, where `removed` counts the answer
+A quote's text lives only on the records the erase deletes, so it is forgotten with them.
+A parked ask in an erased thread is withdrawn before any record is deleted, so no
+continuation runs with a quote; a synchronous ask still waiting reads `not_found` for a
+quote into an erased thread.
+
+The answer is `{person_id, removed, states_erased, erased, absorbed_person_ids}`, where `removed` counts the answer
 records deleted across the person's routes, `states_erased` counts the declared-state records
 this call forgot — the person's own (`person`-subject) and its aggregated thread's
 (`thread`-subject) memory — and `erased` says whether **this** call removed the person
-row. Refusals: a turn in flight on the aggregated thread is a `409` (re-checked under the
+row. `removed` and `states_erased` also count what the erase cleared for the persons it
+absorbed, and `absorbed_person_ids` lists their ids. A turn in flight in one of their
+threads is a `409` like one in the person's own thread, and nothing of the person itself is
+removed then.
+
+Refusals: a turn in flight on the aggregated thread is a `409` (re-checked under the
 per-thread FIFO before any teardown, so an admitted turn cannot re-create memory behind the
-erase; a full queue is the retriable `503`); a blank `person_id` is a `400`; no backend is a
-loud `501`.
+erase; a full queue is the retriable `503`); an id a `/link` absorbed into another person is
+a `409` naming the person it was absorbed into, in its message and in
+`absorbed_into_person_id` — that person's erase is the one that clears it, and it removes
+that person too; the refusal touches nothing; a blank `person_id` is a `400`; no backend is
+a loud `501`.
+
+**While a person is being erased.** Once the erase has started, nothing new enters the
+person's thread. A message sent to or from one of the person's addresses during the erase
+goes to that address's own thread on its route, as after the erase. When the erase clears
+that thread, a message landing in it before the erase reaches it is cleared with it, and one
+after starts a fresh thread. A message already on its way to the person thread is not
+recorded there: a send's record is forgotten with a WARNING; an inbound is refused with a
+retriable `503` (or an error to the channel) and lands in the address's own thread when sent
+again.
+
+Meanwhile every read of the person answers as if it were gone (the person read and its
+thread are `404`s). A link, an unlink or a locale change changes nothing and is refused
+with a retriable `503`. A `/link`, a pairing code or an `/unlink` sent from one of the
+person's own addresses reads the route's error text (`reply_texts.error`, by default "Sorry,
+something went wrong handling your message. Please try again."), and its code stays valid.
+A code the person minted, redeemed from another person's conversation, reads the
+link-unavailable reply (`reply_texts.pairing_link_unavailable`) and is used up. A message
+from one of its addresses is answered with the route's error text; sent again after the
+erase, it starts as a new person in that address's own thread on its route (a fresh thread
+when the erase cleared it). No declared state can be written for the person; a write already
+under way when the erase starts is finished and then forgotten with the rest. Nothing
+written for the person outlives the erase, and no other person's addresses or state are
+touched.
+
+An erase that stopped part way leaves the person treated as unlinked until it is run again,
+which finishes it.
 
 <Note>
 The erase covers the **bridge's** stores only. The person's run traces live in the
 monitoring backend, attributed by a `user_id` that is the `person_id` (or the raw
 address for an unlinked subject) — deleting them there is [your
-duty](/operate/observe#the-identity-dimensions), keyed on that same id.
+duty](/operate/observe#the-identity-dimensions), keyed on that same id. The traces of a
+person the erased person absorbed by a link carry that person's own id as their `user_id`,
+and the answer's `absorbed_person_ids` lists those ids, so delete the traces keyed on the
+erased id and on each listed id. The interaction store is not erased either: an answered
+question keeps the request's `recipient`, and a non-sensitive answer, until its idle TTL
+(`INTERACTIONS_IDLE_TTL_SECONDS`). Nor is the hooks store: a [hook run held as
+failed](/concepts/hooks#kept-and-retried) is kept with no TTL until an operator retries
+or discards it, and its event payload can carry the person's address. Discard such
+runs with `tai hooks runs discard`.
 </Note>
 
 ## Operator messages and control mode
@@ -873,9 +1122,9 @@ thread and never interleaves its writes; a full queue is a loud, retriable `503`
 `address` picks the send target on a **linked person's** aggregated thread: it must be
 one of the person's addresses (`400` otherwise), and its route is the named route when
 the address wrote under it, else that address's own first route. With no `address` the
-target is the thread's **newest record** — its route and client address — so the reply
-returns where the person last wrote from; an empty person thread with no `address` is a
-`400`. On a route-keyed thread an explicit `address` must equal the address embedded in
+target is the thread's **newest record that is not a send record** — its route and client
+address — so the reply returns where the person last wrote from (or where an operator last
+sent); a person thread with no such record and no `address` is a `400`. On a route-keyed thread an explicit `address` must equal the address embedded in
 the id.
 
 Refusals: blank `text` `400`, a present-but-blank `address` `400`, the
@@ -902,6 +1151,28 @@ Delivery is retried with exponential backoff; a provisional record awaits an
 out-of-band receipt until `delivery_grace_seconds` elapses. A restart re-drives
 every unfinished record, delivering exactly once (no double callback).
 
+A **send record** has its own path. It is written `sending` before the message goes out,
+then moves to `provisional` when the medium accepts it (and on to `delivered` by a
+receipt or the grace period, as an answer does), `failed` when the send raised, or
+`outcome_unknown` when nobody can tell whether the message went out: the send passed its
+bound, it was cancelled while the medium call was in flight, an ask attempt timed out and
+no later one succeeded, or the process stopped after the `sending` write. A send record is
+**never re-sent**: an `outcome_unknown` record keeps its `error`, a WARNING names it (the
+texts are in [Send outcomes and delivery receipts](/operate/observe#send-outcomes-and-delivery-receipts)),
+and a send that passed its bound raises a non-retryable error, so no caller retry sends it
+twice. A `sending` row the process left behind is settled to `outcome_unknown` by the sweep
+or the boot redrive once its settle deadline passes. An ask whose attempt timed out before a
+later attempt succeeded completes from the later attempt, with `ask.timed_out_attempts`
+naming the earlier ones and a WARNING that the participant may have received the question
+more than once. A reply over the channel moves an ask's record to `delivered`, whatever its
+delivery state was. `sends` holds one entry per part the medium accepted.
+
+The write comes first: a send whose `sending` write fails is not made, and the store error
+is raised (a platform notice logs it at ERROR instead). A send the medium accepted whose
+completion write then fails is logged at ERROR with its message ids and returned to the
+caller, never raised, so it is not sent twice; its row is later settled as
+`outcome_unknown`.
+
 **A receipt that arrives before the send finishes is held, not lost.** A channel can deliver a
 delivery receipt (a status callback) for an outbound message before the platform has finished
 recording that send. When it does, the receipt is **parked** on the record — the callback is
@@ -914,7 +1185,7 @@ record view under `pending_receipt`.
 When a reachable channel terminally refuses a turn's reply — an answer over the
 channel's cap, an unrenderable part, a permanent input refusal, or a non-retryable
 send rejection — the record stays `failed` and the participant is sent the platform's
-fixed could-not-deliver notice (the route's configured `error_reply_text` when set, else
+fixed could-not-deliver notice (the route's `reply_texts.error` when set, else
 the built-in default); a transport exhaustion — retryable failures that spend
 every attempt — stays `failed` with no such notice, the failed-delivery listing being
 the only signal.
@@ -936,7 +1207,7 @@ and the platform sends that reply exactly as the target wrote it.
 
 - **Turn error** — when a turn fails, the participant reads the first of:
   1. the **target's reply**, when its failure carries one;
-  2. the route's own `error_reply_text` (set with `--error-reply-text`);
+  2. the route's own `reply_texts.error` (set with `--reply-error`);
   3. the built-in default `"Sorry, something went wrong handling your message. Please
      try again."`
 
@@ -944,14 +1215,15 @@ and the platform sends that reply exactly as the target wrote it.
   admin read door only. A failure delivered when a parked run resumes keeps no `error`
   detail on its record.
 - **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
-  Please wait a moment and try again."` — sent once per cooldown window; further
+  Please wait a moment and try again."` — or the route's `reply_texts.slow_down` when set —
+  sent once per cooldown window; further
   over-limit messages are dropped as `shed`.
 
 A target supplies its reply on the failure it reports. A tool raises
 `RunTerminalFailed(outcome, reply="...")`; a parked run that fails on resume raises the
 same, or returns `RunFailed(outcome=..., reply="...")`. A flow supplies one through its
 flow-level On Error's [Reply](/babelfish#the-participant-reply-on-a-failed-run). The reply follows the same rule as
-`error_reply_text`: a string of 1 to 2,000 characters that is not blank. An invalid reply
+every `reply_texts` member: a string of 1 to 2,000 characters that is not blank. An invalid reply
 is refused where the target raises or returns it, and a reply that reaches a completion
 delivery malformed is refused loudly there, with no record written.
 
@@ -963,9 +1235,50 @@ A transport exhaustion sends no notice at all.
 
 <Warning>
 A target's reply is shown to the participant as written. Its author owns that it is safe
-for the participant and carries no internal detail, just as a route admin owns
-`error_reply_text`.
+for the participant and carries no internal detail, just as a route admin owns the
+route's `reply_texts`.
 </Warning>
+
+### The route's reply texts
+
+A route may set its own words for every reply the platform sends on its own, in the line's
+language. `reply_texts` is an optional object; each member is optional, and a member left unset
+sends the built-in English text. An empty object, an unknown member, or a blank or over-long
+member (each 1 to 2,000 characters) is refused at the route write.
+
+| Member | Sent when | Built-in text | CLI flag |
+|---|---|---|---|
+| `error` | a turn fails and the target gave no reply | `Sorry, something went wrong handling your message. Please try again.` | `--reply-error` |
+| `slow_down` | an address is over the turn rate | `You are sending messages faster than I can answer. Please wait a moment and try again.` | `--reply-slow-down` |
+| `pairing_code` | the `/link` reply carrying a fresh code | `Your pairing code is <code>. Send it from your other conversation to link the two. It expires at <time>.` | `--reply-pairing-code` |
+| `pairing_code_invalid` | a pairing code is refused | `That pairing code is not valid. It may have expired or already been used.` | `--reply-pairing-code-invalid` |
+| `pairing_linked` | a code is redeemed and the two addresses are linked | `Done — this conversation is now linked to your other one.` | `--reply-pairing-linked` |
+| `pairing_unlinked` | `/unlink` detaches the address | `Done — this conversation is no longer linked.` | `--reply-pairing-unlinked` |
+| `pairing_not_linked` | `/unlink` comes from an address linked to nothing | `This conversation is not linked to anything, so there is nothing to unlink.` | `--reply-pairing-not-linked` |
+| `pairing_link_unavailable` | a code is redeemed while a person it would link is being erased (the code is used up) | `This conversation can't be linked right now. Please try again in a moment with a new code: send /link in your other conversation.` | `--reply-pairing-link-unavailable` |
+| `pairing_unlink_unavailable` | `/unlink` comes while the person is being erased | `This conversation can't be unlinked right now. Please try again in a moment.` | `--reply-pairing-unlink-unavailable` |
+| `rejected_unsupported_type` | an inbound message the channel cannot carry | `This content type is not supported here.` | `--reply-rejected-unsupported-type` |
+| `rejected_too_large` | an inbound file over the size cap | `That file is too large to accept here.` | `--reply-rejected-too-large` |
+| `rejected_could_not_receive` | an inbound file the channel could not fetch | `That attachment could not be received.` | `--reply-rejected-could-not-receive` |
+
+`pairing_code` is a template: it must contain `{pairing_code}` (the code) and may contain
+`{expires_at}` (the code's ISO-8601 expiry), with no other field, conversion or format spec.
+Every other member is literal text: a `{` in it is sent as written.
+
+```bash
+tai conversations create chat-line --target-kind agent --target-name assistant \
+  --door channel --channel web --identity assistant --execution-key <key> \
+  --reply-error "Something broke on our side. Please try again." \
+  --reply-pairing-code "Your code is {pairing_code}. It works until {expires_at}."
+```
+
+In the Studio the route dialog carries the same members as its **Reply texts** group; a field
+left blank sends the built-in English reply.
+
+<Frame caption="The route dialog's Reply texts group, with the failed-turn and pairing-code replies set.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-reply-texts-light.png" alt="The Reply texts group of the route dialog, one input per reply, with Failed turn and Pairing code filled in and the rest blank." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-reply-texts-dark.png" alt="The Reply texts group of the route dialog, one input per reply, with Failed turn and Pairing code filled in and the rest blank." />
+</Frame>
 
 ## Checkpoint retention
 
@@ -1130,19 +1443,37 @@ bound` and every turn that has to wait for a busy thread fails on its subscribe.
 | `delivery_backoff_base_seconds` | `60` | First retry wait; each later one doubles. |
 | `delivery_backoff_max_seconds` | `900` | Backoff ceiling. |
 | `delivery_claim_lease_seconds` | `120` | Seconds a delivery worker's exactly-once claim stays live. |
-| `delivery_send_timeout_seconds` | `60` | Bounds one outbound channel send; must stay **below** the delivery lease. |
+| `delivery_send_timeout_seconds` | `60` | Bounds one outbound channel send — a bridge reply's part, a `notify_user` send, a platform notice, a channel plugin's recorded send; must stay **below** the delivery lease. |
 | `delivery_callback_timeout_seconds` | `15` | Bounds one api-door callback POST; must stay **below** the delivery lease. |
 | `delivery_sweep_interval_seconds` | `60` | Seconds between stalled-delivery sweep passes. |
 | `delivery_grace_seconds` | `3600` | Seconds a `provisional` record waits for a receipt before it confirms `delivered`. |
 | `max_message_chars` | `{twilio: 1600, telegram: 4096, slack: 40000, whatsapp: 4096}` | Per-channel outbound split caps. A routed channel absent from the map is a loud config error at send. |
 | `max_outbound_chunks` | `10` | Max provider messages one answer may fan out to; a longer answer is refused with a client-safe error, never silently truncated. |
 
+A send record's **settle deadline** is the time it was begun, plus the send's bound
+(`delivery_send_timeout_seconds`, or for an ask what is left of its window), plus
+`delivery_claim_lease_seconds`. A row still `sending` past it is settled to
+`outcome_unknown` within `delivery_sweep_interval_seconds`.
+
 ### Retention / idempotency
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `inbound_dedupe_ttl_seconds` | `172800` (48h) | How long a seen `(channel, provider_message_id)` stays deduped; a replay within it starts no second turn. |
-| `answer_retention_ttl_seconds` | `2592000` (30d) | Applied to a record and its indexes **only** on the terminal transition; before that it carries no expiry. |
+| `answer_retention_ttl_seconds` | `2592000` (30d) | Applied to a record, its indexes and its message-refs **only** on the terminal transition; before that it carries no expiry. |
+
+**Message-refs.** Each record also keeps a message-ref per medium message it carries,
+`conversations:message_ref:{sha256}`, keyed on the channel, the route identity, the
+participant address and the medium's own message id. It maps that id to the ordered list
+of records that carry it: one medium message can be several records (a Slack message with
+several files, or a Twilio message with several media items, is one record per item, all
+under the same id). This is how a quote of a message resolves to its record.
+
+An inbound record keeps two ids. The dedupe id (`provider_message_id`) is what makes a
+replay start no second turn, and can be per item (`{event_id}-{index}` on Slack,
+`{MessageSid}-{index}` on Twilio). `medium_message_id` is the medium's own id for the
+message itself, the one a later quote names; each channel's [plugin page](/plugins) says
+which id it passes.
 
 ## See also
 

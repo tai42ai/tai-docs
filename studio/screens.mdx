@@ -321,16 +321,47 @@ bubble beside the text — an image inline, a document as a labelled download ca
 and audio or video in a native player — each loaded from the platform's own
 served-media reference. A `failed` delivery takes the danger tint plus a rule down
 the exchange, so a failure never reads as an ordinary row. An admin also gets a **Delivery detail** disclosure
-carrying the attempt count, the provider message ids, and the turn's retained error.
+carrying the attempt count, each part sent with its length and provider message ids, and
+the retained error.
 A message an operator sent [by
 hand](/reference/conversation-bridge#operator-messages-and-control-mode) (its record's
 `origin` is `operator`) has no visitor side: it shows as one bubble on the agent's
 side, labelled **Operator** and set apart by an accent border, so a human's reply reads
 as distinct from the flow's.
 
+A message the platform sent on its own (a [send
+record](/reference/conversation-bridge#send-records)) is a bubble on the agent's side,
+labelled by what the record proves. A send made inside a turn to its participant is drawn
+inside that turn's exchange, labelled **Agent**, or **Agent · question** for a question.
+Any other send is its own exchange, in neutral colours with a dashed border, labelled
+**Sent message**, **Question**, **Platform notice** or **Channel notice**. A question's reply
+over the channel shows under it as **Visitor · reply**; for a question asked as sensitive it
+reads "Reply received · not stored (sensitive)". A send whose outcome is unknown takes the
+danger tint and the rule down the exchange, like a failed one, with the chip **Sent, outcome
+unknown**.
+
+A message that replied to an earlier one shows a quote block above it, a muted
+inset with a leading rule: **Replying to** and the quoted text in full. When the thread's
+record does not hold the quoted message it reads "Replying to a message this thread's record
+does not hold. It may be in an earlier thread of this conversation, whose text is not shown
+here, or it expired, was forgotten or was never recorded." with the message id; a quote of
+an answer to a sensitive question reads "Replying to an answer to a sensitive question. Its
+text is not kept."; a quoted message with no text reads "Replying to a message with no
+text." A reply to a question shows the same block on its **Visitor · reply** bubble.
+
 <Frame caption="A thread transcript with the visitor's inbound attachments — an inline image and a document download card — rendered in the visitor bubble.">
   <img className="block dark:hidden" src="/images/studio/conversation-inbound-attachments-light.png" alt="A conversation transcript with a visitor's inbound image and document attachments in the visitor bubble." />
   <img className="hidden dark:block" src="/images/studio/conversation-inbound-attachments-dark.png" alt="A conversation transcript with a visitor's inbound image and document attachments in the visitor bubble." />
+</Frame>
+
+<Frame caption="A thread transcript with send records: a send made during a turn inside that turn's exchange, a sent message and a sensitive question asked outside any turn, a platform notice, a channel notice whose send failed, and a sent message whose outcome is unknown, both open on their delivery detail.">
+  <img className="block dark:hidden" src="/images/studio/conversation-transcript-sends-light.png" alt="A conversation transcript showing an agent message sent mid-turn inside the visitor's exchange; a Sent message bubble whose open Delivery detail lists part 1 with its length and provider message id; a Question bubble with a reply received but not stored as sensitive; a Platform notice; a failed Channel notice; and a Sent message with the chip Sent, outcome unknown, whose open Delivery detail shows one attempt and the error that the send did not answer in time and its outcome is unknown." />
+  <img className="hidden dark:block" src="/images/studio/conversation-transcript-sends-dark.png" alt="A conversation transcript showing an agent message sent mid-turn inside the visitor's exchange; a Sent message bubble whose open Delivery detail lists part 1 with its length and provider message id; a Question bubble with a reply received but not stored as sensitive; a Platform notice; a failed Channel notice; and a Sent message with the chip Sent, outcome unknown, whose open Delivery detail shows one attempt and the error that the send did not answer in time and its outcome is unknown." />
+</Frame>
+
+<Frame caption="A thread transcript with two replies to earlier messages: one quoting the assistant's earlier answer, shown in full, and one quoting a message this thread's record does not hold.">
+  <img className="block dark:hidden" src="/images/studio/conversation-inbound-reply-to-light.png" alt="A conversation transcript where one visitor bubble carries a Replying to block with the assistant's earlier answer, and another carries the line saying this thread's record does not hold the quoted message, with its message id." />
+  <img className="hidden dark:block" src="/images/studio/conversation-inbound-reply-to-dark.png" alt="A conversation transcript where one visitor bubble carries a Replying to block with the assistant's earlier answer, and another carries the line saying this thread's record does not hold the quoted message, with its message id." />
 </Frame>
 
 Beside the transcript, an open thread carries two operator actions over the otherwise
@@ -358,19 +389,22 @@ An open thread also carries two destructive actions, each behind the house confi
   `DELETE /api/conversations/persons/{person_id}` and the CLI.
 
 A route's drill-in also shows the panel its channel's Studio plugin contributes, when
-one does — for a web route, the web channel's [**Entry gate**](/plugins/tai42/channel-web#entry-gate)
-panel, where the deployment lists `tai42_channel_web` under `studio_plugins`. The panel
-carries the **Require an entry code** toggle and the route's live codes, each with its
-label, creation time, expiry, and a **Revoke** action.
+one does — for a web route, the web channel's panel, where the deployment lists
+`tai42_channel_web` under `studio_plugins`. It has two sections. The
+[**Entry gate**](/plugins/tai42/channel-web#entry-gate) carries the **Require an entry code**
+toggle and the route's live codes, each with its label, creation time, expiry, and a
+**Revoke** action. [**Words**](/plugins/tai42/channel-web#words) carries one input per word the
+route can set: the refusal pages' headings and texts, and the sentences the chat draws when one
+of its requests is refused.
 
-<Frame caption="A gated web route's drill-in: the Entry gate panel with one live code above the route's threads.">
+<Frame caption="A gated web route's drill-in: the Web chat panel's Entry gate section with one live code, and its Words section below it.">
   <img className="block dark:hidden" src="/images/studio/entry-gate-light.png" alt="The Entry gate panel with Require an entry code checked and one code labelled launch that never expires, with a Revoke action." />
   <img className="hidden dark:block" src="/images/studio/entry-gate-dark.png" alt="The Entry gate panel with Require an entry code checked and one code labelled launch that never expires, with a Revoke action." />
 </Frame>
 
 A route with no live code says so in the panel.
 
-<Frame caption="An ungated web route's drill-in: the Entry gate panel with no entry codes.">
+<Frame caption="An ungated web route's drill-in: the Web chat panel's Entry gate section with no entry codes.">
   <img className="block dark:hidden" src="/images/studio/entry-gate-empty-light.png" alt="The Entry gate panel with its toggle off and a No entry codes notice." />
   <img className="hidden dark:block" src="/images/studio/entry-gate-empty-dark.png" alt="The Entry gate panel with its toggle off and a No entry codes notice." />
 </Frame>
@@ -385,11 +419,20 @@ minted.
   <img className="hidden dark:block" src="/images/studio/entry-gate-mint-dark.png" alt="The Mint entry code dialog showing the new code and the chat link with copy controls, a never-expires note, and a Done button." />
 </Frame>
 
-When the web channel's routes are not mounted on the deployment, the panel reads
-**Entry gate unavailable**: codes can be read and changed here only once the web
-channel is loaded.
+**Words** draws the route's set words in their inputs and leaves the rest blank; a blank
+input draws the built-in English. A save replaces the route's whole set, and a clear removes
+it.
 
-<Frame caption="The Entry gate panel on a deployment where the web channel's routes are not mounted.">
+<Frame caption="The Web chat panel's Words section, with the entry-refused page's own heading and text set.">
+  <img className="block dark:hidden" src="/images/studio/web-words-light.png" alt="The Words section listing the refusal pages' heading and text inputs, with Entry refused set to Members only and Ask for a fresh link to join." />
+  <img className="hidden dark:block" src="/images/studio/web-words-dark.png" alt="The Words section listing the refusal pages' heading and text inputs, with Entry refused set to Members only and Ask for a fresh link to join." />
+</Frame>
+
+When the web channel's routes are not mounted on the deployment, both sections say so —
+**Entry gate unavailable** and **Words unavailable** — and nothing can be read or changed
+here until the web channel is loaded.
+
+<Frame caption="The Web chat panel on a deployment where the web channel's routes are not mounted.">
   <img className="block dark:hidden" src="/images/studio/entry-gate-unavailable-light.png" alt="The Entry gate panel reading Entry gate unavailable, explaining that the web channel's routes are not mounted on this deployment." />
   <img className="hidden dark:block" src="/images/studio/entry-gate-unavailable-dark.png" alt="The Entry gate panel reading Entry gate unavailable, explaining that the web channel's routes are not mounted on this deployment." />
 </Frame>

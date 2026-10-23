@@ -70,8 +70,9 @@ one message in and one reply out. **Either** kind carries the route's optional j
 programs shaping the call:
 
 - **`start_expr`** maps the inbound payload `{message, sender, our_identity,
-  channel, route}` to the run's kwargs — a tool's kwargs, or an agent's `astream` kwargs;
-  without it a tool gets `{message, sender}` and an agent reads the rendered turn text.
+  channel, route, turn}` to the run's kwargs — a tool's kwargs, or an agent's `astream` kwargs;
+  without it a tool gets those six keys (plus `event` on an event turn) and an agent reads
+  the rendered turn text.
 - **`reply_expr`** maps the run's result to the reply text; without it a tool result
   must itself be a string or `null`. It only ever sees a **returned** result: a
   run that fails (a flow's `error`, `stopped`, or `aborted` terminal among them)
@@ -148,7 +149,7 @@ consumes one validates what it reads. The API [message door](/reference/conversa
 accepts the same shape: a `form` object beside the required `text`, under the same
 bounds.
 
-An inbound message may carry two more structured siblings the same way — **beside**
+An inbound message may carry three more structured siblings the same way — **beside**
 the text-first turn, delivered to a `tool` target's payload only when present:
 
 - **`attachments`** — a list of `MediaItem`s the person sent with the text
@@ -157,12 +158,17 @@ the text-first turn, delivered to a `tool` target's payload only when present:
 - **`location`** — a geographic point the person shared, a `LocationElement`
   (latitude/longitude with an optional name/address). It rides under a `location`
   payload key.
+- **`reply_to`** — the earlier message this one replied to, as the platform resolved it
+  from the conversation's own records: `{message_id, status, text}`, the quoted text when
+  it is held. It rides under a `reply_to` payload key. See [replies to an earlier
+  message](/reference/conversation-bridge#replies-to-an-earlier-message).
 
-Both follow the `form` pattern exactly: the `text` stays the whole turn every reader
+All three follow the `form` pattern exactly: the `text` stays the whole turn every reader
 (and every `agent` target) consumes, the structured copy is delivered only to a
 form-/media-aware `tool` route, and a form-less, attachment-less, location-less
-inbound is byte-identical to the pre-vocabulary payload. The values are the same
-untrusted, transport-bounded participant data.
+inbound that quotes nothing is byte-identical to the pre-vocabulary payload. The values are the same
+untrusted, transport-bounded participant data. A quote's `text` is the platform's own
+record of the earlier message, not text the person sent with this one.
 
 <Note>
 On some channels an inbound attachment bridges as **params** rather than a typed
@@ -192,8 +198,10 @@ locale means none is known (never a silent default).
   `tai conversations get-person`. A later turn never clobbers a stored override.
 - **the subject `locale`** — the locale captured onto each turn's subject, resolved by
   precedence: the person's stored locale (operator override or first-contact seed) wins, else the
-  message's per-message hint, else `None`. It is what the renderer reads for every template and
-  the `list_format` filter.
+  message's per-message hint, else the route's default `locale` (`--locale`), else `None`. It is
+  what the renderer reads for every template and the `list_format` filter.
+
+A locale change while the person is being erased answers `503`, and nothing changes.
 
 ### Rich, multi-message answers
 
@@ -220,7 +228,13 @@ array is a loud error, never silently coerced, and each part obeys the same
 XOR `sections`; `schema` excludes both; `header`/`footer` require a choice surface;
 `template` stands alone) and the same per-channel
 [capability gate](/concepts/notifications#channel-capability-matrix) — a channel
-without the matching capability never receives the field.
+without the matching capability never receives the field. Each part is also held to
+the same channel checks a notification gets — a `template` part to the channel's own
+template-parameter check, a `schema` part to the channel-renderable subset and then the
+channel's own form limits — once per part, before any part of the reply is sent. A part
+that fails fails the whole reply: nothing of it is sent, the end user is told the route's
+`reply_texts.error` (else the built-in notice), the refusal is logged naming the property,
+parameter or limit, and the record shows `failed` in the admin failed-delivery listing.
 
 `options` are the same **typed** shapes a notification uses — a `reply` (its `text`
 becomes the person's next message; an author-set `id` echoes back on the next turn's
@@ -326,7 +340,7 @@ callback carries the `status` and `successor_id` with no answer text.
 
 A turn's own outcome is orthogonal: `answered`, `error`, `silent`, `merged`, or `superseded`
 — an `error` answer carries the failing target's own reply when its failure carries one,
-else the route's `error_reply_text`, else the built-in line, and the platform never puts an
+else the route's `reply_texts.error`, else the built-in line, and the platform never puts an
 internal detail into it ([failure replies](/reference/conversation-bridge#failure-replies)); `silent`,
 `merged`, and `superseded` carry no answer text at all, and `merged`/`superseded` name their
 `successor_id`. Delivery is retried
@@ -335,7 +349,10 @@ disappearing.
 
 Late failures surface too: a channel can send a `2xx` and then a `failed`
 delivery-status webhook (a message rejected outside WhatsApp's 24-hour service
-window arrives this way), which flips the record to `failed`.
+window arrives this way), which flips the record to `failed`. A route can see that
+window before it replies: every turn carries it as
+[`turn.reply_window`](/reference/conversation-bridge#route-targets-agent-or-tool)
+(`open` with its close time, `closed`, or `none` where the channel has no window).
 
 ## When messages overlap
 
@@ -443,8 +460,10 @@ An operator reply may itself carry **media**, tappable **options** (the same
 [typed reply/link shapes](/concepts/notifications#media-kinds-and-typed-options)), a
 pre-approved **template**, or an [ask-less form](/concepts/notifications#ask-less-forms)'s
 **schema** — the same rich content a produced answer can — validated up front so a bad
-attachment is a clean rejection rather than a failed send. It is allowed in **either** mode and **never
-flips the mode**.
+attachment is a clean rejection rather than a failed send. A form the channel cannot draw,
+or a template whose parameters the channel cannot map, fails the record before anything is
+sent, like a missing capability, with no notice to the end user. It is allowed in
+**either** mode and **never flips the mode**.
 
 The record is marked `origin: "operator"` (a client turn's record is `origin:
 "client"`): it carries the operator's text as its `answer`, an empty `inbound_text`,
@@ -457,7 +476,8 @@ Memory stays continuous both ways: a manual-mode inbound the flow never answered
 operator's own reply both sit in the thread the agent resumes on.
 
 On a linked person's aggregated thread the reply returns to the address they last wrote
-from, or to an explicit `address` that must be one of the person's. Sending is the
+from (a message the platform sent them does not count), or to an explicit `address` that
+must be one of the person's. Sending is the
 door's **write** action — the same grant that creates a route — and an unauthenticated
 caller is refused (`501`), since an operator action must be attributable. See [operator
 messages and control mode](/reference/conversation-bridge#operator-messages-and-control-mode).
@@ -490,7 +510,10 @@ thread aggregates, or `null` for a route-keyed thread, so a reader of one open t
 whose aggregated history it is (and which person an erase would remove).
 
 Each transcript record carries its `origin` — `client` for an inbound turn, `operator`
-for a by-hand reply — so an operator's messages read as distinct from the flow's. From
+for a by-hand reply, `send` for a message the platform sent on its own (a `notify_user`
+send, a question, a notice) — so an operator's messages and the platform's sends read as
+distinct from the flow's answers. A send made during a turn carries that turn's
+`turn_message_id`. See [send records](/reference/conversation-bridge#send-records). From
 the same Studio screen an operator can also flip the thread's [control
 mode](#control-mode-and-operator-messages) and compose a reply by hand.
 
@@ -506,6 +529,15 @@ Continuity is the checkpoint store's: a thread lives the checkpoint waiting rete
 (`LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, 7 days by default) after its last
 message; one idle past it expires and the next message starts fresh. See
 [retention](/reference/conversation-bridge#checkpoint-retention).
+
+**Every send is in the thread.** A message the platform sends to a participant — a
+`notify_user` send, a question, a notice — is recorded in the same thread an inbound
+message from them uses, and may start it. A completed send is placed by the address the
+medium reports, so a send to a handle lands in the thread of the address the medium
+resolved it to; a send made during a turn to its own participant stays in the turn's
+thread. With no conversations store (no `CONVERSATIONS_REDIS_URL`) sends still go out and
+nothing is recorded. An event by `thread_id` on a linked person's thread goes where the
+person last wrote from; a person thread holding only send records refuses it with a `400`.
 
 An operator can also **forget** one thread outright — its checkpoint, its answer
 records, its indexes, and the thread's own [declared state](/concepts/states) — with
@@ -523,6 +555,10 @@ A **linked person** can be erased ENTIRELY with
 records, indexes), its [declared state](/concepts/states) — both the person's own cross-thread
 memory and the aggregated thread's — its person row, and every address→person index mapping go
 together, so the next message from any of its addresses starts as a fresh provisional person.
+The erase also clears every thread only the person and the persons it absorbed by a link
+wrote in, on every route (a thread another person also wrote in is left to them), and its
+answer lists the absorbed persons in `absorbed_person_ids`; erasing an id a `/link` absorbed
+is a `409` that names the person it was absorbed into, whose erase clears it.
 The erase reports its own `states_erased` count, and it is idempotent — a person already gone is
 not an error. See [forgetting a person](/reference/conversation-bridge#forgetting-a-person).
 

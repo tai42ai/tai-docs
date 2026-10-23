@@ -252,6 +252,34 @@ trace, nested under its send span — a failed delivery as an `ERROR` event
 carrying the provider's error detail. The receipt is **observability only**: it
 annotates the trace, never re-sends, and never fails the flow.
 
+A send on a channel with a bridge route is also a [send
+record](/reference/conversation-bridge#send-records) in its conversation thread. When
+nobody can tell whether such a send reached the participant — it passed its bound, it was
+cancelled mid-call, an ask attempt timed out, or the process stopped after the record was
+written — the record ends `outcome_unknown`, keeps the reason in its `error`, and is never
+re-sent. Each such end logs a WARNING that names the record:
+
+- a send that passed its bound or was cancelled mid-call:
+  `conversations: send record <id> on <channel> to <address>: <error>; not re-sent`, where
+  `<error>` is the record's `error` and ends "the outcome is unknown";
+- a send record a stopped process left `sending`, settled by the sweep or the boot redrive:
+  `conversations: send record <id> on <channel> to <address> was sent, outcome unknown: the
+  process stopped before the medium answered; not re-sent`;
+- an ask whose attempts timed out:
+  `conversations: send record <id> on <channel> to <address> for interaction <interaction
+  id>: delivery attempts [<numbers>] timed out unanswered; the participant may have received
+  the question`, where the attempt numbers print as a list, for example
+  `delivery attempts [1, 2] timed out`.
+
+The thread listing's `?status=outcome_unknown` filter (`tai conversations threads <route>
+--status outcome_unknown`) finds a thread only while its **newest** record is
+`outcome_unknown`; once a later record lands in the thread, the filter no longer finds it.
+The failed listing (`tai conversations failed`) holds `failed` records only. To find every
+`outcome_unknown` send, search the logs for the WARNINGs above (each names the record id);
+to read one, open its thread's transcript (`tai conversations transcript <route>
+<thread>`), where each record shows its `delivery_status`, or the record itself (`tai
+conversations get-message <route> <id>`), whose admin view holds its `error`.
+
 <Note>
 A [conversation-bridge](/reference/conversation-bridge) reply is covered by
 **receipts, not spans**. Bridge delivery runs in a detached task after the turn's

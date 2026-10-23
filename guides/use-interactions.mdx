@@ -32,8 +32,9 @@ An agent or tool that has `ask` in scope can now pause and ask.
 ## Ask a question
 
 `ask(question, answer_format=...)` is called from inside a tool or agent run.
-It records the question, blocks the caller, and returns the typed answer once a
-person responds (or raises on timeout). One question declares one **answer
+It records the question, blocks the caller, and returns an `AskAnswer` once a
+person responds (or raises on timeout): `answer` is the typed answer below, beside
+`reply_to` and `params` (see [Block or park](#block-or-park-sync-and-async)). One question declares one **answer
 format**:
 
 | `answer_format` | The human provides | Answer type | Extra fields |
@@ -58,7 +59,7 @@ A form field may declare a shape, such as `"format": "email"`, and the sender ma
 sentence for a value that breaks it:
 
 ```json
-{"question": "Where should we send the summary?", "answer_format": "form", "schema": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string", "format": "email", "title": "Email address"}}}, "wording": {"form": {"fields": {"email": {"invalid": "Enter your full address"}}}}}
+{"question": "Where should we send the summary?", "answer_format": "form", "schema": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string", "format": "email", "title": "Email address"}}}, "wording": {"form": {"fields": {"email": {"invalid": "Enter your full address", "required": "Enter an address first"}}}}}
 ```
 
 On WhatsApp and the callback page the person sees *Enter your full address* under the field,
@@ -66,13 +67,41 @@ inside the form, before the submit leaves it. Without `wording`, the callback pa
 platform's *Enter a valid email address*. Each surface's checks and words are set out in
 [Shapes are caught inside the form](/concepts/interactions#shapes-are-caught-inside-the-form).
 
+A field left empty reads *Enter an address first* instead: `required` is the sentence for a
+missing value, `invalid` for a broken shape.
+
 An optional `group_id` threads related questions, and `timeout` (seconds)
 overrides the configured default before the call raises.
 
 ## Block or park: sync and async
 
-By default `ask` runs `mode="sync"`: it blocks the caller until a person
-answers or the `timeout` elapses, then returns the typed answer (as above).
+By default `ask` runs `mode="sync"`: it blocks the caller until a person answers or the
+`timeout` elapses, then returns `{answer, reply_to, params}` (`AskAnswer`), with `answer`
+the typed answer (as above). The builtin `ask` tool's result is that same object.
+
+The answer comes back unchanged, with two fields beside it. **`reply_to`** is the message
+the answering reply quoted, `{message_id, status, text}` — the same shape a conversation
+turn reads ([replies to an earlier
+message](/reference/conversation-bridge#replies-to-an-earlier-message)) — kept apart from
+the answer and never merged into its text; it is `null` when the reply quoted nothing or did
+not come over a channel. **`params`** are the channel's own string entries about the
+answering tap or reply (for example the `media_*` entries of a photo reply), passed
+through with no platform meaning; `null` when there are none, and on expiry. Each channel's
+[plugin page](/plugins) names its entries.
+
+On Telegram, a person answers the question "Run the nightly export now?" by replying to it
+with a photo captioned "yes". A synchronous `ask` returns:
+
+```json
+{
+  "answer": "yes",
+  "reply_to": {"message_id": "4711", "status": "found", "text": "Run the nightly export now?"},
+  "params": {"media_kind": "image", "media_id": "…", "media_mime_type": "image/png"}
+}
+```
+
+(`params` holds the photo's other `media_*` entries too; a tool that parked on the same
+question is resumed with the same three values.)
 
 `mode="async"` instead **parks** the caller. The call records the question — and,
 with a `channel`, delivers it — exactly as sync does, but returns a **suspension
@@ -93,11 +122,14 @@ moment:
   two ways, and passing both raises. `expiry_at` is valid only with `mode="async"`.
 
 When the answer arrives, the run resumes on its own: a stored continuation runs under
-the **asker's** identity, exactly once. What a lapsed `expiry_at` does is the ask's
+the **asker's** identity, exactly once. The continuation receives `answer`, `reply_to`
+and `params`, the same values a synchronous asker reads; a run parked on the builtin `ask`
+tool gets the same `{answer, reply_to, params}` object as the tool's result. What a lapsed `expiry_at` does is the ask's
 **`on_expiry`** policy: `on_expiry="kill"` (the default) tears the whole run chain
 down, while `on_expiry="resume"` resumes the continuation with a reserved *interaction
 expired* marker in place of an answer, so the run takes its expiry branch — set it when
-the run has an expiry path to run.
+the run has an expiry path to run. The expiry marker arrives as `answer`, with `reply_to`
+and `params` `null`.
 
 ```json
 {"question": "Approve the deploy?", "answer_format": "confirm", "mode": "async", "expiry_at": "2026-06-01T12:00:00Z", "on_expiry": "resume"}
@@ -178,6 +210,15 @@ deadline must leave that much of the retention free (with the defaults, within 6
 never parked.
 
 See [Interactions](/concepts/interactions#sync-and-async) for the model.
+
+### An elicitation answered through `ask`
+
+A tool's `ctx.elicit(...)` run in process — with no MCP client to answer it — is answered
+through `ask`. Its accepted result carries a `_meta` key `tai42/reply_to`
+(`ELICIT_META_REPLY_TO` in the contract), the slot where the quoted message would sit.
+Because such an elicitation is answered in the inbox and not on a channel, the key is
+`null` there. The answer's `params` are not carried. An elicitation answered by a real MCP
+client carries no such key.
 
 ## Show images and links with a question
 
@@ -496,18 +537,20 @@ Confirmation questions live on the inbox / API surfaces only.
 
 ### The reconciliation schedule
 
-The webhook path is **single-delivery**: the ingress ACKs 200 before the hook
-runs, hook failures are only logged, and the external system never re-delivers. A
-bare hook is therefore not a delivery guarantee — deploy the recovery layer as part
-of deploying confirmations, not as an optional extra. A deployment without it has
-exactly the old single-delivery failure story and nothing more.
+The platform keeps every webhook event it accepts: a `200` means the event is kept. A
+hook run that fails or meets a restart is retried or held as failed (see [Kept and
+retried](/concepts/hooks#kept-and-retried)). A bare hook is still not a delivery
+guarantee, because two cases stay beyond the platform: an event that never arrives
+(the external system never sent it, or gave up on its delivery), and a hook run held
+as failed, which waits for an operator. Deploy the recovery layer as part of deploying
+confirmations, never as an optional extra.
 
 `reconcile_confirmations` lists recent confirmations from the external system (a
 time-window query plus a server-side narrowing to completed ones), selects the ones
 that are `confirmed` AND carry `metadata.tai_callback_url`, and answers each through
 the same pinned bridge path. It reads the external system rather than platform
-state, so it recovers a crashed hook, an app restart mid-dispatch, and a webhook
-that never arrived. Re-answering an already-answered ask is free.
+state, so it recovers a webhook that never arrived and a confirmation whose hook run
+is held as failed. Re-answering an already-answered ask is free.
 
 Create the schedule through the authed schedules door:
 
@@ -523,7 +566,7 @@ curl -X POST .../api/schedules -d '{
 The `cadence` is the same typed shape on every backend (see [Schedule a
 tool](/guides/schedule-a-tool#the-cadence)). **When no scheduling backend is installed the
 door 501s** — there is no schedule to create, and reconciliation runs only as a
-manual authed tool call, so the delivery story is back to single delivery.
+manual authed tool call, so an event that never arrived is recovered only by that call.
 
 The worker that runs the schedule needs three things the app already has: its own
 manifest must load the confirmation tools module (a tool the worker never imported
@@ -707,8 +750,11 @@ door authenticates the BRIDGE, not the external system. A confirmation is lost t
 the agent only when both the webhook and reconciliation fail inside the ask's own
 `timeout` window — most realistically because reconciliation was never scheduled, or
 the scheduler was down longer than both the ask and the lookback. Then the party
-acted, the ask dies at its `timeout`, and the surface is the hook-failure log line
-plus its monitoring span. The recovery layer is only real once it is installed.
+acted, the ask dies at its `timeout`, and the surface is the hook run held as failed
+(`tai hooks runs list --status failed`, the operator notification and the
+`hooks_run_failed` event; see [Kept and retried](/concepts/hooks#kept-and-retried)),
+or nothing at all when the event never arrived. The recovery layer is only real once
+it is installed.
 
 ## Deliver to a channel instead
 

@@ -71,6 +71,21 @@ tai conversations create chat-line \
   --channel <provider> --identity <our_identity>
 ```
 
+The agent hears the message text by default. To tell it whether WhatsApp's 24-hour window is
+still open (so it can say that a template follow-up is needed instead of a free-form reply),
+build its message in `start_expr` from the turn's
+[`reply_window`](/reference/conversation-bridge#route-targets-agent-or-tool):
+
+```bash
+tai conversations create chat-line \
+  --door channel --target-name chat --execution-key chat-bot \
+  --channel <provider> --identity <our_identity> \
+  --start-expr '{user_message: {content: (.message + "\n\n(reply window: " + .turn.reply_window.state + ")")}}'
+```
+
+`.turn.reply_window.state` is `open` while a free-form reply can reach the person, `closed`
+after 24 hours with no message from them, and `none` on a channel with no window.
+
 ## Test it and add more numbers
 
 Send a WhatsApp message to the configured number and watch the agent's reply come
@@ -91,7 +106,8 @@ each reply leaves from the number that was texted. A `(channel, identity)` pair 
 be claimed by only one route.
 
 Delivery outcomes — including a `failed` record when WhatsApp rejects a send inside
-or outside its 24-hour window — surface on the admin failed-delivery door:
+or outside its 24-hour window (the turn's `reply_window` shows the window, but WhatsApp's
+refusal stays the final word) — surface on the admin failed-delivery door:
 
 ```bash
 tai conversations failed
