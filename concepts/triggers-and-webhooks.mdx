@@ -12,8 +12,11 @@ over its raw bytes before its bound tool is allowed to run.
 
 The webhook path reuses two existing pillars. An external system delivers an event
 to the public `/universal_webhook/{topic}` door; a [hook](/concepts/hooks) bound to
-that topic then runs its tool in the background. So "fire a tool from a webhook" is:
-map a topic to a tool with a hook, and point the provider's webhook at that topic.
+that topic then keeps the event and runs its tool in the background. A failure before
+the hook acts that can pass is retried; a failure after it, or one no retry can change,
+is held as a failed run (see [Kept and retried](/concepts/hooks#kept-and-retried)). So
+"fire a tool from a webhook" is: map a topic to a tool with a hook, and point the
+provider's webhook at that topic.
 
 Because the topic rides the webhook URL as a single path segment, a hook's `name`
 and `topic` must each be one URL-safe segment — `^[a-z0-9][a-z0-9_-]*$` (lowercase
@@ -49,7 +52,9 @@ bug, or a stored binding that is not a `TopicVerifierBinding` returns a `500`
 runs. A body-signature verifier on the topic ingress refuses a `GET` with `405`. A verified delivery is then deduped against replay: on the
 `/universal_webhook/{topic}` ingress a delivery whose per-delivery id was already
 claimed within the replay window is a replay, answered with the idempotent
-`already_seen` `200` and dispatching nothing.
+`already_seen` `200` and dispatching nothing. The delivery id is claimed in the same
+store step that keeps the event's runs, so a delivery whose accept failed (the `500`)
+holds no claim, and the sender's redelivery of it is processed.
 
 ## The built-in shared-secret verifier
 

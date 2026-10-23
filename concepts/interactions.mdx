@@ -22,7 +22,7 @@ flowchart TD
     A["a tool or agent calls ask"] --> B["record the question,<br/>block the caller"]
     B --> C["human sees it on the SSE stream"]
     C --> D["human answers"]
-    D --> E["record the answer,<br/>wake the blocked caller"]
+    D --> E["record the answer,<br/>wake the blocked caller<br/>with answer, reply_to, params"]
     E --> F["the run resumes"]
 ```
 
@@ -35,8 +35,19 @@ the interactions HTTP router, exactly like any other capability.
 A question also declares a **wait discipline**, `mode`:
 
 - **`sync`** (the default) blocks the caller. The loop above is the sync loop: the
-  caller waits on the answer or the `timeout`, then the typed answer returns (or the
-  call raises).
+  caller waits on the answer or the `timeout`, then `{answer, reply_to, params}`
+  returns — the typed answer, the message the answering reply quoted, and the channel's
+  params (or the call raises).
+
+  The answer comes back unchanged, with two fields beside it. **`reply_to`** is the message
+  the answering reply quoted, `{message_id, status, text}` — the same shape a conversation
+  turn reads ([replies to an earlier
+  message](/reference/conversation-bridge#replies-to-an-earlier-message)) — kept apart from
+  the answer and never merged into its text; it is `null` when the reply quoted nothing or did
+  not come over a channel. **`params`** are the channel's own string entries about the
+  answering tap or reply (for example the `media_*` entries of a photo reply), passed
+  through with no platform meaning; `null` when there are none, and on expiry. Each channel's
+  [plugin page](/plugins) names its entries.
 - **`async`** parks the caller. `ask` records — and, over a channel, delivers —
   the question exactly as sync does, but returns a **suspension sentinel**
   immediately instead of blocking. A later answer, or the question's expiry, resumes
@@ -50,7 +61,8 @@ the same wait the other way. `expiry_at` is valid only with `mode="async"`.
 A parked question is answered **out of band** — through the ordinary authenticated
 answer door or the channel callback, exactly as a sync question, never inline. When a
 human answers, the run resumes on its own: a stored continuation runs under the
-**asker's** identity (never the answerer's), exactly once.
+**asker's** identity (never the answerer's), exactly once. It receives `answer`,
+`reply_to` and `params`, the same values a synchronous asker reads.
 
 What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
 
@@ -60,7 +72,8 @@ What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
   resuming it.
 - **`resume`** resumes the continuation with a reserved *interaction expired* marker
   in place of an answer, so the run takes its **expiry branch** rather than a real
-  answer. Choose it when the run has an expiry path to run.
+  answer. Choose it when the run has an expiry path to run. The marker arrives as
+  `answer`, with `reply_to` and `params` `null`.
 
 Either way the expiry is stated once as an `interactions_ask_expired_unanswered`
 platform event a deployment can [hook](/concepts/hooks) on.
@@ -94,7 +107,7 @@ values).
 What differs is the terminal the door that started the run receives. A run ends in one of
 three terminals: `succeeded` (its result is delivered), `failed` (any non-success; a
 conversation route sends the failing target's reply when the failure carries one, else the
-route's `error_reply_text`, else the built-in line) and `withdrawn` (taken down on purpose;
+route's `reply_texts.error`, else the built-in line) and `withdrawn` (taken down on purpose;
 nothing is delivered). A deliberate takedown delivers `withdrawn`, so a conversation route
 sends nothing and announces nothing: the person is told nothing. Among takedowns, only an
 `on_expiry="kill"` lapse delivers `failed`.
@@ -316,15 +329,63 @@ string its type declares:
 }
 ```
 
+Each end of a range of two `date` fields may have a **time**: a `string` with `format`
+`time` that names its end in **`timeOf`**. The time stays its own field and its own
+`HH:MM` or `HH:MM:SS` answer; nothing is recombined.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "start":      {"type": "string", "format": "date"},
+    "end":        {"type": "string", "format": "date", "rangeStart": "start"},
+    "start_time": {"type": "string", "format": "time", "timeOf": "start"},
+    "end_time":   {"type": "string", "format": "time", "timeOf": "end"}
+  }
+}
+```
+
 The answer door enforces the ordering (`end` on or after `start`) and the inclusive
 span from the two submitted values — identically whether a surface drew them as two
 inputs or as one native range control mapped to the two fields, so nothing is ever
-recombined. A nonsensical constraint — a date key on a non-date property, `maxDate`
+recombined:
+
+- Two `date` ends are ordered by date, and the span counts the days. When both fall on
+  the same date and each has a time, they are then ordered by those times: an end time
+  before the start time is refused on the **end time's** field (*The end time must be on
+  or after the start time*). When either time is absent, the dates alone decide.
+- A mixed pair (one `date` end and one `date-time` end, either way round) is ordered by
+  each value's written date, and its span counts the days.
+- Two `date-time` ends are ordered by their full instants, so an end on the same day but
+  before the start is refused. Both instants are read in the START's offset, and the span
+  is the inclusive count of calendar days between them in that offset, so a range in
+  order always spans at least one day. Each answer stays the string the end user wrote,
+  so with different offsets the END's written date may be earlier than the START's while
+  the range is in order.
+
+The web widget, Studio and the callback page check the order inside the form as well,
+except for two `date-time` ends: the widget and Studio leave those to the answer door, and
+the callback page skips them (their end input carries `data-range-instant`), so the
+answer door alone checks them.
+
+Wherever a form is drawn or read back, each time is listed **right after its date**,
+whatever order the schema declares them in: on the page, in a range control (each time
+under its date), and in a review readback. In WhatsApp, where the two dates merge into one
+range picker, both times come after the picker: the start time, then the end time. A time
+and its date sit on the same page.
+
+A nonsensical constraint — a date key on a non-date property, `maxDate`
 before `minDate`, a `rangeStart` naming an undeclared or non-date property, `minDays`
-above `maxDays`, or a span key on a field with no `rangeStart` — is refused loudly
-when the form is built, naming the property. Each key renders as the matching native
-control where a surface has one (see the [capability table](#form-capabilities-per-channel));
-where a surface cannot bound its date control, the bound is still enforced on submit.
+above `maxDays`, a span key on a field with no `rangeStart`, a `timeOf` on a field that
+is not `format: time`, a `timeOf` naming something other than a `date` end of a range,
+a `timeOf` on a range whose other end is `date-time` (a time without an offset cannot be
+ordered against it), a second time for the same date, a time whose `visibleWhen`
+differs from its date's, or a time on another page than its date — is refused loudly
+when the form is built, naming the property. This holds on every door that carries a
+form: an ask over a channel, an ask answered in the inbox, a `notify_user` form and a
+conversation form part. Each key renders as the matching native control where a
+surface has one (see the [capability table](#form-capabilities-per-channel)); where a
+surface cannot bound its date control, the bound is still enforced on submit.
 
 ### Conditional fields
 
@@ -542,6 +603,18 @@ door. The asking tool blocks exactly as before — only the delivery leg changes
 An unknown channel name, or a delivery failure, raises loudly before the run
 would wait on an answer that can never arrive.
 
+A channel's `deliver` returns the address the question went to and its message ids, and
+the question is recorded in the participant's conversation thread as a [send
+record](/reference/conversation-bridge#send-records) when the channel has a bridge route for
+that identity. The record ends `failed` when every attempt was refused, `outcome_unknown`
+when an attempt timed out and none succeeded, with a WARNING that the participant may have
+the question twice when an attempt timed out before one succeeded, and `delivered` once
+the participant's reply over the channel lands. For a `sensitive` question the record keeps
+that the reply came, when, and its message id, never the reply's body, so the transcript,
+the record views, message search and a quote of that reply show no body. An operator's
+answer through the answer door, or a caller resume, leaves the record's delivery state as it
+was and shows no reply on it.
+
 The platform never hands a channel a question whose deadline has already passed: the
 delivery fails with a non-retryable error ("already timed out … nothing was sent"), the
 question is pruned and the `interactions_delivery_failed` event fires — checked again after
@@ -635,19 +708,27 @@ sentence for the first failing field, naming that field. Where each shape is che
 | `minimum` / `maximum` | the data endpoint | drawn as `number_input` `min_value`/`max_value` | the page | the form |
 | exclusive bounds, `multipleOf` | the data endpoint | the door | the door | the door |
 | `minItems` / `maxItems` | the selection limits | the door | the door | the form |
-| date constraints | the calendar picker (a range's order and span, when the range is drawn as two fields: the data endpoint) | the door | the page | the form |
+| date constraints | the calendar picker (a range's order and span, when the range is drawn as two fields, and a range's time order: the data endpoint) | the door | the page | the form |
 
 The sentence the person reads depends on the surface:
 
 - **WhatsApp, the callback page, the web widget and Studio** show the sentence the sender set
   as `wording.form.fields[<name>].invalid`: their own words, in the end user's language, used
-  for every shape error on that field but never for a missing required value. Without it,
+  for every shape error on that field but never for a missing required value. A missing
+  required value reads the sender's `wording.form.fields[<name>].required` instead, on
+  WhatsApp (drawn by the data endpoint, for a value carried from an earlier screen; the
+  control on the current screen checks its own), the callback page, the web widget and
+  Studio (both through the Studio SDK); without it each surface shows its own word, and
+  where the browser's or the vendor's own native check runs, that check's own words show.
+  Without the `invalid` sentence,
   WhatsApp shows its own short word for the broken shape, the callback page shows the
   platform's sentence naming the bound (*Enter at least 10 characters*), and the web widget
   and Studio, which check the form with the Studio SDK, show its own words (*must be at least
   10 character(s)*); an unavailable day on the callback page shows the page's own line.
-  WhatsApp caps the `invalid` sentence at 30 characters on a text field or text area and 80
-  on a calendar or choice control; a longer one is refused at deliver, naming the field.
+  WhatsApp caps the `invalid` and `required` sentences at 30 characters on a text field or
+  text area and 80 on a calendar or choice control; a longer one is refused at deliver,
+  naming the field. WhatsApp's line above a refused form is the sender's
+  `wording.form.error_line` when set, else its own *Label: sentence* list.
 - **Slack** pins the door's sentence for the failing field under it (*Enter a valid email
   address*), wrapped by the sender's `wording.answer.rejected` when set.
 
@@ -752,7 +833,7 @@ where there is no honest approximation, refuses loudly at the ask door.
 | --- | --- | --- | --- | --- | --- |
 | date bounds (`minDate`/`maxDate`) | native picker bounds | **degrade**: enforced on submit | native `<input type=date>` min/max | native `<input type=date>` min/max | **refused** |
 | unavailable days (`unavailableDates`) | native picker exclusions | **degrade**: enforced on submit | **degrade**: min/max drawn, the rest on submit | **degrade**: min/max drawn, the rest on submit | **refused** |
-| date range (two date fields) | two date fields (may draw as one range control) | two datepickers | two date inputs | two date inputs | **refused** |
+| date range (two date fields) | two date fields (may draw as one range control); each end's time a text field right after its date | two datepickers, each end's `timepicker` right after its date | two date inputs, each end's time right after its date | two date inputs, each end's time right after its date | **refused** |
 | multiple choice (array of strings) | checkbox group | multi-select / checkboxes | multi-select | multi-select | **refused** |
 | radio for a short list | radio group (`≤` threshold), else dropdown | radio (`≤` threshold), else select | radio (`≤` threshold), else select | radio (`≤` threshold), else select | **refused** |
 | display block (heading/body/image) | text/image blocks | section/header/image/context | rendered block | rendered block | **refused** |
@@ -794,19 +875,20 @@ a reply the answer door **rejects** (a `400` — the reply doesn't fit the quest
 format). What happens next is the ask's **`on_mismatch`** policy, set per ask by the
 tool author:
 
-- **`retry`** (the default, and today's behaviour) — the ask stays parked and the
-  person is told what's expected, so they can answer again in place. The optional
-  **`mismatch_notice`** replaces the platform's built-in retry line with your own text;
-  a literal `{reason}` token in it is filled with the door's rejection reason by a plain
-  substitution (a notice without the token is sent verbatim). A channel that owns its
-  own correction surface renders the door's specific reason itself and ignores
-  `mismatch_notice`.
+- **`retry`** (the default) — the ask stays parked and the person is told what's
+  expected, so they can answer again in place. The sender's `wording.answer.rejected`
+  replaces the platform's built-in retry line with its own text, and
+  `wording.answer.rejected_final` the line sent when a refusal also closes the question.
+  A `{reason}` token in either is filled with the door's rejection reason by a plain
+  substitution, and is empty when the door gave no reason. WhatsApp's re-sent form reads
+  the sender's `wording.form.error_line` in that place when set. A channel that owns its
+  own correction surface renders the door's specific reason itself.
 - **`bridge`** — an unmatched reply is treated as a **digression**: the ask stays
   parked with **no** notice, and the reply is handed to the
   [conversation](/concepts/client-conversations) as a fresh routed turn so the flow
   handles it. The ask then ends only by a real answer or its timeout, never by
-  unmatched input. `mismatch_notice` is ignored under this policy — a digression never
-  notifies.
+  unmatched input. `wording.answer.rejected` is not sent under this policy — a
+  digression never notifies.
 
 Both policies keep the ask alive; they differ only in whether an off-format reply
 re-prompts the person or is routed onward as a new turn.

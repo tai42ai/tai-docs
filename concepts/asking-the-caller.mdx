@@ -93,11 +93,23 @@ undeclared `$name` is refused at save.
 At most **one** non-cancel action runs per visit: a door resumes, or takes, or starts
 — cancels always run first. The order is fixed for every door.
 
+A door may pass the visit an `on_act` notice to learn where the visit crosses from
+checking to acting. The visit awaits it with `phase="before"` before the cancels,
+before each resume or take claim and before the start, and with `phase="committed"`
+after each claim commits — never during the checks. A raise from a `before` notice
+leaves that action undone. A door that recorded a `before` claim notice and never saw
+its `committed` notice can call `tai42_app.interactions.settle_visit_claim`, which
+returns the ids no longer open. An empty result proves the claim did not commit; a
+returned id was resolved by some door, and the read does not say which, so the door
+must not treat it as its own commit.
+
 ## Resume, take, and cancel
 
 - **Resume** an `asking` caller ask by naming its `id` with a `payload`: the payload
   is the answer, the parked run resumes under its own identity, and its next outcome —
-  a result, fresh caller asks, or a re-park — comes back.
+  a result, fresh caller asks, or a re-park — comes back. A resume is an answer that
+  came over no channel, so the resumed `ask` reads the payload as `answer` with
+  `reply_to` and `params` `null`.
 - **Take** a `finished` waiting outcome by naming its bare `id`: the resolved run's
   result is returned. Taking a `failed` outcome **raises**, so the taker fails as the
   resolved run did.

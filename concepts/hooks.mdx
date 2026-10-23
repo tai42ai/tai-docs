@@ -7,8 +7,12 @@ icon: "anchor"
 import RegisterHook from '/snippets/examples/hooks/register_hook.mdx';
 
 A hook binds an inbound event topic to a tool. When an external system delivers an
-event on a topic, the hooks manager fires every hook registered for that topic
-whose condition matches the payload, running each bound tool in the background.
+event on a topic, the hooks manager keeps the event as one run per hook registered
+for that topic, then runs each hook whose condition matches the payload, with its
+bound tool in the background. A run that fails before its hook acts, for a reason
+that can pass, is retried; a run that fails after, or for a reason no retry can change
+(such as a condition that cannot evaluate), is held as failed for an operator
+([Kept and retried](#kept-and-retried)).
 
 This page explains the model. To register one, use the Studio's
 [Hooks screen](/studio/hooks) or follow
@@ -19,7 +23,8 @@ This page explains the model. To register one, use the Studio's
 A hook is a small record: a topic, the tool to run, the static keyword arguments to
 pass it, an optional condition, and the jqs that shape and drive the fired run.
 Registration is keyed by topic, so one topic can drive several hooks and the manager
-dispatches to all of them:
+dispatches to all of them: an event on a topic becomes one **hook run** per hook,
+kept in the hooks store until it finishes:
 
 ```json
 {
@@ -69,8 +74,25 @@ binding](/concepts/states#saving-a-binding).
 ## The ingress door
 
 External systems deliver events to the public `POST /universal_webhook/{topic}`
-door. The payload parser accepts any content type, and the matched hooks run in the
-background — the ingress returns without waiting for the tools to finish.
+door. The payload parser accepts any content type. Before the door answers, the
+event is kept as one hook run per hook on the topic, so a `200`
+`{"status": "accepted"}` means the event is kept: its runs then run, and are
+retried, in the background, and the ingress never waits for the tools to finish.
+When the hooks store refuses to keep the runs, the door answers a `500` and keeps
+nothing, so the sender's own retry delivers the event again. The body is
+`{"error": "accept failed"}`, or `{"error": "webhook verification error"}` on a
+topic whose verifier claims each delivery id; that claim is not kept either, so
+the retry is not refused as already seen.
+
+A multipart form whose parts include a file is answered `400`
+(`{"status": "rejected", ...}`), here and on a trigger link, and nothing is kept:
+a kept hook run carries text fields only.
+
+<Note>
+The in-memory hooks manager keeps its runs in the serving process only: they are
+lost when that process stops, and a sibling worker never sees them. A deployment
+that relies on kept runs uses the Redis-backed manager.
+</Note>
 
 <Warning>
 `/universal_webhook/{topic}` is the most exposed door on a server. A topic with no
@@ -80,6 +102,93 @@ before it is parsed and dispatched. The [public-door flood
 limiter](/concepts/access-control#flood-control-on-public-doors) throttles the door
 regardless.
 </Warning>
+
+## Kept and retried
+
+Every event the ingress accepts is kept, one run per hook on the topic. A run lives in
+the hooks store until it finishes, or until an operator retries or discards it once it
+is held as failed.
+
+**When the hook acts.** The hook acts when its visit cancels a parked interaction,
+commits a resume or take claim, or starts the tool. Before that point every failure is
+retried automatically, with backoff (`HOOKS_RUN_RETRY_BASE_SECONDS`, doubled per
+attempt, capped at `HOOKS_RUN_RETRY_CAP_SECONDS`), up to `HOOKS_RUN_MAX_ATTEMPTS`
+attempts in all. That covers the condition, the state-context render, the `$parked`
+read, the door contract, the visit's own checks and the wait for pending saves, when
+they fail for a reason that can pass, such as a store out of reach. The failure kinds
+no retry can change (bad input, unauthorized, not found, conflict, cancelled) fail the
+run at once.
+
+A condition that raises when jq evaluates it over the run's payload is bad input: the
+same payload raises again on every attempt. The run fails after one attempt, is kept in
+the failed set and reported like any failed run, and its tool never runs. Fix the
+condition by registering the hook again under the same name, then retry the run; the
+retry reads the hook as it is registered now.
+
+**After the hook acts.** Once the hook acts, the platform adds no automatic attempts.
+A tool that wants its own failures retried declares a `ToolRetryPolicy`, and exactly
+that policy runs. Any failure after that point holds the run as failed.
+
+**Interrupted runs.** A run can be interrupted by a crash or a lost lease, by a
+graceful shutdown, or by a config apply that retires the serving generation while the
+hook's tool runs.
+
+- A run interrupted after it started a tool replays **that start alone**, with the same
+  input, the same extras and the same `tai42/idempotency_key` extra
+  (`TOOL_EXTRA_IDEMPOTENCY_KEY`), and only when the tool declares
+  `TOOL_META_CRASH_RESUME`. Otherwise it is held as failed.
+- Any other run interrupted after its hook acted is held as failed.
+- A shutdown first gives the hook runs in flight `HOOKS_RUN_SHUTDOWN_GRACE_SECONDS` to
+  finish, before anything else drains their tools.
+- A tool that raises its own `CancelledError` fails its run (kind `cancelled`). Only a
+  shutdown or a config apply that drains the tool counts as an interruption.
+
+**A stopped claim is never re-run blindly.** A run stopped while its hook was making a
+resume or take claim first checks, on its next attempt, whether the entry is still
+open. Still open means the claim did not commit, and the run is retried automatically.
+No longer open means the entry was resolved, and the platform cannot tell whether this
+run's claim or another door (an answer, an expiry, another caller, the retention sweep,
+a TTL) resolved it. The run is then held as failed, and its error says so and lists the
+ids. Check the interaction, then discard the run, or retry it as a fresh run whose
+checks and door contract decide again.
+
+**Every attempt counts.** Every attempt counts toward `HOOKS_RUN_MAX_ATTEMPTS`, an
+interrupted one and a replayed start included, so a run that keeps meeting restarts or
+config applies ends in the failed set instead of repeating.
+
+A resumed run's own redelivery belongs to the interactions reaper (see [sync and
+async](/concepts/interactions#sync-and-async)). A taken outcome is consumed when it is
+taken.
+
+**Across restarts and replicas.** A running attempt holds a lease
+(`HOOKS_RUN_LEASE_SECONDS`, renewed while it runs). Every serving process sweeps the
+store every `HOOKS_RUN_SWEEP_SECONDS`: it runs the runs that are due, and takes over the
+runs whose lease lapsed, so a run of a process that crashed is picked up by a restarted
+process or by another replica.
+
+**How many run at once.** `HOOKS_MAX_WORKERS` bounds the hook runs in flight per
+process. A config apply that changes it applies from the next run admitted; it never
+cancels a run in flight. Runs begun before a config apply keep their shutdown grace.
+
+**A failed run.** A run held as failed stays in the store until an operator retries or
+discards it. The platform logs it at ERROR, sends an operator notification, fires the
+`hooks_run_failed` [platform event](#platform-events), and counts it in the
+`tai42_hook_runs_*` metrics. The run list shows, per run, `acted` (what the hook had
+done: `""`, `cancel`, `resume`, `take` or `start`), `acted_ids` (the interactions it
+acted on) and `claim_intent` (a claim it was making when it stopped).
+
+```bash
+tai hooks runs list --status failed
+tai hooks runs retry <id>
+tai hooks runs discard <id> --yes
+```
+
+A retry replays the start of a run that had started its tool, and otherwise runs the
+hook again. A run whose hook committed a resume or a take cannot be retried, only
+discarded, and the refusal says why. The same doors are `GET /api/hook-runs`,
+`POST /api/hook-runs/{id}/retry` and `DELETE /api/hook-runs/{id}`.
+
+The settings are listed under [HooksSettings](/reference/settings#hookssettings).
 
 ## Targeting a state subject
 
@@ -120,6 +229,7 @@ deployment routes the alert wherever it wants — a chat-line, a pager, a ticket
 | `interactions_ask_expired_unanswered` | an ask expires with no answer ([Interactions](/concepts/interactions)) | `interaction_id`, `group_id`, `channel`, `recipient`, `expired_at` |
 | `interactions_ask_expiry_abandoned` | a parked ask's keys aged out past its retention horizon before the expiry reaper reached it, so no `on_expiry` action ran and no door terminal was committed ([Interactions](/concepts/interactions#deadlines-and-retention)) | `interaction_id`, `expiry_at` |
 | `states_outbox_save_failed` | a pending state save fails and holds its subjects ([States](/concepts/states#pending-saves)) | `save_id`, `run_id`, `phase` (`records` or `calls`), `subject_keys`, `error_kind`, `error` |
+| `hooks_run_failed` | a hook run is held as failed ([Kept and retried](#kept-and-retried)) | `run_id`, `topic`, `hook`, `attempts`, `acted`, `acted_ids`, `error_kind`, `error` |
 
 A failure to fire a platform event is logged at WARNING and never stops the work that raised
 it; the event's cause is already logged on its own.
@@ -145,7 +255,10 @@ itself:
 <RegisterHook />
 
 Setting or removing a topic's verifier binding is a separate authed door
-(`PUT`/`DELETE /api/hooks/topics/{topic}/verifier`).
+(`PUT`/`DELETE /api/hooks/topics/{topic}/verifier`). The kept runs have their own
+authed doors — `GET /api/hook-runs`, `POST /api/hook-runs/{id}/retry` and
+`DELETE /api/hook-runs/{id}`, driven by `tai hooks runs list|retry|discard` (see
+[Kept and retried](#kept-and-retried)).
 
 See the [fire-a-tool-from-a-webhook guide](/guides/fire-a-tool-from-a-webhook) for
 the binding-and-condition workflow, [triggers and webhook

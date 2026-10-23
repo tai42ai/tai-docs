@@ -42,7 +42,10 @@ mint one for a live conversation:
 
 - **The `/link` command.** The person sends exactly `/link` to the conversation;
   the turn engine mints a fresh code and replies with it. (`/link` matches only as
-  the whole message — `/link` with anything after it is ordinary text.)
+  the whole message — `/link` with anything after it is ordinary text.) The reply
+  is the route's `reply_texts.pairing_code` template when it sets one
+  (`{pairing_code}` the code, `{expires_at}` its expiry), else the built-in
+  sentence.
 - **The first-contact greeting**, if it carries `{pairing_code}` as above.
 - **The `get_pairing_code` tool**, for a programmatic mint. It takes the `channel`,
   the route's `our_identity`, and the `sender` address to link, and returns
@@ -60,11 +63,39 @@ redeems when the `LINK-XXXXXXXX` token appears anywhere in the message — typed
 its own, pasted inside a sentence, or carried by a channel-web `?tai_pair=` link. If a
 message carries more than one code, the first wins. Redeeming merges the two
 addresses into one person, and from then on both channels share the one thread.
+The person kept is the one created first; the other is absorbed into it.
+Erasing the kept person later (`tai conversations delete-person`) also erases what the
+absorbed person kept before the link: the chats it had on its own channels before the link,
+with their declared state, and its own linked thread when it had one. A chat someone
+continued after the link, and a chat another person also wrote in before the link, are left
+until their retention period. See [forgetting a
+person](/reference/conversation-bridge#forgetting-a-person).
+
+A redeem that meets a person being erased links nothing:
+
+- While the person who sent `/link` is being erased, the redeem answers "This conversation
+  can't be linked right now. Please try again in a moment with a new code: send /link in
+  your other conversation." (the route's `reply_texts.pairing_link_unavailable` when it sets
+  one), and the code is used up.
+- While the person redeeming is being erased, the redeem answers the route's error text
+  (`reply_texts.error`, by default "Sorry, something went wrong handling your message.
+  Please try again."), and the code is not used up.
+- A redeem already under way when the erase of the person redeeming starts answers the
+  link-unavailable text above, with the code used up. If that erase finishes before the link
+  is made, the redeem answers the route's error text, the code is used up, and sending it
+  again answers "That pairing code is not valid. It may have expired or already been used."
 
 ## Unlink
 
 To detach the sending address from its person, the person sends exactly `/unlink`
 from that channel. It affects only the address it was sent from.
+
+While the person is being erased, `/unlink` answers the route's error text
+(`reply_texts.error`, by default "Sorry, something went wrong handling your message. Please
+try again."), and nothing is unlinked. An `/unlink` already under way when the erase starts
+answers "This conversation can't be unlinked right now. Please try again in a moment." (the
+route's `reply_texts.pairing_unlink_unavailable` when it sets one), and nothing is
+unlinked.
 
 ## See also
 

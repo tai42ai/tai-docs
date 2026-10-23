@@ -73,6 +73,10 @@ A **trigger link** is a minted, public URL — `GET /trigger/<token>` — that r
 
 Trigger links belong to the hooks surface: any role granted hooks `write` mints and revokes them; hooks `read` lists them.
 
+A fire runs the topic's hooks as the link's execution key. If that key is revoked, a
+fire is still answered `200`, and its hook run is held as failed with `unauthorized`
+(see [When a hook run fails](#when-a-hook-run-fails)).
+
 ### Mint a link and fire it
 
 Mint a timed link for a topic. Exactly one of `--ttl SECONDS` or `--permanent` is required — expiry is an explicit choice, with no default:
@@ -165,6 +169,37 @@ The Studio's hooks page carries a trigger-links section: a table of live links (
   <img className="block dark:hidden" src="/images/studio/hooks-trigger-link-light.png" alt="The Studio hooks page create-trigger-link dialog showing the generated QR code." />
   <img className="hidden dark:block" src="/images/studio/hooks-trigger-link-dark.png" alt="The Studio hooks page create-trigger-link dialog showing the generated QR code." />
 </Frame>
+
+## When a hook run fails
+
+A run that cannot finish is held as failed, and you get an operator notification.
+List the failed runs:
+
+```bash
+tai hooks runs list --status failed
+```
+
+Fix the cause — the hook, its tool or its execution key — then retry the run, or
+discard it:
+
+```bash
+tai hooks runs retry <id>
+tai hooks runs discard <id> --yes
+```
+
+The `acted` column says whether and how the hook had already acted:
+
+| `acted` | What a retry does |
+|---|---|
+| `start` | replays the tool's start, with the same input and the same idempotency key |
+| `""` or `cancel` | runs the hook again |
+| `resume` or `take` | nothing: the run can only be discarded |
+
+A failed run that still shows a `claim_intent` was stopped in the middle of a claim on
+an entry that was resolved by then. Its `last_error` says the platform cannot tell who
+resolved it; a retry runs it as a fresh run. See [Kept and
+retried](/concepts/hooks#kept-and-retried) for what is retried on its own and what is
+held.
 
 ## See also
 

@@ -44,6 +44,13 @@ that is not registered is a loud error, never a silent drop.
 | `data` / `pages` | Per-send [prefill, choice lists, and step layout](/concepts/interactions#prefilling-per-send-options-and-pages) over `schema` for this one send — `data.values` opens the form filled in, `data.options` replaces a string property's choices for this send, and `pages` lays the form out in titled steps. Both ride ONLY a form send (a `schema` present) and are cross-checked against it. |
 | `form_tag` | An optional opaque **correlation tag** for this one form send: the channel carries it with the form and hands it back beside the submission (see [correlating a send](#correlating-a-send-with-its-submission)). Rides ONLY a form send (a `schema` present). |
 
+A send on a channel with a [bridge route](/concepts/client-conversations) for the sending
+identity is also recorded in the recipient's conversation thread, as a [send
+record](/reference/conversation-bridge#send-records) — whether it came from a flow, the
+tool or the API, and whether or not a turn was running. A send made during a turn to that
+turn's participant is placed in the turn's thread. With no route, or no conversations
+store, the send goes out unrecorded.
+
 With a named channel, the richer forms deliver only where the channel advertises the
 matching capability; with no channel, `media`, `location`, `template`, `options`, and
 `sections` are stored on the inbox record as given — `schema` alone **requires** a
@@ -256,6 +263,11 @@ The tag is **per send** and **opaque** — the platform never interprets it, onl
 it as transport, and refuses it on a send that carries no `schema`. It is never shown to
 the person, carries no personal data, and never enters the published Flow. It rides the
 tool and the API only, like [`audience`](#audience-versus-recipient).
+
+A sent message is also findable by its provider message ids. On a channel with a
+delivery-status webhook, the receipt for a recorded send settles its send record and is also
+posted to the run's trace as the `delivery_receipt` event; a receipt for a send outside any
+conversation still reaches the trace.
 
 When to use which: a form **ask** (`ask` with `answer_format="form"`) suspends
 the caller until a validated answer or an expiry — reach for it when the flow cannot
