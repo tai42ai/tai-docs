@@ -34,8 +34,12 @@ A START/END pair drawable as one range control, resolved off a page's properties
 |---|---|---|
 | `endName` | `string` | — |
 | `endSchema` | `JsonSchema` | — |
+| `endTimeName?` | `string` | The END's `timeOf` time property among the same properties, when it has one. |
+| `endTimeSchema?` | `JsonSchema` | — |
 | `startName` | `string` | — |
 | `startSchema` | `JsonSchema` | — |
+| `startTimeName?` | `string` | The START's `timeOf` time property among the same properties, when it has one. |
+| `startTimeSchema?` | `JsonSchema` | — |
 
 **Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
@@ -168,6 +172,37 @@ free of the jq subgraph. `JqField` satisfies it structurally; a test pins that.
 **Related:** [ExpressionInputKey](/reference/studio-sdk/schema-forms#expressioninputkey)
 
 
+## FieldWords
+
+```ts
+interface FieldWords
+```
+
+A form field's own words, keyed by the root object's property name in a form's
+`fieldWording`. Every member is optional; an unset one draws the SDK's own word.
+
+- `choiceLabel`: the placeholder of the field's `enum` select (in place of `Select…`).
+- `invalid`: the sentence that replaces every shape error on the field and anything
+  inside it (a format, pattern, length, bound, type or item error).
+- `required`: the sentence shown when the field's required value is missing, at the
+  field or anywhere inside it (in place of `"<name>" is required`).
+- `addItem` / `removeItem` / `itemLabel` / `noItems`: a list field's add button, each
+  item's remove button, each item's heading (its `{n}` token takes the item's number),
+  and the line shown while the list is empty.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `addItem?` | `string` | — |
+| `choiceLabel?` | `string` | — |
+| `invalid?` | `string` | — |
+| `itemLabel?` | `string` | — |
+| `noItems?` | `string` | — |
+| `removeItem?` | `string` | — |
+| `required?` | `string` | — |
+
+
 ## FormControl
 
 ```ts
@@ -241,6 +276,7 @@ runtime classification concern the renderer handles.
 | `properties?` | `Readonly<Record<string, JsonSchema>>` | — |
 | `rangeStart?` | `string` | — |
 | `required?` | `readonly string[]` | — |
+| `timeOf?` | `string` | On a `string`/`format: time` property: the name of the range-end `date` property this is the time of. The time draws right after its date (inside the range group when the pair merges), and two ends on the same date are then ordered by their times. Absent = a time field of its own. |
 | `title?` | `string` | — |
 | `type?` | `JsonSchemaType \| readonly JsonSchemaType[]` | — |
 | `unavailableDates?` | `readonly string[]` | — |
@@ -320,7 +356,7 @@ input schema); a scalar/array/union root renders as a single field group.
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
-| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string; invalid?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. The entry's `invalid` sentence is not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry that sentence. |
+| `fieldWording?` | `Readonly<Record<string, FieldWords>>` | Optional. Per-field words, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); a top-level list field draws its entry's `addItem`, `removeItem`, `itemLabel` (`{n}` the item's number) and `noItems` (in place of `Add item`, `Remove`, `Item {n}` and `No items`). Nested fields and other controls are unaffected, and a field with no entry draws the defaults. The entry's `invalid` and `required` sentences are not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry them. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
@@ -354,14 +390,14 @@ interface SchemaFormProps
 | `completionProvider?` | `CompletionProvider` | Optional. When supplied, every string field renders through the completion-backed input (argument autocomplete); when omitted, string fields render as a plain text input — the default, unchanged behaviour. |
 | `errors?` | `Readonly<Record<string, string>>` | — |
 | `expressionField?` | `ExpressionFieldComponent` | Optional. The expression-authoring door for `x-tai42-expression` fields — `JqField` from `@tai42/jq-studio`, which the host imports directly and passes here (see the module doc-comment). Omitted, the enclosing ExpressionFieldContext supplies it; absent both, an annotated field renders the plain string input. |
-| `fieldWording?` | `Readonly<Record<string, { choiceLabel?: string; invalid?: string }>>` | Optional. Per-field picker placeholders, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); other controls and nested fields are unaffected. A field with no entry draws its own default. The entry's `invalid` sentence is not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry that sentence. |
+| `fieldWording?` | `Readonly<Record<string, FieldWords>>` | Optional. Per-field words, keyed by the root object's property name. A top-level `enum` field that draws as a select shows its entry's `choiceLabel` as the select placeholder (in place of the default `Select…`); a top-level list field draws its entry's `addItem`, `removeItem`, `itemLabel` (`{n}` the item's number) and `noItems` (in place of `Add item`, `Remove`, `Item {n}` and `No items`). Nested fields and other controls are unaffected, and a field with no entry draws the defaults. The entry's `invalid` and `required` sentences are not read here: pass the same record to `validateAgainstSchema` as `fieldWording`, and the errors it returns carry them. |
 | `idPrefix?` | `string` | — |
 | `maxUploadBytes?` | `number` | Optional. Default byte cap for media-upload fields (see the module doc-comment). A field's own `contentMaxBytes` annotation overrides it; absent both, DEFAULT_MAX_UPLOAD_BYTES applies. |
 | `onChange` | `(value: unknown) => void` | — |
 | `schema` | `JsonSchema` | — |
 | `value` | `unknown` | — |
 
-**Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [ExpressionFieldComponent](/reference/studio-sdk/schema-forms#expressionfieldcomponent), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+**Related:** [CompletionProvider](/reference/studio-sdk/schema-forms#completionprovider), [ExpressionFieldComponent](/reference/studio-sdk/schema-forms#expressionfieldcomponent), [FieldWords](/reference/studio-sdk/schema-forms#fieldwords), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
 
 ## SecretRef
@@ -435,7 +471,8 @@ qualifies when: the END names an existing sibling START in `rangeStart`; BOTH ar
 no OTHER field's `visibleWhen` names either end — otherwise merging the pair would
 leave that field's predicate pointing at a control that no longer draws on its own,
 so the pair stays two date fields (the documented degrade). `properties` is ONE
-page's ordered list; a field is used in at most one pair.
+page's ordered list; a field is used in at most one pair. Each pair also names each
+end's `timeOf` time among the same properties, which draws inside the group.
 
 **Parameters**
 
@@ -462,6 +499,33 @@ whole-tool-schema call).
 |---|---|---|---|
 | `schema` | `JsonSchema` | — | — |
 | `root` | `JsonSchema` | `schema` | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## fieldDrawingOrder
+
+```ts
+function fieldDrawingOrder(
+  names: readonly string[],
+  properties: Readonly<Record<string, JsonSchema>>,
+): string[]
+```
+
+`names` in drawing order: each `timeOf` time moved to sit right after the date it
+names. `names` is one page's fields, or every property of a page-less form or a
+readback, in their given order. A time moves only when the name it points at is in
+`names` and does not itself point at another listed name; any other time (its date
+not listed, a chain of times, a cycle) keeps its place. Every name appears exactly
+once and every other name keeps its relative order. Pure and idempotent, so every
+walker that orders the same list draws it the same way.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `names` | `readonly string[]` | — | — |
+| `properties` | `Readonly<Record<string, JsonSchema>>` | — | — |
 
 **Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
@@ -524,7 +588,8 @@ valid). The caller runs this before submit and feeds the result back to
 `SchemaForm` for display. `options.maxUploadBytes` mirrors the renderer's
 `maxUploadBytes` prop so a media field's byte cap is enforced identically here;
 `options.fieldWording` puts a field's own `invalid` sentence in place of the
-SDK's word for any shape error on that field.
+SDK's word for any shape error on that field, and its own `required` sentence in
+place of the SDK's message for a missing required value at or inside that field.
 
 **Parameters**
 
