@@ -12,17 +12,23 @@ medium (Telegram, Slack, SMS, ...) and bridges the human's reply back into the
 interactions store by forwarding it to the delivery's public ``callback_url``.
 Channels are registered on the app handle (``tai42_app.channels``) by channel
 plugins and looked up by name when ``ask`` is called with ``channel=...``.
-Delivery either returns ``None`` (success) or raises
+Delivery either returns a `SendOutcome` (success) or raises
 `ChannelDeliveryError` (any failure) — never a bool.
 
 A channel also sends fire-and-forget notifications: ``notify`` pushes one
 `ChannelNotification` to a human with no interaction, no ticket, and no
-reply path, under the same loud-failure rule; it returns the per-message ids the
+reply path, under the same loud-failure rule; it returns a `SendOutcome`
+naming the identity and address it sent from and to and the per-message ids the
 medium assigned the send (empty when the medium exposes none), never a bool.
+Before either send, ``resolve_address`` gives the `ChannelAddress` the
+channel would send to, or raises `ChannelAddressError`.
 
 When the platform takes a delivered question down by a path that is not the channel's own
 forwarded reply, it hands the channel a `ChannelWithdrawal` through the channel's
 optional ``withdraw`` member, so the channel releases what it kept for that question.
+
+A channel whose medium limits free-form replies to a window after the client's last message
+reports that window as a `ReplyWindow` through its optional ``reply_window`` member.
 
 ## NOTIFICATION_FOOTER_MAX_CHARS
 
@@ -138,7 +144,9 @@ refuses an unrenderable question or schema (a permanent
 `ChannelInputError`). The SAME hook is reused for a form notification:
 the notify helper calls ``channel.validate_form_schema(schema, message)`` with
 the notification's ``message`` as the ``question`` argument before the send, so
-one declared method covers both the ask and the notify form surfaces.
+one declared method covers both the ask and the notify form surfaces. A
+conversation's send admission runs the same hook once per form part, with the
+part's final message as the ``question``, before any part of the reply is sent.
 
 A channel that advertises ``supports_template_notifications`` MAY also declare one OPTIONAL
 method, ``validate_template``, following the same documented-member convention (read
@@ -149,8 +157,9 @@ parses the template's OPAQUE ``parameters`` against the channel's OWN template-p
 and raises ``ValueError`` on a shape the channel could never map — so a template the channel
 could never render is refused up front instead of failing at delivery. A channel that omits the
 hook advertises no ask-time parameter check; its ``notify`` still refuses an unmappable template
-at send time (a permanent `ChannelInputError`). The platform never looks inside
-``parameters`` itself; the declaring channel owns the shape end to end.
+at send time (a permanent `ChannelInputError`). A conversation's send admission runs the
+same hook once per template part, before any part of the reply is sent. The platform never
+looks inside ``parameters`` itself; the declaring channel owns the shape end to end.
 
 A channel MAY also declare the OPTIONAL outbound message-length cap it splits a long answer
 against — an OPTIONAL ``ClassVar max_message_chars: int`` giving the medium's own per-message
@@ -200,14 +209,56 @@ it takes the inbound answer ladder's no-longer-pending path. It raises
 fault, never for "nothing to release". A channel that keeps nothing withdrawable omits the
 member (absent = nothing to release).
 
+A channel whose medium allows a free-form reply only within a window after the client's
+last message MAY also declare one OPTIONAL method, ``async def reply_window(self, *,
+recipient: str, sender_identity: str | None = None) -> ReplyWindow`` — the same
+documented-member convention, NOT a Protocol method, read defensively with
+``getattr(channel, "reply_window", None)``. It reports the window for ``recipient`` (the
+client address, as ``deliver`` addresses one) and ``sender_identity`` (our identity on the
+medium; ``None`` = the channel default, resolved exactly as ``deliver`` resolves it): a
+`ReplyWindow` that is ``open`` with its ``closes_at``, ``closed``, or ``none`` for a
+pair the medium keeps no window for. It reads state only and sends nothing. It raises on a
+fault (an unreachable store, a corrupt stored value, an unaddressable pair), never answers a
+guessed state. A channel that omits the member has no reply window: the platform reports
+``none``. The medium's own rejection of a send outside its window stays the final check.
+
 ### Members
+
+#### resolve_address
+
+`tai42_contract.channels.protocol.Channel.resolve_address`
+
+```python
+resolve_address(self, recipient: str | None, sender_identity: str | None) -> ChannelAddress
+```
+
+The identity and participant address this channel would send to, known before sending.
+
+Synchronous, no I/O. ``recipient`` and ``sender_identity`` are the send's own values
+(``None`` = the channel's default), resolved exactly as ``notify`` / ``deliver`` resolve
+them. The identity is the one the send goes from, and a completed send's
+`SendOutcome` reports the same identity. The address may not be the canonical
+one: a medium that resolves a handle only when it sends returns the handle here. The
+platform uses this address only to place a send that never reported an outcome (it
+raised, it timed out, it was cancelled, or the process stopped); a completed send is
+placed by its `SendOutcome`. Raises `ChannelAddressError` when the target
+cannot be resolved (a recipient off the operator allowlist, no recipient and no
+configured default).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `recipient` | `str \| None` | — | — |
+| `sender_identity` | `str \| None` | — | — |
+
 
 #### deliver
 
 `tai42_contract.channels.protocol.Channel.deliver`
 
 ```python
-async deliver(self, delivery: ChannelDelivery) -> None
+async deliver(self, delivery: ChannelDelivery) -> SendOutcome
 ```
 
 Push ``delivery`` to the medium, or raise `ChannelDeliveryError`.
@@ -220,8 +271,11 @@ carrying the URL, or an inbound-route correlation the plugin stores.
 Any delivery failure — an unreachable or rejecting medium, a recipient
 outside the operator allowlist, a required credential or recipient not
 configured, a bad send response — raises
-`ChannelDeliveryError`; a plain return is the only success
-signal. One send attempt only: retrying is the caller's decision, never
+`ChannelDeliveryError`; a return is the only success signal and
+yields the `SendOutcome` of the question's messages (the identity
+and participant address it went from and to, and the per-message ids the
+medium assigned, empty when it exposes none). One send attempt only:
+retrying is the caller's decision, never
 an implicit loop here — the raised error's ``retryable`` and
 ``retry_after`` drive that decision, so a fault the medium can recover
 from is classified rather than blind-retried here. The dispatcher never
@@ -239,7 +293,7 @@ hands a delivery whose ``timeout_at`` has passed.
 `tai42_contract.channels.protocol.Channel.notify`
 
 ```python
-async notify(self, notification: ChannelNotification) -> list[str]
+async notify(self, notification: ChannelNotification) -> SendOutcome
 ```
 
 Send a fire-and-forget message, or raise `ChannelDeliveryError`.
@@ -249,11 +303,12 @@ No interaction, no ticket, no callback, no reply. Any delivery failure raises
 content (an input the medium cannot render BY NATURE) raises
 `ChannelInputError` instead — retrying it cannot succeed. A return means
 the medium ACCEPTED the message —
-not that a human saw it — and yields the per-message ids it assigned this send
-(several when the medium splits a long message, empty when it exposes no id),
-which later correlate an out-of-band delivery receipt back to this send. One
-send attempt only, no retry. A channel that cannot notify raises
-`NotImplementedError`.
+not that a human saw it — and yields the `SendOutcome`: the identity and
+participant address the message went from and to, and the per-message ids the
+medium assigned this send (several when the medium splits a long message, empty
+when it exposes no id), which later correlate an out-of-band delivery receipt or a
+quote back to this send. One send attempt only, no retry. A channel that cannot
+notify raises `NotImplementedError`.
 
 **Parameters**
 
@@ -261,6 +316,45 @@ send attempt only, no retry. A channel that cannot notify raises
 |---|---|---|---|
 | `notification` | `ChannelNotification` | — | — |
 
+
+
+## ChannelAddress
+
+`tai42_contract.channels.delivery.ChannelAddress`
+
+```python
+class ChannelAddress(BaseModel)
+```
+
+The identity and participant address a channel would send to, known before sending.
+
+``our_identity`` is the identity the send goes from; a completed send's
+`SendOutcome` reports the same identity. ``address`` may not be the canonical
+one: a medium that resolves a handle only when it sends gives the handle here.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `our_identity` | `str` |
+| `address` | `str` |
+
+
+## ChannelAddressError
+
+`tai42_contract.channels.errors.ChannelAddressError`
+
+```python
+class ChannelAddressError(ChannelDeliveryError)
+```
+
+Raised by `Channel.resolve_address` when the send's target cannot be resolved.
+
+A caller-supplied recipient off the channel's operator allowlist, or no recipient and no
+configured default: the send is refused before anything is recorded or sent. It is a
+`ChannelDeliveryError` that is never retryable, so every caller that handles a
+refused send handles this one the same way.
 
 
 ## ChannelDelivery
@@ -309,6 +403,7 @@ submits its own text as the free-text answer; every other format carries none.
 | `on_mismatch` | `AnswerMismatchPolicy` |
 | `callback_url` | `str` |
 | `timeout_at` | `datetime` |
+| `sensitive` | `bool` |
 
 
 ## ChannelDeliveryError
@@ -428,7 +523,9 @@ message carries ONE interactive surface); it MAY combine with ``media``. It ride
 the ``supports_form_notifications`` capability flag, and a form channel's OPTIONAL
 ``validate_form_schema(schema, question)`` hook (see `Channel`) is reused
 at notify time with this ``message`` as the ``question`` argument, so the
-channel's own form limits refuse an unrenderable form before the send. Some channels
+channel's own form limits refuse an unrenderable form before the send. A conversation
+part's delivery notification is held to the same hook before its reply's first chunk,
+with this ``message`` as the ``question``. Some channels
 also constrain WHEN a form may be sent: WhatsApp delivers a notify-form only inside
 the provider's customer-service window, and an out-of-window send fails loudly at the
 channel — never silently downgraded.
@@ -708,6 +805,10 @@ name; ``our_identity`` and ``client_address`` are the conversation's two address
 (the operator identity the turn answers from, and the participant's attested address /
 thread); ``cap_key`` is the party the per-address turn cap holds accountable;
 ``provider_message_id`` dedupes a provider redelivery at the conversation seam;
+``medium_message_id`` is the id the medium gives the message itself, the one a later
+quote names (``None`` only when the medium has no such id);
+``reply_to_medium_message_id`` is the medium's id of the message this reply quotes (``None``
+when it quotes none); both arms carry it, so the asker or the bridged turn reads the quote;
 ``bridge_text`` is the channel's faithful rendering of the participant's message for a
 bridged turn.
 
@@ -724,7 +825,7 @@ closed" notice regardless of this flag.
 
 ``params`` is the OPTIONAL opaque channel enrichment this inbound reply carries — the
 ANSWER-path counterpart of a conversation entry's ``params``: a tapped reply id, a template
-button payload, a referral, the reply-to context the participant quoted. The ladder threads it BOTH
+button payload, a referral. The ladder threads it BOTH
 ways with the same seam symmetry — forwarded to the ask's callback door alongside the answer
 (landing on `params`, read by
 the asking flow beside ``answer``) AND, when the reply is instead BRIDGED as a fresh turn,
@@ -742,6 +843,8 @@ it; the platform attaches no meaning and NO TRUST. ``None`` means no enrichment.
 | `client_address` | `str` |
 | `cap_key` | `str` |
 | `provider_message_id` | `str` |
+| `medium_message_id` | `str \| None` |
+| `reply_to_medium_message_id` | `str \| None` |
 | `bridge_text` | `str` |
 | `owns_retry_notice` | `bool` |
 | `params` | `dict[str, str] \| None` |
@@ -836,6 +939,65 @@ enforces it in its own code. Frozen.
 | `id` | `str \| None` |
 
 
+## ReplyWindow
+
+`tai42_contract.channels.reply_window.ReplyWindow`
+
+```python
+class ReplyWindow(BaseModel)
+```
+
+The free-form reply window a channel keeps for one (our identity, client address) pair.
+
+``state`` is one of:
+
+- ``"none"`` — the pair has no reply window: a free-form send is not limited by time.
+- ``"closed"`` — a window exists for the pair and is not open now (never opened, or expired).
+- ``"open"`` — a free-form send is allowed until ``closes_at``.
+
+``closes_at`` is set (an aware datetime, kept in UTC and in whole seconds) exactly when
+``state`` is ``"open"`` and is ``None`` otherwise; any other combination raises. A
+sub-second close time is rounded down to its second, so the window is never reported
+longer than it is and every channel dumps the same ``YYYY-MM-DDTHH:MM:SSZ`` form. The state
+is what the channel knows when it is read; the medium's own rejection of a send outside its
+window stays the final check.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `state` | `Literal['open', 'closed', 'none']` |
+| `closes_at` | `AwareDatetime \| None` |
+
+
+## SendOutcome
+
+`tai42_contract.channels.delivery.SendOutcome`
+
+```python
+class SendOutcome(BaseModel)
+```
+
+What a completed channel send reports about itself.
+
+``our_identity`` is the identity the message went out from. ``address`` is the
+participant address the medium delivered to, in the same form the channel's inbound
+door passes to ``accept`` as ``client_address`` (taken from the send response where
+the medium reveals that form only there). ``message_ids`` are the provider ids of the
+messages sent, in send order (several when the medium splits a long message, empty
+when it exposes no id).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `our_identity` | `str` |
+| `address` | `str` |
+| `message_ids` | `list[str]` |
+
+
 ## check_footer
 
 `tai42_contract.channels.options.check_footer`
@@ -925,6 +1087,9 @@ so the two can never drift. ``noun`` names the carrier for the raised messages
 * a form ``schema`` declares no top-level property named ``__proto__``
   (`check_form_property_names`), the one
   name a form drawn in a browser cannot keep — the same refusal an asked form meets.
+* a form ``schema``'s date keys make sense
+  (`check_form_date_rules`), the same
+  build-time date rules an asked form meets.
 
 **Parameters**
 

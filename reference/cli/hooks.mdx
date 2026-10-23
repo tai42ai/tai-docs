@@ -156,6 +156,75 @@ $ tai hooks register [OPTIONS]
 | `--params-file` `&lt;str&gt;` | Read the params JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --params. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
+## `tai hooks runs`
+
+List, retry or discard hook runs.
+
+```console
+$ tai hooks runs [OPTIONS] COMMAND [ARGS]...
+```
+
+### `tai hooks runs discard`
+
+Discard a failed hook run for good.
+
+Example: `tai hooks runs discard RUN_ID --yes`
+
+```console
+$ tai hooks runs discard [OPTIONS] {ID}
+```
+
+| Argument | Description |
+| --- | --- |
+| `ID` | The failed hook run's id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--yes` | Confirm: its hook never runs again for that event. _(default: `False`)_ |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai hooks runs list`
+
+List the kept hook runs, never their payloads; `--json` adds the outstanding and failed totals.
+
+The `acted` column says whether the hook had acted when the run failed: `start` (a
+retry replays the tool's start), `""` or `cancel` (a retry runs the hook again), or
+`resume` or `take` (it can only be discarded).
+
+Example: `tai hooks runs list --status failed`
+
+```console
+$ tai hooks runs list [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--status` `&lt;str&gt;` | 'outstanding' (pending and running runs) or 'failed' (the failed ones). |
+| `--limit` `&lt;int&gt;` | Page size. |
+| `--cursor` `&lt;str&gt;` | The next_cursor of a prior page. |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
+### `tai hooks runs retry`
+
+Retry a failed hook run with the same id, and so the same idempotency key.
+
+A run whose hook started its tool replays that start alone; any other runs its hook again.
+A run whose hook committed a resume or a take is refused, and the refusal says why.
+
+Example: `tai hooks runs retry RUN_ID`
+
+```console
+$ tai hooks runs retry [OPTIONS] {ID}
+```
+
+| Argument | Description |
+| --- | --- |
+| `ID` | The failed hook run's id. _(required)_ |
+
+| Option | Description |
+| --- | --- |
+| `--json` / `--no-json` | Emit raw JSON instead of human tables. |
+
 ## `tai hooks set-verifier`
 
 Bind a webhook verifier to a topic so its deliveries are signature-verified.
