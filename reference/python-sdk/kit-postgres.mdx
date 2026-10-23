@@ -7,6 +7,11 @@ icon: "database"
 
 Pooled Postgres client built on ``psycopg_pool.AsyncConnectionPool``.
 
+Every pool the kit builds proves its first connection before it is handed out, and that
+proof is the one place a connection's establishment is retried (``retry_attempts``, with
+the kit's exponential backoff and a WARNING per retried failure). A statement is never
+re-run.
+
 ## EXPLICIT_DSN_POOL_MAX_SIZE
 
 `tai42_kit.clients.impl.postgres.EXPLICIT_DSN_POOL_MAX_SIZE`
@@ -35,9 +40,10 @@ class PostgresClient(PooledClient[_CancelSurfacingPool])
 
 Pooled ``psycopg_pool.AsyncConnectionPool``, one pool per DSN per loop.
 
-The pool is named ``<owner>@<host>/<db>``; ``min_size``/``max_size`` are this
+The pool is named ``<owner>@<host>/<db>``; ``min_size``/``max_size`` and
+``retry_attempts`` (re-attempts of the first connection's establishment) are this
 database's deployment settings read when the pool is built; a second settings
-prefix resolving to the same DSN with different sizes raises. Compose
+prefix resolving to the same DSN with different values raises. Compose
 ``PostgresConnectionSettings`` for the connection kwargs.
 
 
@@ -51,15 +57,19 @@ async open_dedicated_pool(
     *,
     role: str,
     connection_kwargs: dict[str, Any] | None = None,
+    options: PostgresConnectionOptions | None = None,
 ) -> _CancelSurfacingPool
 ```
 
 Open a dedicated (not shared) named pool for ``role``, its first connection proven and its fill awaited.
 
-A settings object supplies the DSN and the deployment's pool sizes; a DSN string gets
-`EXPLICIT_DSN_POOL_MIN_SIZE` / `EXPLICIT_DSN_POOL_MAX_SIZE`. The pool is named
-``postgres@<host>/<db>:<role>``; ``connection_kwargs`` apply to every connection it opens. The
-caller owns the pool and closes it.
+A settings object supplies the DSN, the deployment's pool sizes and its
+``pg_retry_attempts``; a DSN string gets `EXPLICIT_DSN_POOL_MIN_SIZE` /
+`EXPLICIT_DSN_POOL_MAX_SIZE` and the behaviour of ``options`` (the caller's own
+namespace; omitted means a single attempt). ``options`` with a settings object raises
+``TypeError``: the settings carry their own. The pool is named
+``postgres@<host>/<db>:<role>``; ``connection_kwargs`` apply to every connection it opens.
+The caller owns the pool and closes it.
 
 **Parameters**
 
@@ -68,6 +78,7 @@ caller owns the pool and closes it.
 | `target` | `PostgresConnectionSettings \| str` | — | — |
 | `role` | `str` | — | — |
 | `connection_kwargs` | `dict[str, Any] \| None` | `None` | — |
+| `options` | `PostgresConnectionOptions \| None` | `None` | — |
 
 
 ## pinned_connection
@@ -81,10 +92,10 @@ async pinned_connection(settings: PostgresConnectionSettings) -> AsyncIterator[A
 Yield one dedicated connection held for the whole context.
 
 A one-connection pool (``min_size == max_size == 1``) built outside the shared
-cache, named ``<owner>@<host>/<db>:pinned``, opened through the same probe and
-bounded fill as the pooled path. The caller holds exactly one connection, so a
-session-scoped advisory lock taken on it covers every statement in the body, and
-a driver error on it never touches the shared pool. The pool and its connection
+cache, named ``<owner>@<host>/<db>:pinned``, opened through the same probe (with the
+settings' ``pg_retry_attempts``) and bounded fill as the pooled path. The caller
+holds exactly one connection, so a session-scoped advisory lock taken on it covers
+every statement in the body, and a driver error on it never touches the shared pool. The pool and its connection
 close on any exit — normal return, exception, or cancellation.
 
 **Parameters**
