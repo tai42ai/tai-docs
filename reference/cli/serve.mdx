@@ -6,7 +6,7 @@ icon: "terminal"
 
 Run the tai MCP server (FastMCP + Starlette), serving the Studio SPA too.
 
-\b
+
 Worker / transport combinations:
   | transport              | workers=1                | workers&gt;1                          |
   |------------------------|--------------------------|------------------------------------|
@@ -14,17 +14,34 @@ Worker / transport combinations:
   | sse                    | ok (no --stateless-http) | refused                            |
   | http / streamable-http | ok (stateful default)    | refused unless --stateless-http    |
 
-\b
+
 Worker-bus boot rules (set TAI_BUS_REDIS_URL to enable the bus):
-  - more than one worker is refused without the bus — sibling workers would
-    serve stale config after a reload with no channel to converge on;
+  - with more than one worker, each worker refuses to boot without the bus —
+    sibling workers would serve stale config after a reload with no channel to
+    converge on;
   - a non-file TAI_CONFIG_MODE is refused without the bus — an external config
     provider serves shared config and one instance cannot see its sibling count;
   - a manifest that registers a task backend is refused without the bus — the
     backend-runtime and server processes must converge on reloads.
-The workers rule lives in this CLI only: an external process manager driving
-the ASGI factory with its own --workers bypasses it, so set TAI_BUS_REDIS_URL
-in any multi-process deployment.
+
+Store boot rules: with more than one worker, each worker refuses to boot while
+the sub-MCP registration store is in-memory (set SUB_MCP_REDIS_URL or
+TAI_DEFAULT_REDIS_URL), because a sub-MCP app registered through one worker would
+not be served by its siblings, and while the hooks registry is in-memory (set
+HOOKS_REDIS_URL or TAI_DEFAULT_REDIS_URL), because a hook registered through one
+worker would not run for the events its siblings accept. The workers check these
+and the workers bus rule after the stored env is applied, so a bus or store URL
+kept only in the config-dir .env or an external provider counts; a config reload
+and a config write that would leave a multi-worker server without the bus or with
+a store in-memory are refused the same way. A manifest that registers a task
+backend is refused over an in-memory hooks registry at any worker count,
+because the backend process matches the events it raises against its own
+registry.
+
+The worker count reaches these rules only through this CLI: an external process
+manager driving the ASGI factory with its own --workers counts each process as
+one worker for the workers bus and store rules, so set TAI_BUS_REDIS_URL,
+SUB_MCP_REDIS_URL and HOOKS_REDIS_URL in any multi-process deployment.
 
 ```console
 $ tai serve [OPTIONS] [EXTRA_ARGS]...
@@ -41,5 +58,5 @@ $ tai serve [OPTIONS] [EXTRA_ARGS]...
 | `--host` `TEXT` | Host to bind the server to. |
 | `--port` `INTEGER` | Port number to bind the server to. |
 | `--uds` `TEXT` | Unix Domain Socket path. |
-| `-w` / `--workers` `INTEGER` | Number of worker processes. More than one requires the worker bus (set TAI_BUS_REDIS_URL). _(default: `1`)_ |
+| `-w` / `--workers` `INTEGER` | Number of worker processes. More than one requires the worker bus (set TAI_BUS_REDIS_URL) and shared sub-MCP and hooks stores (set SUB_MCP_REDIS_URL and HOOKS_REDIS_URL, or TAI_DEFAULT_REDIS_URL for all three; each worker checks them at boot, after the stored env is applied). _(default: `1`)_ |
 | `--stateless-http` / `--no-stateless-http` | Run an http/streamable-http transport in fastmcp's stateless mode, which lifts the single-worker restriction for those transports. Refused with 'sse'/'stdio'. _(default: `False`)_ |
