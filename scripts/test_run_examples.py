@@ -102,7 +102,7 @@ def test_unknown_fixture_fails(tmp_path: Path, monkeypatch) -> None:
 
 def test_yaml_valid_and_invalid(tmp_path: Path, monkeypatch) -> None:
     examples = _wire_tmp(monkeypatch, tmp_path)
-    _example(examples, "presets/ok.yaml", "#| validate: preset\nbase_tool: echo_tool\n")
+    _example(examples, "presets/ok.yaml", "#| validate: preset\nbase_tool: echo_tool\ndescription: Echo back.\n")
     _example(examples, "presets/missing.yaml", "#| validate: preset\ndescription: no base_tool\n")
 
     outcome = run_examples.run(run_examples.discover())
