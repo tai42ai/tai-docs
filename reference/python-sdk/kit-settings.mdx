@@ -233,8 +233,10 @@ settings_customise_sources(
 
 Put the kit's cached dotenv source in the dotenv slot.
 
-Every other option of the source is read from ``settings_cls.model_config``,
-as the framework's own source reads it.
+The source reads ``tai_env_file``, or no file when its reads are suspended
+(`env_file_reads_suspended`). Every other option of
+the source is read from ``settings_cls.model_config``, as the framework's own source
+reads it.
 
 **Parameters**
 
@@ -338,6 +340,31 @@ The identity of the regular file at ``path``, or ``None`` when there is none.
 
 A missing path, a directory, a FIFO, or a path ``stat`` cannot reach answers
 ``None``, as ``Path.is_file()`` answers ``False`` for each.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str \| os.PathLike[str]` | — | — |
+
+
+## env_file_reads_suspended
+
+`tai42_kit.settings.env_file.env_file_reads_suspended`
+
+```python
+env_file_reads_suspended(path: str | os.PathLike[str]) -> Iterator[None]
+```
+
+Read the env file at ``path`` in no settings construction inside the block.
+
+``path`` is resolved on entry (a relative path against the working directory, symlinks
+followed), and a settings class whose env file resolves to the same file reads no env
+file inside the block; an env file at any other path is still read. Blocks nest, each
+adding its path. The state is held in a context variable: a task created inside the
+block copies the context and so skips the file too, while a thread started with
+``threading.Thread`` starts from an empty context and reads it, unless the interpreter
+makes threads inherit the context (``sys.flags.thread_inherit_context``).
 
 **Parameters**
 
