@@ -67,14 +67,20 @@ Limits shared by every agent in this package:
 | `TAI_AGENTS_EMBEDDING_DIMS_CACHE_SIZE` | `64` | Bound on the retrieval agent's embedding-dims probe cache (an LRU). |
 | `TAI_AGENTS_DEFAULT_RECURSION_LIMIT` | `50` | Default LangGraph `recursion_limit` when a run pins none; a caller-supplied limit wins. |
 | `TAI_AGENTS_SYSTEM_PROMPT_CACHE_DEFAULT` | `true` | Mark the per-run system prompt for prompt caching on providers that support it (see [System-prompt caching](#system-prompt-caching)). |
-| `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` | `3` | How many times a run re-prompts a model whose response fails to parse against a requested `response_format` before it ends with a typed outcome (see [Structured-output outcomes](#structured-output-outcomes)). |
+| `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` | `3` | How many times a run re-prompts a model whose final answer fails to parse or validate against a requested `response_format`, or carries no structured answer, before it ends with a typed outcome (see [Structured-output outcomes](#structured-output-outcomes)). |
 | `TAI_AGENTS_GRAPH_CACHE_SIZE` | `64` | How many compiled tools-agent graphs each event loop keeps for reuse (an LRU); a tool registration change or a settings reload makes the next run compile afresh. |
+| `TAI_AGENTS_CHAINED_PARK_HORIZON_CAP_HOURS` | `168` | Ceiling, in hours, on how far ahead a chained park (one waiting on a nested call) may keep its inherited deadline. The park's horizon is the nearest of the inherited deadline, this cap and the run's own retention bound; a nested run with no deadline takes the cap. |
 
 ### Structured-output outcomes
 
 When a run requests a `response_format`, the model's answer is forced through a
-tool-calling rail that re-prompts the model each time its response fails to parse
-against the schema. Two typed, **non-fatal** terminal outcomes bound that loop, so
+rail that re-prompts the model each time its final answer fails to parse or
+validate against the schema, or carries no structured answer at all (an empty
+reply, or the answer written as plain text instead of the structured output). A
+turn in which the model only calls other tools is not judged; the run continues,
+also when those calls all failed to parse (see [Tool-error
+resilience](#tool-error-resilience)). A structured answer whose arguments do not
+parse is judged even when the same turn also calls other tools. Two typed, **non-fatal** terminal outcomes bound that loop, so
 a run that cannot produce a conforming or bounded answer ends readably instead of
 failing generically. Each surfaces exactly like a normal terminal — the streaming
 faces emit it as a terminal event, `run` returns it as the run's value, the agent
@@ -83,7 +89,7 @@ turn's reply — so a flow or route branches on its `type`:
 
 | Outcome (`type`) | Raised when | Fields |
 | --- | --- | --- |
-| `structured_output_unresolved_final` | The model never produced schema-conforming output within `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` re-prompts. | `schema_name`, `attempts` (non-conforming responses, the cap plus the final rejected attempt), `error` (last validation error, masked) |
+| `structured_output_unresolved_final` | The model never produced schema-conforming output within `TAI_AGENTS_STRUCTURED_OUTPUT_REPROMPT_CAP` re-prompts. | `schema_name`, `attempts` (non-conforming responses, the cap plus the final rejected attempt), `error` (the last error, masked: a validation error, or the message naming the missing structured answer) |
 | `recursion_limit_final` | The run hit its graph step ceiling (`recursion_limit`) before finishing. | `limit`, `steps` (known step count, else null) |
 
 Both carry `final: true`. Neither raises — a branch that does not handle them
@@ -98,7 +104,7 @@ Redis URL:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `TAI_AGENTS_REDIS_URL` | falls back to `TAI_DEFAULT_REDIS_URL` | The park index store. With neither set there is no durable park index, so a park-capable run refuses the async ask loudly rather than parking where it cannot be resumed. |
+| `TAI_AGENTS_REDIS_URL` | falls back to `TAI_DEFAULT_REDIS_URL` | The agents plugin's Redis. It holds the park index and the workspace lease. With neither set there is no durable park index, so a park-capable run refuses the async ask loudly rather than parking where it cannot be resumed. The workspace lease serializes the turns of one `thread_id` across workers, so a threaded `claude_code` or `langchain_deep_agent` run needs this Redis even when it never parks; with neither set, such a run fails loudly when it takes the lease. A run with no `thread_id` takes no lease and does not touch Redis. |
 
 The park index is the agents plugin's own Redis, independent of the checkpoint provider
 and the interactions store. It is the platform kit's shared park index library
@@ -274,10 +280,19 @@ in-process tool's own body exception is reported — or a pydantic `ValidationEr
 from a malformed tool call becomes an error result the model can react to. Failures
 outside the tool call (agent machinery, provider or infrastructure errors) still
 abort loudly. This holds across every tool-running agent in this package, including a
-deep agent's explicit and nested subagents. A thread whose previous turn was aborted
-mid-tool-call is repaired at the next turn start — its unanswered tool calls get
-synthetic error results so the provider accepts the thread — while a thread paused on
-a real interrupt is left untouched.
+deep agent's explicit and nested subagents. A tool call whose arguments did not parse
+(the provider reports it as an invalid tool call) is answered right after the model
+turn with an error result carrying the parse error, so the next request answers every
+call the model made; the stream shows it as a tool call with no arguments followed by
+that error result. A broken call that carries no call id or no tool name cannot be
+answered, because a tool result needs both; it is logged as a warning. When every call
+of a turn failed to parse and the turn produced no structured answer, the model is
+called again to read the errors, and the run's recursion limit bounds those retries. A
+broken call to the structured-output tool is judged by the structured-output rail
+instead (see above). A thread whose previous turn was aborted mid-tool-call is repaired
+at the next turn start — the calls of its last model turn that have no result yet,
+valid or invalid, get synthetic error results so the provider accepts the thread —
+while a thread paused on a real interrupt is left untouched.
 
 ## langchain_deep_agent
 
@@ -302,6 +317,18 @@ missing either raises a `ValueError` before the run starts. When a run requests 
 silently omitting the structured frame**: the JSON `run` face raises on drain, and the
 streaming face raises after the stream drains — unless the run paused on a pending
 interrupt, which takes precedence over the missing-structured raise.
+
+### Configuration (`TAI_AGENTS_LANGCHAIN_DEEP_*`)
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TAI_AGENTS_LANGCHAIN_DEEP_SESSION_IMAGE` | required | The scratch session image (python3 and coreutils) — a digest reference `…@sha256:<64 hex>`; a bare tag or an unset value is rejected at run start. |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CREDS` | empty | Session creds injected into the session shell (service creds only; the model call runs server-side, so no model credential enters the session). See [Session credentials](#session-credentials). |
+| `TAI_AGENTS_LANGCHAIN_DEEP_SESSION_TTL_SECONDS` | `86400` | Workspace/session idle-reap deadline; also bounds how long a park may wait. |
+| `TAI_AGENTS_LANGCHAIN_DEEP_NETWORK` | inherit | Narrows the platform egress posture (`none`/`internal`/`egress`); a value looser than the platform ceiling is refused at session create. |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CPU` | unset | Session CPU cap, enforced by the sandbox provider or refused by it. |
+| `TAI_AGENTS_LANGCHAIN_DEEP_MEMORY_MB` | unset | Session memory cap in MB, enforced by the sandbox provider or refused by it. |
+| `TAI_AGENTS_LANGCHAIN_DEEP_CRASH_RESUME` | `false` | Re-dispatch a recycled detached run at-least-once (re-executes from scratch). Recycle-class. |
 
 ## claude_code
 
