@@ -23,7 +23,7 @@ The gate is on by default. Before it can admit requests in a real deployment, th
     The gate runs unless you set `ACCESS_CONTROL_ENABLE=false`. Leave it unset (or `true`) in production — the [quickstart](/getting-started/quickstart) disables it only for local, auth-free development.
   </Step>
   <Step title="A Redis for the live auth context">
-    The identity provider's api-key records and the per-user live counters live in a plain Redis — any standard `redis-server`. No RedisJSON module or `redis-stack` image is required. There is no baked-in default: point the connection with `ACCESS_CONTROL_REDIS_URL`, or let it resolve from the shared `TAI_DEFAULT_REDIS_URL` — with the gate on, one must be set.
+    The per-user live counters live in a plain Redis — any standard `redis-server`. No RedisJSON module or `redis-stack` image is required. There is no baked-in default: point the connection with `ACCESS_CONTROL_REDIS_URL`, or let it resolve from the shared `TAI_DEFAULT_REDIS_URL` — with the gate on, one must be set, or every request that carries a key is denied. The Redis API-key provider keeps its key records in its own plain Redis, `TAI_IDENTITY_REDIS_URL`, which also falls back to `TAI_DEFAULT_REDIS_URL`.
   </Step>
   <Step title="A Postgres policy store">
     Scopes, route mappings, and per-user policy bodies live in Postgres — the only policy store. It lives in the [named database](/concepts/config-and-secrets#named-databases) the core `skeleton` component binds to — the `default` database unless `TAI_DB_BINDING_SKELETON` points it elsewhere. Configure that database, including its password via `TAI_DATABASE_DEFAULT_PG_PASSWORD`.
@@ -33,7 +33,7 @@ The gate is on by default. Before it can admit requests in a real deployment, th
 
     <IdentityManifest />
 
-    It registers itself as the `redis` provider at import; `ACCESS_CONTROL_AUTH_PROVIDERS` (an ordered JSON list, default `["redis"]`) names the chain the verifier tries. Swap the module and the provider name to use a different authn backend.
+    It registers itself as the `redis` provider at import. `ACCESS_CONTROL_AUTH_PROVIDERS` (an ordered JSON list) names the chain the verifier tries; unset, the chain is every registered identity provider, sorted by name. Swap the module and the provider name to use a different authn backend.
   </Step>
   <Step title="Probe routes are public by default">
     A **registered, authenticated** route the operator mapped to no scope is reached by every role-holder out of the box (it resolves to the universal scope `*`); only a path the app does **not serve** is denied to ordinary identities (a condition-free `*` super-admin key is still admitted — a root is never gated by a missing route). The liveness and readiness probes carry no key, but they are served public by the app's own route-level declaration: `/health` and `/ready` ship in `ACCESS_CONTROL_ACKNOWLEDGED_PUBLIC_ROUTES`, so an orchestrator reaches them with no key and no manual pin.

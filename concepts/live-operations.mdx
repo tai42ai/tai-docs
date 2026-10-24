@@ -110,8 +110,15 @@ remote miss is reported and logged. Inspect the fleet and re-drive a reload with
 the [`tai fleet` group](/operate/manage-a-fleet).
 
 Because a mutation reaches every worker, the deployment shapes that run more
-than one process need the bus: the boot rules refuse a multi-worker server, a
-registered backend, or `kubernetes` mode without `TAI_BUS_REDIS_URL`.
+than one process need the bus: the boot rules refuse a multi-worker `tai serve`
+server, a registered backend, or `kubernetes` mode without `TAI_BUS_REDIS_URL`. A
+registered backend also needs a shared hooks registry (`HOOKS_REDIS_URL`, or
+`TAI_DEFAULT_REDIS_URL`), so a mutation that adds a backend over an in-memory hooks
+registry, or removes the hooks store while a backend remains, is refused at the
+validate step, naming `HOOKS_REDIS_URL`; the same holds for the bus. A multi-worker
+`tai serve` server also needs shared sub-MCP and hooks stores, so a mutation that
+would leave it without the bus or with either store in-memory is refused at the
+validate step too, naming the setting.
 
 A [settings-profile](/concepts/config-and-secrets#settings-profiles) apply extends
 this pipeline at the reload step: instead of refreshing in place it builds a fresh

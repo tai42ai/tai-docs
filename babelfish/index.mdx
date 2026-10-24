@@ -889,10 +889,10 @@ Under first match, row order is **semantic**, so it cannot ride the member order
 JSON object — object member order is not meaningful and does not survive every store a
 flow passes through (Postgres `jsonb`, for one, re-keys members by key length then
 bytewise). The order instead rides an explicit **array** of route keys that no store can
-permute, written on save from the routes table below. A flow authored before that
-carrier existed keeps running in whatever order it already had, and the first
-arrangement made in the table pins it. The array must list every route exactly once — a
-partial or unknown listing is refused at load rather than guessed at runtime.
+permute, written on save from the routes table below. A first-match router with routes
+must carry it — one without it is refused at load. The array must list every route
+exactly once — a partial or unknown listing is refused at load rather than guessed at
+runtime.
 
 First-match order carries two guard rails, refused loudly at load and scoped to first
 match (every-match routing is order-free, so neither rule constrains it):
@@ -1334,13 +1334,6 @@ batch, so the keyed ops ride what that jq yields rather than a per-op picker; a 
 state-change trace renders a keyed write by its op and path — `set /items where id = a`
 or `removed /items where id = a`.
 
-<Note>
-**Downgrade note.** Drain any keyed-op runs before rolling a server *back* to a
-build that predates keyed ops: an older server would replay a stored keyed op as a
-whole-list `set` and silently clobber the list. The forward direction is safe — a
-pre-keyed batch never carries a keyed op, and an unknown op fails loud by design.
-</Note>
-
 ### Refresh: opt-in state re-read
 
 Every run seeds its bound records into `$states.<name>` **once, at mint** — so a node
@@ -1712,7 +1705,9 @@ runnable may instead opt into **per-node session continuity**, keying that node'
 agent runs to one retained session so memory carries across successive runs of the
 node. The key is a plain-string template — placeholders for the flow-run id and the
 node's raw id are substituted at run time, and the engine always forces the
-reserved `flow:` prefix. Because the key is keyed on the raw node id it is stable
+reserved `flow:` prefix. Clearing the key in Studio resets it to the default template
+`flow:{flow_run_id}:{node_id}`; a bare `flow:` would be one thread shared by every such
+node in every run, so clear **Keep agent session across loops** instead to turn continuity off. Because the key is keyed on the raw node id it is stable
 across iterations, so inside a sequential loop each iteration resumes the previous
 iteration's agent thread; a parallel loop, which would drive the same key
 concurrently, is rejected at build time. Real carry-over needs a

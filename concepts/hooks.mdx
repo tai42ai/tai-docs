@@ -237,7 +237,13 @@ it; the event's cause is already logged on its own.
 ## Managing hooks live
 
 Hooks are managed at run time, with no restart. The manager comes in an in-memory
-and a Redis-backed form, and the authed management doors (`GET`/`POST`/`DELETE`
+and a Redis-backed form (`HOOKS_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL`); the in-memory
+form is per-process, so under `tai serve` with more than one worker each worker
+refuses to boot on the in-memory form (a reload or config write that would leave it
+in-memory is refused too), and a config that registers a task
+[backend](/concepts/backends) is refused over the in-memory form at any worker count (the backend process matches the events it raises
+against its own registry, which would hold none of the hooks registered through the
+server). The authed management doors (`GET`/`POST`/`DELETE`
 `/api/hooks`) are a thin skin over it — the same manager the hook-management
 [operations](/concepts/live-operations) drive. Register and remove hooks from the
 CLI:

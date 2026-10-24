@@ -47,24 +47,30 @@ lifts the refusal — for the HTTP transports only. It has no meaning for `sse` 
 `stdio` (SSE has no stateless mode and STDIO has no HTTP sessions), so combining it
 with either is itself refused.
 
-`tai serve` also refuses `--workers` greater than one without the
-[worker bus](/concepts/worker-bus): sibling workers would serve stale config after a
-reload with no channel to converge on. So a multi-worker HTTP server needs both
-`--stateless-http` and `TAI_BUS_REDIS_URL`.
+More than one worker also needs the [worker bus](/concepts/worker-bus), or sibling
+workers would serve stale config after a reload with no channel to converge on, and
+shared [sub-MCP and hooks stores](/operate/deploy#scale-workers) (`SUB_MCP_REDIS_URL`
+and `HOOKS_REDIS_URL`; `TAI_DEFAULT_REDIS_URL` stands in for them and the bus), or a sub-MCP app or
+a hook registered through one worker would be unknown to its siblings. `tai serve`
+hands its worker count to each worker, and each worker refuses to boot without them,
+after it applies the stored env; `tai serve` then exits non-zero. So a multi-worker
+HTTP server needs `--stateless-http`, `TAI_BUS_REDIS_URL`, and both stores.
 
 | transport | `workers=1` | `workers>1` |
 |---|---|---|
 | stdio | ok | refused |
 | sse | ok | refused |
-| http / streamable-http | ok (stateful default) | refused unless `--stateless-http` **and** the bus (`TAI_BUS_REDIS_URL`) |
+| http / streamable-http | ok (stateful default) | refused unless `--stateless-http`, the bus (`TAI_BUS_REDIS_URL`) **and** the sub-MCP and hooks stores (`SUB_MCP_REDIS_URL`, `HOOKS_REDIS_URL`) |
 
 Embedding the runtime in your own process applies the session-pinning rule the same
 way: pass `create_app(manifest_path="manifest.yml", stateless_http=True)` to run
-several workers. The bus, though, is a documented limitation when you embed — the
-workers-count rule lives in the `tai serve` CLI, and in-process code cannot count
-sibling processes, so a `create_app(..., stateless_http=True)` factory run under an
-external `--workers` passes no rule yet runs busless-stale. Set `TAI_BUS_REDIS_URL`
-yourself in any multi-process embed. See
+several workers. The bus and the stores, though, are a documented limitation when
+you embed — the worker count reaches the workers rules only from `tai serve`, and
+in-process code cannot count sibling processes, so a `create_app(...,
+stateless_http=True)` factory run under an external `--workers` counts each process
+as one worker and passes the workers rules even with no bus and per-process stores.
+Set `TAI_BUS_REDIS_URL`, `SUB_MCP_REDIS_URL` and `HOOKS_REDIS_URL` yourself in any
+multi-process embed. See
 [Multi-worker and fleet sync](/operate/embed#multi-worker-and-fleet-sync).
 
 <Note>

@@ -25,6 +25,12 @@ A run may name another provider for itself (an agent's `checkpoint_provider`, a 
 | `sqlite` | no | the checkpoint sweep | in every checkpoint | by default |
 | `memory` | no | the end of the process | once per version | when `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES` is `true` |
 
+The `redis` store needs a Redis with the JSON and search modules. Redis 8 ships both; a
+Redis 7 needs RedisJSON and RediSearch loaded. On a plain Redis the store's setup fails with
+`unknown command 'FT._LIST'`. With `LLM_PROVIDER_CHECKPOINT_CONN_STRING` unset, the store uses the
+shared `TAI_DEFAULT_REDIS_URL`, so that Redis is the one that must provide the modules. See
+[Infrastructure by feature](/operate/infrastructure) for what every store needs.
+
 Only a store that survives a restart (`redis`, `postgres`, or a registered store that declares it)
 can hold a **parked** run (one waiting on an async `ask`): a paused run must be readable by
 whichever worker later resumes it.

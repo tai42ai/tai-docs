@@ -19,11 +19,11 @@ Fleet convergence rides the app's own worker bus — internal infrastructure you
 export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
 ```
 
-The boot rules refuse a multi-worker server, a `kubernetes`-mode server, or a server with a registered backend when the bus is off — see [the worker bus](/concepts/worker-bus#boot-rules). A single-worker, `file`-mode, backend-free process is the one supported busless shape; it runs on a no-op local bus and is its own whole fleet.
+The boot rules refuse a multi-worker `tai serve` server, a `kubernetes`-mode server, or a server with a registered backend when the bus is off — see [the worker bus](/concepts/worker-bus#boot-rules). A single-worker, `file`-mode, backend-free process is the one supported busless shape; it runs on a no-op local bus and is its own whole fleet.
 
 ## Wire a backend
 
-A [backend](/concepts/backends) is a separate concern: a task runtime for background, scheduled, and distributed runs. It is optional, and it does **not** supply the fleet bus. Name a backend module to add that runtime:
+A [backend](/concepts/backends) is a separate concern: a task runtime for background, scheduled, and distributed runs. It is optional, and it does **not** supply the fleet bus. Name a backend module to add that runtime, and set the bus and a shared hooks registry beside it (`HOOKS_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL`): the backend process matches the events it raises against its own [hooks](/concepts/hooks#managing-hooks-live) registry, so a backend over an in-memory one is refused at any worker count:
 
 <BackendManifest />
 
