@@ -11,14 +11,14 @@ mints [trigger links](/guides/fire-a-tool-from-a-webhook#trigger-links-qr) — p
 QR URLs that fire a topic on a scan.
 
 Every hook and every trigger link fires under a bound **execution key**: the api-key
-identity the dispatch runs as. The picker is the same on both forms, and it is a
-required field on each — a fire never runs as "nobody".
+identity the dispatch runs as. The picker is the same on both forms, and wherever
+[access control](/concepts/access-control) is enabled a fire never runs as "nobody".
 
 ## Register a hook
 
 The **Register hook** form names the topic to listen on and the tool to fire, then
-binds the execution key that fire runs as. Name, topic, tool, and the execution key
-are required; tool kwargs, a condition, and the [door-contract
+binds the execution key that fire runs as. Name, topic and tool are required, and so
+is the execution key wherever access control is enabled; tool kwargs, a condition, and the [door-contract
 jqs](/concepts/asking-the-caller#the-door-contract) (`start_expr`, `cancel_expr`,
 `resume_expr`, `extras_expr`) are optional.
 
@@ -27,12 +27,24 @@ jqs](/concepts/asking-the-caller#the-door-contract) (`start_expr`, `cancel_expr`
   <img className="hidden dark:block" src="/images/studio/hooks-execution-key-dark.png" alt="The Studio Hooks page Register hook form with an execution-key picker selected." />
 </Frame>
 
-The **Execution key** picker lists the api keys you may bind — your own identity or a
-key you own; an admin may bind any. Each option shows the key's id, its description,
-and its stable fingerprint. The fire runs **as** that key: every tool call it makes is
-authorized against that key's live grants, so prefer a least-privilege service key
-over a human's broad one. If no key is bindable the picker says so and points you at
-the [API-keys tab](/studio/api-keys) to mint one first.
+The **Execution key** picker lists the api keys you own; an admin sees every key. Each
+option shows the key's id, its description, and its stable fingerprint. The fire runs
+**as** that key: every tool call it makes is authorized against that key's live grants,
+so prefer a least-privilege service key over a human's broad one. What the picker offers
+depends on how you are signed in:
+
+- **Signed in with an api key.** When the list does not hold your own identity, the
+  picker offers it as "`<id>` — this session's identity", and choosing it reads "This
+  runs as this session's own identity, `<id>`, with its live grants."
+- **Signed in as an account.** An account is not an api key, so your own identity
+  cannot be picked. With no key of yours listed, the picker says to mint one on the
+  [API-keys tab](/studio/api-keys) first, and **Register** and the trigger-link mint
+  stay disabled until there is a key to bind.
+- **No access to list keys.** The picker says which read it needs (`GET
+  /api/auth/tokens-payload`) and to ask an administrator to grant it.
+
+With access control off, the hook, trigger-link and schedule forms have no Execution key
+field, and the record runs as the gate-off identity.
 
 <Note>
 The binding is to the key's **fingerprint**, not just its id. Revoking the key kills
@@ -60,7 +72,16 @@ Every registered hook lists in a table, and each row carries an **Edit** and a
 _Edit hook_; saving it is a true update over the register door — the button reads
 **Save changes** — not a delete-and-recreate. A hook edited through an inline field
 keeps any id-bound condition or door-contract jq it carried, so touching the topic or tool
-never silently drops a gate you set by id. **Delete** opens a confirm dialog and
+never silently drops a gate you set by id.
+
+A hook whose stored key is not in the picker's list opens with that key flagged **not a
+listed key**, and a line says what the server will do with it on save: an admin may bind
+another identity, which the server checks; for anyone else the server refuses an
+unlisted key, unless an api-key session's key is its own identity. A second line
+compares the key with your session before **Save changes**: a key that is not your
+session's identity is flagged **not your identity** (for anyone but an admin, with "so
+the server will refuse it on save"), and your own account is flagged **not an api
+key**. **Delete** opens a confirm dialog and
 unregisters the hook by name; it is immediate and cannot be undone.
 
 Binding a verifier to the topic is the adjacent **Bind verifier** form. It is

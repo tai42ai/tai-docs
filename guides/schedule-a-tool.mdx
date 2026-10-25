@@ -77,6 +77,13 @@ curl -X POST .../api/schedules -H 'Content-Type: application/json' -d '{
 
 The body is closed: an unknown key is a `400`, and so is naming the `<tool>_schedule_task` vehicle as `tool_name` or giving `schedule_name` without a `cadence`.
 
+Every door checks what the schedule names. An unknown tool is a `400`
+(`scheduled tool 'ghost' is not a registered tool`), and the `tool_kwargs` are checked the
+way a [preset body](/concepts/presets#every-stored-reference-is-checked-at-write) is, for
+every kind of target: an agent's `tool_names` entry, a stored template id at a templated
+field, or a name a base tool's `tool_refs` extractor reports. Each miss is one line of the
+`400`, for example `tool_kwargs.tool_names entry 'ghost' is not a registered tool`.
+
 ## Driving parked interactions
 
 A schedule can also be a **parkable-driving door**: on each fire it can cancel, resume,
@@ -151,7 +158,7 @@ The Studio's **Scheduling** page lists the deployment's schedules: each row name
   <img className="hidden dark:block" src="/images/studio/scheduling-rows-dark.png" alt="The schedules table with columns Name, Schedule, Status, Tool and Actions: hourly-sync every 3600 seconds, nightly-refresh and weekly-digest on cron cadences, weekly-digest with an Error badge." />
 </Frame>
 
-**Add schedule** opens the create dialog: a name, the tool (only tools the server marks `schedulable` are offered), its kwargs as JSON, and an **Interval** or **Crontab** cadence. Below the cadence sit the schedule's subject, the execution key the fire runs as, and the Start, Cancel, Resume and Extras jqs of [driving parked interactions](#driving-parked-interactions), and the schedule's [state binding](/concepts/states#saving-a-binding).
+**Add schedule** opens the create dialog: a name, the tool (only tools the server marks `schedulable` are offered), its kwargs as JSON, and an **Interval** or **Crontab** cadence. Below the cadence sit the schedule's subject, the execution key the fire runs as (shown only with access control on; with it off the schedule runs as the gate-off identity, and the field is absent; a key session is offered its own identity when the list does not hold it, an account session must mint a key first, and a session that may not list api keys is told which read it needs), and the Start, Cancel, Resume and Extras jqs of [driving parked interactions](#driving-parked-interactions), and the schedule's [state binding](/concepts/states#saving-a-binding).
 
 <Frame caption="The Add schedule dialog on a crontab cadence, with the execution key the fire runs as.">
   <img className="block dark:hidden" src="/images/studio/schedule-contract-light.png" alt="The Add schedule dialog with name nightly-refresh, the tool studio_demo_echo, an empty kwargs object, Crontab selected with 0 2 * * *, and an execution key chosen." />

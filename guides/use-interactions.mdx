@@ -122,14 +122,15 @@ moment:
   two ways, and passing both raises. `expiry_at` is valid only with `mode="async"`.
 
 When the answer arrives, the run resumes on its own: a stored continuation runs under
-the **asker's** identity, exactly once. The continuation receives `answer`, `reply_to`
-and `params`, the same values a synchronous asker reads; a run parked on the builtin `ask`
-tool gets the same `{answer, reply_to, params}` object as the tool's result. What a lapsed `expiry_at` does is the ask's
+the **asker's** identity, exactly once. The continuation is called with
+`{interaction_id, ask_result}`: `ask_result` is the `{answer, reply_to, params}` object a
+synchronous asker reads, so a run parked on the builtin `ask` tool gets that same object as
+the tool's result. What a lapsed `expiry_at` does is the ask's
 **`on_expiry`** policy: `on_expiry="kill"` (the default) tears the whole run chain
 down, while `on_expiry="resume"` resumes the continuation with a reserved *interaction
 expired* marker in place of an answer, so the run takes its expiry branch — set it when
-the run has an expiry path to run. The expiry marker arrives as `answer`, with `reply_to`
-and `params` `null`.
+the run has an expiry path to run. On expiry `ask_result` still has that shape: its
+`answer` is the expiry marker, and `reply_to` and `params` are `null`.
 
 ```json
 {"question": "Approve the deploy?", "answer_format": "confirm", "mode": "async", "expiry_at": "2026-06-01T12:00:00Z", "on_expiry": "resume"}

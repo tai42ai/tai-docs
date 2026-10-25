@@ -46,6 +46,36 @@ over the [worker bus](/concepts/worker-bus), not only on the process that made t
 change — so no worker keeps serving a template compiled from stale content, or keeps
 treating a just-created template (or locale variant) as missing.
 
+A stored template named by id is checked when the thing that names it is saved, as a tool
+name is: a preset's input and output schema, the slots of a `state_binding` (on a preset, a
+hook, a schedule or a per-target conversation config), a state declaration or state
+template, and every templated text a preset's, a hook's or a schedule's tool arguments name
+by id: each input field of the tool typed as a templated text, at any depth (an agent's
+system prompt, user message and response format, a sub-agent's prompt, each entry of a list
+of templated texts), and the places a tool declares in its own config. The check reads the
+bare default id, also for a text rendered with a locale: a template stored only as locale
+variants (`greeting@he-IL` and no `greeting`) is refused. An id that is not stored, or that
+is not a canonical key, is refused (`400`, or `422` on the states routes) with the line
+`stored id '<id>' at <site> is not a stored template`. The same check runs wherever a stored
+record names a template by id: a hook's condition, its subject's key expression and its door
+expressions; a schedule's door expressions; a conversation route's door expressions and reply
+expression; the condition of an API key, a principal or a role. A restore runs it too, and
+restores the `storage` section before every section whose records it checks.
+
+A stored object that something names by id cannot be deleted: the delete, through
+`tai storage`, `tai templates` or the Storage screen, is refused (`409`) with one line per
+holder, for example `hook 'h' names 'jq/gate' at condition`, and the answer's `holders`
+list; a directory delete is refused when any object under it is named. The summarization
+setting is among the holders: a stored id in `SUMMARIZATION_MIDDLEWARE_SUMMARY_PROMPT` holds
+its template (`setting 'SUMMARIZATION_MIDDLEWARE_SUMMARY_PROMPT' names '<id>' at
+summary_prompt`); that id is resolved when the summarizer is built, not checked at the env
+write. Change or remove the holders, then delete. A plugin that stores records naming
+templates registers a referee with `tai42_app.storage.register_template_delete_referee`, a
+coroutine called with the ids a delete would remove that answers one holder entry per place
+a record names one; a record that stores a tool name and its arguments reads the template
+ids those arguments name with `await tai42_app.tools.kwargs_template_refs(tool, kwargs)`, the
+platform's own reading (a tool that is not registered names none).
+
 A plugin that caches something built from rendered templates follows the same eviction.
 `tai42_app.storage.template_reads()` is a context manager that records, into the set it
 yields, every template id a render inside the block reads — a by-id render's whole locale
@@ -86,6 +116,7 @@ tai storage info                                  # provider identity, or the em
 tai storage list                                  # the stored resource ids
 tai storage upload notes/todo.txt --text 'buy milk'
 tai storage stat notes/todo.txt                   # inferred content type
+tai storage read notes/todo.txt                   # a text, document or binary entry
 tai storage download notes/todo.txt               # raw bytes to stdout
 tai storage delete notes/todo.txt
 ```
@@ -93,15 +124,19 @@ tai storage delete notes/todo.txt
 Storage is **dead by default** — the skeleton ships no provider. With none
 registered, `tai storage info` reports the empty state (`present: false`, a `200`
 so a UI renders it cleanly) while every CRUD door answers an honest `501` rather
-than a fabricated default. A resource id must be a relative path with no `..`
-segment; an absolute path or a `..` traversal is rejected with a `400` before it
-reaches the filesystem-backed provider. Upload takes exactly one of `--text` (verbatim)
+than a fabricated default. A store key is a relative, `/`-separated name with no
+empty, `.` or `..` segment and no backslash. The storage file actions, the template
+doors, both entry doors and restore refuse any other spelling with a `400` (a per-row
+error on restore). The CLI and the Studio refuse a key with a `.` or `..` segment
+before sending, since their HTTP clients would rewrite it, and send every other
+spelling, showing the server's `400`. Upload takes exactly one of `--text` (verbatim)
 or `--base64` (decoded bytes), and an existing id is overwritten.
 
 The presence answer (`GET /api/storage` / `tai storage info`) is a core,
 always-mounted read: it is answerable in every deployment, including one that mounts
 no storage management surface, so a consumer can always tell "no provider" apart from
-"cannot ask".
+"cannot ask". The answer names the mounted management surfaces (`surfaces`: `storage`,
+`templates`), and it is open to the storage grant and the templates grant.
 
 The template-aware surface is the same content viewed as renderable resources:
 
@@ -114,6 +149,11 @@ tai templates render --text '{"id": "<id>"}'
 
 Stored content is one of the sections the [backup](/operate/backup-and-restore)
 surface can export and restore.
+
+A module may mark a prefix of the store as not backed up, so backups leave the objects
+under it out, or as unlisted, so no storage or template listing shows them while they
+stay readable and deletable by id. Inbound media carries both marks; see
+[inbound media](/operate/storage#inbound-media) for how a plugin declares one.
 
 <Note>
 A specific storage provider's configuration — its bucket, credentials, or paths —

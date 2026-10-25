@@ -15,8 +15,8 @@ inbound identity to what answers it — an **agent** run or a direct **tool** di
 A message reaches the bridge through one of two doors, chosen per route:
 
 - **`channel`** — a messaging provider's webhook delivers an inbound message. The
-  route is matched by the `(channel, our_identity)` pair — the registry name of the
-  channel and the medium address the client texted (a phone number, a chat, a Slack
+  route is matched by the `(channel, our_identity)` pair — the registry name of an
+  installed channel (see `tai channels list`) and the medium address the client texted (a phone number, a chat, a Slack
   conversation). The answer is delivered back through the same channel's adapter,
   sent **from** the identity the client texted.
 - **`api`** — an authed caller `POST`s to
@@ -44,11 +44,11 @@ to what a turn runs — an agent or a tool — and the execution key that turn r
 | `route_name` | A slug (`[a-z0-9-]+`); the handle and the thread-key namespace. |
 | `door` | `channel` or `api`. |
 | `target_kind` | `agent` (a threaded agent run) or `tool` (a stateless tool dispatch). |
-| `target_name` | The agent or tool the turn runs — it must exist. |
+| `target_name` | The agent or tool the turn runs — it must be registered. |
 | `execution_key` | The API-key identity the turn runs **as**. |
 | `initial_mode` | The default [control mode](#control-mode-and-operator-messages): `agent` (run the turn) or `manual` (suppress it for an operator). |
 | `start_expr` / `reply_expr` / `cancel_expr` / `resume_expr` / `extras_expr` | Either target kind: jq mapping the message to the run's kwargs, the result to the reply, and driving the run's [parked interactions](/concepts/asking-the-caller). |
-| `channel` / `our_identity` | `channel` rows: the registry name and the address texted. |
+| `channel` / `our_identity` | `channel` rows: an installed channel (see `tai channels list`, which also shows each channel's hint for `our_identity`) and the address texted. |
 | `callback_url` | `api` rows, optional: the HTTPS answer sink; without one, answers are read from the poll door. |
 | `overlap` | The [overlap policy](#when-messages-overlap): how a running turn treats newer messages on the same thread — leave it, cancel it, or carry a burst into one turn. The default leaves each message its own turn. |
 
@@ -264,8 +264,9 @@ Two authorities are separate and both live:
    agent run (or the `tool` target's dispatch) and every tool call the turn makes.
 
 Binding the execution key is a delegation decision taken when the route is created:
-you may bind your own identity or a key you own, or any key as an admin (a
-pass-role check). The key must be evaluable by a background execution — its stored
+you may bind your own identity when you are an api key, or a key you own, or any key
+as an admin (a pass-role check); an account identity is refused with a `400`, because a
+route runs as an api key. The key must be evaluable by a background execution — its stored
 policy condition must be resolvable with no request token — or the bind is refused.
 
 Because the turn is authorized against the key's **live** grants at fire time, you

@@ -30,6 +30,19 @@ tai presets list
 tai presets get greet
 ```
 
+A preset can also take its own typed input and reshape what goes in and comes out. The
+`--input-schema-file` names a JSON Schema for what the caller sends, `--input-map` turns
+that input into the base tool's arguments (`.` is the caller's input, `$fixed` the fixed
+kwargs), `--output-schema-file` checks the result, and `--state-binding-file` attaches a
+[state binding](/concepts/states#a-bindings-subject-and-scope). See
+[input and output maps](/concepts/presets#input-and-output-maps) for the rules:
+
+```bash
+tai presets create greet-named --base-tool echo --description 'Greet a named user' \
+  --input-schema-file greet-input.json --input-map '{prefix: ("hi " + .name)}' \
+  --output-schema-file greet-output.json --state-binding-file greet-binding.json
+```
+
 To check a draft before committing it — the same pre-write validation the create route runs, but without writing — dry-run it with `validate`:
 
 ```bash
@@ -42,6 +55,13 @@ Save a new version when the configuration changes. Omitted fields carry forward 
 
 ```bash
 tai presets save-version greet --kwargs '{"prefix":"hey"}' --description 'Greet a user warmly'
+```
+
+Every body field has a CLI option. The two schemas, the state binding and the two maps each
+also have a `--clear-*` option that removes the field on the new version. This one reads a new output map from a file and drops the input map:
+
+```bash
+tai presets save-version greet-named --output-map-file greet-output.jq --clear-input-map
 ```
 
 Inspect the history and one version:
@@ -71,10 +91,10 @@ These per-version tags are the only tags a preset record carries. A preset has n
 
 ## Rename a preset
 
-A preset's name is its live tool name, so renaming it rebinds the tool — the new name binds before the old is torn down. Rename integrity is enforced atomically at one gate: a rename **blocks with a `409` listing every holder** of the name until you update them. That list is the full union — the other presets that compose this one (their authored-agent specs name it as a tool) plus every behavioral holder that wires against the name (a schedule firing it, a hook or conversation route targeting it, a tool-extensions entry, a parked interaction's resume continuation, or a plugin-held reference) — and the same holders of any extension branch tool the preset produces, since those branches move with it. Display metadata is not a holder: the [tool-organization overlay](/concepts/tool-organization) follows the name across the rename. Preflight with `referees`, then rename:
+A preset's name is its live tool name, so renaming it rebinds the tool — the new name binds before the old is torn down. Rename integrity is enforced atomically at one gate: a rename **blocks with a `409` listing every holder** of the name until you update them. That list is the full union — the other presets that compose this one (their authored-agent specs name it as a tool) plus every behavioral holder that wires against the name (a schedule firing it, a hook or conversation route targeting it, a tool-extensions entry, a parked interaction's resume continuation, or a plugin-held reference) — and the same holders of any extension branch tool the preset produces, since those branches move with it. Display metadata is not a holder: the [tool-organization overlay](/concepts/tool-organization) follows the name across the rename, and the row of each extension branch tool follows to the new branch name. Preflight with `referees --action rename`, which lists the same holders the rename would refuse on and changes nothing, then rename:
 
 ```bash
-tai presets referees greet
+tai presets referees greet --action rename
 tai presets rename greet greeter
 ```
 

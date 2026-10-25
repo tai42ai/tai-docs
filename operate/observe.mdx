@@ -115,10 +115,18 @@ only the response is smaller.
 
 Each monitoring backend declares the largest run-list page it serves, the run-list
 sorts it serves, and the filters each sort cannot be combined with. The run list
-caps `pageSize` to that page maximum (never refusing a larger one), the export
-drains pages of that size, and the Studio offers only the served sorts and disables
-a filter the active sort cannot carry — a shared link that combines them drops the
-sort.
+caps `pageSize` to that page maximum (never refusing a larger one), and the export
+is one backend read of up to 5,000 runs. The Studio waits for the declaration before
+it reads runs, offers only the served sorts, disables a filter the active sort cannot
+carry, and never sends a combination the declaration excludes. A link with a sort the
+backend does not serve, or with a sort and a filter it does not combine, is shown as
+it is, with a notice saying why and a **Sort newest first** button; the link is not
+changed until you press it.
+
+<Frame caption="A link that sorts by cost with a status filter, opened on a backend that does not combine the two: the link is shown as it is, with a notice saying why and a Sort newest first button.">
+  <img className="block dark:hidden" src="/images/studio/tracing-link-not-served-light.png" alt="The Tracing tab opened from a link with a cost sort and a status filter, showing a notice that the monitoring backend does not sort runs by Cost with the filters in this link, and a Sort newest first button." />
+  <img className="hidden dark:block" src="/images/studio/tracing-link-not-served-dark.png" alt="The Tracing tab opened from a link with a cost sort and a status filter, showing a notice that the monitoring backend does not sort runs by Cost with the filters in this link, and a Sort newest first button." />
+</Frame>
 
 ```bash
 tai traces capabilities
@@ -128,17 +136,20 @@ tai traces capabilities
 {
   "pageSizeMax": 100,
   "sortKeys": ["createdAt", "cost", "latencyMs", "totalTokens"],
-  "incompatibleFilters": {"cost": ["maxCost", "minCost", "status", "version"]},
+  "incompatibleFilters": {},
   "metrics": {"measures": ["cost", "count", "latency", "tokens"], "dimensions": ["model"]}
 }
 ```
 
-(`GET /api/observability/capabilities`; the example is shortened.) A sort or
-combination outside the declaration is refused by the backend with `501`.
+(`GET /api/observability/capabilities`; the example is shortened.) A sort the
+backend does not list, or a combination it declares excluded, is refused with `400`
+and the code `monitoring-read-not-served`; the filters stay. A read the backend
+serves within a bound answers `400 monitoring-read-too-broad` past it, with how to
+narrow it.
 
-<Frame caption="The Tracing tab sorted by cost against a backend whose cost sort cannot carry the cost, latency, token, status and version filters: those filters are disabled.">
-  <img className="block dark:hidden" src="/images/studio/tracing-sort-guard-light.png" alt="The Tracing tab under a cost sort with the Min cost, Max latency and the other filters that sort cannot carry disabled." />
-  <img className="hidden dark:block" src="/images/studio/tracing-sort-guard-dark.png" alt="The Tracing tab under a cost sort with the Min cost, Max latency and the other filters that sort cannot carry disabled." />
+<Frame caption="The Tracing tab sorted by cost, under a backend that declares the filters a cost sort cannot carry: those filters are disabled while the sort is active.">
+  <img className="block dark:hidden" src="/images/studio/tracing-sort-guard-light.png" alt="The Tracing tab under a cost sort with the filters the backend excludes for it, Min cost and Max latency among them, disabled." />
+  <img className="hidden dark:block" src="/images/studio/tracing-sort-guard-dark.png" alt="The Tracing tab under a cost sort with the filters the backend excludes for it, Min cost and Max latency among them, disabled." />
 </Frame>
 
 ## List runs without the vendor
@@ -381,8 +392,7 @@ Because the Claude Agent SDK's model calls run inside the sandbox session and
 bypass the platform LLM seam, the [`claude_code`](/guides/use-the-ready-made-agents)
 adapter emits the SDK-reported usage and cost into the active trace itself — so an
 attributed `claude_code` run's spend rolls up with everything else. Run standalone
-with no ambient trace, the adapter mints its own root trace carrying that
-model-usage span, so a standalone sandbox run is observable on its own rather than
+with no ambient trace, its model-usage span is the root of its own trace, so a standalone sandbox run is observable on its own rather than
 emitting nothing. The boundary:
 the toolbox `prometheus_metrics` extension records latency and count only; it is
 not the cost seam.
@@ -510,7 +520,16 @@ serves and maps its own vocabulary onto the neutral one:
   input and output — the call references resolve through.
 - `list_capability()` returns a `ListCapability`: the `OrderBy.field` values
   `list_traces` serves, and for each sort the `MonitoringFilter` field names it cannot
-  combine with. `list_traces` raises `MonitoringReadNotSupportedError` outside it.
+  combine with. `list_traces` raises `MonitoringReadNotServedError` for a sort or a
+  combination outside it; the same error answers a measure or dimension outside
+  `metrics_capability()`. `MonitoringReadNotSupportedError` is only for a backend
+  that cannot read at all.
+- `export_traces(from_timestamp=…, to_timestamp=…, max_rows=…, filter_=…, order_by=…)`
+  returns, in one read, the run summaries `list_traces` would page through, in its
+  order: at most `max_rows + 1` rows, so more than `max_rows` means more runs match. It
+  takes the same window, filter and sort as `list_traces` and raises the same errors; a
+  bound the backend cannot read past raises `MonitoringReadTooBroadError`. The run
+  export reads through it.
 - `max_page_size()` returns the largest `limit` one `list_traces` call accepts; a
   larger `limit` raises `ValueError`.
 - Each `MonitoringObservation` carries a `kind` (`LLM`, `TOOL`, `CHAIN` or `EVENT`)

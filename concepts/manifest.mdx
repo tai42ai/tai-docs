@@ -45,7 +45,9 @@ registration decorators, which is how a tool, agent, or provider becomes live.
 - **`agents`** — each entry imports a module whose `@tai42_app.agents.agent`
   decorator registers an [agent](/concepts/agents) and generates its run tool.
 - **`mcp`** — external [MCP servers](/guides/bring-an-mcp-server) to mount, one
-  transport per entry (`url`, `uds`, or `command`).
+  transport per entry (`url`, `uds`, or `command`). An entry's `include` / `exclude`
+  selects which of the server's tools mount; it is set from the Studio's Connectors
+  pick step or `tai mcp pick`. See [Unpicking a used tool](#unpicking-a-used-tool).
 - **Startup module hooks** — single-valued slots and module lists that wire
   plugins in: `storage_module`, `backend_module`, `monitoring_module`,
   `extensions_modules`, `lifecycle_modules`, `routers_modules`,
@@ -84,6 +86,23 @@ which tool names go live. The `extensions` map is **attachment** — it branches
 selected tool into a new variant (`{toolname: [ext]}` produces `toolname_ext`).
 Attachment never selects: mapping an extension onto a tool that is not in the
 selected set raises loudly rather than silently doing nothing.
+
+## Unpicking a used tool
+
+A selection change that would stop picking an MCP tool a reference still uses — a
+preset, a schedule, a hook, a route, a tool-extensions entry, a parked interaction, or
+state records under the tool — is refused with a `409` that names the holders. It is
+refused the same on every door that writes the manifest and on every worker: the check
+reads the stored manifest, the stored presets, the stores the registered references
+live in and the server's own tool listing, never which tools the answering worker has
+bound. The way out is to keep the tool picked, or to remove the reference first (state
+records are erased on the States screen).
+
+A change that unpicks a used tool, or that moves a server from mounting every tool (or
+every tool but an exclude list) to an include list, needs the server's tool list, so on
+a server that cannot be listed it is refused with a `502`. A used name the server no
+longer lists is not a tool it binds, so unpicking it is saved. Removing the whole server
+still [quarantines](/concepts/presets#conflicted-records) the presets over it.
 
 ## The `api_tools` block
 

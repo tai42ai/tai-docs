@@ -297,6 +297,17 @@ delete. Nothing is auto-detached — the author removes or rewrites the referenc
 first, then detaches. A consumer registers a referee with `register_detach_referee`, beside
 `register_delete_referee` on the tools facet.
 
+The detach preview door (`GET /api/states/{name}/attachments/{template}/referees`,
+`tai states attachment-referees` on the CLI) runs the same gather and changes nothing. It
+answers `{"action": "detach", "holders": [...]}`, where each holder entry carries its `kind`,
+its `name`, a `locator` and a one-line `summary`, so a UI can link each one to the place that
+fixes it.
+
+Beside the referees, a consumer that keeps rows keyed on a tool name registers a **delete
+cascade** with `register_delete_cascade`. A cascade is called once for each tool a preset
+delete removes — the preset and each extension branch tool bound off it — after every veto
+has passed and before the record is removed.
+
 ### Regimes
 
 A regime is a per-path writer rule composed over a state's attachments. Each rule is a
@@ -409,8 +420,8 @@ The preset [validate](/concepts/presets) dry run runs the same checks **without 
 and reports a refused binding as an invalid verdict; a store failure there is a `500` too,
 never an invalid verdict.
 
-In a backup restore the `states` section replays right after `templates` and before every
-section that restores a binding, so the states and templates a restored binding names exist
+In a backup restore the `states` section replays after `storage` (with `access_control` and
+`sub_mcp` between them) and before every section that restores a binding, so the states and templates a restored binding names exist
 by the time its definition is written.
 
 ### The turn subject block
@@ -607,8 +618,10 @@ The scans over a whole state treat a held save in one of two ways:
 | re-declare (`PUT /api/states/{name}`) | counted: the held saves' records count as present, so a re-declare that would invalidate one, or remove a subject kind one writes, is refused (`409`, naming the saves); any other re-declare is accepted and names the held saves in `held` |
 
 A widening re-declare followed by a retry therefore repairs a save that failed on the
-declaration. A tool rename waits for a pending save under the tool, and is refused while a held
-save, or a save still running its deferred calls, writes under it.
+declaration. A tool rename is refused while any save is outstanding under the tool — pending,
+still running its deferred calls, or failed — and the refusal names each one. The sweep applies
+a pending save; a failed one needs a retry or a discard. The rename preview lists the same saves
+and applies nothing.
 
 ### Retry and discard
 

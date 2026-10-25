@@ -21,7 +21,10 @@ keyed by its tool name.
 At the centre of the feature is a bind kernel that builds the live tool: it takes
 a base tool and fixes some of its arguments, producing a hidden transform of the
 original. The baked values fill in behind the scenes, so a caller supplies only
-the arguments that were left open. The base tool is any registered tool that is
+the arguments that were left open. Two optional jq maps reshape the call on its way
+through: an **input map** builds the base tool's arguments from what the caller
+sends, and an **output map** reshapes the base tool's result (see
+[Input and output maps](#input-and-output-maps)). The base tool is any registered tool that is
 neither a preset nor derived from one — a management
 [operation](/concepts/live-operations) projected as a tool included, so you can save
 a configured variant of a live-ops action just as you would any other tool. A tool
@@ -65,6 +68,15 @@ conflicted record is **delete-only**: save-version, rollback, and rename all rej
 it with a `409`, and only `delete` clears it (a hard store removal that touches no
 registration). This field is the only place the cause is reported — resolve a
 conflict by deleting the record and re-creating it once its base is back.
+
+A preset is quarantined when its base tool's MCP server or an extension it names is
+removed. Unpicking its base tool from the server's selection is refused instead (a
+`409` naming the preset; see [Unpicking a used
+tool](/concepts/manifest#unpicking-a-used-tool)), so a pick never quarantines a preset.
+A stored preset's name is never mounted as an MCP tool, on any worker, at boot or on a
+reload: the server's advertised-tools row for that name reports `preset_conflict` as
+its `unbound_reason`. A preset refused because "its name is occupied by an existing
+tool" collides with a tool outside MCP (a manifest or plugin tool).
 
 ## Plugin-shipped defaults
 
@@ -160,22 +172,25 @@ tai presets versions <name>
 tai presets rollback <name> <version>
 ```
 
-Beyond the create/version/rollback core, the surface carries four more doors:
+Beyond the create/version/rollback core, the surface carries five more doors:
 
 - **`validate`** — a dry-run that reports whether a draft would be accepted,
   running the exact pre-write checks the create (new name) or save-version
   (existing name) route runs, without writing anything. A malformed request is a
   `400`; a valid or invalid draft is both a `200` carrying a `valid` verdict.
-- **`referees`** — every live reference a rename of this name would strand, listed
-  so a UI (or you) can preflight the rename. The list is the full union: the other
-  presets whose authored-agent composition names this one as a tool, **plus every
-  behavioral holder that wires against the name** — a schedule that fires it, a hook
-  that targets it, a conversation route pointing at it, a tool-extensions map entry
-  carrying it, a parked interaction whose resume continuation is it, and any
-  plugin-held reference a plugin declares through the rename-referee seam. A rename
-  also moves every extension branch tool the preset produces, so the union covers
-  references to those branch names too (a preset composing `<preset>_<extension>`,
-  a schedule firing it, and so on). Each holder is named individually.
+- **`referees`** — the holders preview: every live holder the given `action`
+  (`rename` or `delete`) would be refused on, the same gather that action's gate reads,
+  so a UI (or you) can preflight it. The list is the full union: the other presets whose
+  authored-agent composition names this one as a tool, **plus every behavioral holder
+  that wires against the name** — a schedule that fires it, a hook that targets it, a
+  conversation route pointing at it, a tool-extensions map entry carrying it, a parked
+  interaction whose resume continuation is it, and any plugin-held reference a plugin
+  declares through the rename-referee seam. A rename or a delete also moves or removes
+  every extension branch tool the preset produces, so the union covers references to
+  those branch names too (a preset composing `<preset>_<extension>`, a schedule firing
+  it, and so on); a holder of a branch names the branch. Each holder is one entry:
+  its `kind`, its `name`, the `locator` that places the reference inside it (a version,
+  a node id), and a one-line `summary`.
 - **`rename`** — a preset's name *is* its live tool name, so a rename rebinds the
   tool (new name bound before the old is torn down). Rename integrity is enforced
   atomically **at this one gate**: it runs create's name pre-checks on the new name
@@ -185,8 +200,36 @@ Beyond the create/version/rollback core, the surface carries four more doors:
   a conflicted record (`409`) and a no-op rename (`400`). Display metadata is not a
   behavioral reference: a tool's [organization overlay](/concepts/tool-organization)
   follows the name across a rename rather than blocking it.
+- **`delete`** — removes the preset and each extension branch tool bound off it. The
+  delete, its preview and every delete referee read all of those names, and the delete
+  is refused with a `409` listing every holder of any of them. Once nothing holds them,
+  every registered delete cascade runs for each name, and then the record is removed.
+  The delete reads no preset body, so it works on a record the reference walk cannot
+  read.
 - **`set-version-tags`** — replace one version's `tags` annotation. Tags are
   labels on an immutable version body, so this never rebinds the live tool.
+
+### Every stored reference is checked at write
+
+Every write door refuses a body that names a tool or a stored template the deployment
+does not serve: create, save-version, rollback and validate of a preset, as well as the
+hook, schedule, conversation-route, per-target config and private-tool-set doors. The refusal is one `400` naming every unresolved reference, one line each, such as
+`base tool 'ghost' is not a registered tool`,
+`tool_kwargs.tool_names entry 'ghost' is not a registered tool` (an agent's tool list) or
+`stored id 'prompts/missing' at tool_kwargs > params[1].system_prompt is not a stored
+template`. An inline preset inside `fixed_kwargs` is walked as well.
+
+A base tool whose kwargs compose other tools declares a `tool_refs` extractor through the
+tools facet. The extractor is called with any kwargs blob its base receives and returns
+`ComposedToolRef` entries; each entry's `site` (the base tool's own words for where the
+name sits) is printed after the name, as in `composed tool 'ghost' at tool_kwargs > step
+'fetch' is not a registered tool`. A blob that names no tool answers no entries; a blob
+of the wrong shape raises a value-free `ValueError`, answered as a `400`. Any other fault
+in the extractor is a `500` naming the base tool.
+
+A stored body the walk cannot read answers `stored preset '<name>': <fault>` as a `500` on
+every door that reads it, with `code` `stored-preset-unreadable` and `preset` the row's
+name in the body, until the row is deleted.
 
 ## Per-base-tool write validators
 
@@ -234,12 +277,58 @@ baked one (lists never concatenate). So a preset can pin default fields while st
 letting a caller override any of them. Every other baked kwarg stays a fixed, hidden
 constant.
 
+A preset's extensions branch the preset itself. A branch over a preset with an
+`input_schema` (and so one with an input map) takes the schema's properties as its named
+arguments and runs the preset: its validation, its payload routing or input map, its fixed
+arguments and its output rules all hold on the branch. Such a schema must be closed
+(`"additionalProperties": false`), name its properties as identifiers, and use no root
+combinator or `$ref`; otherwise the write is refused with `input_schema cannot be presented
+to the preset's extensions: <reason>`. A missing or unknown argument on the branch reads the
+branch's own argument error; a wrong value reads the preset's `caller input does not match
+the preset's input_schema: …`.
+
+## Input and output maps
+
+A preset version's body may carry two optional jq programs, `input_map` and
+`output_map`. Each is a jq text, or a `TemplatedText` rendered to one. Both are part of
+the versioned body: set at create, changed or cleared on a new version, and checked on
+every write, so a map that does not compile is refused before anything is stored.
+
+- **The input map** turns the caller's object into the base tool's arguments. `.` is the
+  caller's input, validated first against the preset's `input_schema`; an input map needs
+  that schema, because the schema describes what the caller sends, and a write with an
+  input map and no input schema is refused. The stored fixed kwargs are readable as
+  `$fixed`. The map must produce an object. The fixed kwargs are then merged over it, and a
+  key both set is refused (`preset '<name>' input map sets <key>, which the preset fixes; a
+  fixed value cannot be overridden`), so a fixed value is never overridden by the map.
+- **The output map** reshapes the base tool's result. `.` is the result, and the map reads
+  no variables. The preset's `output_schema` then validates what the map produced, or the
+  raw result when there is no map.
+
+The preset advertises the authored `output_schema` when one is set, no output schema when
+an output map reshapes the result without one, and the base tool's own schema otherwise;
+its advertised input schema is the authored `input_schema`.
+
+A result the base tool returns as an error passes through untouched: no map and no schema
+runs over it. A preset over a base tool whose call fails returns the base's error envelope
+(`isError: true`) to an in-process caller, as a direct call of the base does. An output map
+never runs over a result that carries a secret: the call is refused (see
+[secret values](/concepts/secret-values)). An agent's call of a preset runs the preset as
+every other door does, with its maps, its schemas and its fixed arguments.
+
+A call that parks on an `ask` is mapped where its result reappears: the output stage
+applies to the result a resume hands back, at every level of a nested run, so a caller
+reads the same mapped value whether the ask was answered live or parked and resumed. A
+stage that fails on resume ends the run `FAILED`, where the same failure on a live call is
+a tool error.
+
 ## State binding on a version
 
 A preset version's body may carry a
 [`state_binding`](/concepts/states#a-bindings-subject-and-scope) — the door-side binding that
 injects an `input`-purpose template jq's value before the tool runs and applies an
-`update`-purpose op batch after it. The binding is **part of the versioned body**, so it is
+`update`-purpose op batch after it. The update jq reads the preset's output, so with an
+output map it reads the mapped result. The binding is **part of the versioned body**, so it is
 validated and attached on **every** write — create, save-version, and rollback alike. A rollback
 is not a bare re-point: it validates and attaches the target version's binding exactly as create
 and save-version do. Attaching is attach-on-use and idempotent, so a template that was merely

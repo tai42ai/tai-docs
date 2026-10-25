@@ -69,6 +69,19 @@ by default): the platform records each file's expiry in a durable index and a
 background reaper walks that index to delete past-horizon files, so nothing is
 held forever — a file that outlives its own record is still reaped.
 
+Inbound media is stored under the `inbound-media/` prefix, which the platform marks
+**not backed up** and **unlisted**. A [backup](/operate/backup-and-restore) export leaves
+it out and a restore refuses an entry under it. It shows in no listing — not the Studio
+Storage screen, not the Studio pickers, not `tai storage list` or
+`tai templates list` — yet each file is still read, downloaded and deleted by its id.
+
+A plugin marks a prefix of its own the same way, under either mark or both, with
+`tai42_app.storage.mark_not_backed_up(prefix)` and `tai42_app.storage.mark_unlisted(prefix)`.
+The prefix is a canonical store key followed by `/` (such as `inbound-media/`); any other
+value raises `ValueError`. Store keys are canonical at every door, so a key is under a
+prefix exactly when it starts with it. A mark lasts one serving epoch: declare it from a
+startup handler, which runs at boot and again at every reload.
+
 ## See also
 
 - [Storage and resources](/concepts/storage-and-resources) — the ResourceManager contract.

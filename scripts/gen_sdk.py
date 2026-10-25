@@ -209,6 +209,16 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.llm", "tai42_kit.llm.classifier"],
     },
     {
+        "slug": "kit-monitoring",
+        "title": "Run traces (tai42_kit.monitoring)",
+        "description": (
+            "The run-trace opener: a run's one lineage, its `run` span, "
+            "and the span that continues a handed-over lineage."
+        ),
+        "icon": "diagram-project",
+        "modules": ["tai42_kit.monitoring.run_trace"],
+    },
+    {
         "slug": "kit-checkpoint",
         "title": "Checkpoint stores (tai42_kit.llm.checkpoint)",
         "description": (
@@ -244,7 +254,8 @@ PAGES: list[dict] = [
         "title": "Park index and park seams (tai42_kit.interactions)",
         "description": (
             "The shared park index, the terminal chain notice, and the give-up handler seam a driver "
-            "that parks registers so an abandoned park's waiter is told."
+            "that parks registers so the waiter of a park its driver ends (an abandoned resume, or a "
+            "resumed answer a preset's output map refused) is told."
         ),
         "icon": "square-parking",
         "modules": [

@@ -106,7 +106,7 @@ the current seeded roles. The cell words mean:
 | **Scheduling** | Full | Write | Read | by role | by scope | — |
 | **Tool runs** (async execution) | Full | Write | Read | own only | by scope | — |
 | **Interactions / Notifications** | Full | Write | Read | own only | by scope | — |
-| **MCP config & status** (set config, reload a server) | Full | Write | Read | by role | by scope | — |
+| **MCP config & status** (set config, reload a server, list a server's advertised tools, set its tool selection) | Full | Write | Read | by role | by scope | — |
 | **Sub-MCP mounts** | Full | Write | Read | by role | by scope | — |
 | **Hooks** (register, topic verifiers) | Full | Write | Read | by role | by scope | — |
 | **Tools** (inspect — list, tags, schema) | Full | Read | Read | by role | by scope | — |
@@ -138,6 +138,13 @@ the current seeded roles. The cell words mean:
 | **Own identity + password + logout** (`/api/auth/me`, `capabilities`, `users/me/password`, `logout`, `GET scopes`) | Full | self | self | self | by scope | — |
 | **Login / claim exchange** (`/api/login`, public) | public | public | public | public | public | public |
 
+Listing a server's advertised tools connects to it with its stored credential, so it
+is a write: a viewer sees the mounted tools through the status read, not the full
+list. Both routes carry the server's title in the path
+(`POST /api/mcp-status/{title}/advertised-tools`,
+`PUT /api/mcp-config/entries/{title}/tool-filter`), so, as with the reload, the request
+path a policy and the route table judge names the one server.
+
 **`by role`** — an owned key reaches a feature exactly where its **owner's live
 role** allows, intersected with the owner's scopes and re-evaluated on every
 request. There is no per-key grant map: a key follows its owner's role up and
@@ -153,6 +160,14 @@ fine-grained permissions. A role's level on a tag decides its reach:
 - `write` admits the tag's reads **and** its non-fenced writes;
 - `read` admits the tag's reads only (GET / HEAD / OPTIONS);
 - `none` (the default for any tag not in the map) admits nothing.
+
+A route declared **self-service** (own keys, the tokens payload, claim links, the
+capability and identity projections, the read-only scopes listing, logout, a
+provider's own-credential routes) is not level-governed: every non-admin role keeps
+it, whatever its map says. A `/api/auth` control-plane route the base-tier ceiling
+reserves is not level-governed either. The grant map therefore lists only the feature
+groups a level opens; a tag whose routes are all admin-only, self-service or public is
+never in it, and a grant on it is refused.
 
 A role granted a tag reaches every grantable route under it — including a route
 added later under that same tag. Shipping a **brand-new** feature group is a
@@ -244,7 +259,8 @@ default.
   </Step>
   <Step title="The per-tag level + the fence">
     The request's route resolves to its feature tags and action-class. A
-    `fenced` or `secret` route denies every non-admin outright. Otherwise the
+    `fenced` or `secret` route denies every non-admin outright. A route declared
+    self-service is admitted for every role here. Otherwise the
     governing role's level on the route's tag must satisfy the method's derived
     action. An admin skips this pass entirely.
   </Step>

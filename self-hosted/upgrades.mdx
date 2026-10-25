@@ -59,6 +59,100 @@ Read the release notes before pinning. A release that needs a step beyond the
 migration run — a data backfill, a manual expand/contract cutover — names it.
 </Note>
 
+## Move the Langfuse stack to 4.x
+
+The `compose/langfuse/` stack runs Langfuse 4.x, and the monitoring plugin
+(`tai42-monitoring-langfuse` 6.0.0) needs a 4.x server. The move has no migration
+variables: it replaces the stack's data.
+
+<Steps>
+  <Step title="Stop the stack and remove its volumes">
+    ```bash
+    docker compose -f compose/langfuse/docker-compose.yml down --volumes
+    ```
+
+    This removes `langfuse-postgres-data`, `langfuse-clickhouse-data`,
+    `langfuse-clickhouse-logs`, `langfuse-minio-data` and `langfuse-redis-data`
+    (prefixed `tai-langfuse_` under the default project name, or the `-p` name you use).
+  </Step>
+  <Step title="Pull the 4.x images">
+    ```bash
+    docker compose -f compose/langfuse/docker-compose.yml pull
+    ```
+  </Step>
+  <Step title="Start the stack">
+    ```bash
+    docker compose -f compose/langfuse/docker-compose.yml up -d
+    ```
+  </Step>
+</Steps>
+
+Data recorded under 3.x is not carried over. The `LANGFUSE_INIT_*` values re-create
+the same organisation, project and keys, so `config/.env` and the collector's
+credential need no change.
+
+## Recreate the states schema
+
+A release can rewrite the states baseline in place. On an existing deployment the
+[boot gate](#the-boot-gate) then refuses to start with:
+
+```text
+database schema is out of date — refusing to start: states: checksum mismatch on version(s) 1. Run 'tai db migrate' to apply the pending migrations, then restart.
+```
+
+and `tai db migrate` refuses too:
+
+```text
+Error: component 'states' version 1 ('baseline') was applied with checksum <recorded> but is now <current>; the chain has been rewritten
+```
+
+The step runs on the database the `states` component is bound to
+(`TAI_DB_BINDING_STATES`, the `default` database unless set; in the Compose bundle the
+`postgres` service, user and database `${POSTGRES_USER:-tai}` / `${POSTGRES_DB:-tai}`).
+It drops every states table: `state_outbox`, `state_writes`, `state_applied_ops`,
+`state_subject_aliases`, `state_records`, `state_attachments`, `state_templates` and
+`state_declarations`, the pending saves among them, and the catalog version sequence
+`state_catalog_versions`. Their data is lost.
+
+<Steps>
+  <Step title="Stop the app services">
+    ```bash
+    docker compose stop serve backend
+    ```
+
+    Compose prints each container as it stops.
+  </Step>
+  <Step title="Drop the states schema and its history rows">
+    ```bash
+    docker compose exec -T postgres psql -U "${POSTGRES_USER:-tai}" -d "${POSTGRES_DB:-tai}" -v ON_ERROR_STOP=1 <<'SQL'
+    BEGIN;
+    DROP TABLE state_outbox, state_writes, state_applied_ops, state_subject_aliases, state_records,
+      state_attachments, state_templates, state_declarations;
+    DROP SEQUENCE state_catalog_versions;
+    DELETE FROM tai_schema_history WHERE component = 'states';
+    COMMIT;
+    SQL
+    ```
+
+    psql prints `BEGIN`, `DROP TABLE`, `DROP SEQUENCE`, `DELETE 1` and `COMMIT`. On any
+    error psql stops, the transaction rolls back and nothing is dropped.
+  </Step>
+  <Step title="Apply the baseline">
+    ```bash
+    docker compose run --rm db-migrate
+    ```
+
+    It prints `Applied states 0001_baseline.` and `Applied 1 migration(s).`
+  </Step>
+  <Step title="Start the services">
+    ```bash
+    docker compose up -d
+    ```
+
+    The gate passes and the services start.
+  </Step>
+</Steps>
+
 ## The boot gate
 
 Each `serve` and `backend` container checks, once at startup, that every schema
@@ -74,7 +168,8 @@ The fix is the message: run the migration step above, then let the container
 restart. If you recreate the app services before running `db-migrate`, they refuse
 to boot with exactly this message — run the migrations and they come up. Running
 `db-migrate` before the app services (the step order above) avoids the refusal
-entirely.
+entirely. A checksum mismatch on the `states` chain is fixed by
+[recreating the states schema](#recreate-the-states-schema).
 
 ## Runtime-installed plugins
 

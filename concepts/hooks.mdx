@@ -34,6 +34,20 @@ kept in the hooks store until it finishes:
 }
 ```
 
+Registering a hook checks what it names. An unknown `tool` is a `400`
+(`hook tool 'ghost' is not a registered tool`), and the static `tool_kwargs` are checked
+the way a [preset body](/concepts/presets#every-stored-reference-is-checked-at-write) is,
+whatever kind of tool the hook targets, with one `400` line per miss:
+
+- a base tool that declares a `tool_refs` extractor names its references in its own
+  words, printed as given — for example, a config that calls `ghost` at its step `fetch`
+  is refused with `composed tool 'ghost' at tool_kwargs > step 'fetch' is not a registered tool`;
+- an agent whose `tool_kwargs.tool_names` is `["ghost"]` is refused with
+  `tool_kwargs.tool_names entry 'ghost' is not a registered tool`;
+- a toolbox chain branch `t_chain` whose `jq_expression` is `{"id": "jq/missing"}` is
+  refused with `stored id 'jq/missing' at tool_kwargs > jq_expression is not a stored template`,
+  read from the branch's own input annotations.
+
 The condition is what makes dispatch selective — a hook fires only when its
 condition matches the event payload, so one topic can route different events to
 different tools.
