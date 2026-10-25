@@ -113,6 +113,17 @@ type CapabilityState = { status: "loading" } | { projection: MeProjection; statu
 ```
 
 
+## ExecutionKeyBinding
+
+```ts
+type ExecutionKeyBinding = { mode: "pending" } | { fillKey: string; mode: "unchecked" } | { mode: "checked"; own: OwnIdentity }
+```
+
+How a form binds the execution key a stored record runs as, read from the session's projection.
+
+**Related:** [OwnIdentity](/reference/studio-sdk/hooks#ownidentity)
+
+
 ## InteractionsStreamOptions
 
 ```ts
@@ -147,6 +158,23 @@ interface InteractionsStreamState
 | `interactions` | `StreamInteraction[]` | — |
 
 **Related:** [StreamInteraction](/reference/studio-sdk/hooks#streaminteraction)
+
+
+## OwnIdentity
+
+```ts
+interface OwnIdentity
+```
+
+The session's own identity, as the execution-key pickers offer it.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `admin` | `boolean` | — |
+| `kind` | `"key" \| "account"` | 'account' when the session is a principal itself (no owner claim, a principal row): the bind check refuses it. 'key' otherwise: an owned api key, or a key with no owner. |
+| `userId` | `string` | — |
 
 
 ## StreamInteraction
@@ -292,19 +320,37 @@ const UnauthorizedProvider: Provider<() => void>
 ```
 
 
+## boundExecutionKey
+
+```ts
+function boundExecutionKey(value: string, binding: ExecutionKeyBinding): string
+```
+
+The key a write sends: the form's value; with access control off and a blank value, the fill key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `string` | — | — |
+| `binding` | `ExecutionKeyBinding` | — | — |
+
+**Related:** [ExecutionKeyBinding](/reference/studio-sdk/hooks#executionkeybinding)
+
+
 ## coversAnyRoute
 
 ```ts
 function coversAnyRoute(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
   prefixes: readonly string[],
 ): boolean
 ```
 
 Whether the projection reaches ANY route under one of `prefixes` — the
 declarative test behind nav filtering and plugin `requiredCapabilities`. A
-concrete `routes[].path` covers a prefix when it is that prefix or a
-segment-nested descendant of it; a dynamic `route_patterns[]` entry covers a
+`routes[].path` (a concrete path, or a route template such as `/api/presets/{name}`)
+covers a prefix when it is that prefix or a segment-nested descendant of it; a dynamic `route_patterns[]` entry covers a
 prefix through its served `open_prefix` — the literal the server rules every
 path starting with is reachable — when it overlaps the prefix at a segment
 boundary. A `null` open prefix (a pattern whose matched set is not a clean
@@ -314,7 +360,7 @@ prefix) covers nothing by prefix: under-showing is safe, over-showing is the bug
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 | `prefixes` | `readonly string[]` | — | — |
 
 
@@ -322,21 +368,23 @@ prefix) covers nothing by prefix: under-showing is safe, over-showing is the bug
 
 ```ts
 function coversRoute(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
   path: string,
   method: string,
 ): boolean
 ```
 
 Whether the projection reaches a specific WRITE route — an EXACT `path` whose
-admitted `methods` include `method`. This is the method-aware companion to
+admitted `methods` include `method`. A templated route is listed under its template
+path (`/api/presets/{name}`) with the methods the caller's grant admits on a
+representative instance of it, so a caller names the template on both sides. This is the method-aware companion to
 `coversAnyRoute`: a read/nav surface gates path-only (any method reaching a
 prefix means the surface is navigable), but an action that issues `method path`
 must gate on the method too, or a caller whose jq fence admits only GET on `path`
 would be shown a control that 403s on submit (projection ⊆ gate).
 
-Only concrete `routes` are consulted: dynamic `route_patterns` carry no method, so
-no write capability can be soundly inferred from them, and a synthetic TOTAL
+Only `routes` are consulted: dynamic `route_patterns` carry no method, so no write
+capability can be soundly inferred from them, and a synthetic TOTAL
 (admin) projection carries no concrete `routes` at all — callers short-circuit it
 with `isFullProjection` before reaching here. Under-showing is safe (the
 server stays the authority); over-showing an action the gate denies is the bug.
@@ -345,7 +393,7 @@ server stays the authority); over-showing an action the gate denies is the bug.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 | `path` | `string` | — | — |
 | `method` | `string` | — | — |
 
@@ -363,10 +411,11 @@ is `ready` AND either it is a full (admin / gate-off) projection or it reaches
 `method path`. While the projection is loading/failed it is `false` — a write control
 never enables before the gate is known (fail closed; not-ready ⇒ disabled/read-only).
 
-Only concrete `routes` carry methods, so a DYNAMIC (templated) write route — one the
-projection can represent only as a method-less `route_patterns` row — reads `false` for
-every non-admin caller and degrades that control to read-only. Under-showing is safe
-(the server stays the authority); over-showing a write the gate denies is the bug.
+A templated write route is gated by its template path: the projection lists it with
+the methods the caller's grant admits on a representative instance. A credential fenced
+per instance is decided at the server, which answers 403 on submit where the fence
+denies that instance. Under-showing is safe (the server stays the authority);
+over-showing a write the gate denies is the bug.
 
 **Parameters**
 
@@ -383,7 +432,7 @@ every non-admin caller and degrades that control to read-only. Under-showing is 
 
 ```ts
 function isFullProjection(
-  projection: { admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
+  projection: { access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string | null; principal: { display_name: string; kind: "human" | "service"; user_id: string } | null; public_resource_id: string; route_patterns: ({ open_prefix: string | null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string },
 ): boolean
 ```
 
@@ -393,7 +442,7 @@ projection alike. This is `projection.admin === true` and NOTHING else: a
 seeded editor/viewer carries `["*"]` scopes PLUS a jq fence, so keying on `"*"`
 scopes would hand every editor/viewer the unfiltered nav and a wall of 403s on
 the admin routes their fence denies. Keying on `admin` makes editor/viewer
-SCOPED sessions whose nav is filtered by their jq-exact `routes`, which is
+SCOPED sessions whose nav is filtered by their projected `routes`, which is
 exactly right — and the gate-off synthetic projection (`admin: true`, empty
 `routes`) still reads as full, so an AC-disabled deployment shows everything.
 
@@ -401,7 +450,7 @@ exactly right — and the gate-off synthetic projection (`admin: true`, empty
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `projection` | `{ admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
+| `projection` | `{ access_control_enabled: boolean; admin: boolean; agents: string[]; mintable: boolean; owner_user_id: string \| null; principal: { display_name: string; kind: "human" \| "service"; user_id: string } \| null; public_resource_id: string; route_patterns: ({ open_prefix: string \| null; pattern: string; scope_id: string })[]; routes: ({ methods: string[]; path: string })[]; scopes: string[]; sub_mcp: ({ access_pattern: string; mount_url: string; slug: string; tools: string[]; transport: string })[]; tools: string[]; user_id: string }` | — | — |
 
 
 ## toolDisplayLabel
@@ -479,6 +528,17 @@ function useCapabilities(): CapabilityContextValue
 ```
 
 **Related:** [CapabilityContextValue](/reference/studio-sdk/hooks#capabilitycontextvalue)
+
+
+## useExecutionKeyBinding
+
+```ts
+function useExecutionKeyBinding(): ExecutionKeyBinding
+```
+
+The execution-key binding of the live session.
+
+**Related:** [ExecutionKeyBinding](/reference/studio-sdk/hooks#executionkeybinding)
 
 
 ## useFeatureOff
