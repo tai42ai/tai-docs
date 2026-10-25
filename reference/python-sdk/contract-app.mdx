@@ -206,6 +206,26 @@ Re-probe those of ``titles`` that failed to bind, bind the recovered ones, and r
 | `titles` | `list[str]` | — | — |
 
 
+#### advertised_mcp_tools
+
+`tai42_contract.app.facets.runtime.AppAdmin.advertised_mcp_tools`
+
+```python
+async advertised_mcp_tools(self, title: str) -> list[dict[str, Any]]
+```
+
+List every tool the live MCP server titled ``title`` advertises, before the manifest's selection.
+
+Each row says why a selected tool is not bound (``unbound_reason``, from the binder's records).
+Raises ``LookupError`` for a title not in the live manifest.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `title` | `str` | — | — |
+
+
 #### list_failed_mcps
 
 `tai42_contract.app.facets.runtime.AppAdmin.list_failed_mcps`
@@ -475,7 +495,8 @@ Register a `Channel` under ``name``.
 A channel plugin calls this through the ``tai42_app`` handle when its
 import-only ``channel_modules`` entry loads. Registering a name already
 taken raises loudly — a silent overwrite could swap the medium a live
-ask is delivered on.
+ask is delivered on. Raises ``ValueError`` when the channel declares a
+malformed ``identity_hint`` (see `Channel`).
 
 **Parameters**
 
@@ -1120,6 +1141,7 @@ extension(
     requires_body_locality: bool = False,
     pauses: bool = False,
     declares_output_schema: bool = False,
+    config_schema: dict[str, Any] | None = None,
 ) -> Callable[..., Any]
 ```
 
@@ -1142,6 +1164,16 @@ through); see ``AppTools.pauses``.
 ``declares_output_schema``: this extension declares the wrapped tool's output shape (its
 JSON Schema), so a preset over a tool carrying it may not also set ``output_schema``.
 
+``config_schema`` is the JSON Schema (draft 2020-12, root ``"type": "object"``) of the
+settings a combo element passes to the factory's ``config`` parameter. A factory that takes
+``config`` must declare it, and a factory without ``config`` must not; registration refuses
+either mismatch and a schema that breaks the JSON Schema rules. Every element's settings are
+checked against it before the factory runs, and an extension without one accepts no settings.
+The server calls the factory at every bind, and once more for every manifest or preset write
+naming the combo, to check it before storing; that branch is discarded. A factory may raise to
+refuse its inputs; whatever else it does when called must be repeatable and must not depend on
+the branch being served.
+
 **Parameters**
 
 | Parameter | Type | Default | Description |
@@ -1152,6 +1184,7 @@ JSON Schema), so a preset over a tool carrying it may not also set ``output_sche
 | `requires_body_locality` | `bool` | `False` | — |
 | `pauses` | `bool` | `False` | — |
 | `declares_output_schema` | `bool` | `False` | — |
+| `config_schema` | `dict[str, Any] \| None` | `None` | — |
 
 
 #### available_extensions
@@ -1159,12 +1192,13 @@ JSON Schema), so a preset over a tool carrying it may not also set ``output_sche
 `tai42_contract.app.facets.execution.AppExtensions.available_extensions`
 
 ```python
-available_extensions(self) -> list[dict[str, str | bool]]
+available_extensions(self) -> list[dict[str, Any]]
 ```
 
-List registered extensions as ``[{"name", "kind", "multiple"}]``.
+List registered extensions as ``[{"name", "kind", "multiple", "config_schema"}]``.
 
-``multiple`` says whether one tool may stack several extensions of that kind.
+``multiple`` says whether one tool may stack several extensions of that kind;
+``config_schema`` is the declared settings schema, ``None`` for an extension that takes none.
 
 
 
@@ -1833,6 +1867,30 @@ with nothing cancelled.
 | `ids` | `list[str]` | — | — |
 
 
+#### settle_chained_terminal
+
+`tai42_contract.app.facets.messaging.AppInteractions.settle_chained_terminal`
+
+```python
+async settle_chained_terminal(self, chain_key: str, result: Any) -> Any
+```
+
+Return a chained run's terminal ``result`` with the output stages captured for ``chain_key`` applied.
+
+A chained run fires its terminal along its routing through this settle: the output stages
+of the preset dispatches its park sat under, captured at the park for the routing keyed
+``chain_key``, apply in order, innermost first. A stage that refuses the result settles it
+to a `RunFailed` naming the preset. With no stages
+captured for the key the result is returned unchanged.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `chain_key` | `str` | — | — |
+| `result` | `Any` | — | — |
+
+
 #### ask
 
 `tai42_contract.app.facets.messaging.AppInteractions.ask`
@@ -2147,8 +2205,10 @@ async bind(
     *,
     name: str,
     description: str = '',
-    tags: list[str] | None = None,
-    output_schema: dict[str, Any] | None = None,
+    output_schema: TemplatedText | dict[str, Any] | None = None,
+    input_schema: TemplatedText | dict[str, Any] | None = None,
+    input_map: TemplatedText | str | None = None,
+    output_map: TemplatedText | str | None = None,
 ) -> Tool
 ```
 
@@ -2158,12 +2218,15 @@ Built in ONE ``Tool.from_tool`` call: each ``fixed_kwargs`` key is baked as
 a HIDDEN, FIXED constant (removed from the exposed schema; a caller that
 passes it is rejected — it cannot be overridden at runtime) while the
 REMAINING arguments keep the base tool's real typed schema (names, types,
-descriptions). ``tags`` sets the transformed tool's native tags. An
-``output_schema`` (an object JSON Schema) is baked into an agent base's
-``response_format`` (forcing structured output) or advertised + validated on
-a plain tool base. ``bind`` is async because it must resolve the base
-``Tool`` object (via ``app.tools.get_tool(base_tool)``) to feed the
-transform.
+descriptions). An ``input_schema`` becomes the exposed input contract; an
+``input_map`` (jq, which needs the ``input_schema``) maps the caller's object
+to the base tool's arguments, merged with ``fixed_kwargs``. An ``output_map``
+(jq) maps the base tool's result, and an ``output_schema`` (an object JSON
+Schema) validates what the caller receives; on an agent base with no output
+map the ``output_schema`` is baked into the agent's ``response_format``
+instead (forcing structured output). ``bind`` is async because it must
+resolve the base ``Tool`` object (via ``app.tools.get_tool(base_tool)``) to
+feed the transform.
 
 **Parameters**
 
@@ -2173,8 +2236,10 @@ transform.
 | `fixed_kwargs` | `dict[str, Any]` | — | — |
 | `name` | `str` | — | — |
 | `description` | `str` | `''` | — |
-| `tags` | `list[str] \| None` | `None` | — |
-| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `input_map` | `TemplatedText \| str \| None` | `None` | — |
+| `output_map` | `TemplatedText \| str \| None` | `None` | — |
 
 
 #### create
@@ -2189,8 +2254,10 @@ async create(
     description: str,
     fixed_kwargs: dict[str, Any],
     *,
-    input_schema: dict[str, Any] | None = None,
-    output_schema: dict[str, Any] | None = None,
+    input_schema: TemplatedText | dict[str, Any] | None = None,
+    output_schema: TemplatedText | dict[str, Any] | None = None,
+    input_map: TemplatedText | str | None = None,
+    output_map: TemplatedText | str | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
     state_binding: StateBinding | None = None,
     tags: list[str] | None = None,
@@ -2218,8 +2285,10 @@ stays on.
 | `base_tool` | `str` | — | — |
 | `description` | `str` | — | — |
 | `fixed_kwargs` | `dict[str, Any]` | — | — |
-| `input_schema` | `dict[str, Any] \| None` | `None` | — |
-| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `input_map` | `TemplatedText \| str \| None` | `None` | — |
+| `output_map` | `TemplatedText \| str \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
 | `state_binding` | `StateBinding \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
@@ -2235,9 +2304,11 @@ async save_version(
     name: str,
     *,
     fixed_kwargs: dict[str, Any] | None = None,
-    input_schema: dict[str, Any] | CarryForward | None = CARRY_FORWARD,
-    output_schema: dict[str, Any] | None = None,
+    input_schema: TemplatedText | dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    output_schema: TemplatedText | dict[str, Any] | None = None,
     output_schema_provided: bool = False,
+    input_map: TemplatedText | str | CarryForward | None = CARRY_FORWARD,
+    output_map: TemplatedText | str | CarryForward | None = CARRY_FORWARD,
     description: str | None = None,
     extensions: list[list[ExtensionElement]] | None = None,
     state_binding: StateBinding | CarryForward | None = CARRY_FORWARD,
@@ -2249,7 +2320,8 @@ Save a new version of an existing preset in-process and return the version row.
 
 The in-process sibling of the HTTP save-version door, running the identical
 content path and returning the same shape. Omitted fields carry the active
-value forward (``input_schema`` via the ``CARRY_FORWARD`` sentinel;
+value forward (``input_schema``, ``input_map`` and ``output_map`` via the
+``CARRY_FORWARD`` sentinel;
 ``output_schema`` only when ``output_schema_provided`` is ``True``). A body that
 cannot bind is a loud error that commits nothing; the tier fence is OFF for the
 reason `create` states.
@@ -2260,9 +2332,11 @@ reason `create` states.
 |---|---|---|---|
 | `name` | `str` | — | — |
 | `fixed_kwargs` | `dict[str, Any] \| None` | `None` | — |
-| `input_schema` | `dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
-| `output_schema` | `dict[str, Any] \| None` | `None` | — |
+| `input_schema` | `TemplatedText \| dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
 | `output_schema_provided` | `bool` | `False` | — |
+| `input_map` | `TemplatedText \| str \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_map` | `TemplatedText \| str \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `description` | `str \| None` | `None` | — |
 | `extensions` | `list[list[ExtensionElement]] \| None` | `None` | — |
 | `state_binding` | `StateBinding \| CarryForward \| None` | `CARRY_FORWARD` | — |
@@ -3612,6 +3686,94 @@ A by-id render's whole locale fallback chain and every ``{% include %}`` /
 ``{% extends %}`` / ``{% import %}`` target, at any depth. Blocks nest; each records.
 
 
+#### mark_not_backed_up
+
+`tai42_contract.app.facets.execution.AppStorage.mark_not_backed_up`
+
+```python
+mark_not_backed_up(self, prefix: str) -> None
+```
+
+Declare that every object under ``prefix`` is left out of backups.
+
+``prefix`` is a canonical directory key followed by ``/``; any other value raises
+``ValueError``. Declaring the same prefix again is a no-op. Declarations last one
+serving epoch: declare from a startup handler and a reload handler, like a rename
+referee.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `prefix` | `str` | — | — |
+
+
+#### not_backed_up_prefixes
+
+`tai42_contract.app.facets.execution.AppStorage.not_backed_up_prefixes`
+
+```python
+not_backed_up_prefixes(self) -> frozenset[str]
+```
+
+The prefixes declared through `mark_not_backed_up` in this epoch.
+
+
+#### mark_unlisted
+
+`tai42_contract.app.facets.execution.AppStorage.mark_unlisted`
+
+```python
+mark_unlisted(self, prefix: str) -> None
+```
+
+Declare that every object under ``prefix`` is left out of the storage and template listings.
+
+An unlisted object is still read, downloaded, stat-ed and deleted by its id.
+``prefix`` follows the same rule as ``mark_not_backed_up``, and declarations
+last one serving epoch.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `prefix` | `str` | — | — |
+
+
+#### unlisted_prefixes
+
+`tai42_contract.app.facets.execution.AppStorage.unlisted_prefixes`
+
+```python
+unlisted_prefixes(self) -> frozenset[str]
+```
+
+The prefixes declared through `mark_unlisted` in this epoch.
+
+
+#### register_template_delete_referee
+
+`tai42_contract.app.facets.execution.AppStorage.register_template_delete_referee`
+
+```python
+register_template_delete_referee(self, referee: TemplateDeleteReferee) -> None
+```
+
+Register a `TemplateDeleteReferee` consulted before a stored-template delete.
+
+Called with the set of ids a delete would remove, a referee answers one
+`ReferenceHolder` per place a stored object it owns
+names one of them, ``[]`` for none, and changes nothing. Any non-empty answer
+blocks the delete and the holders are named. A referee that cannot answer raises,
+and the delete fails. Registering the same referee object twice raises loudly.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `referee` | `TemplateDeleteReferee` | — | — |
+
+
 
 ## AppSubApp
 
@@ -3976,6 +4138,48 @@ Return the tool-references extractor base tool ``name`` registered, or ``None`` 
 | `name` | `str` | — | — |
 
 
+#### template_refs_extractor
+
+`tai42_contract.tools.AppTools.template_refs_extractor`
+
+```python
+template_refs_extractor(self, name: str) -> TemplateRefsExtractor | None
+```
+
+Return the template-references extractor base tool ``name`` registered, or ``None`` when it declared none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### kwargs_template_refs
+
+`tai42_contract.tools.AppTools.kwargs_template_refs`
+
+```python
+async kwargs_template_refs(self, tool: str, kwargs: Mapping[str, Any]) -> list[TemplateRef]
+```
+
+The stored template ids a call of ``tool`` with ``kwargs`` names, one ``TemplateRef`` per id.
+
+``site`` is the place inside ``kwargs`` (``system_prompt``, ``subagents[0].system_prompt``), in the
+walk's order; ``[]`` when the blob names none. A tool the registry does not serve names nothing:
+``[]``, as the platform's delete referees read a stored call of it; the call itself fails where it
+runs. Reads the ids with the same walk the platform's write check and delete referees run. Raises
+``ValueError`` naming the place, quoting no value, for a blob the tool's input refuses, and
+``RuntimeError`` for a fault of a declared ``tool_refs`` or ``template_refs`` extractor.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool` | `str` | — | — |
+| `kwargs` | `Mapping[str, Any]` | — | — |
+
+
 #### register_rename_referee
 
 `tai42_contract.tools.AppTools.register_rename_referee`
@@ -3988,10 +4192,11 @@ Register a `ToolRenameReferee` consulted before a tool rename.
 
 A plugin holding tool-name references calls this through the ``tai42_app``
 handle when its module loads. Every registered referee is asked for the
-old name on a rename; any non-empty answer blocks the rename and its
-descriptions name the holders. Registering the same provider object twice
-raises loudly — a double registration is a plugin bug, never a silent
-duplicate consult.
+old name, and for each extension branch tool bound off it, on a rename and
+on the rename preview; it answers holders and has no side effect. Any
+non-empty answer blocks the rename and the holders are named. Registering
+the same provider object twice raises loudly — a double registration is a
+plugin bug, never a silent duplicate consult.
 
 **Parameters**
 
@@ -4010,19 +4215,56 @@ register_delete_referee(self, provider: ToolDeleteReferee) -> None
 
 Register a `ToolDeleteReferee` consulted before a preset delete.
 
-A plugin holding resources keyed on a preset/tool name (e.g. per-node state
-bindings that reference a preset) calls this through the ``tai42_app`` handle when
-its module loads. Every registered referee is asked for the name on a delete; a
-referee cascades its own cleanup and returns empty to allow, or returns non-empty
-descriptions to VETO — any non-empty answer blocks the delete and names the
-holders. Registering the same provider object twice raises loudly — a double
-registration is a plugin bug, never a silent duplicate consult.
+A plugin holding resources keyed on a preset/tool name calls this through the
+``tai42_app`` handle when its module loads. Every registered referee is asked once
+for each tool the delete removes — the preset and every extension branch tool bound
+off it — on a delete and on the delete preview; it answers holders and has no side
+effect. Any non-empty answer VETOES the delete and the holders are named. Cleanup
+belongs in a delete cascade (`register_delete_cascade`). Registering the same
+provider object twice raises loudly — a double registration is a plugin bug, never
+a silent duplicate consult.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `provider` | `ToolDeleteReferee` | — | — |
+
+
+#### register_delete_cascade
+
+`tai42_contract.tools.AppTools.register_delete_cascade`
+
+```python
+register_delete_cascade(self, provider: ToolDeleteCascade) -> None
+```
+
+Register a `ToolDeleteCascade` run when a preset delete proceeds.
+
+A plugin holding resources keyed on a preset/tool name calls this through the
+``tai42_app`` handle when its module loads. A cascade is called once for each tool
+the delete removes (the preset, then each extension branch tool bound off it), with
+that tool's name, only after every veto and guard has passed and before the record
+is removed; a cascade raising fails the delete. Registering the same provider object
+twice raises loudly — a double registration is a plugin bug, never a silent
+duplicate cleanup.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolDeleteCascade` | — | — |
+
+
+#### delete_cascades
+
+`tai42_contract.tools.AppTools.delete_cascades`
+
+```python
+delete_cascades(self) -> list[ToolDeleteCascade]
+```
+
+Every registered `ToolDeleteCascade`, in registration order.
 
 
 #### register_detach_referee
@@ -4038,10 +4280,10 @@ Register a `StateTemplateDetachReferee` consulted before a state-template detach
 A holder of door bindings that name templates (e.g. per-node state bindings, or the
 platform's own preset/route/hook/schedule bindings) calls this through the
 ``tai42_app`` handle when its module loads. Every registered referee is asked for the
-``(state, template)`` on a detach; any non-empty answer blocks the detach and its
-descriptions name the referencing bindings. Registering the same provider object
-twice raises loudly — a double registration is a bug, never a silent duplicate
-consult.
+``(state, template)`` on a detach and on the detach preview; it answers holders and
+has no side effect. Any non-empty answer blocks the detach and the holders are named.
+Registering the same provider object twice raises loudly — a double registration is a
+bug, never a silent duplicate consult.
 
 **Parameters**
 

@@ -38,8 +38,9 @@ channel-specific context (a tapped reply id, a template button payload, a referr
 channel encodes it as string entries here. The SAME transport vocabulary
 (`validate_entry_params`) bounds it as every params seam;
 the platform attaches no meaning and NO TRUST. ``None`` means no enrichment — a plain answer.
-The asker receives it as is, beside ``answer`` (`AskAnswer` and the continuation
-payload).
+The asker receives it as is, beside ``answer``, in the `AskAnswer` a synchronous ask
+returns and, as JSON, in a continuation's ``ask_result`` (as a preset's output stage maps it,
+when the park sits under one).
 
 ``medium_message_id`` is the id the medium gave the participant's reply message, the one a
 later quote names; ``None`` when the answer did not arrive as a message on a medium (an
@@ -72,6 +73,9 @@ class AskAnswer(BaseModel)
 ```
 
 The one value a synchronous asker receives: the answer, the message it quoted, and its params.
+
+A parked ask's continuation is handed the same value as JSON, its ``ask_result``; on expiry its
+``answer`` is the expiry marker and ``reply_to`` and ``params`` are ``None``.
 
 ``answer`` is the answer value exactly as the answering party gave it; on a sensitive ask it is
 the `SecretValue` wrapping it, held by reference, so dumping this
@@ -137,6 +141,7 @@ a resuming driver's resume state is keyed by this id, not carried here.
 | `resume_owner` | `str \| None` |
 | `interaction_ids` | `list[str]` |
 | `caller_interaction_ids` | `list[str]` |
+| `output_stages` | `list[PresetOutputStage]` |
 
 
 ## ResumeBuffered

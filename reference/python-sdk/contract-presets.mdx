@@ -39,8 +39,8 @@ class CarryForward
 Sentinel for a `save_version` field the caller did not provide.
 
 Carry the ACTIVE value forward. ``fixed_kwargs`` / ``extensions`` clear with an empty container, so
-``None`` is their carry-forward sentinel; ``output_schema`` / ``input_schema``
-have no empty container (their cleared state IS ``None``), so each needs a
+``None`` is their carry-forward sentinel; ``output_schema`` / ``input_schema`` /
+``input_map`` / ``output_map`` have no empty container (their cleared state IS ``None``), so each needs a
 distinct sentinel to tell "not provided" (carry forward) apart from an explicit
 ``None`` (clear).
 
@@ -74,6 +74,16 @@ validated object is routed into the base tool's declared payload argument (see
 `PresetInputSchemaSupport`). Only a base tool that DECLARES input-schema
 support accepts one; otherwise a set ``input_schema`` is a loud authoring error.
 
+``input_map`` and ``output_map`` are optional jq programs. With an ``input_map`` the
+caller's object (validated against ``input_schema``, which the map requires) is mapped
+to the base tool's arguments, with the stored ``fixed_kwargs`` readable as ``$fixed``;
+the mapped object is merged with ``fixed_kwargs`` and a key both set is refused, so a
+fixed value is never overridden. The base tool's result then passes the output stage:
+``output_map`` maps it, and ``output_schema`` validates what the map produced (or the
+raw result when there is no map). An output map never runs over a result that carries
+a secret. A ``str`` map is the jq program itself; a
+`TemplatedText` is rendered to the program.
+
 Each schema is the ``TemplatedText | dict`` union: an inline ``dict`` is the JSON
 Schema document itself; a `TemplatedText` names a stored
 schema by ``id`` (or carries it inline as ``content``), rendered and parsed as JSON to the
@@ -83,8 +93,9 @@ Every field must survive carry-forward on a version save: dropping
 ``extensions`` would make the branch tools vanish on reload, dropping
 ``base_tool`` would break the bind, dropping ``description`` would strip the
 tool's description, dropping ``output_schema`` would silently un-enforce the
-structured output, and dropping ``input_schema`` would silently un-enforce the
-structured input.
+structured output, dropping ``input_schema`` would silently un-enforce the
+structured input, and dropping ``input_map`` or ``output_map`` would silently
+change what the base tool receives or what the caller gets back.
 
 A ``fixed_kwargs`` scalar-string value written ``!ENV ${VAR}`` is a SECRET
 REFERENCE, not a credential: the server resolves it from the environment at bind
@@ -100,6 +111,8 @@ and the store keeps only the reference — never the resolved value.
 | `extensions` | `list[list[ExtensionElement]]` |
 | `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
+| `input_map` | `TemplatedText \| str \| None` |
+| `output_map` | `TemplatedText \| str \| None` |
 | `state_binding` | `StateBinding \| None` |
 
 
@@ -179,6 +192,51 @@ class PresetNotFoundError(PresetError)
 No preset (or no active preset) named ``name``.
 
 
+## PresetOutputStage
+
+`tai42_contract.preset_stages.PresetOutputStage`
+
+```python
+class PresetOutputStage(BaseModel)
+```
+
+A preset's resolved output stage: the jq output map then the output JSON Schema, applied to a result.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `preset` | `str` |
+| `output_map` | `str \| None` |
+| `output_schema` | `dict[str, Any] \| None` |
+
+
+## PresetParkStages
+
+`tai42_contract.preset_stages.PresetParkStages`
+
+```python
+class PresetParkStages(BaseModel)
+```
+
+The output stages of the preset dispatches a park sits under, by where each one's result reappears.
+
+``answer``: applied to the park's answer before the driver's continuation receives it.
+``terminal``: applied to the resumed drive's terminal result.
+``chained``: applied to a chained run's terminal before it fires along the routing with that chain key.
+Each list is ordered innermost preset first.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `answer` | `list[PresetOutputStage]` |
+| `terminal` | `list[PresetOutputStage]` |
+| `chained` | `dict[str, list[PresetOutputStage]]` |
+
+
 ## PresetSeed
 
 `tai42_contract.presets.models.PresetSeed`
@@ -192,7 +250,7 @@ A declared default preset a plugin ships for import-time seeding.
 A seed names the preset (``name``), its human ``description``, the
 ``base_tool`` it binds, and the ``fixed_kwargs`` baked in — the same body a
 `PresetBody` carries — plus the optional author ``input_schema`` /
-``output_schema`` and optional ``tool_meta`` display seed. The applier creates
+``output_schema``, ``input_map`` / ``output_map`` and optional ``tool_meta`` display seed. The applier creates
 or upgrades the preset from this shape; the contract holds only the SHAPE,
 never the applier logic.
 
@@ -209,6 +267,8 @@ and the store keeps only the reference — never the resolved value.
 | `base_tool` | `str` |
 | `fixed_kwargs` | `dict[str, Any]` |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
+| `input_map` | `TemplatedText \| str \| None` |
+| `output_map` | `TemplatedText \| str \| None` |
 | `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `tool_meta` | `PresetSeedToolMeta \| None` |
 | `state_binding` | `StateBinding \| None` |
@@ -293,6 +353,8 @@ async create_preset(
     output_schema: TemplatedText | dict[str, Any] | None = None,
     input_schema: TemplatedText | dict[str, Any] | None = None,
     *,
+    input_map: TemplatedText | str | None = None,
+    output_map: TemplatedText | str | None = None,
     state_binding: StateBinding | None = None,
     tags: list[str] | None = None,
 ) -> DocumentRecord
@@ -302,7 +364,7 @@ Create a versioned preset.
 
 ``spec`` carries ``name``/``description``/
 ``base_tool``/``fixed_kwargs``; ``extensions`` (the combos list) and the
-optional ``output_schema`` / ``input_schema`` ride alongside — all of them
+optional ``output_schema`` / ``input_schema`` / ``input_map`` / ``output_map`` ride alongside — all of them
 land in the persisted `PresetBody`. ``tags`` labels version 1 in the
 SAME create commit (``None`` leaves it untagged); a caller that must tag the
 first version does so atomically, never through a separate follow-up write.
@@ -318,6 +380,8 @@ Raise `ValueError` on a blank ``description``,
 | `extensions` | `Sequence[Sequence[ExtensionElement]]` | — | — |
 | `output_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| None` | `None` | — |
+| `input_map` | `TemplatedText \| str \| None` | `None` | — |
+| `output_map` | `TemplatedText \| str \| None` | `None` | — |
 | `state_binding` | `StateBinding \| None` | `None` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
@@ -336,6 +400,8 @@ async save_version(
     description: str | None = None,
     *,
     input_schema: TemplatedText | dict[str, Any] | CarryForward | None = CARRY_FORWARD,
+    input_map: TemplatedText | str | CarryForward | None = CARRY_FORWARD,
+    output_map: TemplatedText | str | CarryForward | None = CARRY_FORWARD,
     state_binding: StateBinding | CarryForward | None = CARRY_FORWARD,
     tags: list[str] | None = None,
 ) -> DocumentVersion
@@ -353,10 +419,11 @@ version body, then applying each of ``fixed_kwargs``, ``extensions`` under
 one UNIFORM sentinel: omitted/``None`` = carry the active value forward
 unchanged; an explicit empty list (``extensions=[]``) = deliberately CLEAR
 that field. An explicitly provided empty list is a value, never "not
-provided". ``output_schema`` and ``input_schema`` each follow the SAME rule
-but with a distinct `CARRY_FORWARD` sentinel (their cleared state is
-``None``, so ``None`` cannot double as "not provided"): omitted = carry
-forward, an explicit ``None`` = clear, an explicit dict = wins.
+provided". ``output_schema``, ``input_schema``, ``input_map`` and
+``output_map`` each follow the SAME rule but with a distinct
+`CARRY_FORWARD` sentinel (their cleared state is ``None``, so ``None``
+cannot double as "not provided"): omitted = carry forward, an explicit
+``None`` = clear, an explicit value = wins.
 ``description`` is editable per
 version: ``None`` = carry the active description forward, an explicit
 non-empty string = set it. The RESULTING description — explicit or carried
@@ -376,6 +443,8 @@ absent.
 | `output_schema` | `TemplatedText \| dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `description` | `str \| None` | `None` | — |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `input_map` | `TemplatedText \| str \| CarryForward \| None` | `CARRY_FORWARD` | — |
+| `output_map` | `TemplatedText \| str \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `state_binding` | `StateBinding \| CarryForward \| None` | `CARRY_FORWARD` | — |
 | `tags` | `list[str] \| None` | `None` | — |
 
@@ -579,4 +648,25 @@ No version ``version`` exists for preset ``name``.
 ```python
 PresetWriteValidator = Callable[[PresetBody], Awaitable[Sequence[str]]]
 ```
+
+
+## preset_output_failed_outcome
+
+`tai42_contract.preset_stages.preset_output_failed_outcome`
+
+```python
+preset_output_failed_outcome(preset: str, message: str) -> dict[str, Any]
+```
+
+The opaque FAILED outcome of a resumed run whose preset output stage refused the result.
+
+Carried on `RunTerminalFailed` and recorded whole; it names
+the preset and the refusal text.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `preset` | `str` | — | — |
+| `message` | `str` | — | — |
 

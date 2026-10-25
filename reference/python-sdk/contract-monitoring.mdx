@@ -39,7 +39,7 @@ Declare which neutral measures and dimensions ``query_metrics`` serves.
 A pure capability declaration (no I/O), so a caller can tell a panel the
 backend cannot serve from one it served empty, WITHOUT issuing a query that
 swallows the difference. ``query_metrics`` raises
-``MonitoringReadNotSupportedError`` for anything outside this set.
+``MonitoringReadNotServedError`` for anything outside this set.
 
 
 #### list_capability
@@ -54,7 +54,7 @@ Declare which sorts ``list_traces`` serves and which filters each sort cannot co
 
 A pure capability declaration (no I/O), so a caller offers only the sorts and
 filter combinations the backend serves. ``list_traces`` raises
-``MonitoringReadNotSupportedError`` for anything outside it.
+``MonitoringReadNotServedError`` for anything outside it.
 
 
 #### max_page_size
@@ -82,7 +82,7 @@ Totals / analytics screen — server-side aggregation.
 
 Aggregates the requested `Measure` set grouped by the requested
 `Dimension` set over the query window. A measure or dimension outside
-`metrics_capability` raises ``MonitoringReadNotSupportedError`` — never
+`metrics_capability` raises ``MonitoringReadNotServedError`` — never
 a silent zero.
 
 **Parameters**
@@ -122,8 +122,8 @@ window. ``kind`` narrows WITHIN the tool-granularity set (never widens
 or overrides the guarantee). ``filter`` applies the neutral
 ``MonitoringFilter`` clauses (tags live here, not as a discrete param).
 ``order_by`` sorts the result; omitted ⇒ newest-first (``start`` desc).
-An unsupported ``order_by.field`` or filter clause raises
-``MonitoringReadNotSupportedError``.
+An unserved ``order_by.field`` or filter clause raises
+``MonitoringReadNotServedError``.
 
 **Parameters**
 
@@ -209,9 +209,10 @@ half-open window ``[from, to)``; either may be omitted for an open end.
 here, not as a discrete param). ``order_by`` sorts the result; omitted ⇒
 newest-first (``timestamp`` desc). The sortable fields and the filters
 each sort cannot combine with are declared by ``list_capability``; a sort
-or combination outside it, or another unsupported filter clause, raises
-``MonitoringReadNotSupportedError``. A ``limit`` above ``max_page_size()``
-raises ``ValueError``.
+or combination outside it, or another unserved filter clause, raises
+``MonitoringReadNotServedError``. A read the backend serves only within a
+bound raises ``MonitoringReadTooBroadError`` past it. A ``limit`` above
+``max_page_size()`` raises ``ValueError``.
 
 **Parameters**
 
@@ -221,6 +222,39 @@ raises ``ValueError``.
 | `to_timestamp` | `datetime \| None` | `None` | — |
 | `limit` | `int \| None` | `None` | — |
 | `page` | `int \| None` | `None` | — |
+| `filter_` | `MonitoringFilter \| None` | `None` | — |
+| `order_by` | `OrderBy \| None` | `None` | — |
+
+
+#### export_traces
+
+`tai42_contract.monitoring.reader.MonitoringReader.export_traces`
+
+```python
+async export_traces(
+    self,
+    *,
+    from_timestamp: datetime | None = None,
+    to_timestamp: datetime | None = None,
+    max_rows: int,
+    filter_: MonitoringFilter | None = None,
+    order_by: OrderBy | None = None,
+) -> list[MonitoringTraceSummary]
+```
+
+The run summaries ``list_traces`` would page through, in its order, in one read.
+
+Returns at most ``max_rows + 1`` rows; more than ``max_rows`` means more runs match. Same window,
+filter, sort and errors as ``list_traces``; a bound the backend cannot read past raises
+``MonitoringReadTooBroadError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `from_timestamp` | `datetime \| None` | `None` | — |
+| `to_timestamp` | `datetime \| None` | `None` | — |
+| `max_rows` | `int` | — | — |
 | `filter_` | `MonitoringFilter \| None` | `None` | — |
 | `order_by` | `OrderBy \| None` | `None` | — |
 
@@ -341,6 +375,28 @@ Open a span (started at ``start_time``, else now) and return its handle; ``Span.
 | `metadata` | `dict[str, Any] \| None` | `None` | — |
 | `start_time` | `datetime \| None` | `None` | — |
 | `activate` | `bool` | `False` | — |
+
+
+#### use_span
+
+`tai42_contract.monitoring.writer.MonitoringWriter.use_span`
+
+```python
+use_span(self, span: Span) -> AbstractContextManager[None]
+```
+
+Make ``span``, opened by this writer, the current span of the calling context for the block.
+
+The span is not ended on exit; the span current before the block is current again after it. Enter
+and exit the block in the same context. A span that never opened (the no-op span of a disabled
+writer or a failed open) leaves the current span unchanged. A span this writer did not open is a
+record failure: it is logged and counted, and the current span is unchanged.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `span` | `Span` | — | — |
 
 
 #### start_span

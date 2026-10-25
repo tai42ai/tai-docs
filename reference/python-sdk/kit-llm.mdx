@@ -14,19 +14,6 @@ checkpoint/store connection resources. Importing this package pulls
 ``langchain_core`` / ``langgraph`` — that is the opt-in boundary (the
 ``tai42_kit`` top level stays vendor-free).
 
-## InvalidRunTraceError
-
-`tai42_kit.llm.run_trace.InvalidRunTraceError`
-
-```python
-class InvalidRunTraceError(ValueError)
-```
-
-A run's config names an explicit trace id or parent anchor that no monitoring writer can record under.
-
-The caller's input is refused before the run starts, naming the configurable key and the value it carried.
-
-
 ## MonitoringCallbackHandler
 
 `tai42_kit.llm.monitoring_callbacks.MonitoringCallbackHandler`
@@ -421,28 +408,6 @@ End the retriever run's span at ERROR.
 
 
 
-## RunTrace
-
-`tai42_kit.llm.run_trace.RunTrace`
-
-```python
-class RunTrace
-```
-
-The resolved lineage of one run plus the per-invoke config that records it.
-
-``context`` is the trace/span lineage the run's spans join; ``config`` is the caller's
-LangGraph run config (a ``RunnableConfig``-shaped mapping) copied by value with the
-monitoring callback handler appended after the caller's own callbacks.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `context` | `TraceContext` |
-| `config` | `dict[str, Any]` |
-
-
 ## ToolNameTooLongError
 
 `tai42_kit.llm.models.ToolNameTooLongError`
@@ -460,21 +425,19 @@ A tool name is longer than a bound tool name may be.
 
 ```python
 bind_run_trace(
-    config: dict[str, Any] | None = None,
+    config: dict[str, Any] | None,
+    context: TraceContext | None,
     *,
     grouping_nodes: frozenset[str] = frozenset(),
     chain_payloads: ChainPayloads = 'references',
-) -> RunTrace
+) -> dict[str, Any]
 ```
 
-Resolve the run's lineage and return the per-invoke config carrying the monitoring callbacks.
+``config`` copied by value, with the monitoring callbacks for ``context`` appended after the caller's own.
 
-Resolves the lineage with `resolve_trace_context` (its `InvalidRunTraceError` propagates) and
-returns a `RunTrace` whose ``config`` is ``config`` copied by value — a fresh top-level mapping, a fresh
-``configurable``, and a fresh ``callbacks`` list — so one base config can feed many
-parallel invocations without colliding. When the active writer records
-(``is_recording()``), a `MonitoringCallbackHandler` bound to the lineage is
-appended after the caller's callbacks; otherwise nothing is appended.
+The copy is a fresh top-level mapping, a fresh ``configurable`` and a fresh ``callbacks`` list, so one base
+config can feed many parallel invocations without colliding. A `MonitoringCallbackHandler` bound to
+``context`` is appended only when ``context`` is not ``None`` and the active writer records (``is_recording()``).
 
 ``grouping_nodes`` names the framework nodes that hold steps rather than being one.
 ``chain_payloads='references'`` (default) — each chain run records a manifest that
@@ -487,7 +450,8 @@ and tool runs are recorded in full either way.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `config` | `dict[str, Any] \| None` | `None` | — |
+| `config` | `dict[str, Any] \| None` | — | — |
+| `context` | `TraceContext \| None` | — | — |
 | `grouping_nodes` | `frozenset[str]` | `frozenset()` | — |
 | `chain_payloads` | `ChainPayloads` | `'references'` | — |
 
@@ -681,32 +645,6 @@ the failures are raised together as one ``ExceptionGroup``.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `all_epochs` | `bool` | `False` | — |
-
-
-## resolve_trace_context
-
-`tai42_kit.llm.run_trace.resolve_trace_context`
-
-```python
-resolve_trace_context(config: dict[str, Any] | None = None) -> TraceContext
-```
-
-Resolve the one trace lineage for a run from ``config`` and the ambient deposit.
-
-Precedence: an explicit ``configurable[MONITORING_TRACE_ID_KEY]`` (with its optional
-``MONITORING_PARENT_SPAN_ID_KEY`` anchor) wins; else the ambient
-`get_ambient_trace_context` deposit; else a fresh
-32-hex root trace with no parent. Pure — reads only, mints no side effect.
-
-An explicit trace id that is not 32 lower-hex (not all zeros), or a caller's parent anchor that is not 16
-lower-hex (not all zeros), is refused with `InvalidRunTraceError`: a run never proceeds under a lineage
-no writer can record. An empty explicit trace id reads as absent.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `config` | `dict[str, Any] \| None` | `None` | — |
 
 
 ## store_registry

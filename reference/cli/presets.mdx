@@ -16,6 +16,8 @@ Create a versioned preset (or an authored agent, when the base tool is an agent)
 
 Example: `tai presets create greet --base-tool echo --description 'Greet a user' --kwargs '&#123;"prefix":"hi"&#125;'`
 
+Example: `tai presets create g --base-tool echo --description d --input-schema-file s.json --input-map-file m.jq`
+
 ```console
 $ tai presets create [OPTIONS] {name}
 ```
@@ -31,6 +33,18 @@ $ tai presets create [OPTIONS] {name}
 | `--kwargs` `&lt;str&gt;` | Baked fixed kwargs as a JSON object. A string value written '!ENV $&#123;VAR&#125;' is a secret reference the server resolves from that environment variable at run time, storing only the reference. |
 | `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
 | `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). |
+| `--output-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--output-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--input-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--state-binding` `&lt;str&gt;` | The preset's state binding as a JSON object: &#123;"states": [...]&#125;. |
+| `--state-binding-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-map` `&lt;str&gt;` | A jq program that turns the caller's input (.) into the base tool's arguments; $fixed holds the preset's fixed kwargs. Needs --input-schema. |
+| `--input-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--input-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
+| `--output-map` `&lt;str&gt;` | A jq program that reshapes the base tool's result (.) before the output schema is checked. |
+| `--output-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--output-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai presets delete`
@@ -104,9 +118,9 @@ $ tai presets list [OPTIONS]
 
 ## `tai presets referees`
 
-List the presets that reference this preset (a rename would strand them).
+List what holds this preset: everything the given action would strand, one per row.
 
-Example: `tai presets referees my_preset`
+Example: `tai presets referees my_preset --action rename`
 
 ```console
 $ tai presets referees [OPTIONS] {name}
@@ -118,6 +132,7 @@ $ tai presets referees [OPTIONS] {name}
 
 | Option | Description |
 | --- | --- |
+| `--action` `&lt;rename\|delete&gt;` | The action to preview: rename or delete. _(required)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai presets rename`
@@ -162,9 +177,12 @@ $ tai presets rollback [OPTIONS] {name} {version}
 
 Save a new preset version.
 
-Omitted fields carry forward; `--extensions '[]'` sends the explicit clear sentinel.
+Omitted fields carry forward; `--extensions '[]'` sends the explicit clear sentinel and each
+`--clear-*` option sends its field as `null`.
 
 Example: `tai presets save-version my_preset --kwargs '&#123;"n":2&#125;'`
+
+Example: `tai presets save-version greet --output-schema-file schema.json --clear-output-map`
 
 ```console
 $ tai presets save-version [OPTIONS] {name}
@@ -180,6 +198,23 @@ $ tai presets save-version [OPTIONS] {name}
 | `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
 | `--description` `&lt;str&gt;` | New description (non-empty); omit to carry the active one forward. |
 | `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). '[]' clears them. |
+| `--output-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--output-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--input-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--state-binding` `&lt;str&gt;` | The preset's state binding as a JSON object: &#123;"states": [...]&#125;. |
+| `--state-binding-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-map` `&lt;str&gt;` | A jq program that turns the caller's input (.) into the base tool's arguments; $fixed holds the preset's fixed kwargs. Needs --input-schema. |
+| `--input-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--input-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
+| `--output-map` `&lt;str&gt;` | A jq program that reshapes the base tool's result (.) before the output schema is checked. |
+| `--output-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--output-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
+| `--clear-output-schema` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-input-schema` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-state-binding` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-input-map` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-output-map` | Remove the field on this version (sent as null). _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai presets set-version-tags`
@@ -209,8 +244,11 @@ $ tai presets set-version-tags [OPTIONS] {name} {version} [tags]...
 Dry-run a preset draft without writing anything.
 
 Reports whether it would be accepted as a create (a new name) or a new version (an existing name).
+On an existing name each `--clear-*` option checks the draft with that field removed.
 
 Example: `tai presets validate greet --base-tool echo --description 'Greet' --kwargs '&#123;"prefix":"hi"&#125;'`
+
+Example: `tai presets validate greet --output-map '&#123;answer: .&#125;' --clear-input-map`
 
 ```console
 $ tai presets validate [OPTIONS] {name}
@@ -227,6 +265,23 @@ $ tai presets validate [OPTIONS] {name}
 | `--kwargs-file` `&lt;str&gt;` | Read the fixed kwargs JSON object from a file, or from stdin when the path is '-', instead of putting a secret on the command line (a value on argv leaks via ps and shell history). Mutually exclusive with --kwargs. |
 | `--description` `&lt;str&gt;` | The preset's LLM-facing description. |
 | `--extensions` `&lt;str&gt;` | Extension combos as a JSON array of combos. Each combo is a non-empty array of elements, and an element is an extension name ('"chain"') or a &#123;"name","config"&#125; object binding config to it (e.g. '[[&#123;"name":"output_schema","config":&#123;"schema":&#123;"type":"object"&#125;&#125;&#125;]]'). |
+| `--output-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--output-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-schema` `&lt;str&gt;` | A JSON Schema object, or a template reference object. |
+| `--input-schema-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--state-binding` `&lt;str&gt;` | The preset's state binding as a JSON object: &#123;"states": [...]&#125;. |
+| `--state-binding-file` `&lt;str&gt;` | Read the JSON object from a file, or from stdin when the path is '-'. |
+| `--input-map` `&lt;str&gt;` | A jq program that turns the caller's input (.) into the base tool's arguments; $fixed holds the preset's fixed kwargs. Needs --input-schema. |
+| `--input-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--input-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
+| `--output-map` `&lt;str&gt;` | A jq program that reshapes the base tool's result (.) before the output schema is checked. |
+| `--output-map-file` `&lt;str&gt;` | Read the program text from a file, or from stdin when the path is '-'. |
+| `--output-map-template` `&lt;str&gt;` | The program as a template object (JSON), e.g. &#123;"id": "…", "kwargs": &#123;&#125;&#125;. |
+| `--clear-output-schema` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-input-schema` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-state-binding` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-input-map` | Remove the field on this version (sent as null). _(default: `False`)_ |
+| `--clear-output-map` | Remove the field on this version (sent as null). _(default: `False`)_ |
 | `--json` / `--no-json` | Emit raw JSON instead of human tables. |
 
 ## `tai presets versions`
