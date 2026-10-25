@@ -102,11 +102,12 @@ plugin paths. Plugins reach these two via the `usePluginNavigation` hook.
 | `navigate` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>, options?: NavigateOptions) => void` | — |
 | `navigatePlugin` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => void` | — |
 | `navigatePluginWithOptions?` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch, options?: PluginNavigateOptions) => void` | ADDITIVE plugin-page navigation that also carries per-history-entry PluginNavigateOptions. OPTIONAL because a host that does not implement it leaves it undefined; plugins reach it — and require a host that provides it — through usePluginEntryNavigation, which throws loudly when it is absent. It behaves exactly like navigatePlugin for path / params / search, and in addition writes `options.state` onto the DESTINATION entry under the plugin's own namespace slot (see PluginPageProps.entryState).  It is a separate optional member rather than an extra parameter on navigatePlugin so it stays additive under the plugin-API equality gate: a new optional member does not move STUDIO_PLUGIN_API_VERSION, so every existing plugin keeps loading and navigatePlugin's own signature stays stable. |
+| `resolveHolderLink?` | `(holder: { kind: string; locator: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>; name: string; summary: string }) => PluginHolderTarget \| null` | The plugin page that shows one holder of a plugin-declared kind, from the resolver a plugin registered for that kind; `null` when no plugin resolves it. OPTIONAL for the same additive reason as navigatePluginWithOptions: a host that omits it links no plugin kind, and the holder renders as text. |
 | `resolvePath` | `<T extends keyof RouteSearchByToken>(token: T, search?: RouteSearch<T>) => string` | — |
 | `resolvePluginPath` | `(pluginId: string, pagePath: string, params?: string, search?: PluginSearch) => string` | — |
 | `updatePluginEntryState?` | `(pluginId: string, state: unknown) => void` | ADDITIVE: replace the CURRENT history entry's per-entry state slot for `pluginId` IN PLACE (merge-preserving other plugins' slots), WITHOUT navigating — the URL, params, search, and scroll are untouched. A page uses it to checkpoint its live view state onto the entry the reader is already on, so a later back/forward or a hard reload restores it. OPTIONAL for the same additive reason as navigatePluginWithOptions; reached through usePluginEntryNavigation. |
 
-**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginNavigateOptions](/reference/studio-sdk/navigation#pluginnavigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
+**Related:** [NavigateOptions](/reference/studio-sdk/navigation#navigateoptions), [PluginHolderTarget](/reference/studio-sdk/navigation#pluginholdertarget), [PluginNavigateOptions](/reference/studio-sdk/navigation#pluginnavigateoptions), [PluginSearch](/reference/studio-sdk/navigation#pluginsearch), [RouteSearch](/reference/studio-sdk/navigation#routesearch), [RouteSearchByToken](/reference/studio-sdk/navigation#routesearchbytoken)
 
 
 ## NavigationGuardHandler
@@ -159,6 +160,26 @@ parameters. Features type their exported page as `PageProps<'tools'>` and read
 | `search` | `RouteSearch<T>` | — |
 
 **Related:** [RouteSearch](/reference/studio-sdk/navigation#routesearch)
+
+
+## PluginHolderTarget
+
+```ts
+interface PluginHolderTarget
+```
+
+A plugin page addressed by `resolveHolderLink`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `pagePath` | `string` | — |
+| `params?` | `string` | — |
+| `pluginId` | `string` | — |
+| `search?` | `PluginSearch` | — |
+
+**Related:** [PluginSearch](/reference/studio-sdk/navigation#pluginsearch)
 
 
 ## PluginNavigateOptions
@@ -236,9 +257,8 @@ map flat — one entry per feature surface, matching the shell route map.
 |---|---|---|
 | `agents` | `Record<string, never>` | — |
 | `connectors` | `{ connection?: string }` | — |
-| `conversations` | `{ address?: string; q?: string; route?: string; status?: "superseded" \| "failed" \| "sending" \| "silent" \| "merged" \| "accepted" \| "pending_delivery" \| "provisional" \| "delivered" \| "shed" \| "outcome_unknown"; thread?: string }` | — |
-| `extensions` | `Record<string, never>` | — |
-| `hooks` | `Record<string, never>` | — |
+| `conversations` | `{ address?: string; config?: string; q?: string; route?: string; status?: "superseded" \| "failed" \| "sending" \| "silent" \| "merged" \| "accepted" \| "pending_delivery" \| "provisional" \| "delivered" \| "shed" \| "outcome_unknown"; thread?: string }` | — |
+| `hooks` | `{ hook?: string }` | — |
 | `interactions` | `Record<string, never>` | — |
 | `login` | `Record<string, never>` | — |
 | `manifest` | `Record<string, never>` | — |
@@ -246,14 +266,13 @@ map flat — one entry per feature surface, matching the shell route map.
 | `members` | `Record<string, never>` | — |
 | `notifications` | `Record<string, never>` | — |
 | `observability` | `{ dir?: "asc" \| "desc"; from?: string; maxCost?: number; maxLatencyMs?: number; maxTokens?: number; minCost?: number; minLatencyMs?: number; minTokens?: number; sort?: "createdAt" \| "cost" \| "latencyMs" \| "totalTokens"; status?: "error" \| "success"; tab?: "dashboard" \| "tracing"; tags?: string[]; to?: string; trace?: string }` | — |
-| `presets` | `{ preset?: string }` | — |
-| `scheduling` | `Record<string, never>` | — |
+| `presets` | `{ preset?: string; version?: number }` | — |
+| `scheduling` | `{ schedule?: string }` | — |
 | `servedEndpoints` | `Record<string, never>` | — |
 | `settings` | `Record<string, never>` | — |
 | `states` | `{ state?: string; subject?: string; tab?: "declaration" \| "templates" \| "records" \| "consumers"; target?: string; template?: string }` | — |
-| `storage` | `{ q?: string }` | — |
+| `storage` | `{ id?: string; q?: string }` | — |
 | `system` | `Record<string, never>` | — |
-| `templates` | `{ q?: string; template?: string }` | — |
 | `tools` | `{ q?: string; tags?: string[]; tool?: string }` | — |
 
 

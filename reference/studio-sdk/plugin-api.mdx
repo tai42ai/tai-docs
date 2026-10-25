@@ -16,6 +16,45 @@ type ChannelConversationRoute = Extract<ConversationRouteView, { door: "channel"
 A conversation route row as `GET /api/conversations` lists it, on the `channel` door.
 
 
+## HolderLinkContribution
+
+```ts
+interface HolderLinkContribution
+```
+
+Resolves the holders of one plugin-declared kind to a page of the registering
+plugin, so a holder list links that holder. One resolver per kind deployment-wide;
+a core kind cannot be registered.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `kind` | `string` | — |
+| `resolve` | `(holder: { kind: string; locator: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>; name: string; summary: string }) => HolderLinkTarget` | — |
+
+**Related:** [HolderLinkTarget](/reference/studio-sdk/plugin-api#holderlinktarget)
+
+
+## HolderLinkTarget
+
+```ts
+interface HolderLinkTarget
+```
+
+Where a plugin's page shows one holder: a page of the registering plugin.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `pagePath` | `string` | — |
+| `params?` | `string` | — |
+| `search?` | `PluginSearch` | — |
+
+**Related:** [PluginSearch](/reference/studio-sdk/navigation#pluginsearch)
+
+
 ## NavEntryContribution
 
 ```ts
@@ -30,7 +69,7 @@ interface NavEntryContribution
 | `order?` | `number` | Optional sort weight WITHIN the entry's section (whether a core section or the shared "Plugins" one): entries render in ascending `order`, and every entry that omits it sorts AFTER the ordered ones, in registration order. Two entries with the same `order` keep registration order (a stable sort). Additive — an older bundle omits it and stays on the same plugin API version. |
 | `path` | `string` | Path of a page THIS plugin registers. The nav entry links to `/plugins/{pluginId}/{path}`, so it must match a PageContribution `path` of the same plugin — the registry rejects a nav entry with no page. |
 | `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
-| `section?` | `NavEntrySection` | Optional target sidebar section (see NavEntrySection); absent ⇒ the shared "Plugins" section. Additive — an older bundle omits it and stays on the same plugin API version. |
+| `section?` | `NavEntrySection` | Optional target sidebar section (see NavEntrySection); omitted or unrecognised ⇒ the shared "Plugins" section. |
 | `title` | `string` | — |
 
 **Related:** [NavEntrySection](/reference/studio-sdk/plugin-api#naventrysection), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
@@ -39,16 +78,14 @@ interface NavEntryContribution
 ## NavEntrySection
 
 ```ts
-type NavEntrySection = "Capabilities" | "Connections" | "Triggers" | "Activity" | "Administration"
+type NavEntrySection = "Capabilities" | "Connections" | "Doors" | "Activity" | "Administration"
 ```
 
-The sidebar section a nav entry renders in. A named core section groups the
-entry there, after that section's core rows. An absent field or any value that
-is not a live core section renders the entry in the shared "Plugins" section that
-follows the core sections (alongside every other undeclared plugin entry),
-placed after the core sections. The shell tolerates an unknown value at runtime
-(a bundle newer than this host), falling back to that shared section, so the
-field is a placement hint, never a hard contract.
+The sidebar section a nav entry renders in. The core sections render in this
+order: Capabilities, Connections, Doors, Activity, Administration. A named core
+section groups the entry there, after that section's core rows. An absent field
+or any value that is not a core section renders the entry in the shared
+"Plugins" section, placed after the core sections.
 
 
 ## PageContribution
@@ -89,6 +126,7 @@ silently dropping, so every registration must happen during `register`.
 
 | Property | Type | Description |
 |---|---|---|
+| `registerHolderLink` | `(contribution: HolderLinkContribution) => void` | Register the page that shows the holders of one plugin-declared kind. Registering a kind twice (by any plugin) or a core kind throws. |
 | `registerNavEntry` | `(contribution: NavEntryContribution) => void` | Register a sidebar nav entry linking to one of this plugin's pages at `/plugins/{pluginId}/{path}`. The `path` must match a page the plugin also registers (a nav entry with no page is a dead link and is rejected loudly). |
 | `registerPage` | `(contribution: PageContribution) => void` | Register a full page mounted under `/plugins/{pluginId}/{path}`. |
 | `registerRoutePanel` | `(contribution: RoutePanelContribution) => void` | Register a panel for the routes of one channel. The plugin's manifest must list the same channels under `contributions.route_panels`, or the plugin fails to load. |
@@ -96,7 +134,7 @@ silently dropping, so every registration must happen during `register`.
 | `registerToolPanel` | `(contribution: ToolPanelContribution) => void` | Register a rich run panel for a tool by name (overrides the auto-form). |
 | `routeBase` | `(itemName: string) => string \| null` | The resolved absolute base of one of this plugin's route items, e.g. `/api/channels/web`, or `null` when the item has no mount on this deployment (an optional router not listed, a channel not loaded). Never throws; a feature that needs the base shows its own unavailable state for `null`. Call it during `register` and keep the value. |
 
-**Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [RoutePanelContribution](/reference/studio-sdk/plugin-api#routepanelcontribution), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+**Related:** [HolderLinkContribution](/reference/studio-sdk/plugin-api#holderlinkcontribution), [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [PageContribution](/reference/studio-sdk/plugin-api#pagecontribution), [RoutePanelContribution](/reference/studio-sdk/plugin-api#routepanelcontribution), [SettingsTabContribution](/reference/studio-sdk/plugin-api#settingstabcontribution), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
 
 
 ## PluginContributions
@@ -111,13 +149,14 @@ Everything a single plugin bundle has registered at import time.
 
 | Property | Type | Description |
 |---|---|---|
+| `holderLinks` | `ReadonlyMap<string, RegisteredHolderLink>` | Holder-link resolvers keyed by the holder kind they resolve. |
 | `navEntries` | `readonly RegisteredNavEntry[]` | — |
 | `pages` | `readonly RegisteredPage[]` | — |
 | `routePanels` | `ReadonlyMap<string, RegisteredRoutePanel>` | Route panels keyed by the channel they decorate. |
 | `settingsTabs` | `readonly RegisteredSettingsTab[]` | — |
 | `toolPanels` | `ReadonlyMap<string, ToolPanelContribution>` | — |
 
-**Related:** [RegisteredNavEntry](/reference/studio-sdk/plugin-api#registerednaventry), [RegisteredPage](/reference/studio-sdk/plugin-api#registeredpage), [RegisteredRoutePanel](/reference/studio-sdk/plugin-api#registeredroutepanel), [RegisteredSettingsTab](/reference/studio-sdk/plugin-api#registeredsettingstab), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
+**Related:** [RegisteredHolderLink](/reference/studio-sdk/plugin-api#registeredholderlink), [RegisteredNavEntry](/reference/studio-sdk/plugin-api#registerednaventry), [RegisteredPage](/reference/studio-sdk/plugin-api#registeredpage), [RegisteredRoutePanel](/reference/studio-sdk/plugin-api#registeredroutepanel), [RegisteredSettingsTab](/reference/studio-sdk/plugin-api#registeredsettingstab), [ToolPanelContribution](/reference/studio-sdk/plugin-api#toolpanelcontribution)
 
 
 ## PluginEntry
@@ -184,6 +223,25 @@ does not move. Navigate between plugin pages with `usePluginNavigation`.
 | `search?` | `Record<string, unknown>` | The validated search object (present only when the page declared a schema). |
 
 
+## RegisteredHolderLink
+
+```ts
+interface RegisteredHolderLink extends HolderLinkContribution
+```
+
+A holder-link resolver as stored in the registry, stamped with its plugin.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `kind` | `string` | — |
+| `pluginId` | `string` | — |
+| `resolve` | `(holder: { kind: string; locator: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>; name: string; summary: string }) => HolderLinkTarget` | — |
+
+**Related:** [HolderLinkContribution](/reference/studio-sdk/plugin-api#holderlinkcontribution), [HolderLinkTarget](/reference/studio-sdk/plugin-api#holderlinktarget)
+
+
 ## RegisteredNavEntry
 
 ```ts
@@ -206,7 +264,7 @@ without colliding.
 | `path` | `string` | Path of a page THIS plugin registers. The nav entry links to `/plugins/{pluginId}/{path}`, so it must match a PageContribution `path` of the same plugin — the registry rejects a nav entry with no page. |
 | `pluginId` | `string` | — |
 | `requiredCapabilities?` | `RequiredCapabilities` | Capability gate (see RequiredCapabilities); absent ⇒ full-only. |
-| `section?` | `NavEntrySection` | Optional target sidebar section (see NavEntrySection); absent ⇒ the shared "Plugins" section. Additive — an older bundle omits it and stays on the same plugin API version. |
+| `section?` | `NavEntrySection` | Optional target sidebar section (see NavEntrySection); omitted or unrecognised ⇒ the shared "Plugins" section. |
 | `title` | `string` | — |
 
 **Related:** [NavEntryContribution](/reference/studio-sdk/plugin-api#naventrycontribution), [NavEntrySection](/reference/studio-sdk/plugin-api#naventrysection), [RequiredCapabilities](/reference/studio-sdk/plugin-api#requiredcapabilities)
@@ -347,14 +405,16 @@ Props a contributed route panel receives.
 ## STUDIO_PLUGIN_API_VERSION
 
 ```ts
-const STUDIO_PLUGIN_API_VERSION: 1
+const STUDIO_PLUGIN_API_VERSION: 2
 ```
 
 The Studio-plugin API compatibility version.
 
-A monotonic integer bumped ONLY on a breaking change to the Studio-plugin API
-OR the public prop/type surface of any DS component the SDK exports (a prop
-rename/removal bumps it; genuinely internal/visual changes do not).
+A monotonic integer bumped ONLY on a breaking change to the Studio-plugin API,
+to the public prop/type surface of any DS component the SDK exports (a prop
+rename/removal bumps it; genuinely internal/visual changes do not), or to the
+design-token names (`TOKEN_NAMES`), the only names a plugin styles through (a
+rename or a removal bumps it; a new name does not).
 
 Gate rule: equality is correct precisely because additive changes never
 bump (existing plugins keep matching) and after a break every plugin must
