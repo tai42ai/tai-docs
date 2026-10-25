@@ -133,6 +133,40 @@ A branch can pause when the tool it wraps declares `tai42/pauses` or when any ex
 its stack registered with `pauses=True`; any other branch is plain, and a park it returns
 is refused like any [undeclared tool's](/guides/build-a-tool#tools-that-can-pause).
 
+### Settings
+
+An extension that takes settings declares their JSON Schema (draft 2020-12, root
+`"type": "object"`) with `config_schema=` when it registers, and its factory takes a
+`config` parameter. A factory that takes `config` must declare a schema and one without
+`config` must not; registration refuses either mismatch and a schema that breaks the JSON
+Schema rules. An extension without a schema accepts no settings.
+
+```python
+@tai42_app.extensions.extension(
+    kind=ExtensionKind.WRAPPER,
+    name="label",
+    config_schema={
+        "type": "object",
+        "properties": {"label": {"type": "string"}},
+        "required": ["label"],
+        "additionalProperties": False,
+    },
+)
+def label(func, orig_name, orig_desc, config):
+    ...
+```
+
+A combo element binds the settings as `{"name": "label", "config": {"label": "nightly"}}`.
+The server checks them against the declared schema before any write is stored and at every
+bind. Every manifest or preset write also binds each combo it names once before it is
+stored, and discards that branch, so a value the factory refuses is refused at the door that
+wrote it, naming the extension and the tool. A factory is therefore called again for a combo
+it already bound: whatever it does beyond building its branch must be repeatable. The
+extension catalog serves each schema, and the Studio draws the settings form from it; a
+setting declared as a `$ref` to the draft 2020-12 meta-schema is itself a JSON Schema and gets
+the schema editor. A setting stored as an `!ENV` marker is served by the tool's extension
+reads as the marker, never its value, and the Studio shows it sealed, by its variable name.
+
 ## Clipping an extension on
 
 Extensions are attached in the manifest, separately from tool selection. A tool's

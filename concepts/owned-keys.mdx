@@ -62,7 +62,8 @@ tai auth whoami
 The projection reports the caller's own `user_id`, its owner (if any), whether it
 is an admin, its effective scopes, and the concrete **routes, route patterns,
 sub-MCP mounts, tools, and agents it can reach right now** — plus a `mintable`
-flag. Two properties make it trustworthy:
+flag and an `access_control_enabled` flag, false only when access control is off.
+Two properties make it trustworthy:
 
 - **Derived, never stored.** The projection is computed from the *same*
   `access_control_routes` store and policy the gate reads, filtered by the caller's
@@ -71,8 +72,14 @@ flag. Two properties make it trustworthy:
   fresh projection on the next read.
 - **jq-exact.** For a policy that carries a jq condition, the projection evaluates
   the *same* condition per candidate `(path, method)` through the real enforcer, so
-  it never advertises a door the gate would then deny. The projection is a subset
-  of what the gate admits, by construction.
+  a jq fence that denies a route at the gate denies it in the projection too.
+- **Templated routes on a representative path.** `routes` lists a templated route
+  under its template path, with the methods the caller's grant admits on one concrete
+  instance of it. This is exact for every role-holder, whose grants and jq do not
+  depend on the instance a path names. A credential fenced per instance (a pattern row
+  naming one resource, or a jq condition on a path parameter) is decided at the server:
+  when the fence denies the representative instance the control stays hidden, and when
+  it admits the representative but denies the instance the submit answers `403`.
 
 Because introspection must work for every identity on every deployment, `GET /api/auth/me`
 is **authenticated-implies-allowed**: an authenticated caller reaches it regardless

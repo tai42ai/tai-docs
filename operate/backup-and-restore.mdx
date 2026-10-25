@@ -95,19 +95,20 @@ Restoring the `manifest` or `env` section applies **live and fleet-wide**: the i
 
 A restore that writes the `connector_connections` section also moves each restored connection's token cache entry to the restored version once the database write commits, so no worker keeps serving the pre-restore token. A connection restored with an already-lapsed session leaves no cached token behind. If that cache write fails — the connector-store Redis is unreachable — the section reports the error and the import answers `ok: false`, although the restored rows are already committed; once Redis is back, re-import the section with `"mode": "overwrite"` to rewrite the cache.
 
-The `templates` section carries every object of the deployment's content store, whatever its bytes are. An object whose bytes are UTF-8 text travels as `content_text`, any other object as `content_base64`, and every entry carries the `content_type` the store reports. A restore writes each entry back byte for byte; a storage provider that records content types keeps the entry's `content_type`, and one that infers the type from the path infers it again on the restored object. A storage provider that holds text only cannot keep a binary object, so it rejects such an entry, naming its path in the section's `errors`; the rest of the section still restores.
+The `storage` section carries every object of the deployment's content store, whatever its bytes are, except the objects under a prefix marked not backed up (inbound media is one; see [inbound media](/operate/storage#inbound-media)). An object whose bytes are UTF-8 text travels as `content_text`, any other object as `content_base64`, and every entry carries the `content_type` the store reports. A restore writes each entry back byte for byte; a storage provider that records content types keeps the entry's `content_type`, and one that infers the type from the path infers it again on the restored object. A storage provider that holds text only cannot keep a binary object, so it rejects such an entry, naming its path in the section's `errors`; the rest of the section still restores. A restore refuses an entry under a prefix marked not backed up the same way, naming its path and the prefix in `errors`. An archive whose store section is named `templates` restores nothing from it: selecting `templates` reports `unknown section: 'templates'`.
 
-A restore that writes the `templates` section clears the compiled-template cache **fleet-wide** over the same bus and cycles the prefork pool once, so no worker — and no forked pool child — keeps serving a template compiled from the pre-restore content.
+A restore that writes the `storage` section clears the compiled-template cache **fleet-wide** over the same bus and cycles the prefork pool once, so no worker — and no forked pool child — keeps serving a template compiled from the pre-restore content.
 
 ### Restore order
 
 An import replays the selected sections in their **registration order**, never in the order
-you name them: `manifest`, `env`, `access_control`, `sub_mcp`, `templates`, `states`,
+you name them: `manifest`, `env`, `storage`, `access_control`, `sub_mcp`, `states`,
 `webhooks`, `conversations`, `conversation_target_config`, `schedules`,
-`connector_categories`, `connector_connections`, `versioned_documents`, `tool_meta`, then the
-sections plugins register. A section that decides its records against state another section
-restores replays after it: `states` replays right after `templates`, and before every section
-that restores a state binding.
+`connector_categories`, `connector_connections`, `connector_oauth_clients`,
+`versioned_documents`, `tool_meta`, then the sections plugins register. A section that decides
+its records against state another section restores replays after it: `storage` replays before
+every section whose records name a stored template by id, which the restore checks, and
+`states` replays before every section that restores a state binding.
 
 Inside `access_control`, the principals restore first, then the route mappings, then the API
 keys. A principal the restore creates gets its archived `disabled` flag with the principal

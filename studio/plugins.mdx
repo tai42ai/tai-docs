@@ -59,9 +59,25 @@ Navigate between a plugin's own pages with the `usePluginNavigation` hook, whose
 
 `registerNavEntry` adds a sidebar link, and its `path` must match a page the same plugin also registers — a nav entry with no backing page is a dead link and is **rejected loudly**. The optional `icon` is a component rendering a square inline SVG that fills its box and draws with `currentColor`; the host constrains it to a fixed 1em box, `aria-hidden` (the title is the accessible name). The icon's bytes live inside the bundle, so there is no external fetch and no CSP change. Omit it for a text-only entry, exactly like the core nav.
 
-The optional `section` names the sidebar group the entry renders in — one of the built-in sections (`Capabilities`, `Connections`, `Triggers`, `Activity`, `Administration`). A named built-in section places the entry inside that group, after its core rows; omit it (or name an unrecognised section) and the entry renders in a single shared **Plugins** section placed after the core sections. Every undeclared entry — from every contributing plugin — lands in that one group, each keeping its own title and its own host-applied provenance badge. The field is additive — an older bundle without it simply lands in the shared **Plugins** section, so the plugin API version does not move.
+The optional `section` names the sidebar group the entry renders in — one of the built-in sections (`Capabilities`, `Connections`, `Doors`, `Activity`, `Administration`). A named built-in section places the entry inside that group, after its core rows; omit it (or name an unrecognised section) and the entry renders in a single shared **Plugins** section placed after the core sections. Every such entry — from every contributing plugin — lands in that one group, each keeping its own title and its own host-applied provenance badge.
 
 The same set is declared statically in the plugin's `studio-manifest.json` under `contributions.nav_entries`, so the server-side catalog and read surfaces can report a nav-contributing plugin without executing its bundle. That manifest field is the declarative parity of the runtime `registerNavEntry` for the page path only — its schema is a `list[str]` of page paths and cannot carry `section`, which is a runtime-API field alone. It carries the same backing rule: every `nav_entries` entry must appear in the plugin's `pages`, or manifest load fails loudly.
+
+## Holder links
+
+When a rename, a delete or a detach is refused because something still uses the thing,
+the Studio lists each holder the server returns, and links each one to the screen that
+fixes it. A holder of a core kind links to its core screen. A plugin that declares its own
+holder kind registers the page that shows it with `registerHolderLink({ kind, resolve })`:
+`resolve` receives the holder entry (`kind`, `name`, `locator`, `summary`) and returns a
+`{ pagePath, params?, search? }` target on one of the plugin's own pages. One resolver serves
+each kind across the deployment: registering a kind twice, by any plugin, or registering a
+core kind throws.
+
+A plugin's own dialogs read a refusal's holders with `useApi().holdersFromError(error)`,
+and the stored preset a presets read failed on with
+`useApi().storedPresetFaultFromError(error)`; both are members of the API client, because
+a plugin bundle holds no copy of the client's error classes to test a caught error against.
 
 ## Route panels
 
@@ -145,7 +161,7 @@ Every plugin ships a `studio-manifest.json` next to its dist. It is parsed stric
 
 ## The api_version gate
 
-The plugin API carries a single monotonic integer, `STUDIO_PLUGIN_API_VERSION` (currently `1`), bumped only on a **breaking** change to the plugin API or to the public prop surface of a design-system component the SDK exports. The host accepts a plugin **iff** the plugin's targeted `api_version` exactly equals the host's; anything else is rejected with a "must be rebuilt" error card, and the plugin commits nothing.
+The plugin API carries a single monotonic integer, `STUDIO_PLUGIN_API_VERSION` (currently `2`), bumped only on a **breaking** change to the plugin API, to the public prop surface of a design-system component the SDK exports, or to the design-token names (`TOKEN_NAMES`), the only names a plugin styles through (a rename or a removal is a break; a new name is not). The host accepts a plugin **iff** the plugin's targeted `api_version` exactly equals the host's; anything else is rejected with a "must be rebuilt" error card, and the plugin commits nothing.
 
 Equality is the correct gate because additive changes never bump the version — a host that gains a new optional capability keeps the same version, so every existing plugin keeps loading. The one asymmetry the equality gate leaves is a plugin that *uses* a newer capability on an *older* host that lacks it; that fails loudly by construction (calling a context method the host does not define throws during `register`, caught as that plugin's error card), never through silent negotiation.
 

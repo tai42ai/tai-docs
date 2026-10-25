@@ -22,7 +22,9 @@ and `HOOKS_REDIS_URL` must be set (each falls back to `TAI_DEFAULT_REDIS_URL`), 
 boot is refused. The backend process matches the events it raises against its own
 hooks registry, and an in-memory one holds none of the hooks registered through
 the server. Stacks sharing one Redis must also diverge on `TAI_BUS_NAMESPACE`
-(default `tai`).
+(default `tai`). On arq and RQ they must also set distinct `ARQ_QUEUE_NAME` / `RQ_QUEUE_NAME` values, and no
+stack's value may be another stack's value followed by `.<label>`; otherwise one stack's workers run the other
+stack's jobs.
 </Note>
 
 ## Install and run one
@@ -42,6 +44,28 @@ contract-coverage quirks live on the plugin page:
     `RQ_*` settings, worker, beat, and the dashboard.
   </Card>
 </CardGroup>
+
+## Send a task to a chosen worker
+
+The `sync_task` and `async_task` branches take an optional `queue` argument on
+all three backends; it sends the job to the workers that serve that queue.
+
+- On arq and RQ the value is a label of letters, digits, `_` and `-`. The plugin
+  derives the queue `<ARQ_QUEUE_NAME>.<label>` / `<RQ_QUEUE_NAME>.<label>` from
+  it, and any other value is refused before the job is sent.
+- With distinct settings queues, as the note above requires, a label cannot reach
+  another stack's worker: every derived queue starts with this stack's own
+  `ARQ_QUEUE_NAME` / `RQ_QUEUE_NAME`.
+- Celery takes its own queue name; Celery stacks are kept apart by
+  their broker vhost.
+- Start a worker on the label: arq and RQ take `--queue <label>` (the flag is on each plugin page); a Celery worker takes Celery's own `-Q <queue>` (and a distinct `-n <name>@%h` for a second worker), passed through `tai backend worker`. See the [backend-arq](/plugins/tai42/backend-arq) and [backend-rq](/plugins/tai42/backend-rq) plugin pages.
+- A [preset](/concepts/presets) over a `sync_task` or `async_task` branch can fix
+  `queue` in its arguments, so every call through the preset runs on that
+  queue.
+- Schedules carry no queue: they run on the settings queue and need a worker
+  that serves it.
+- A job on a queue no worker serves waits: a `sync_task` call times out after
+  the task timeout, and an `async_task` job stays queued.
 
 ## See also
 

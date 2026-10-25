@@ -23,8 +23,10 @@ Every routing operation requires the Redis conversations backend
 `create` is an authority-changing, admin-adjacent operation. It checks, in order, and a
 refusal at any step leaves an existing row untouched:
 
-1. The `target_name` — the agent or tool the turn runs — must merely exist (`404`
-   otherwise).
+1. The `target_name` — the agent or tool the turn runs — must merely be registered, and so
+   must a channel row's `channel`. An unknown one is a `400` with one line per miss, for
+   example `route target agent 'ghost' is not a registered agent` or
+   `route channel 'ghost' is not a registered channel`.
 2. The caller must be allowed to **bind** the route's `execution_key` (a pass-role
    decision).
 3. The route write: the target's bind check (a refusal is a `422` carrying the refusal
@@ -1230,7 +1232,7 @@ delivery malformed is refused loudly there, with no record written.
 The target's reply covers only the target's own failure. Every failure the platform owns
 keeps the fixed text above: an infrastructure error or any other exception raised in place
 of a reported failure (a timeout among them), a door contract or `reply_expr` fault, a
-denied run, a stranded turn, a channel refusal notice, and a give-up with no handler result.
+denied run, a stranded turn, a channel refusal notice, and a give-up (an abandoned resume, or a preset's output map refusing a resumed answer) with no handler result.
 A transport exhaustion sends no notice at all.
 
 <Warning>
@@ -1361,8 +1363,9 @@ never as the sender. That key's **live** stored grants authorize the agent run (
 the `tool` target's dispatch) and every tool call the turn makes — including any tool
 a deep-agent sub-agent calls. The rules:
 
-- **Bind (pass-role).** You may bind your own identity or an execution key you own;
-  an admin may bind any key. A non-admin's refusal is a uniform `403` across
+- **Bind (pass-role).** You may bind your own identity when you are an api key, or an
+  execution key you own; an admin may bind any key. An account identity is refused with
+  a `400`, because a route runs as an api key. A non-admin's refusal is a uniform `403` across
   absent-key and not-yours, so the door is no probe for key ids.
 - **Token-free-evaluable only.** The bound key's stored policy condition must be
   resolvable by a background execution with no request token. A condition that needs

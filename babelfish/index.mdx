@@ -124,12 +124,14 @@ in its input schema, or the routing that validates the kwargs against the preset
 input schema refuses them.
 
 A preset is a saved flow published to the palette, and it is managed **as a
-node, not as a flow**. The palette's Presets section gives each card an edit
+node, not as a flow**. The palette's **Custom Nodes** section gives each card an edit
 control that opens its flow editor and a delete control that raises a guarded
-confirm, and a **+ New preset** action starts a fresh one in place. Deletion
+confirm, and a **+ New custom node** action starts a fresh one in place. Deletion
 routes through ordinary [preset](/concepts/presets) deletion, so it unregisters the
 tool; the confirm states the blast radius plainly — the node leaves the palette, and
-any flow that already embeds it keeps a now-dangling reference to it. A preset
+it counts the flows that use it, which keep referencing `tool:<name>` and fail until
+they are updated. Like every flow delete, the confirm also lists what still holds the
+name (see [Renaming and deleting a flow](#renaming-and-deleting-a-flow)). A preset
 lives in the palette **only**: the flows list shows flows, never presets — nor a
 category folder emptied by them — so a palette-managed node never surfaces among your
 standalone flows.
@@ -165,6 +167,16 @@ transcript rather than aborting the whole map. Scale a large list with the paral
 mode and a concurrency cap, and shape a sent/failed summary with `collect`.
 
 ## How a run runs: tool calls, loops and abort
+
+Every tool a flow's nodes call must be registered when the flow is saved. The flow
+reports each node's tool as a [stored reference](/concepts/presets#every-stored-reference-is-checked-at-write),
+so a save that names an unknown tool is refused with one line per miss, naming the node:
+`composed tool 'ghost' at node 'fetch' is not a registered tool`. A stored template the
+flow names by id (the flow graph itself, a node's expression, condition or wait expression,
+or the flow's On Error reply) is checked the same way: an id that is not stored is refused
+with the node and the slot named, for example
+`stored id 'jq/fetch' at node 'fetch' expr is not a stored template`. The same checks run on
+a preset, hook or schedule over the flow.
 
 In autopilot a node awaits a tool that does not declare `tai42/pauses` inside the node;
 the run pauses only at a declared pausing tool or a holder. A node keeps the pause — its
@@ -318,6 +330,10 @@ so it must be a 'holder' node, not a plain runnable.`). An agent that does not p
 called by a plain runnable or held. A held agent **can ask its caller** when it parks and its
 static tool set — the kind's own fixed tools, a preset's saved `tool_names`, and the holder's
 own `tool_kwargs.tool_names` — names the `ask` tool.
+
+A preset's [output map](/concepts/presets#input-and-output-maps), whether the preset is over
+a saved flow or over any other tool, applies to the held run's result when it resumes, so the
+holder reads the same mapped value it would read from a call that never parked.
 
 A held call that **fails** — an agent whose resumed run raised (a model or provider error,
 say), or one whose resume the platform gave up on — reaches the holder as a failure, never
@@ -591,6 +607,21 @@ surfaces, or give the person on a conversation route a
 To recover from a failure and keep running, put the On Error on the failing node
 instead. The editor names which of the two you are editing on the form itself, so
 the rescuing kind and the decorating kind are never confused.
+
+A deployment can set a default flow-level On Error for every flow in
+`FLOW_DEFAULT_ON_ERROR` (an On Error as JSON): a flow with no flow-level On Error of its own
+uses it on the terminal error path, and so does a branch that hits its iteration limit with
+no On Error of its own and none at the flow level. It is read when a failure reaches it: a
+stored id in its `condition`, `expr` or `reply_expr` that is not stored, or a `tool` that is
+not registered, fails there, not when the setting is written. While it names them, a stored
+template its `condition`, `expr` or `reply_expr` names cannot be deleted, and the tool it
+names cannot be renamed or deleted: the refusal (`409`) names it, for example
+`setting 'FLOW_DEFAULT_ON_ERROR' names 'jq/notify' at default_on_error.expr`. A stored
+template named in the arguments its `tool_kwargs` gives the handler tool, such as an agent's
+system prompt, holds it the same way while that tool is registered:
+`setting 'FLOW_DEFAULT_ON_ERROR' names 'prompts/notify' at default_on_error.tool_kwargs > system_prompt`.
+Arguments given to a tool that is not registered name nothing and hold nothing. Change the
+setting first.
 
 A finished run shows what the On Error did. A node that failed and was rescued reads
 as recovered, and the On Error that ran — whether the inline tool or the wired
@@ -1752,6 +1783,44 @@ The Flows page derives its entire view state — the open flow, the current fold
 open dialogs, and the active filters — from the URL, so a flow is bookmarkable and
 shareable and the browser's back button works. A link to a flow that no longer
 exists renders a loud not-found card rather than a blank editor.
+
+### Renaming and deleting a flow
+
+A flow is a preset, so its name is its live tool name, and the server refuses a rename
+or a delete (`409`) while anything still uses that name. The Flows page reads what holds
+the name each time one of these dialogs opens and lists it under a lead line, each
+holder a link to where it is set: a holder in a flow (a node's state binding, or a
+stored template a node reads) opens that flow with the node selected, and a holder on
+another screen opens that screen. The action stays disabled while the list has
+entries. Without access to read presets, the dialog shows "Checking what still uses
+this is outside your access — it needs read access to presets." in place of the list,
+and the server decides at submit.
+
+**Rename.** **Rename** on a flow row, or the editor's **Rename flow** control, opens
+the **Rename flow** dialog ("Moves the flow's tool identity to a new name."), with a
+**New flow name** field. Holders that block the rename are listed under "Still used
+by — update these first:". The flow's own state bindings are not listed: they move to
+the new name with the rename, and a status line counts them ("This flow has 1 state
+binding; it moves to the new name with the rename."). The dialog moves those bindings
+first and then renames the flow, as one action; when the rename fails, it moves them
+back. If moving them back fails too, the dialog shows the rename's error and names
+the name the bindings are left under: renaming the flow to that name, once nothing
+blocks it, reattaches them. A refusal at submit that names only the flow's own
+bindings is answered by moving them and renaming once more; a refusal that names any
+other holder shows that list and the refusal's first line.
+
+**Delete.** The flow list's **Delete**, the editor's **Delete flow** control, and a
+custom node's delete in the palette each open a confirm that lists the holders under
+"Still used by — remove these first:", labelled "Holders of `<name>`", with its
+**Delete flow** or **Delete custom node** button disabled while any holder remains. A
+refusal at confirm that names holders shows them in that same list as links, beside the
+refusal's first line.
+
+**A stored preset the server cannot read.** When the presets read fails on one stored
+preset row the server cannot walk, the Flows page and the editor show the error with
+the link "Delete preset '`<name>`' in Presets to clear this." and no Retry, since a
+retry would fail the same way; the [Presets screen](/studio/presets#a-preset-the-server-cannot-read)
+deletes the row.
 
 ## See also
 

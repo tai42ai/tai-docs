@@ -18,7 +18,8 @@ right, the same shape as the other Capabilities screens.
 
 **All presets** lists every preset with its name, base tool, description, active
 version, tags, and extension count. Selecting a row opens the preset's detail: its
-current body — base tool, fixed kwargs, output schema, and extension sets — and its
+current body — base tool, fixed kwargs, output schema, input schema, input and output
+maps, and extension sets — and its
 version history. The detail also edits the preset's
 [display name and tags](/concepts/tool-organization); folder navigation and hide
 controls live on the Tools screen.
@@ -27,9 +28,84 @@ controls live on the Tools screen.
 
 **Create preset** opens a dialog for a new preset: its **Name**, an optional
 **Description**, the **Base tool** it wraps, the **Fixed kwargs** baked into every
-run, **Tags**, ordered **Extension sets**, and an optional **Output schema**. The
+run, **Tags**, the ordered **Extensions** (see [Extension sets](#extension-sets)), an optional **Input schema** (what callers
+send), an optional **Input map** (a jq program that turns the caller's input into the
+base tool's arguments, with `$fixed` holding the fixed kwargs), an optional **Output
+schema**, an optional **Output map** (a jq program that reshapes the base tool's result
+before the output schema is checked), and the preset's state binding. The
 Base tool must be chosen first — the fixed-kwargs editor suggests that tool's own
-input names and the create route rejects a kwarg the base tool does not declare.
+input names and the create route rejects a kwarg the base tool does not declare. An
+input map needs an input schema; the dialog shows the server's verdict on the pairing and
+on each map through **Validate** and the submit feedback (see
+[input and output maps](/concepts/presets#input-and-output-maps)).
+
+<Frame caption="The create-preset dialog with an input schema, an input map and an output map authored.">
+  <img className="block dark:hidden" src="/images/studio/preset-maps-light.png" alt="The create-preset dialog showing the Input schema editor, the Input map and Output map jq fields, and the Output schema editor." />
+  <img className="hidden dark:block" src="/images/studio/preset-maps-dark.png" alt="The create-preset dialog showing the Input schema editor, the Input map and Output map jq fields, and the Output schema editor." />
+</Frame>
+
+The write controls show only for a caller whose access reaches them; anyone else reads
+the presets read-only. Without access to create, **Create preset** is replaced by the line
+"Creating presets is outside your access — presets are shown read-only." Without access to
+save a version, **New version** is replaced by "Saving a new version is outside your access
+— this preset is shown read-only." **Edit details**, **Rename**, **Delete** and each
+version's **Rollback** are hidden for a caller whose access does not reach them.
+
+## Extension sets
+
+The **Extensions** field holds the preset's ordered extension sets: "Ordered extension
+sets applied to the preset tool." Each set is built in the picker below the list, which
+groups the available extensions by kind ("Kind: `<kind>`", with "(single-select)" on a
+kind that takes one extension per set). An extension that takes settings adds a
+"`<name>` settings" group, drawn from the settings schema the extension declares; a
+sealed environment setting reads "Env reference `<NAME>`, kept as written.", and a
+schema the form cannot draw shows "The settings of `<name>` cannot be edited here:
+`<reason>`." **Add extension set** stays disabled until the set has at least one
+extension, its settings are valid and it is not already in the list ("This extension
+set is already added."). Each set in the list has **Edit**, which loads it back into the
+picker with **Update extension set** and **Cancel edit**, and **Remove**. An empty list
+reads "No extension sets."; a set naming an extension the deployment no longer has is
+flagged "Unknown extension: `<name>`".
+
+The same editor edits a tool's extension sets on the Tools screen: the tool's **Extension
+sets** card opens it with **Edit extension sets**, in a dialog titled "Edit extension
+sets — `<tool>`".
+
+## Rename and delete
+
+A preset's name is its live tool name, so the server refuses a rename or a delete (`409`)
+while anything still uses the name: another preset, a schedule, a hook, a conversation
+route, a tool-extensions entry, a parked interaction, or a plugin's reference (see
+[Presets](/concepts/presets)). Each dialog reads what holds the name when it opens and
+lists it, each holder a link to the screen where it is set; the action stays disabled
+while the list has entries.
+
+- **Rename** opens "Rename preset — `<name>`" ("A preset's name is its live tool name,
+  so renaming rebinds the tool.") with a **New name** field. Holders are listed under
+  "Still used by — update these first:".
+- **Delete** opens "Delete preset — `<name>`", which asks "Delete the preset
+  `<name>`?" and lists holders under "Still used by — remove these first:". Its
+  description says what goes: the stored preset and its tool (and its branch tools),
+  or, for a quarantined record, only the record ("Removes the quarantined record. No
+  live tool is touched.").
+
+A refusal at submit that names holders shows them in the same list, beside the
+refusal's first line. Without access to read presets, each dialog shows "Checking what
+still uses this is outside your access — it needs read access to presets." in place of
+the list, and the server decides at submit.
+
+<Frame caption="A held delete: the confirm lists the conversation route that still uses the preset, as a link, with Delete disabled.">
+  <img className="block dark:hidden" src="/images/studio/preset-delete-held-light.png" alt="The Delete preset dialog listing a conversation route under Still used by, with the Delete button disabled." />
+  <img className="hidden dark:block" src="/images/studio/preset-delete-held-dark.png" alt="The Delete preset dialog listing a conversation route under Still used by, with the Delete button disabled." />
+</Frame>
+
+### A preset the server cannot read
+
+When the presets read fails on one stored preset row that the server cannot walk, the
+list and the detail show the server's error without a Retry, since a retry would fail
+the same way, and a **Delete preset '`<name>`'** button that removes the row. A caller
+whose access does not reach that delete reads "Deleting preset '`<name>`' is outside
+your access — it needs write access to presets." instead.
 
 ## The fixed kwargs editor
 
@@ -109,7 +185,10 @@ parses.
 
 Editing a preset's body and saving mints a **new version** — presets are immutable
 per version, and the same fixed-kwargs editor and validation gate the save-version
-dialog. The version history lists every version; **rollback** makes an earlier
+dialog. The save-version dialog also carries the **Input schema**, **Input map** and
+**Output map** fields, seeded from the active version; a field you leave unchanged carries
+forward, and a field you empty is removed on the new version. The detail shows each one
+that is set as its own card beside **Output schema**. The version history lists every version; **rollback** makes an earlier
 version active again without losing the later ones.
 
 The same operations are available from the CLI (`tai presets list`,

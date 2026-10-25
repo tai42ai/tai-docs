@@ -29,7 +29,8 @@ configured and running), running on a **default** (the built-in fallback is in
 use), or **off** (the kind is not configured). It is the fastest way to confirm
 which providers a running server actually resolved — for example, which
 [identity and accounts](/concepts/accounts) providers the configured
-[auth-provider](/concepts/access-control) chain brought up. The same summary is
+[auth-provider](/concepts/access-control) chain brought up, or whether file loading is
+installed (the `files` row). The same summary is
 served at `GET /api/system/kinds` and printed in the server's startup log — see
 [live operations](/concepts/live-operations#the-kinds-summary).
 
@@ -49,7 +50,7 @@ here. Each row carries an opaque routing handle back to the provider that owns i
 The page performs each provider's own declared [member actions](/concepts/member-actions) —
 invite a person, change a role or access, remove a member, send a login link,
 cancel an invitation — through a single generic **invoke** door. The page renders
-page buttons and per-row menu items from the provider's action declarations and
+header buttons and each row's action buttons from the provider's action declarations and
 reads no field of any action's input or result; a provider adds or changes an
 action by changing its declaration alone. The role picker reflects the current
 editable role set: the seeded admin/editor/viewer plus any role an admin has
@@ -60,6 +61,22 @@ the [API keys](/studio/api-keys) surface, and a principal provisioned directly
 through the raw [access-control](/concepts/access-control) policy routes is
 governed there — see the
 [principal-type split](/concepts/accounts#what-the-members-page-governs).
+
+The page has two cards. **People** lists each member's email, role, status and
+creation date, and **Pending invitations** lists each invitation with when it was sent
+and when it expires; an **Actions** column appears where a row has actions. A member's
+role reads **No role** when that member's access was set directly rather than from a
+role, and **Mixed roles** when the person's logins hold different roles; the badge lists
+each login's role with "Give every login of this person the same role." The status
+reads **Active**, **Disabled** or **Partially disabled**. With no people and no
+invitations the page reads "No members yet"; otherwise an empty card says "No people have been added
+yet." or "Outstanding invitations appear here until they are accepted or expire."
+
+An action opens a dialog titled with its label: a form drawn from the action's declared
+input, or "Run this action now?" for an action that takes none. A destructive action
+asks once more ("This is a destructive action. Confirm to proceed.") and runs on
+**Confirm**. A result that carries
+a secret shown only once says "Shown once — copy it now; it cannot be retrieved again."
 
 <Frame caption="The Members page: human accounts and pending invitations aggregated across every configured accounts provider, with the provider-declared member actions.">
   <img className="block dark:hidden" src="/images/studio/members-light.png" alt="The Members page listing human accounts and pending invitations with member-action controls." />
@@ -135,8 +152,8 @@ A warning under the export controls then names each section left out of the file
 message.
 
 <Frame caption="An export with a failed section: the file still downloads, and the warning names the section and its message.">
-  <img className="block dark:hidden" src="/images/studio/backup-export-section-errors-light.png" alt="The Backup tab's Export card with a warning that the backup downloaded but the templates section failed to export, with its storage error message." />
-  <img className="hidden dark:block" src="/images/studio/backup-export-section-errors-dark.png" alt="The Backup tab's Export card with a warning that the backup downloaded but the templates section failed to export, with its storage error message." />
+  <img className="block dark:hidden" src="/images/studio/backup-export-section-errors-light.png" alt="The Backup tab's Export card with a warning that the backup downloaded but the storage section failed to export, with its storage error message." />
+  <img className="hidden dark:block" src="/images/studio/backup-export-section-errors-dark.png" alt="The Backup tab's Export card with a warning that the backup downloaded but the storage section failed to export, with its storage error message." />
 </Frame>
 
 Restoring a backup's `env` section on the **Backup** tab is the same env write. Its
@@ -150,8 +167,15 @@ the same refusal, and nothing is stored.
   <img className="hidden dark:block" src="/images/studio/backup-restore-recycle-stopped-dark.png" alt="The Backup tab's import report for an env-section restore: the restart list naming the workers still awaiting a respawn and the Worker recycle rows with a stopped roll." />
 </Frame>
 
-The **API keys** tab on this screen is separate and **self-service**: any signed-in
-user manages its own keys there, regardless of role. A key needs at least one scope or
+Export and import on the **Backup** tab are admin actions. A role that may read
+backups sees the tab and its sections, and in place of each action a line saying so:
+"Exporting a backup is an admin action." and "Importing a backup is an admin action."
+
+The **API keys** tab on this screen is separate and **self-service**: every signed-in
+user sees its own keys there. A user whose access permits minting keys creates,
+edits and revokes them, on a read-only deployment too; any other user reads "Your
+access does not permit minting keys." in place of the **Create key** button. A key's
+policy **History**, and its rollback, show to admins only. A key needs at least one scope or
 a condition: the server refuses a key created with neither, and the **Create API key**
 dialog shows its reason and keeps the form open.
 

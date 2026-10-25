@@ -1,0 +1,206 @@
+---
+title: "Run traces (tai42_kit.monitoring)"
+description: "The run-trace opener: a run's one lineage, its `run` span, and the span that continues a handed-over lineage."
+icon: "diagram-project"
+---
+
+
+A run's one trace lineage: resolve it, and open the ``run`` span that roots it when none exists.
+
+* `resolve_trace_context` reads the lineage a run already has: an explicit pair in its
+  config, an explicit parent paired with the ambient deposit's trace, or the ambient deposit.
+  It never mints one.
+* `begin_run_trace` keeps that lineage, or opens one ``run`` span (a child of the live
+  span, or the root of a new trace) and returns a `RunTraceRoot` whose ``step()`` makes
+  it current and deposits it for one step of the run.
+* `open_run_trace` holds a run kept in one block inside its lineage.
+* `open_lineage_span` opens one named span continuing a lineage handed over explicitly.
+
+A span an opener opens records the run's input (``input_``, given when it opens) and its output
+(`RunTraceRoot.record_output`, given when the run ends), both encoded by the writer as every
+other recorded payload. A kept lineage opens no span and records neither: the run is a step of a
+trace whose root carries its own input and output.
+
+Every writer member called here is fail-safe, so the openers raise nothing but
+`InvalidRunTraceError` for a config they refuse.
+
+## InvalidRunTraceError
+
+`tai42_kit.monitoring.run_trace.InvalidRunTraceError`
+
+```python
+class InvalidRunTraceError(ValueError)
+```
+
+A run's config names a trace id or parent span that no monitoring writer can record under.
+
+The caller's input is refused before the run starts, naming the configurable key and the value it carried.
+
+
+## RunTraceRoot
+
+`tai42_kit.monitoring.run_trace.RunTraceRoot`
+
+```python
+class RunTraceRoot
+```
+
+A run's lineage and the ``run`` span it opened, if any.
+
+``step()`` makes the span current and deposits the lineage for one step of the run; enter and exit it in the
+same context, never across a ``yield`` a consumer drives. ``record_output()`` records the run's output and
+``end()`` ends the span.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `context` | — |
+
+### Members
+
+#### step
+
+`tai42_kit.monitoring.run_trace.RunTraceRoot.step`
+
+```python
+step(self) -> AbstractContextManager[None]
+```
+
+The block in which the held span is current and the lineage deposited; a no-op when no span is held.
+
+
+#### record_output
+
+`tai42_kit.monitoring.run_trace.RunTraceRoot.record_output`
+
+```python
+record_output(self, output: Any) -> None
+```
+
+Record ``output`` as the held span's output; a no-op when no span is held or it has ended.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `output` | `Any` | — | — |
+
+
+#### fail
+
+`tai42_kit.monitoring.run_trace.RunTraceRoot.fail`
+
+```python
+fail(self, error: Exception) -> None
+```
+
+Record ``error`` on the held span at ``ERROR``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `error` | `Exception` | — | — |
+
+
+#### end
+
+`tai42_kit.monitoring.run_trace.RunTraceRoot.end`
+
+```python
+end(self) -> None
+```
+
+End the held span; a second call does nothing.
+
+
+
+## begin_run_trace
+
+`tai42_kit.monitoring.run_trace.begin_run_trace`
+
+```python
+begin_run_trace(config: dict[str, Any] | None = None, *, input_: Any = None) -> RunTraceRoot
+```
+
+Begin a run's one lineage without making anything current.
+
+A lineage the config or the ambient deposit already names is kept unchanged. Otherwise one ``run`` span opens
+with ``input_`` as its input, a child of the live span or, with none live, the root of a new trace, and is
+current only inside `RunTraceRoot.step`. ``context`` is ``None`` when nothing records.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `dict[str, Any] \| None` | `None` | — |
+| `input_` | `Any` | `None` | — |
+
+
+## open_lineage_span
+
+`tai42_kit.monitoring.run_trace.open_lineage_span`
+
+```python
+open_lineage_span(name: str, *, parent: TraceContext, input_: Any = None) -> Iterator[RunTraceRoot]
+```
+
+Open one span named ``name`` with ``input_`` as a child of ``parent``, current and deposited for the block.
+
+The block records its output on the yielded root; the span ends on exit.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `parent` | `TraceContext` | — | — |
+| `input_` | `Any` | `None` | — |
+
+
+## open_run_trace
+
+`tai42_kit.monitoring.run_trace.open_run_trace`
+
+```python
+open_run_trace(config: dict[str, Any] | None = None, *, input_: Any = None) -> Iterator[RunTraceRoot]
+```
+
+Give a run held in one block its one lineage: the root of `begin_run_trace`, current and deposited.
+
+The block records the run's output on the yielded root; a raise is recorded on it before it ends. Never hold
+it across a ``yield`` a consumer drives; an async generator uses `begin_run_trace` and binds ``step()``
+per step.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `dict[str, Any] \| None` | `None` | — |
+| `input_` | `Any` | `None` | — |
+
+
+## resolve_trace_context
+
+`tai42_kit.monitoring.run_trace.resolve_trace_context`
+
+```python
+resolve_trace_context(config: dict[str, Any] | None = None) -> TraceContext | None
+```
+
+The lineage a run already has, from ``config`` and the ambient deposit; ``None`` when it has none.
+
+An explicit ``configurable[MONITORING_TRACE_ID_KEY]`` needs ``configurable[MONITORING_PARENT_SPAN_ID_KEY]``
+beside it. An explicit parent alone pairs with the ambient deposit's trace. Else the ambient deposit. Pure.
+
+A trace id that is not 32 lower-hex (not all zeros), a parent that is not 16 lower-hex (not all zeros), a trace
+without a parent, or a parent with no trace to pair with is refused with `InvalidRunTraceError`. An empty
+explicit trace id reads as absent.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `config` | `dict[str, Any] \| None` | `None` | — |
+

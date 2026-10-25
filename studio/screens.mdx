@@ -7,11 +7,11 @@ icon: "table-columns"
 The Studio's left sidebar leads with the **Dashboard** row, then groups every
 feature into five intent sections:
 
-- **Capabilities** — Tools, Agents, Presets, States, Extensions, Templates.
-- **Connections** — Connectors, Served endpoints.
-- **Triggers** — Hooks, Scheduling.
-- **Activity** — Conversations, Interactions, Notifications.
-- **Administration** — Settings, Storage, Marketplace, Manifest, System.
+- **Capabilities** — Tools, Agents, Presets.
+- **Connections** — Connectors.
+- **Doors** — Conversations, Hooks, Scheduling, Served endpoints, States.
+- **Activity** — Interactions, Notifications.
+- **Administration** — Members, Settings, Storage, Marketplace, Manifest, System.
 
 Each screen drives one slice of the server's `/api/*` surface, and every screen
 renders its own loading, empty, and error states rather than a blank page. This
@@ -74,45 +74,6 @@ authored-agents panel is empty until you compose one.
   <img className="hidden dark:block" src="/images/studio/agents-dark.png" alt="The Agents screen with an empty authored-agents panel above a manifest-registered tools_agent carrying a Run control." />
 </Frame>
 
-## Extensions
-
-The Extensions screen is where you attach a clip-on power — a chain, batch, or
-monitor [extension](/concepts/tools-and-extensions) — to a tool, and browse the
-extension catalog: every extension the running server has registered, grouped by
-kind (wrapper, transformer, backend), with a kind that allows one extension per
-tool marked. Pick a tool in the apply form to view and edit its extension sets.
-
-<Frame caption="The Tool extensions screen: the apply-an-extension form above the catalog of registered extensions, grouped by kind.">
-  <img className="block dark:hidden" src="/images/studio/extensions-light.png" alt="The Tool extensions screen with a tool picker for applying an extension above a catalog listing ask_external under the transformer kind." />
-  <img className="hidden dark:block" src="/images/studio/extensions-dark.png" alt="The Tool extensions screen with a tool picker for applying an extension above a catalog listing ask_external under the transformer kind." />
-</Frame>
-
-## Templates
-
-The Templates screen browses the stored resources the
-[ResourceManager](/concepts/storage-and-resources) serves — jinja templates and
-other content held in the configured storage backend. Select one to view and
-render it; a stored object that is not text (an image, for example) opens with
-the message "… is not a text template" instead of a body. The upload form writes new resources two ways: a **Text** mode types a
-single template inline, and a **Files** mode picks many files at once — each file
-becomes a template keyed by its name. A files upload checks every path for a
-conflict up front and blocks the whole batch before writing if any name already
-exists or repeats, so a bulk upload never half-overwrites the store. Each folder
-row carries a delete affordance — a destructive confirm that removes every template
-filed under that prefix — and a selected template's detail deletes it behind its own
-confirm.
-
-<Frame caption="The Templates screen: stored resources with a viewer and an upload form.">
-  <img className="block dark:hidden" src="/images/studio/templates-light.png" alt="The Templates screen listing stored template resources." />
-  <img className="hidden dark:block" src="/images/studio/templates-dark.png" alt="The Templates screen listing stored template resources." />
-</Frame>
-
-<Note>
-The Templates screen is populated only when the server has a storage backend
-registered. A server with no backend reports the surface as unavailable rather
-than inventing an empty list.
-</Note>
-
 ## States
 
 The States screen drives the platform [state store](/concepts/states) — the
@@ -158,7 +119,18 @@ parameter and declaration counts — with **Edit declarations** and **Detach** a
 an **Attach template** form that renders the template's parameter and declaration schemas
 as fields. Below the attachments, a **State templates** section lists the platform
 state-template documents, each with its attached-on count and a **shipped default** badge,
-and an **Upload template** action; deleting a template that is still attached is refused.
+and an **Upload template** action; deleting a template that is still attached is refused. A
+**Detach** that a binding still uses is refused: the detach confirm reads what still
+uses the attachment when it opens and lists each holder under "Still used by — change
+these bindings first:" — a preset version, a conversation-route config, a hook, a
+schedule, or a holder a plugin declares — each linked to the screen that fixes it, with
+**Detach** disabled while any remains. Without access to read states, the confirm says
+the check needs read access to states, and the server decides at confirm.
+
+<Frame caption="A held Detach: the confirm lists the preset version that still binds the attachment, as a link, with Detach disabled.">
+  <img className="block dark:hidden" src="/images/studio/states-detach-held-light.png" alt="The detach confirm listing a preset version under Still used by, with the Detach button disabled." />
+  <img className="hidden dark:block" src="/images/studio/states-detach-held-dark.png" alt="The detach confirm listing a preset version under Still used by, with the Detach button disabled." />
+</Frame>
 
 <Frame caption="The Templates tab: the state's attachments above the platform state templates.">
   <img className="block dark:hidden" src="/images/studio/states-templates-light.png" alt="The Templates tab listing one attachment with its template, path, parameter and declaration counts and the edit and detach actions, above the State templates section with its Upload template action." />
@@ -242,7 +214,7 @@ unavailable breakdown never reads as an idle one.
 
 ## Conversations
 
-The Conversations screen, under **Activity** in the sidebar, is the operator's window
+The Conversations screen, under **Doors** in the sidebar, is the operator's window
 over the [conversation bridge](/concepts/client-conversations) — every route, whichever
 door it listens on, in one place. It both **manages** routes and **monitors** their
 traffic, and drills down in three levels, each of them a URL you can share or bookmark:
@@ -255,19 +227,71 @@ reports its own off state rather than three stacked empties.
 The **Routes** tab is the route picker: it lists every route with the door it answers
 (a channel's registry name, or the authed API), the identity that medium reaches you
 at, and the agent or tool a turn runs. **Create route** opens an upsert dialog, and
-each row edits or deletes its route. The dialog authors the route through a schema
-form whose fields follow the target and door — each door shows only its own delivery
-fields — and whose rules come from the contract's published route document: a route
-name of lowercase letters, digits and hyphens, an optional absolute `https` callback URL
-with no user name or password (leave it blank for a poll-only route), a `:`-free channel
-name, and an error reply of up to 2,000 characters. A value that breaks its rule is
-refused in the form with that field's own message, before anything is sent. Either target kind carries the route's jq programs — `start_expr`,
+each row edits or deletes its route. The dialog picks each name from the deployment's
+own lists:
+
+- **Target** — a **Target kind** of Agent or Tool, then an **Agent** or **Tool** picker
+  over the registered agents or tools. The group's help says what a turn runs: an agent
+  runs each turn as a threaded conversation; a tool is dispatched once per message, with
+  no thread memory.
+- **Door** — Channel or API. The help explains the choice: a channel answers on its
+  own medium; the API door answers to a callback URL, or the caller polls. A channel
+  door picks an installed **Channel** and takes **Our identity**, the address on that
+  channel that clients message; its help is the channel's own hint for what to enter.
+  An API door takes a **Callback URL**.
+- **Execution key** — the api key each turn runs as. Every tool call the turn makes is
+  authorized against that key's live grants, so prefer a least-privilege service key
+  over a human's broad one. The picker lists the api keys you own (an admin sees every
+  key) and offers an api-key session its own identity when the list does not hold it;
+  an account session is told to mint a key first. A stored key outside the list is
+  flagged **not a listed key**, and when it is not the session's identity the dialog
+  says so before save (for a non-admin, that the server will refuse it). With access
+  control off the dialog has no Execution key field, and the route runs as the gate-off
+  identity.
+
+A stored value the deployment no longer lists stays selected and is flagged — **not
+registered** for an agent or tool, **not installed** for a channel — with "Pick
+another, or saving is refused." When the deployment lists none, the picker says so
+and links to the Agents screen or to the marketplace's plugins or channel plugins; a
+picker the session may not list shows which read it needs.
+
+<Frame caption="The Door group with a channel picked: the channel's own hint under Our identity.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-channel-hint-light.png" alt="The Create route dialog's Door group with the Channel door and a channel picked, showing that channel's hint for the Our identity field." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-channel-hint-dark.png" alt="The Create route dialog's Door group with the Channel door and a channel picked, showing that channel's hint for the Our identity field." />
+</Frame>
+
+<Frame caption="The Target group when the session may not list agents: the picker names the read it needs.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-no-grant-light.png" alt="The Create route dialog's Target group with an Agent target, showing the line that names the read the agent picker needs." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-no-grant-dark.png" alt="The Create route dialog's Target group with an Agent target, showing the line that names the read the agent picker needs." />
+</Frame>
+
+<Frame caption="Editing a route bound to a key outside the list: the key is flagged as not a listed key and not this session's identity.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-key-not-own-light.png" alt="The Edit route dialog's Execution key field with a stored key flagged as not a listed key and not this session's identity." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-key-not-own-dark.png" alt="The Edit route dialog's Execution key field with a stored key flagged as not a listed key and not this session's identity." />
+</Frame>
+
+<Frame caption="An api-key session with no listed keys picks its own identity as the execution key.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-own-identity-light.png" alt="The Create route dialog's Execution key field with this session's own identity picked and the line saying the route runs as that identity with its live grants." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-own-identity-dark.png" alt="The Create route dialog's Execution key field with this session's own identity picked and the line saying the route runs as that identity with its live grants." />
+</Frame>
+
+The rest of the route is authored through a schema form whose rules come from the
+contract's published route document: a route name of lowercase letters, digits and
+hyphens, an optional absolute `https` callback URL with no user name or password (leave
+it blank for a poll-only route), a `:`-free channel name, and an error reply of up to
+2,000 characters. A value that breaks its rule is refused in the form with that field's
+own message, before anything is sent. Either target kind carries the route's jq programs — `start_expr`,
 `reply_expr`, and the door-contract `cancel_expr` / `resume_expr` / `extras_expr` —
 each rendering the [visual jq editor](/studio/jq-editor) in place. An
 `api`-door save that sets a `callback_url` mints a fresh `callback_secret` and **reveals
 it exactly once** in the dialog under a loud caption — every such save rotates it and no
 door can re-read it, so copy it then; a `channel` save and a poll-only `api` save (no
 `callback_url`) carry no secret and close straight away.
+
+<Frame caption="The Create route dialog for an agent target: the door-contract jq fields and the execution key.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-agent-contract-light.png" alt="The Create route dialog for an agent target, showing the door-contract jq fields and the Execution key picker." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-agent-contract-dark.png" alt="The Create route dialog for an agent target, showing the door-contract jq fields and the Execution key picker." />
+</Frame>
 
 Selecting a route opens its **threads** — one row per client address, with when it
 last spoke, how many exchanges it holds, and where its newest answer's delivery stands.
@@ -471,7 +495,15 @@ history, its description, and homepage and repository links; when the plugin is
 installed, any security advisories affecting the installed version show there
 too. The detail drives [install, update, and
 uninstall](/marketplace/install) against the server's `/api/marketplace/*`
-routes, with progress surfaced in place.
+routes, with progress surfaced in place. The install, update and uninstall result
+shows the fleet report and the worker recycle report. A session that is not an
+administrator sees, in place of Install, Update or Uninstall on a plugin's page and of
+**Upgrade all** on the Installed tab, a line naming the route it lacks.
+
+<Frame caption="The Marketplace screen: the Browse tab's search, facet chips and plugin cards.">
+  <img className="block dark:hidden" src="/images/studio/marketplace-light.png" alt="The Marketplace screen on its Browse tab, with the search box, facet chips and the plugin cards." />
+  <img className="hidden dark:block" src="/images/studio/marketplace-dark.png" alt="The Marketplace screen on its Browse tab, with the search box, facet chips and the plugin cards." />
+</Frame>
 
 ## System
 
@@ -490,34 +522,54 @@ up and answering its liveness probe.
 
 ## Connectors
 
-The Connectors screen, under **Connections**, is the unified surface for outside
-apps and mounted MCP servers. Two provider sections list the
-[OAuth providers](/concepts/connectors) you can connect to (grouped by category,
-each showing its connection state) and your existing connections; selecting a
-connection opens its routed detail, and a popup-blocked sign-in that redirected the
-whole tab completes its exchange back here.
+The Connectors screen, under **Connections**, is the directory of outside apps and
+MCP servers. A search box and filter chips narrow it; each card is marked
+**Installed** or **In marketplace**, and the marketplace listings load page by page
+with **Load more**. A provider card lists each of its [connections](/concepts/connectors)
+with its tools, a **Pick tools** action and a **Fix** action for a connection that
+needs it, and **Add another account** for a second account. Connecting runs three
+steps: connect, sign in, pick tools; a sign-in that redirected the whole tab resumes the
+flow back here. Installing a marketplace listing happens inside its Connect step and
+needs an administrator; any other session sees a line naming the install route in
+place of the listing's Connect. Below the directory sit the connections list and
+**Add a custom server**.
 
-The same page is the **two ways to add MCP**. Its MCP section carries both:
+The picks are the MCP entry's `include` / `exclude`:
 
-- **Status** — every mounted MCP server, healthy or failed, each with a **Reload**
-  control. A failed server can be reloaded, or deregistered, in place.
-- **Config** — an editor for the manifest's `mcp` array with a form view (one editor
-  per entry: a schema-driven transport form plus a tool composer for the
-  `include`/`exclude` lists) and a raw-JSON escape hatch over the same working list.
-  A connector-owned entry renders read-only — it is kept in sync by its connection, so
-  you remove it by disconnecting. Saves cross the config pipeline and reload the fleet;
-  a malformed edit is a loud inline error and no request is sent.
+- A server in exclude mode stays in exclude mode when its picks are saved. In exclude
+  mode a Save with nothing ticked is allowed (every tool the server lists now is
+  unmounted; tools it adds later mount); in include mode at least one tick, or
+  **mount every tool**, is needed.
+- A name the server no longer advertises shows **Not advertised** and stays picked
+  until unticked.
+- A picked tool that is not mounted says why: the server failed, a preset owns the
+  name, its input schema cannot be used, or the server did not list it at the last
+  load.
+- Unticking a tool a preset or another reference uses is refused (see [Unpicking a
+  used tool](/concepts/manifest#unpicking-a-used-tool)), and the section lists those
+  holders as links.
+- With several sub-services, one Save writes them one after another, and **Save
+  remaining** retries the rest after a failure.
+
+A session missing a read sees the directory draw what it can read, with a line naming
+each missing route.
+
+<Frame caption="The Connectors screen: the directory of apps and MCP servers above the connections list.">
+  <img className="block dark:hidden" src="/images/studio/connectors-light.png" alt="The Connectors screen with its search box, filter chips and directory cards above the connections list." />
+  <img className="hidden dark:block" src="/images/studio/connectors-dark.png" alt="The Connectors screen with its search box, filter chips and directory cards above the connections list." />
+</Frame>
 
 <Note>
-The MCP configuration editor and the environment editor under **Settings** each carry
-an unsaved-changes guard: navigating away or a full-page unload with edits in flight
-first confirms, so a half-finished edit that would reload the fleet is never dropped
-silently.
+The MCP status and the configuration editor for the manifest's `mcp` array live on
+the [Manifest](#manifest) screen. That editor and the environment editor under
+**Settings** each carry an unsaved-changes guard: navigating away or a full-page unload
+with edits in flight first confirms, so a half-finished edit that would reload the
+fleet is never dropped silently.
 </Note>
 
 ## Served endpoints
 
-The Served endpoints screen, under **Connections**, manages the derived sub-MCP
+The Served endpoints screen, under **Doors**, manages the derived sub-MCP
 servers — the [private tool sets](/concepts/private-tool-sets) that serve a curated
 subset of tools under their own slug and MCP endpoint. It lists every entry with its
 transport and its concrete `/app/{slug}` connect URL (copy-to-clipboard) and a
@@ -525,27 +577,44 @@ delete control behind a confirm. **Create** builds a new entry from a slug, a
 multi-select of tool names, and a transport; a slug that already exists is flagged and
 the replacement confirmed, because register is a silent-swap upsert.
 
+<Frame caption="The Served endpoints screen: the sub-MCP list above its inline create form.">
+  <img className="block dark:hidden" src="/images/studio/served-endpoints-light.png" alt="The Served endpoints screen with the sub-MCP server list above the create form." />
+  <img className="hidden dark:block" src="/images/studio/served-endpoints-dark.png" alt="The Served endpoints screen with the sub-MCP server list above the create form." />
+</Frame>
+
 ## Manifest
 
-The Manifest screen, under **Administration**, is the config-artifact inspector: it
-renders the live [manifest](/concepts/manifest) the server loaded — its `mcp` and
-`user_tools` — as an expandable tree. The document is read-only here; it is edited on
-disk and reloaded, never mutated from the screen. (MCP server status and config live
-on the [Connectors](#connectors) page, and the derived sub-MCP servers on
-[Served endpoints](#served-endpoints).)
+The Manifest screen, under **Administration**, is the config-artifact inspector. It
+holds:
 
-Below the tree, the screen carries the granular section-editing doors: the `tools` and
-`agents` per-entry add and remove controls (an entry is added by pasting its JSON with
-its title validated, removed by naming its title), and the `api_tools`
-include/exclude curation (a name is added to or removed from a list). These are a
-deliberate delta surface — the manifest read serves only `mcp` and `user_tools`. Every
-write crosses the config pipeline and reloads the fleet, so a save re-reads the
+- **The manifest** — the preserved [manifest](/concepts/manifest) document the server
+  loaded, `!ENV` markers intact, as an expandable tree.
+- **MCP servers** — every mounted MCP server, healthy or failed, each with a
+  **Reload** control (a failed server can be reloaded, or deregistered, in place), and
+  the configuration editor that writes the manifest's `mcp` array: a form view (one
+  editor per entry: a schema-driven transport form plus a tool composer for the
+  `include` / `exclude` lists) and a raw-JSON escape hatch over the same working list.
+  A connector-owned entry renders read-only — it is kept in sync by its connection, so
+  you remove it by disconnecting. A malformed edit is a loud inline error and no
+  request is sent.
+- **Extensions** — the extensions the server loaded, grouped by kind, and the
+  manifest's extension settings: `extensions_modules`, `backend_module` and the
+  per-tool extension maps of `tools`, `mcp` and `api_tools`. Extensions are attached to
+  a tool on its Tools page or in a preset; see [Tools and
+  extensions](/concepts/tools-and-extensions).
+- **Section doors** — the `tools` and `agents` per-entry add and remove controls (an
+  entry is added by pasting its JSON with its title validated, removed by naming its
+  title), and the `api_tools` include/exclude curation (a name is added to or removed
+  from a list).
+
+Every write crosses the config pipeline and reloads the fleet, so a save re-reads the
 artifact and reports any failed propagation; removes ask the house confirm. Each door
-renders only for a session whose projection can reach it.
+renders only for a session whose projection can reach it. (The derived sub-MCP servers
+live on [Served endpoints](#served-endpoints).)
 
-<Frame caption="The Manifest screen: the live manifest config artifact as an expandable tree.">
-  <img className="block dark:hidden" src="/images/studio/manifest-light.png" alt="The Manifest screen showing the live manifest config artifact as an expandable JSON tree." />
-  <img className="hidden dark:block" src="/images/studio/manifest-dark.png" alt="The Manifest screen showing the live manifest config artifact as an expandable JSON tree." />
+<Frame caption="The Manifest screen: the manifest document, the loaded extensions by kind and the manifest's extension settings.">
+  <img className="block dark:hidden" src="/images/studio/manifest-light.png" alt="The Manifest screen showing the manifest document as an expandable tree, the MCP servers block and the Extensions section with the loaded extensions by kind and the manifest's extension settings." />
+  <img className="hidden dark:block" src="/images/studio/manifest-dark.png" alt="The Manifest screen showing the manifest document as an expandable tree, the MCP servers block and the Extensions section with the loaded extensions by kind and the manifest's extension settings." />
 </Frame>
 
 ## Flows
@@ -613,27 +682,116 @@ walks the full flow.
 
 ## The rest of the sidebar
 
-The remaining links follow the same shape — a master list on the left, a detail
-or editor on the right:
+Every screen follows one of a few layouts; a screen with tabs under its header
+(Settings, Dashboard, Marketplace, the Conversations landing) has one per tab:
+
+- **Browse and inspect** — a list beside the open item's detail, the selection kept in
+  the URL: Tools, Presets, States, Storage, and a Conversations route with its threads
+  beside the open transcript.
+- **Catalog** — a directory of cards with search and filters: Connectors, the Tools card
+  view, and the Marketplace Browse tab.
+- **Registry** — records in tables or lists, with create and row actions in dialogs
+  and a destructive action confirmed before it runs: Scheduling, Members, the
+  Conversations Routes and Per-target configs tabs, the Marketplace Installed tab, and
+  the Profiles, API keys and Roles tabs of Settings.
+- **Registry with inline create** — the records first, then the create forms on the
+  page below them: Hooks and Served endpoints.
+- **Replaced detail** — one item takes over the page or the tab: a Marketplace plugin's
+  page, a trace on the Dashboard's Tracing tab, a state template or a state's records.
+- **Run surface** — a list, then the run view in its place: Agents.
+- **Inbox** — newest first, with a button at the foot for the rest: **Load more** on
+  Interactions, where the server pages, and **Show more** on Notifications, where the
+  whole feed is already loaded.
+- **Status and configuration** — stacked cards of read-only views and in-place editors:
+  Manifest, System, the Dashboard tab, the Settings, Environment and Backup tabs of
+  Settings, and the Conversations Failed deliveries tab.
+
+The screens not toured above:
 
 - **Presets** *(Capabilities)* — [versioned tool-wraps](/concepts/presets) and their
   version history; each preset also renders and edits its
   [tool-organization](/concepts/tool-organization) display name and tags (folder
   navigation and hide controls stay on the Tools screen). See
   [Presets](/studio/presets) for the create dialog and the fixed-kwargs editor.
-- **Hooks** *(Triggers)* — [event hooks](/concepts/hooks) wired to the server.
-- **Scheduling** *(Triggers)* — [scheduled tool runs](/concepts/triggers-and-webhooks).
-- **Interactions** *(Activity)* — the [human-in-the-loop](/concepts/interactions)
-  inbox of pending questions.
-- **Notifications** *(Activity)* — the [notifications](/concepts/notifications) inbox.
+- **Scheduling** *(Doors)* — [scheduled tool runs](/concepts/triggers-and-webhooks).
+- **Members** *(Administration)* — the people and pending invitations of the accounts
+  providers, with the actions they declare; see
+  [Members](/studio/admin-console#members).
 - **Settings** *(Administration)* — server configuration, environment values, and API
   keys (see [Admin console](/studio/admin-console) and [API keys](/studio/api-keys)).
   An environment save of a recycle-class setting shows the worker recycle it rolled.
   A **Reload config** control re-reads env and re-initializes the deployment from its
   manifest in place, applied on the serving worker and broadcast to the fleet; a worker
   whose reload left a recycle-class setting waiting for a restart is listed with it.
-- **Storage** *(Administration)* — the [stored-resource](/concepts/storage-and-resources)
-  backend surface.
+
+### Hooks
+
+**Hooks** *(Doors)* — [event hooks](/concepts/hooks) wired to the server, the topic
+verifiers and the trigger links; see [Hooks and trigger links](/studio/hooks).
+
+<Frame caption="The Hooks screen: the registered hooks above the register form.">
+  <img className="block dark:hidden" src="/images/studio/hooks-light.png" alt="The Hooks screen listing the registered hooks above the Register hook form." />
+  <img className="hidden dark:block" src="/images/studio/hooks-dark.png" alt="The Hooks screen listing the registered hooks above the Register hook form." />
+</Frame>
+
+### Interactions
+
+**Interactions** *(Activity)* — the [human-in-the-loop](/concepts/interactions) inbox
+of pending questions.
+
+<Frame caption="The Interactions inbox: the pending questions, newest first.">
+  <img className="block dark:hidden" src="/images/studio/interactions-light.png" alt="The Interactions inbox listing pending questions, newest first." />
+  <img className="hidden dark:block" src="/images/studio/interactions-dark.png" alt="The Interactions inbox listing pending questions, newest first." />
+</Frame>
+
+### Notifications
+
+**Notifications** *(Activity)* — the [notifications](/concepts/notifications) inbox.
+
+<Frame caption="The Notifications inbox: the notifications, newest first.">
+  <img className="block dark:hidden" src="/images/studio/notifications-light.png" alt="The Notifications inbox listing notifications, newest first." />
+  <img className="hidden dark:block" src="/images/studio/notifications-dark.png" alt="The Notifications inbox listing notifications, newest first." />
+</Frame>
+
+### Storage
+
+**Storage** *(Administration)* — one screen over the
+[stored resources](/concepts/storage-and-resources). The storage list or the templates
+list opens it, whichever your access reaches, and each action shows only where your
+access and the doors the deployment mounts reach it: the storage doors serve a caller
+with the storage grant, and the templates doors serve a caller holding only the
+templates grant. A deployment that mounts neither, or a caller who reaches neither
+list, reads "Storage is not served here".
+
+Opening an object shows it by kind:
+
+- **Text** — its content, with a **Render preview** where your access reaches the
+  template render.
+- **Document** — the extracted text, marked "Extracted text; this object is not a
+  template.", with no template action.
+- **Binary** — "Binary object: no text preview."
+
+An object the server cannot show — over the size cap, text that is not UTF-8, or a
+file its extractor cannot read, such as an encrypted PDF — shows the server's message
+with **Download** and **Delete** still offered. **Upload** writes one text object or
+a batch of files; before anything is sent it flags ids that already exist or repeat
+in the batch and, for a caller who stores text only, files that are not UTF-8 text.
+**Clear cache** clears the template cache and says "Template cache cleared.". Channel
+media is not listed here: the server leaves it out of both lists.
+
+A **Delete** that the server refuses because something still names the object keeps
+the dialog open and lists each holder, as a link, under "Still used by — remove these
+first:".
+
+<Frame caption="The Storage screen: the resource list beside an open text object.">
+  <img className="block dark:hidden" src="/images/studio/storage-light.png" alt="The Storage screen with the resource list beside the open welcome-email.md text object." />
+  <img className="hidden dark:block" src="/images/studio/storage-dark.png" alt="The Storage screen with the resource list beside the open welcome-email.md text object." />
+</Frame>
+
+<Frame caption="A refused Delete on the Storage screen: the hook that still names the object, listed as a link.">
+  <img className="block dark:hidden" src="/images/studio/storage-delete-held-light.png" alt="The Storage Delete dialog for jq/gate, refused, listing the hook whose condition names it." />
+  <img className="hidden dark:block" src="/images/studio/storage-delete-held-dark.png" alt="The Storage Delete dialog for jq/gate, refused, listing the hook whose condition names it." />
+</Frame>
 
 Several of these surfaces are backed by Redis or Postgres in the running server;
 a screen whose store is not provisioned says so plainly instead of showing a

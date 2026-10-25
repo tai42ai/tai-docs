@@ -61,8 +61,9 @@ the same wait the other way. `expiry_at` is valid only with `mode="async"`.
 A parked question is answered **out of band** — through the ordinary authenticated
 answer door or the channel callback, exactly as a sync question, never inline. When a
 human answers, the run resumes on its own: a stored continuation runs under the
-**asker's** identity (never the answerer's), exactly once. It receives `answer`,
-`reply_to` and `params`, the same values a synchronous asker reads.
+**asker's** identity (never the answerer's), exactly once. It is called with
+`{interaction_id, ask_result}`, where `ask_result` is the `{answer, reply_to, params}`
+object a synchronous asker reads.
 
 What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
 
@@ -73,7 +74,7 @@ What a **lapsed** `expiry_at` does is the park's **`on_expiry`** policy:
 - **`resume`** resumes the continuation with a reserved *interaction expired* marker
   in place of an answer, so the run takes its **expiry branch** rather than a real
   answer. Choose it when the run has an expiry path to run. The marker arrives as
-  `answer`, with `reply_to` and `params` `null`.
+  the `answer` of `ask_result`, with `reply_to` and `params` `null`.
 
 Either way the expiry is stated once as an `interactions_ask_expired_unanswered`
 platform event a deployment can [hook](/concepts/hooks) on.
@@ -789,6 +790,12 @@ ask-less form is for submissions that are welcome whenever they arrive.
 
 A channel plugin reads the platform's rules from their owners instead of copying them:
 
+- **Identity hint** — a channel may declare a `ClassVar identity_hint: str`: one plain
+  sentence telling an operator what to enter as a conversation route's `our_identity` on
+  this channel (which address of the medium clients message). It is read with
+  `getattr(channel, "identity_hint", None)`; absent means no hint. A declared value must be
+  a non-blank string, and registering a channel that declares anything else is refused.
+  The route form and `tai channels list` (`GET /api/channels`) show it.
 - **Callback-link formats** — `tai42_contract.interactions.CALLBACK_LINK_FORMATS`
   (`confirm`, `external`) are completed by opening the callback link alone; every other
   format expects a reply the channel correlates.
