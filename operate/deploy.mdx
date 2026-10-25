@@ -38,10 +38,12 @@ Run multiple worker processes with `-w/--workers`. The transport constrains the 
 - `stdio` and `sse` run a single worker.
 - `http` / `streamable-http` run a single stateful worker by default; pass `--stateless-http` to lift the single-worker restriction and run several.
 
-More than one worker also **requires the [worker bus](/concepts/worker-bus)**: `tai serve --workers N` (`N > 1`) is refused without `TAI_BUS_REDIS_URL`, because sibling workers would serve stale config after a reload with no channel to converge on.
+More than one worker also **requires the [worker bus](/concepts/worker-bus)** and shared sub-MCP and hooks stores: set `TAI_BUS_REDIS_URL`, `SUB_MCP_REDIS_URL` and `HOOKS_REDIS_URL` (`TAI_DEFAULT_REDIS_URL` stands in for all three). Without the bus, sibling workers would serve stale config after a reload with no channel to converge on. Without a shared Redis, each store is per-process: a sub-MCP app registered on one worker is not served by its siblings, and a hook registered on one worker never runs for an event another worker accepts.
 
 ```bash
 export TAI_BUS_REDIS_URL="redis://localhost:6379/0"
+export SUB_MCP_REDIS_URL="redis://localhost:6379/0"
+export HOOKS_REDIS_URL="redis://localhost:6379/0"
 tai serve --transport streamable-http --workers 4 --stateless-http
 ```
 
@@ -50,18 +52,13 @@ The full worker and transport option surface:
 <ServeWorkersHelp />
 
 <Warning>
-`--workers > 1` is refused for `stdio` and `sse`, and for `http` / `streamable-http` unless `--stateless-http` is set. A stateful HTTP server keeps session state a second worker would not see. It is refused again without `TAI_BUS_REDIS_URL` — a multi-worker fleet needs the bus to stay converged.
+`--workers > 1` is refused for `stdio` and `sse`, and for `http` / `streamable-http` unless `--stateless-http` is set. A stateful HTTP server keeps session state a second worker would not see.
+
+`tai serve` hands its worker count to each worker, and each worker refuses to boot without the bus or with either store in-memory, naming the setting to set. The worker checks after it applies the stored env (the config-dir `.env` or the config provider's store), so a URL kept only in the stored env counts, and a stored empty value over a value set in the container is refused. A worker that refuses fails its startup, and `tai serve` exits non-zero. A config reload, and any config write (an env change, a manifest change, a profile replace), that would leave a multi-worker server without the bus or with either store in-memory is refused the same way.
 </Warning>
 
 <Note>
-**Multiple workers need a shared sub-MCP store.** Running more than one worker (`-w N`, `N > 1`) **requires** `SUB_MCP_REDIS_URL`. Sub-MCP app registrations are per-process in-memory routing state; without a shared Redis a registration made on one worker is invisible to its siblings and no worker rehydrates another's routes. Point it at a plain Redis:
-
-```bash
-export SUB_MCP_REDIS_URL="redis://localhost:6379/0"
-tai serve --transport streamable-http --workers 4 --stateless-http
-```
-
-A single-worker deployment may run on the default in-memory store.
+A single-worker deployment may run on the default in-memory stores, unless it registers an [execution backend](/operate/backends): a `backend_module` needs the shared hooks store at any worker count, because the backend process matches the events it raises against its own hooks registry, and an in-memory one holds none of the hooks registered through the server.
 </Note>
 
 ### When a worker dies
@@ -143,9 +140,9 @@ export TAI_DATABASE_DEFAULT_PG_DB=tai
 export TAI_DATABASE_DEFAULT_PG_PASSWORD="$PGPASSWORD"
 ```
 
-**Any plain Redis.** The auth gate reads its live context and the identity records from plain Redis hashes. There is no baked-in default: point the connection with `ACCESS_CONTROL_REDIS_URL`, or let it resolve from the shared `TAI_DEFAULT_REDIS_URL` — with the gate on, one of the two must be set. Any standard, module-less `redis-server` runs the whole ecosystem, access control included — `redis:7`, `redis:8`, or `valkey`. No RedisJSON, no redis-stack, no Redis modules are required anywhere.
+**Any plain Redis.** The auth gate reads its live context from plain Redis hashes. There is no baked-in default: point the connection with `ACCESS_CONTROL_REDIS_URL`, or let it resolve from the shared `TAI_DEFAULT_REDIS_URL` — with the gate on, one of the two must be set, or every request that carries a key is denied. The Redis API-key provider keeps its records in its own Redis, `TAI_IDENTITY_REDIS_URL`, which also falls back to `TAI_DEFAULT_REDIS_URL`. Any standard, module-less `redis-server` — `redis:7`, `redis:8`, or `valkey` — runs access control, the worker bus, the task backends, and the feature stores. The one exception is the default checkpoint store and LLM store (`LLM_PROVIDER_CHECKPOINT` and `LLM_PROVIDER_STORE` set to `redis`): they need a Redis with the JSON and search modules — Redis 8, or a Redis 7 with RedisJSON and RediSearch loaded. See [Checkpoints](/operate/checkpoints) and [Infrastructure by feature](/operate/infrastructure).
 
-**An identity provider in the manifest.** The skeleton ships no concrete identity provider, so a deployment with access control enabled **must** name one as a `lifecycle_modules` entry — its module registers the provider at import. The default is the Redis-backed api-key provider, which registers itself as the `"redis"` provider; `ACCESS_CONTROL_AUTH_PROVIDERS` — an ordered JSON list, default `["redis"]` — names the chain the verifier tries. Swap the module to change the authn backend.
+**An identity provider in the manifest.** The skeleton ships no concrete identity provider, so a deployment with access control enabled **must** name one as a `lifecycle_modules` entry — its module registers the provider at import. The usual choice is the Redis-backed api-key provider, which registers itself as the `"redis"` provider. `ACCESS_CONTROL_AUTH_PROVIDERS` — an ordered JSON list — names the chain the verifier tries; unset, the chain is every registered identity provider, sorted by name. Swap the module to change the authn backend.
 
 <AccessControlManifest />
 
@@ -196,7 +193,7 @@ Rows that share one connection are pinged once and report that one result. A dea
 
 ## Preflight check
 
-Run read-only health diagnostics before serving — Python version, config mode, Postgres and Redis connectivity, and whether the schema is applied. It exits non-zero when any check fails, and redacts credentials.
+Run read-only health diagnostics before serving — Python version, config mode, the `skeleton` database (reached with the migrator identity), whether its schema is applied, and the connector-store Redis (`CONNECTOR_STORE_REDIS_URL` or `TAI_DEFAULT_REDIS_URL`). An unconfigured database or Redis counts as a failed check. It exits non-zero when any check fails, and redacts credentials. It does not check the other Redis features; [Infrastructure by feature](/operate/infrastructure) lists them.
 
 ```bash
 tai doctor
@@ -217,5 +214,6 @@ port is, and access control gates it exactly as above.
 
 - [Transports](/concepts/transports) — the HTTP, SSE, stdio, and UDS paths in depth.
 - [Config and secrets](/concepts/config-and-secrets) — the config-provider seam.
+- [Infrastructure by feature](/operate/infrastructure) — which feature needs Postgres, Redis, or another service.
 - [Integrations](/integrations) — point an MCP client at the running server.
 - [CLI reference](/reference/cli) — the full `tai serve` surface.

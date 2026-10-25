@@ -1,0 +1,141 @@
+---
+title: "Infrastructure by feature"
+description: "Which features need Postgres, Redis or another service, which need nothing, and what happens when the service is missing."
+icon: "layer-group"
+---
+
+Most of the platform runs with no services at all. A feature that needs Postgres,
+Redis or another service says so on this page, names the setting that points at it,
+and says what happens when it is missing.
+
+A missing service shows up in one of four ways:
+
+- **Boot refused.** The server does not start, and the error says why.
+- **Off.** The feature reports itself off. Reads answer empty and writes answer `501`
+  with a code that names the feature (see [What OFF looks like](/concepts/config-and-secrets#what-off-looks-like)).
+- **In memory.** The feature works inside one process only, and boot logs a `WARNING`
+  where the table says so.
+- **Fails at first use.** Boot succeeds. The first call that needs the service raises
+  an error that names the setting.
+
+## How the settings resolve
+
+- **Postgres.** A Postgres feature uses the [named database](/concepts/config-and-secrets#named-databases)
+  its component binds to. A component binds to `default` unless `TAI_DB_BINDING_<COMPONENT>`
+  says otherwise, so most features read `TAI_DATABASE_DEFAULT_PG_*`. A database counts as
+  configured when its password is set. Set its host too: a password with no
+  `TAI_DATABASE_<NAME>_PG_HOST` raises when the first connection is built.
+- **Redis.** Each Redis feature has its own `<PREFIX>REDIS_URL`. When that is unset it
+  uses the shared `TAI_DEFAULT_REDIS_URL`. Setting the shared URL turns on every Redis
+  feature at once (see [Default connection namespace](/concepts/config-and-secrets#default-connection-namespace)).
+- **Plain Redis or Redis with modules.** Almost every feature runs on any standard
+  `redis-server` with no modules (`redis:7`, `redis:8` or Valkey). The `redis` checkpoint store and the
+  `redis` LLM store, both the default, are the exceptions: they need the JSON and search
+  modules. Redis 8 ships both, and the Compose bundle's Redis is Redis 8. A Redis 7 needs
+  RedisJSON and RediSearch loaded. On a plain Redis the store's setup fails with
+  `unknown command 'FT._LIST'`.
+
+## The minimal deployment
+
+A single `tai serve` worker with the `file` config mode and access control off needs
+no Postgres and no Redis. Local tools and mounted MCP servers work. Each feature that
+needs a service behaves as the tables below say.
+
+```bash
+export ACCESS_CONTROL_ENABLE=false
+tai serve --transport http --host 127.0.0.1 --port 8000
+```
+
+Two defaults need a service unless you change them:
+
+- **Access control is on by default.** With it on, the server needs an identity
+  provider plugin, Postgres and Redis. See the core table.
+- **The checkpoint store defaults to `redis`.** An agent or flow run needs a
+  checkpoint store. Set `LLM_PROVIDER_CHECKPOINT=memory` for local work, or give it a
+  Redis with modules or a Postgres. See the core table.
+
+## Core
+
+| Feature | What it needs | Setting | Without it |
+| --- | --- | --- | --- |
+| Tools, MCP mounts, manifest | Nothing | — | — |
+| Worker bus | Plain Redis | `TAI_BUS_REDIS_URL` | One worker in `file` mode runs on a local no-op bus. Boot is refused for more than one `tai serve` worker, a config mode other than `file`, or a registered execution backend. See [Worker bus](/concepts/worker-bus). |
+| Access control (on by default) | An identity provider plugin, Postgres (the `skeleton` database), and plain Redis for the gate's live context | `ACCESS_CONTROL_ENABLE`, `TAI_DATABASE_<NAME>_PG_*`, `ACCESS_CONTROL_REDIS_URL` | No identity provider: boot is refused. No Postgres or no gate Redis: the server boots, and every request that carries a key is denied with `Access Denied`, with the error logged. Set `ACCESS_CONTROL_ENABLE=false` to run without auth. |
+| Schema check | Postgres (the `skeleton` database) | `TAI_DATABASE_<NAME>_PG_*` | The check is skipped. With a database set and a migration pending, boot is refused with `Run 'tai db migrate'`. |
+| Background tool runs | Plain Redis | `TAI_TOOL_RUNS_REDIS_URL` | Off. |
+| Interactions and notifications | Plain Redis | `INTERACTIONS_REDIS_URL` | Off. |
+| Rate limiting on public doors | Plain Redis | `TAI_RATE_LIMIT_REDIS_URL` | Public doors are not throttled. Boot logs one `WARNING`. |
+| Hooks | Plain Redis | `HOOKS_REDIS_URL` | In memory, with a `WARNING`. Each `tai serve` worker refuses to boot without it when there is more than one worker, and boot is refused for a registered execution backend at any worker count. |
+| Conversations | Plain Redis | `CONVERSATIONS_REDIS_URL` | In memory, with a `WARNING`. Every routing operation answers `501`. |
+| Sub-MCP registrations | Plain Redis | `SUB_MCP_REDIS_URL` | In memory. Each `tai serve` worker refuses to boot without it when there is more than one worker. |
+| Marketplace store, tool metadata, versioning and settings profiles | Postgres (the `skeleton` database) | `TAI_DATABASE_<NAME>_PG_*` | Off. See [OFF behavior per feature](/concepts/config-and-secrets#off-behavior-per-feature). |
+| Subject state records | Postgres (the `states` database, bound to `default` unless `TAI_DB_BINDING_STATES` names another) | `TAI_DB_BINDING_STATES`, `TAI_DATABASE_<NAME>_PG_*` | Off. With its database set and a migration pending, boot is refused with `Run 'tai db migrate'`. |
+| Run index | Postgres (the `skeleton` database) | `TAI_DATABASE_<NAME>_PG_*` | Runs are not indexed. |
+| Connectors | Postgres (the `skeleton` database), plain Redis, and the `CONNECTORS_*` keys | `TAI_DATABASE_<NAME>_PG_*`, `CONNECTOR_STORE_REDIS_URL` | No Postgres: off. No Redis: the token cache reads Postgres, with a `WARNING`, and starting an OAuth connection fails at first use. |
+| Checkpoint store for agent and flow runs | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing (development only). | `LLM_PROVIDER_CHECKPOINT`, `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | Fails at first use. With no conn string, `redis` reads `REDIS_URL` or `TAI_DEFAULT_REDIS_URL`, and `postgres` reads the base `PG_*` settings. See [Checkpoints](/operate/checkpoints). |
+| LLM store (retrieval and deep agents) | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing. | `LLM_PROVIDER_STORE`, `LLM_PROVIDER_STORE_CONN_STRING` | Fails at first use. |
+| Schedules | An execution backend plugin that exposes scheduling | — | Answers `501`. |
+| Storage | A storage provider plugin | `storage_module` in the manifest | Answers `501`. |
+
+`tai doctor` checks the `skeleton` database (with the migrator identity), its schema,
+and the connector-store Redis (`CONNECTOR_STORE_REDIS_URL` or `TAI_DEFAULT_REDIS_URL`).
+It counts an unconfigured one as a failure and exits non-zero. It does not check the
+other Redis features.
+
+## Plugins
+
+| Plugin | What it needs | Setting | Without it |
+| --- | --- | --- | --- |
+| [`identity-redis`](/plugins/tai42/identity-redis) | Plain Redis | `TAI_IDENTITY_REDIS_URL` | Boot is refused: the provider's health check reads Redis at startup. |
+| [`accounts-postgres`](/plugins/tai42/accounts-postgres) | Postgres, and plain Redis for the login throttle | `TAI_DB_BINDING_TAI42_ACCOUNTS_POSTGRES`, `TAI_ACCOUNTS_REDIS_URL` | No database: the boot schema check is skipped. A pending migration refuses boot. |
+| [`agents`](/plugins/tai42/agents) | An LLM provider; the core checkpoint store; plain Redis for parking and the workspace lease; a sandbox provider for `claude_code` and `langchain_deep_agent`; the LLM store and an embedding provider for `retrieval_tools_agent` | `LLM_PROVIDER_*`, `TAI_AGENTS_REDIS_URL`, `sandbox_module` | A park without a durable checkpoint store or the agents Redis is refused. A sandbox agent without a sandbox provider fails at first use. |
+| [`backend-arq`](/plugins/tai42/backend-arq), [`backend-rq`](/plugins/tai42/backend-rq) | Plain Redis, the worker bus, and the shared hooks registry | `ARQ_REDIS_URL`, `RQ_REDIS_URL` | With both its own URL and `TAI_DEFAULT_REDIS_URL` unset, it connects to `redis://localhost:6379/0` and fails there. No bus or an in-memory hooks registry: boot is refused. |
+| [`backend-celery`](/plugins/tai42/backend-celery) | A broker (AMQP such as RabbitMQ, or Redis), a result backend, Redis for the beat schedule, the worker bus, and the shared hooks registry | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_REDBEAT_REDIS_URL` | An unset broker uses `TAI_DEFAULT_REDIS_URL`, else `amqp://localhost:5672//`. No bus or an in-memory hooks registry: boot is refused. |
+| [`channel-slack`](/plugins/tai42/channel-slack), [`channel-twilio`](/plugins/tai42/channel-twilio), [`channel-whatsapp`](/plugins/tai42/channel-whatsapp) | The vendor's account, a public HTTPS URL for inbound, and plain Redis | `CHANNEL_<NAME>_REDIS_URL` | No Redis: fails at first use. |
+| [`channel-telegram`](/plugins/tai42/channel-telegram) | A bot token, a public HTTPS URL, and plain Redis | `CHANNEL_TELEGRAM_*`, `CHANNEL_TELEGRAM_REDIS_URL` | Boot is refused without the token, webhook secret, public URL, and a recipient or allowlist, or when Telegram rejects the webhook. No Redis: fails at first use. |
+| [`channel-web`](/plugins/tai42/channel-web) | Plain Redis | `CHANNEL_WEB_REDIS_URL` | Every door except the asset door answers `501` with `web_transcript_store_off`. |
+| [`connector-atlassian`](/plugins/tai42/connector-atlassian), [`connector-github`](/plugins/tai42/connector-github), [`connector-google`](/plugins/tai42/connector-google), [`connector-slack`](/plugins/tai42/connector-slack) | The vendor's OAuth app, and the core connectors store | `CONNECTORS_<NAME>_CLIENT_ID`, `CONNECTORS_<NAME>_CLIENT_SECRET` | Starting a connection fails, naming the missing variable. |
+| [`mcp-dynamic-postgres`](/plugins/tai42/mcp-dynamic-postgres) | Postgres | `PG_HOST`, `PG_DB`, `PG_USER`, `PG_PASSWORD` | The server fails at startup without `PG_DB`, `PG_USER` or `PG_PASSWORD`. |
+| [`monitoring-langfuse`](/plugins/tai42/monitoring-langfuse) | A Langfuse project and an OTLP endpoint | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | When `monitoring_module` selects it, boot is refused without the three `LANGFUSE_*` keys. |
+| [`sandbox-docker`](/plugins/tai42/sandbox-docker) | A Docker daemon | `SANDBOX_DOCKER_HOST` | The sandbox reaper stops soon after start, `/ready` answers `503`, and the process exits. |
+| [`sandbox-local`](/plugins/tai42/sandbox-local) | A local directory, no isolation | `SANDBOX_LOCAL_ROOT` | — (development only) |
+| [`storage-local`](/plugins/tai42/storage-local) | A local directory | `STORAGE_LOCAL_ROOT_PATH` | Fails at first use. |
+| [`storage-s3`](/plugins/tai42/storage-s3) | S3 or S3-compatible object storage | `STORAGE_S3_BUCKET`, `STORAGE_S3_*` | Fails at first use. |
+| [`storage-github`](/plugins/tai42/storage-github) | A GitHub repository and a token | `STORAGE_GITHUB_USERNAME`, `STORAGE_GITHUB_REPO`, `STORAGE_GITHUB_TOKEN` | Fails at first use. |
+| [`toolbox`](/plugins/tai42/toolbox) | Nothing. `classify` and `generate_embeddings` need an LLM or embedding provider. | — | — |
+| [`tools-github`](/plugins/tai42/tools-github), [`tools-stripe`](/plugins/tai42/tools-stripe), [`tools-twilio`](/plugins/tai42/tools-twilio), [`tools-whatsapp`](/plugins/tai42/tools-whatsapp) | The vendor's API credentials | the plugin's own token variable | Every tool call fails, naming the variable. |
+| [`webhook-verifier-github`](/plugins/tai42/webhook-verifier-github), [`webhook-verifier-stripe`](/plugins/tai42/webhook-verifier-stripe) | A signing secret | the variable the hook binding names | The hook door refuses the request. |
+
+## Premium plugins
+
+| Plugin | What it needs | Setting | Without it |
+| --- | --- | --- | --- |
+| `config-kubernetes` | The Kubernetes API (read and update the Secret, read and patch the ConfigMap), and the worker bus | `TAI_CONFIG_MODE=kubernetes`, `CONFIG_K8S_*` | No bus: boot is refused. |
+| `sandbox-kubernetes` | The Kubernetes API (pods, `pods/exec`, PVCs, NetworkPolicies) | `SANDBOX_K8S_NAMESPACE`, `SANDBOX_K8S_*` | No namespace: the sandbox reaper stops soon after start, `/ready` answers `503`, and the process exits. |
+| `identity-oidc` | An OIDC issuer | `TAI_IDENTITY_OIDC_ISSUER`, `TAI_IDENTITY_OIDC_AUDIENCE` | Boot is refused without them, or when the issuer's discovery or JWKS cannot be fetched. |
+| `accounts-oidc` | OIDC issuers, plain Redis for sessions and login state, and Postgres for the invitation flow | `TAI_ACCOUNTS_OIDC_*`, `TAI_ACCOUNTS_OIDC_REDIS_URL`, `TAI_DB_BINDING_TAI42_ACCOUNTS_OIDC` | Boot is refused without `TAI_ACCOUNTS_OIDC_STATE_KEY` and `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL`, when an issuer cannot be reached, or when its Redis (`TAI_ACCOUNTS_OIDC_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL` when unset) is unset, unreachable, or lacks `GETDEL` (Redis 6.2 or later). `/ready` answers `503` when that Redis stops answering. |
+
+## Flows engine
+
+| Feature | What it needs | Setting | Without it |
+| --- | --- | --- | --- |
+| Flow checkpoints (on by default) | The core checkpoint store | `FLOW_CHECKPOINT_ENABLED`, `LLM_PROVIDER_CHECKPOINT` | With the `redis` store and no Redis URL, boot is refused. A plain Redis fails at the first run. |
+| Async park | A durable checkpoint store (`redis` or `postgres`) and the engine Redis | `LLM_PROVIDER_CHECKPOINT`, `FLOW_REDIS_URL` | No durable store: the park is refused. No engine Redis: the park fails when it writes its index. |
+| Run status and abort across workers | Plain Redis | `FLOW_REDIS_URL` | Status and abort see only the runs in the same process. |
+| Flow states | Postgres | `TAI_DB_BINDING_FLOWS_STATES` | Off unless the binding is set: the routes answer `503` with `states_unavailable`. With the binding set, an unconfigured database or a pending migration refuses boot. |
+
+## Development only
+
+These shapes are fine on a laptop and wrong in production:
+
+- `ACCESS_CONTROL_ENABLE=false`: no auth on any request.
+- `LLM_PROVIDER_CHECKPOINT=memory` or `sqlite`: runs do not survive a restart and cannot park.
+- `sandbox-local`: sandboxed code runs on the host with no isolation.
+- One worker with in-memory hooks, conversations and sub-MCP registrations.
+- `CHANNEL_WEB_SESSION_COOKIE_SECURE=false`: the web chat cookie over plain HTTP.
+
+## See also
+
+- [Deploy](/operate/deploy): workers, config mode, and access control at deploy.
+- [Config and secrets](/concepts/config-and-secrets): named databases and the shared Redis default.
+- [Checkpoints](/operate/checkpoints): the checkpoint stores and their retention.

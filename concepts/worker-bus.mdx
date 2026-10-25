@@ -50,8 +50,8 @@ Three deployment shapes cannot converge without the bus, so `tai serve` and
 `tai backend` **refuse to start** without `TAI_BUS_REDIS_URL` when any holds:
 
 - **More than one server worker.** Sibling workers would serve stale config after
-  a reload with no channel to converge on. `tai serve --workers N` (`N > 1`) is
-  refused busless.
+  a reload with no channel to converge on. Under `tai serve --workers N` (`N > 1`),
+  each worker refuses to boot busless.
 - **A registered backend.** A manifest that names a `backend_module` runs a
   separate backend-runtime process that must converge with the server processes
   on every reload. This is re-checked on every reload, so a manifest or env change
@@ -62,8 +62,27 @@ Three deployment shapes cannot converge without the bus, so `tai serve` and
   the bus.
 
 The refusal names `TAI_BUS_REDIS_URL`. A busless `kubernetes` boot is rejected on the
-missing bus, not on a later kubeconfig error, because the `kubernetes` and workers checks
-read only boot-fixed env and args and run before the config manager is built.
+missing bus, not on a later kubeconfig error, because the `kubernetes` check reads only
+boot-fixed env and runs before the config manager is built.
+
+The workers check runs in each worker at its boot, after the stored env (the config-dir
+`.env` or the config provider's store) is applied: a bus URL kept only in the stored env
+counts, and a stored empty value over a value set in the container turns the bus off and
+is refused. It counts the workers `tai serve` hands each worker in `TAI_SERVE_WORKERS`; a
+process without that count counts as one worker. A worker that refuses fails its startup,
+and `tai serve` exits non-zero. Every reload re-checks it, and a config write (an env
+change, a manifest change, a profile replace) that would leave a multi-worker server
+busless is refused. More than one worker also needs shared sub-MCP and hooks stores,
+checked the same way — see [Scale workers](/operate/deploy#scale-workers).
+
+A registered backend also requires a shared [hooks registry](/concepts/hooks#managing-hooks-live)
+(`HOOKS_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL`), at any worker count. The backend-runtime
+process matches the events it raises against its own hooks registry, and an in-memory one
+holds none of the hooks registered through the server, so those events would run no hook.
+The rule is checked at the same points as the bus rule for a backend: `tai serve` and
+`tai backend` refuse to start, every reload re-checks it, and a manifest or env change that
+adds a backend over an in-memory hooks registry — or removes the hooks store while a backend
+remains — is refused, naming `HOOKS_REDIS_URL`.
 
 ## Namespacing
 
@@ -226,11 +245,12 @@ multi-process shapes look identical to a legitimate single busless process, so t
 rules cannot flag them for you. In every one of these, set `TAI_BUS_REDIS_URL`
 yourself:
 
-- **The workers-count rule lives in the `tai` CLI only.** An external process
-  manager (gunicorn, a supervisor, a container orchestrator) that drives the ASGI
-  factory with its *own* `--workers` bypasses the rule entirely — the factory
-  cannot count sibling processes. Set the bus in any multi-process deployment you
-  run outside `tai serve`.
+- **Only `tai serve` gives the worker count.** An external process manager
+  (gunicorn, a supervisor, a container orchestrator) that drives the ASGI factory
+  with its *own* `--workers` gives none, and the factory cannot count sibling
+  processes, so each process counts as one worker and the workers rule never
+  refuses. Set the bus, and the sub-MCP and hooks stores, in any multi-process
+  deployment you run outside `tai serve`.
 - **Single-worker fleets look busless.** A supervisor running many `tai serve
   -w 1` processes on one host, or several machines sharing one manifest over a
   network filesystem, pass every boot rule — each process legitimately sees

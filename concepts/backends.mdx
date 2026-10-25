@@ -36,6 +36,14 @@ change is **not** the backend's job — it is the app's own
 multi-process, naming a `backend_module` requires the bus: set `TAI_BUS_REDIS_URL`
 or the server refuses to start.
 
+It also requires a shared [hooks registry](/concepts/hooks#managing-hooks-live):
+set `HOOKS_REDIS_URL` (or `TAI_DEFAULT_REDIS_URL`), whatever the worker count. The
+backend process raises platform events of its own and matches them against its own
+hooks registry; an in-memory one there holds none of the hooks registered through
+the server, so those events would run no hook. `tai serve`, `tai backend`, a config
+reload and a config write all refuse a `backend_module` over an in-memory hooks
+registry.
+
 ## Three ways a tool runs off the request path
 
 - **Background** — submit a tool run and poll its result, for a run that outlives
