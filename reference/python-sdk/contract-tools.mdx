@@ -374,6 +374,48 @@ Return the tool-references extractor base tool ``name`` registered, or ``None`` 
 | `name` | `str` | — | — |
 
 
+#### template_refs_extractor
+
+`tai42_contract.tools.AppTools.template_refs_extractor`
+
+```python
+template_refs_extractor(self, name: str) -> TemplateRefsExtractor | None
+```
+
+Return the template-references extractor base tool ``name`` registered, or ``None`` when it declared none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### kwargs_template_refs
+
+`tai42_contract.tools.AppTools.kwargs_template_refs`
+
+```python
+async kwargs_template_refs(self, tool: str, kwargs: Mapping[str, Any]) -> list[TemplateRef]
+```
+
+The stored template ids a call of ``tool`` with ``kwargs`` names, one ``TemplateRef`` per id.
+
+``site`` is the place inside ``kwargs`` (``system_prompt``, ``subagents[0].system_prompt``), in the
+walk's order; ``[]`` when the blob names none. A tool the registry does not serve names nothing:
+``[]``, as the platform's delete referees read a stored call of it; the call itself fails where it
+runs. Reads the ids with the same walk the platform's write check and delete referees run. Raises
+``ValueError`` naming the place, quoting no value, for a blob the tool's input refuses, and
+``RuntimeError`` for a fault of a declared ``tool_refs`` or ``template_refs`` extractor.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool` | `str` | — | — |
+| `kwargs` | `Mapping[str, Any]` | — | — |
+
+
 #### register_rename_referee
 
 `tai42_contract.tools.AppTools.register_rename_referee`
@@ -386,10 +428,11 @@ Register a `ToolRenameReferee` consulted before a tool rename.
 
 A plugin holding tool-name references calls this through the ``tai42_app``
 handle when its module loads. Every registered referee is asked for the
-old name on a rename; any non-empty answer blocks the rename and its
-descriptions name the holders. Registering the same provider object twice
-raises loudly — a double registration is a plugin bug, never a silent
-duplicate consult.
+old name, and for each extension branch tool bound off it, on a rename and
+on the rename preview; it answers holders and has no side effect. Any
+non-empty answer blocks the rename and the holders are named. Registering
+the same provider object twice raises loudly — a double registration is a
+plugin bug, never a silent duplicate consult.
 
 **Parameters**
 
@@ -408,19 +451,56 @@ register_delete_referee(self, provider: ToolDeleteReferee) -> None
 
 Register a `ToolDeleteReferee` consulted before a preset delete.
 
-A plugin holding resources keyed on a preset/tool name (e.g. per-node state
-bindings that reference a preset) calls this through the ``tai42_app`` handle when
-its module loads. Every registered referee is asked for the name on a delete; a
-referee cascades its own cleanup and returns empty to allow, or returns non-empty
-descriptions to VETO — any non-empty answer blocks the delete and names the
-holders. Registering the same provider object twice raises loudly — a double
-registration is a plugin bug, never a silent duplicate consult.
+A plugin holding resources keyed on a preset/tool name calls this through the
+``tai42_app`` handle when its module loads. Every registered referee is asked once
+for each tool the delete removes — the preset and every extension branch tool bound
+off it — on a delete and on the delete preview; it answers holders and has no side
+effect. Any non-empty answer VETOES the delete and the holders are named. Cleanup
+belongs in a delete cascade (`register_delete_cascade`). Registering the same
+provider object twice raises loudly — a double registration is a plugin bug, never
+a silent duplicate consult.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `provider` | `ToolDeleteReferee` | — | — |
+
+
+#### register_delete_cascade
+
+`tai42_contract.tools.AppTools.register_delete_cascade`
+
+```python
+register_delete_cascade(self, provider: ToolDeleteCascade) -> None
+```
+
+Register a `ToolDeleteCascade` run when a preset delete proceeds.
+
+A plugin holding resources keyed on a preset/tool name calls this through the
+``tai42_app`` handle when its module loads. A cascade is called once for each tool
+the delete removes (the preset, then each extension branch tool bound off it), with
+that tool's name, only after every veto and guard has passed and before the record
+is removed; a cascade raising fails the delete. Registering the same provider object
+twice raises loudly — a double registration is a plugin bug, never a silent
+duplicate cleanup.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolDeleteCascade` | — | — |
+
+
+#### delete_cascades
+
+`tai42_contract.tools.AppTools.delete_cascades`
+
+```python
+delete_cascades(self) -> list[ToolDeleteCascade]
+```
+
+Every registered `ToolDeleteCascade`, in registration order.
 
 
 #### register_detach_referee
@@ -436,10 +516,10 @@ Register a `StateTemplateDetachReferee` consulted before a state-template detach
 A holder of door bindings that name templates (e.g. per-node state bindings, or the
 platform's own preset/route/hook/schedule bindings) calls this through the
 ``tai42_app`` handle when its module loads. Every registered referee is asked for the
-``(state, template)`` on a detach; any non-empty answer blocks the detach and its
-descriptions name the referencing bindings. Registering the same provider object
-twice raises loudly — a double registration is a bug, never a silent duplicate
-consult.
+``(state, template)`` on a detach and on the detach preview; it answers holders and
+has no side effect. Any non-empty answer blocks the detach and the holders are named.
+Registering the same provider object twice raises loudly — a double registration is a
+bug, never a silent duplicate consult.
 
 **Parameters**
 
@@ -585,6 +665,30 @@ One call's model-visible failure; the message is worded for the model and names 
 | `tool_name` | — |
 
 
+## ComposedToolRef
+
+`tai42_contract.tools.ComposedToolRef`
+
+```python
+class ComposedToolRef(BaseModel)
+```
+
+One tool name a kwargs blob composes, and where the base tool's own config names it.
+
+``site`` is the base tool's own words for where the name sits (``None`` when the place has no
+inner position); ``tool_kwargs`` is the kwargs that place passes to the composed tool, as
+stored (``None`` when the config passes none).
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `name` | `str` |
+| `site` | `str \| None` |
+| `tool_kwargs` | `dict[str, Any] \| None` |
+
+
 ## NestedDoorFrameError
 
 `tai42_contract.tools.call_frame.NestedDoorFrameError`
@@ -601,6 +705,31 @@ ambient context — a non-empty call chain, or an already-bound run-delivery con
 means the task was spawned as a new root of execution WITHOUT a fresh context. Minting the
 run's delivery identity under an inherited one would key the new run's terminal to the caller's
 run instead of to the door's own completion, so the frame refuses to open.
+
+
+## ReferenceHolder
+
+`tai42_contract.tools.ReferenceHolder`
+
+```python
+class ReferenceHolder(BaseModel)
+```
+
+One live holder of a name: what it is, which one, where inside it, and a one-line description.
+
+``kind`` is the holder's kind (``"hook"``, ``"preset version"``; a plugin declares its own),
+``name`` the holder's own name, ``locator`` the fields that place the reference inside the
+holder (a version, a node id), and ``summary`` the line a person reads.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `kind` | `str` |
+| `name` | `str` |
+| `locator` | `dict[str, str \| int]` |
+| `summary` | `str` |
 
 
 ## RunDelivery
@@ -632,7 +761,46 @@ door has no receiver.
 `tai42_contract.tools.StateTemplateDetachReferee`
 
 ```python
-StateTemplateDetachReferee = Callable[[str, str], Awaitable[list[str]]]
+StateTemplateDetachReferee = Callable[[str, str], Awaitable[list[ReferenceHolder]]]
+```
+
+
+## TemplateDeleteReferee
+
+`tai42_contract.tools.TemplateDeleteReferee`
+
+```python
+TemplateDeleteReferee = Callable[[frozenset[str]], Awaitable[list[ReferenceHolder]]]
+```
+
+
+## TemplateRef
+
+`tai42_contract.tools.TemplateRef`
+
+```python
+class TemplateRef(BaseModel)
+```
+
+One stored template id a kwargs blob names, and where the base tool's own config names it.
+
+``site`` is the base tool's own words for the place, printed as given.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `id` | `str` |
+| `site` | `str` |
+
+
+## TemplateRefsExtractor
+
+`tai42_contract.tools.TemplateRefsExtractor`
+
+```python
+TemplateRefsExtractor = Callable[[dict[str, Any]], Iterable[TemplateRef]]
 ```
 
 
@@ -653,12 +821,21 @@ A tool of this name is already bound on the live tool surface.
 | `name` | — |
 
 
+## ToolDeleteCascade
+
+`tai42_contract.tools.ToolDeleteCascade`
+
+```python
+ToolDeleteCascade = Callable[[str], Awaitable[None]]
+```
+
+
 ## ToolDeleteReferee
 
 `tai42_contract.tools.ToolDeleteReferee`
 
 ```python
-ToolDeleteReferee = Callable[[str], Awaitable[list[str]]]
+ToolDeleteReferee = Callable[[str], Awaitable[list[ReferenceHolder]]]
 ```
 
 
@@ -719,7 +896,7 @@ interprets nothing about it — a logic-free carrier.
 `tai42_contract.tools.ToolRefsExtractor`
 
 ```python
-ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[str]]
+ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[ComposedToolRef]]
 ```
 
 
@@ -728,7 +905,7 @@ ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[str]]
 `tai42_contract.tools.ToolRenameReferee`
 
 ```python
-ToolRenameReferee = Callable[[str], Awaitable[list[str]]]
+ToolRenameReferee = Callable[[str], Awaitable[list[ReferenceHolder]]]
 ```
 
 
