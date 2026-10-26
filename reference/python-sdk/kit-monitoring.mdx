@@ -12,7 +12,9 @@ A run's one trace lineage: resolve it, and open the ``run`` span that roots it w
   It never mints one.
 * `begin_run_trace` keeps that lineage, or opens one ``run`` span (a child of the live
   span, or the root of a new trace) and returns a `RunTraceRoot` whose ``step()`` makes
-  it current and deposits it for one step of the run.
+  it current and deposits it for one step of the run. A lineage the config names is made
+  current and deposited the same way; one inherited from the ambient deposit stays deposited
+  and is made current by nothing here.
 * `open_run_trace` holds a run kept in one block inside its lineage.
 * `open_lineage_span` opens one named span continuing a lineage handed over explicitly.
 
@@ -47,9 +49,9 @@ class RunTraceRoot
 
 A run's lineage and the ``run`` span it opened, if any.
 
-``step()`` makes the span current and deposits the lineage for one step of the run; enter and exit it in the
-same context, never across a ``yield`` a consumer drives. ``record_output()`` records the run's output and
-``end()`` ends the span.
+``step()`` makes the span (with no span, the lineage) current and deposits the lineage for one step of the run;
+enter and exit it in the same context, never across a ``yield`` a consumer drives. ``record_output()`` records
+the run's output and ``end()`` ends the span.
 
 **Attributes**
 
@@ -67,7 +69,9 @@ same context, never across a ``yield`` a consumer drives. ``record_output()`` re
 step(self) -> AbstractContextManager[None]
 ```
 
-The block in which the held span is current and the lineage deposited; a no-op when no span is held.
+The block in which the held span, else the lineage, is current and the lineage deposited.
+
+A no-op for a lineage inherited from the ambient deposit: it stays deposited and nothing is made current.
 
 
 #### record_output
@@ -126,9 +130,11 @@ begin_run_trace(config: dict[str, Any] | None = None, *, input_: Any = None) -> 
 
 Begin a run's one lineage without making anything current.
 
-A lineage the config or the ambient deposit already names is kept unchanged. Otherwise one ``run`` span opens
-with ``input_`` as its input, a child of the live span or, with none live, the root of a new trace, and is
-current only inside `RunTraceRoot.step`. ``context`` is ``None`` when nothing records.
+A lineage the config or the ambient deposit already names is kept: one the config names is current and
+deposited only inside `RunTraceRoot.step`, one inherited from the ambient deposit is left as it is.
+Otherwise one ``run`` span opens with ``input_`` as its input, a child of the live span or, with none live, the
+root of a new trace, and is current only inside `RunTraceRoot.step`. ``context`` is ``None`` when nothing
+records.
 
 **Parameters**
 
