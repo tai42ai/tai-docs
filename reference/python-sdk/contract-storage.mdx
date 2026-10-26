@@ -11,11 +11,13 @@ The base content-store contract.
 `tai42_contract.template` ("what we do with it", the render mixins). The store
 exposes the text surface ``load`` / ``list`` / ``upload`` / ``delete`` /
 ``delete_dir``, the metadata read ``stat`` (content type and byte size), the bounded
-read ``load_range`` and the binary surface ``load_bytes`` / ``upload_bytes``, with the
+read ``load_range``, the binary surface ``load_bytes`` / ``upload_bytes`` and the
+whole-object read ``load_object`` (the bytes with their content type), with the
 module-level ``assert_not_root`` guarding deletes against the store root. ``stat`` and
 ``load_range`` are abstract: only the backend knows an object's size and how to read a
 slice of it without reading all of it. ``load_bytes`` / ``upload_bytes`` ship
-text-bridging defaults; binary-native backends override.
+text-bridging defaults and ``load_object`` a default built on ``load_bytes`` and
+``stat``; binary-native backends override them.
 
 ## ObjectStat
 
@@ -86,10 +88,22 @@ Any other failure (auth, network) must propagate as its own error.
 `tai42_contract.storage.Storage.list`
 
 ```python
-async list(self) -> builtins.list[str]
+async list(self, directory: str | None = None) -> builtins.list[str]
 ```
 
-Return every stored object path, in no guaranteed order.
+Return stored object paths, in no guaranteed order.
+
+With no ``directory``, every object in the store. With a ``directory``, only the
+objects beneath it (the paths starting with `directory_prefix` of it), read
+from the backend by that prefix rather than by listing the whole store; a
+directory holding no objects answers ``[]``. A blank ``directory`` raises
+``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `directory` | `str \| None` | `None` | — |
 
 
 #### upload
@@ -169,6 +183,29 @@ Return the raw bytes at ``path``, with the same ``FileNotFoundError`` contract a
 Text-bridge default: reads the text via `load` and UTF-8 encodes it,
 so a text-only backend serves bytes for free. A binary-native backend
 (e.g. S3) overrides to return the stored bytes unaltered.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `str` | — | — |
+
+
+#### load_object
+
+`tai42_contract.storage.Storage.load_object`
+
+```python
+async load_object(self, path: str) -> StoredObject
+```
+
+Return the bytes and the content type of the object at ``path``.
+
+Raises ``FileNotFoundError`` when the object does not exist, as `load` does.
+
+Default: `load_bytes` for the bytes and `stat` for the type, two
+backend reads. A backend that answers both in one read (e.g. S3, whose object
+read carries its stored type) overrides, so a caller wanting both makes one call.
 
 **Parameters**
 
@@ -288,6 +325,28 @@ Beyond the cap a ``… and N more`` tail is appended; the full list stays on
 
 
 
+## StoredObject
+
+`tai42_contract.storage.StoredObject`
+
+```python
+class StoredObject(BaseModel)
+```
+
+A stored object's bytes and its content type, returned by `Storage.load_object`.
+
+``content_type`` is the same MIME type `Storage.stat` reports. Frozen: a read
+object is a value, not a mutable handle.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `data` | `bytes` |
+| `content_type` | `str \| None` |
+
+
 ## assert_not_root
 
 `tai42_contract.storage.assert_not_root`
@@ -309,4 +368,24 @@ identical.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `path` | `str` | — | — |
+
+
+## directory_prefix
+
+`tai42_contract.storage.directory_prefix`
+
+```python
+directory_prefix(directory: str) -> str
+```
+
+The key prefix every object beneath ``directory`` starts with: the directory and one ``/``.
+
+Surrounding slashes are dropped (``"a/b/"`` and ``"/a/b"`` are ``"a/b/"``). A blank
+``directory`` (``""``, ``"/"``) names no directory and raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `directory` | `str` | — | — |
 
