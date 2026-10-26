@@ -12,7 +12,7 @@ $ tai config [OPTIONS] COMMAND [ARGS]...
 
 ## `tai config env`
 
-Read and update the stored env overrides.
+Read and update the stored env.
 
 ```console
 $ tai config env [OPTIONS] COMMAND [ARGS]...
@@ -20,7 +20,10 @@ $ tai config env [OPTIONS] COMMAND [ARGS]...
 
 ### `tai config env get`
 
-Read the stored env config and the operator's secret-key marks.
+Read the stored env config, the operator's secret-key marks and the stored keys the deployment sets.
+
+A stored key the deployment sets (`deployment_keys`) keeps the deployment's value; a write
+may remove it, never set it to a new value.
 
 Example: `tai config env get`
 
@@ -34,13 +37,18 @@ $ tai config env get [OPTIONS]
 
 ### `tai config env set`
 
-Merge KEY=VALUE env overrides and reload the fleet.
+Merge KEY=VALUE pairs into the stored env and reload the fleet.
 
 A hot-class key is re-read in place. A recycle-class key rolls a worker
-recycle across the fleet on a supervised deployment (the response carries the
-recycle rows; the worker that took the write recycles itself after replying),
-and is refused on a bare deployment, naming the key. The bus URL and a key the
-deployment pins are refused on every shape.
+recycle across the fleet (the response carries the recycle rows; the worker
+that took the write recycles itself after replying, and its supervisor starts
+it again). A key that locates the worker bus (a bus URL or the bus
+namespace), a deployment / boot-identity (X-band) key and a key the
+deployment sets are refused under any spelling of their names, naming the
+key: a bus key or a key the deployment sets changes in the deployment's
+environment. A write whose resulting stored env would set one name under two
+spellings is refused, naming both: to rename a spelling, remove the old one in
+the same write.
 
 Values may come from command-line KEY=VALUE arguments, `--env-file`, and
 `--stdin` combined; at least one assignment is required. The same key from
@@ -56,7 +64,7 @@ $ tai config env set [OPTIONS] [assignment]...
 
 | Argument | Description |
 | --- | --- |
-| `assignment...` | KEY=VALUE env overrides to merge (composable with --env-file/--stdin). _(optional)_ |
+| `assignment...` | KEY=VALUE pairs to merge into the stored env (composable with --env-file/--stdin). _(optional)_ |
 
 | Option | Description |
 | --- | --- |
@@ -283,7 +291,7 @@ the fan-out to named workers.
 Each worker's row names the recycle-class keys awaiting a respawn
 (`awaiting_respawn`): the soft restart carries every hot key in place, and
 those keys take effect only when that worker is respawned through the
-deployment's supervisor (on a bare deployment, a server restart).
+deployment's supervisor.
 
 Example: `tai config reload`
 
