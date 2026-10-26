@@ -110,7 +110,7 @@ other Redis features.
 
 | Plugin | What it needs | Setting | Without it |
 | --- | --- | --- | --- |
-| `config-kubernetes` | The Kubernetes API (read and update the Secret, read and patch the ConfigMap), and the worker bus | `TAI_CONFIG_MODE=kubernetes`, `CONFIG_K8S_*` | No bus: boot is refused. |
+| `config-kubernetes` | The Kubernetes API (read and update the Secret, read and patch the ConfigMap, and `get`, `create`, `update` and `delete` on `coordination.k8s.io` leases for the exclusive write span), and the worker bus | `TAI_CONFIG_MODE=kubernetes`, `CONFIG_K8S_*` (`CONFIG_K8S_WRITE_LEASE_NAME` names the Lease) | No bus: boot is refused. Without the Lease permissions, every config write fails with a permission-denied error. |
 | `sandbox-kubernetes` | The Kubernetes API (pods, `pods/exec`, PVCs, NetworkPolicies) | `SANDBOX_K8S_NAMESPACE`, `SANDBOX_K8S_*` | No namespace: the sandbox reaper stops soon after start, `/ready` answers `503`, and the process exits. |
 | `identity-oidc` | An OIDC issuer | `TAI_IDENTITY_OIDC_ISSUER`, `TAI_IDENTITY_OIDC_AUDIENCE` | Boot is refused without them, or when the issuer's discovery or JWKS cannot be fetched. |
 | `accounts-oidc` | OIDC issuers, plain Redis for sessions and login state, and Postgres for the invitation flow | `TAI_ACCOUNTS_OIDC_*`, `TAI_ACCOUNTS_OIDC_REDIS_URL`, `TAI_DB_BINDING_TAI42_ACCOUNTS_OIDC` | Boot is refused without `TAI_ACCOUNTS_OIDC_STATE_KEY` and `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL`, when an issuer cannot be reached, or when its Redis (`TAI_ACCOUNTS_OIDC_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL` when unset) is unset, unreachable, or lacks `GETDEL` (Redis 6.2 or later). `/ready` answers `503` when that Redis stops answering. |
