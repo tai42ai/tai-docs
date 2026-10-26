@@ -65,7 +65,7 @@ Two defaults need a service unless you change them:
 | Background tool runs | Plain Redis | `TAI_TOOL_RUNS_REDIS_URL` | Off. |
 | Interactions and notifications | Plain Redis | `INTERACTIONS_REDIS_URL` | Off. |
 | Rate limiting on public doors | Plain Redis | `TAI_RATE_LIMIT_REDIS_URL` | Public doors are not throttled. Boot logs one `WARNING`. |
-| Hooks | Plain Redis | `HOOKS_REDIS_URL` | In memory, with a `WARNING`. Each `tai serve` worker refuses to boot without it when there is more than one worker, and boot is refused for a registered execution backend at any worker count. |
+| Hooks | Plain Redis | `HOOKS_REDIS_URL` | In memory, with a `WARNING`. In-memory hooks and their kept runs are dropped on every config reload and on restart. Each `tai serve` worker refuses to boot without it when there is more than one worker, and boot is refused for a registered execution backend at any worker count. |
 | Conversations | Plain Redis | `CONVERSATIONS_REDIS_URL` | In memory, with a `WARNING`. Every routing operation answers `501`. |
 | Sub-MCP registrations | Plain Redis | `SUB_MCP_REDIS_URL` | In memory. Each `tai serve` worker refuses to boot without it when there is more than one worker. |
 | Marketplace store, tool metadata, versioning and settings profiles | Postgres (the `skeleton` database) | `TAI_DATABASE_<NAME>_PG_*` | Off. See [OFF behavior per feature](/concepts/config-and-secrets#off-behavior-per-feature). |
@@ -76,6 +76,7 @@ Two defaults need a service unless you change them:
 | LLM store (retrieval and deep agents) | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing. | `LLM_PROVIDER_STORE`, `LLM_PROVIDER_STORE_CONN_STRING` | Fails at first use. |
 | Schedules | An execution backend plugin that exposes scheduling | — | Answers `501`. |
 | Storage | A storage provider plugin | `storage_module` in the manifest | Answers `501`. |
+| Inbound media | A storage provider plugin for the bytes, and the conversations store for each file's record | `storage_module` in the manifest, `CONVERSATIONS_REDIS_URL`, `MEDIA_INGEST_*` | No storage provider: every inbound file is rejected, the sender reads `That attachment could not be received.`, and a web chat upload answers `503` with `media_store_unavailable`. See [Inbound media](/operate/storage#inbound-media). |
 
 `tai doctor` checks the `skeleton` database (with the migrator identity), its schema,
 and the connector-store Redis (`CONNECTOR_STORE_REDIS_URL` or `TAI_DEFAULT_REDIS_URL`).
@@ -87,7 +88,7 @@ other Redis features.
 | Plugin | What it needs | Setting | Without it |
 | --- | --- | --- | --- |
 | [`identity-redis`](/plugins/tai42/identity-redis) | Plain Redis | `TAI_IDENTITY_REDIS_URL` | Boot is refused: the provider's health check reads Redis at startup. |
-| [`accounts-postgres`](/plugins/tai42/accounts-postgres) | Postgres, and plain Redis for the login throttle | `TAI_DB_BINDING_TAI42_ACCOUNTS_POSTGRES`, `TAI_ACCOUNTS_REDIS_URL` | No database: the boot schema check is skipped. A pending migration refuses boot. |
+| [`accounts-postgres`](/plugins/tai42/accounts-postgres) | Postgres, and plain Redis for the login throttle | `TAI_DB_BINDING_TAI42_ACCOUNTS_POSTGRES`, `TAI_ACCOUNTS_REDIS_URL` | No database: the boot schema check is skipped. A pending migration refuses boot. With neither `TAI_ACCOUNTS_REDIS_URL` nor `TAI_DEFAULT_REDIS_URL` set, `/ready` answers `503` and password logins fail closed. |
 | [`agents`](/plugins/tai42/agents) | An LLM provider; the core checkpoint store; plain Redis for parking and the workspace lease; a sandbox provider for `claude_code` and `langchain_deep_agent`; the LLM store and an embedding provider for `retrieval_tools_agent` | `LLM_PROVIDER_*`, `TAI_AGENTS_REDIS_URL`, `sandbox_module` | A park without a durable checkpoint store or the agents Redis is refused. A sandbox agent without a sandbox provider fails at first use. |
 | [`backend-arq`](/plugins/tai42/backend-arq), [`backend-rq`](/plugins/tai42/backend-rq) | Plain Redis, the worker bus, and the shared hooks registry | `ARQ_REDIS_URL`, `RQ_REDIS_URL` | With both its own URL and `TAI_DEFAULT_REDIS_URL` unset, it connects to `redis://localhost:6379/0` and fails there. No bus or an in-memory hooks registry: boot is refused. |
 | [`backend-celery`](/plugins/tai42/backend-celery) | A broker (AMQP such as RabbitMQ, or Redis), a result backend, Redis for the beat schedule, the worker bus, and the shared hooks registry | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_REDBEAT_REDIS_URL` | An unset broker uses `TAI_DEFAULT_REDIS_URL`, else `amqp://localhost:5672//`. No bus or an in-memory hooks registry: boot is refused. |
