@@ -41,14 +41,20 @@ official image. The bundle needs Docker Compose 2.20 or newer.
     [manifest](/concepts/manifest) the runtime loads and `config/.env` is the
     app-side environment. Create `config/.env` even when it is empty — the
     config-reload path treats a missing file as an error.
+
+    The runtime writes the settings you save from Studio or the API back into
+    these files, so at every start the stack hands `config/` to the image's user
+    (uid 1000). After the first start, reading or editing these files by hand on
+    the host takes that uid (`sudo`).
   </Step>
   <Step title="Start it">
     ```bash
     docker compose up -d
     ```
 
-    A one-shot `db-migrate` runs `tai db migrate` first; serve and backend wait
-    for it before they start. Only serve publishes a port
+    Two one-shots run first: `config-init` hands `config/` to the image's user,
+    and `db-migrate` runs `tai db migrate`; serve and backend wait for both before
+    they start. Only serve publishes a port
     (`${TAI_SERVE_PORT:-8000}`) — Postgres and Redis stay on the Compose network.
   </Step>
 </Steps>

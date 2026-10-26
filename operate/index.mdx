@@ -48,8 +48,10 @@ long-lived processes come out of the same image:
 | backend worker | `tai backend worker` | Runs queued, scheduled, and agent work. |
 | metrics | `tai metrics` | Serves the Prometheus multiprocess endpoint. |
 
-A one-shot `db-migrate` step runs `tai db migrate`, and `serve` and `backend`
-wait for it to complete before they start. It applies the ordered migration chain
+A one-shot `config-init` step hands the bind-mounted `config/` directory to the
+image's user (uid 1000), since the runtime writes its saved settings there. A
+one-shot `db-migrate` step runs `tai db migrate`, and `serve` and `backend` wait
+for both to complete before they start. It applies the ordered migration chain
 — the core plus each installed plugin that owns one — and is idempotent: a run
 with nothing pending is a no-op. Each app container also refuses to serve on an
 out-of-date database, so a missed migration is a loud refusal, not a broken serve.
