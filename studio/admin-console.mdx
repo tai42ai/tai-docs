@@ -122,7 +122,7 @@ unavailable breakdown is never mistaken for an idle one.
 
 The **Settings** and **Environment** tabs are the deployment's admin-owned config
 store: the server's configuration mode, its settings schema, and the stored
-environment values — one store holding the deployment's environment plus each
+environment values — one store holding the stored environment plus each
 settings class's values, including deployment secrets such as the connector
 encryption key. Each subsystem's settings — connector crypto, engine config, store
 connections — surface as an editable form. Because that store is admin-owned, both
@@ -130,15 +130,29 @@ tabs are **admin-only**; an editor or viewer configures each feature through the
 feature's own screen, never here — see
 [user types and permissions](/concepts/permissions).
 
+A setting that the environment of any server or backend process of the deployment sets
+belongs to the deployment for every process on the same worker bus, and its value wins
+over a stored one.
+Studio shows it locked, marked **Set by the deployment**: on the **Settings** tab the
+field shows read-only the value of the worker that answered (a worker whose own
+environment lacks the setting runs, and shows, its fallback or default), and on the
+**Environment** tab a stored row for that key cannot be edited and keeps only its
+**Remove**, with the note *Stored value not used; the deployment's value applies.* The
+lock follows the key a row was loaded with: a row added in the editor is never locked,
+whatever name it is given. Re-adding a deployment key whose stored row was removed and
+saved gives such an unlocked row, and saving it with a value is refused with a `400` that names the
+key. To change such a value, change the deployment's environment and restart. A profile save, a profile apply, or a backup restore that sets such a key to a
+new value is refused, naming the key; the profile diff lists it among the refused keys.
+See [deployment values and stored values](/concepts/config-and-secrets#deployment-values-and-stored-values).
+
 Saving the **Environment** tab writes the stored environment and reloads the fleet. A
 change to a recycle-class setting — one whose pooled resource is built only when a
-worker process starts — also rolls a worker recycle on a supervised deployment, and the
-tab shows it under **Worker recycle**: one row per worker the roll reached, a recycled
-worker joined onto its fresh life, and the worker that took the save recycling itself
-after replying. A roll that stops says where and why, and the workers the server names
-as still awaiting a respawn are listed as waiting for a restart; the **Apply profile**
-report shows the same rows and the same list. On a bare deployment the same save is refused,
-naming the key and the way out. See [reload classes](/concepts/config-and-secrets).
+worker process starts — also rolls a worker recycle, and the tab shows it under
+**Worker recycle**: one row per worker the roll reached, a recycled worker joined onto
+its fresh life, and the worker that took the save recycling itself after replying. A
+roll that stops says where and why, and the workers the server names as still awaiting
+a respawn are listed as waiting for a restart; the **Apply profile** report shows the
+same rows and the same list. See [reload classes](/concepts/config-and-secrets).
 
 <Frame caption="The Environment tab after a save that rolled a worker recycle: the recycled workers on their fresh lives and the writer recycling itself.">
   <img className="block dark:hidden" src="/images/studio/settings-env-recycle-light.png" alt="The Environment tab's Worker recycle section listing two recycled backend workers and the serve worker recycling itself." />
@@ -162,8 +176,8 @@ message.
 Restoring a backup's `env` section on the **Backup** tab is the same env write. Its
 import report lists the workers the server names as still awaiting a respawn, and
 shows the section's **Worker recycle** rows when the restore rolled a recycle, with
-where and why a stopped roll stopped. On a bare deployment the section's row carries
-the same refusal, and nothing is stored.
+where and why a stopped roll stopped. A restore that sets a key the deployment's
+environment sets is refused on the section's row, naming the key, and nothing is stored.
 
 <Frame caption="A backup restore whose recycle stopped: the workers still waiting for a restart, then the recycled worker and the worker the roll stopped at.">
   <img className="block dark:hidden" src="/images/studio/backup-restore-recycle-stopped-light.png" alt="The Backup tab's import report for an env-section restore: the restart list naming the workers still awaiting a respawn and the Worker recycle rows with a stopped roll." />

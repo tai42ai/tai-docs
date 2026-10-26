@@ -54,7 +54,7 @@ The full worker and transport option surface:
 <Warning>
 `--workers > 1` is refused for `stdio` and `sse`, and for `http` / `streamable-http` unless `--stateless-http` is set. A stateful HTTP server keeps session state a second worker would not see.
 
-`tai serve` hands its worker count to each worker, and each worker refuses to boot without the bus or with either store in-memory, naming the setting to set. The worker checks after it applies the stored env (the config-dir `.env` or the config provider's store), so a URL kept only in the stored env counts, and a stored empty value over a value set in the container is refused. A worker that refuses fails its startup, and `tai serve` exits non-zero. A config reload, and any config write (an env change, a manifest change, a profile replace), that would leave a multi-worker server without the bus or with either store in-memory is refused the same way.
+`tai serve` hands its worker count to each worker, and each worker refuses to boot without the bus or with either store in-memory, naming the setting to set. The worker checks after it applies the stored env (the config-dir `.env` or the config provider's store), so a URL kept only in the stored env counts when no worker's deployment sets it, and a URL the deployment's environment sets keeps its value whatever the stored env holds, on every worker; a worker started without the URL while another worker's environment sets it refuses to boot, naming it. A worker that refuses fails its startup, and `tai serve` exits non-zero. A config reload, and any config write (an env change, a manifest change, a profile replace), that would leave a multi-worker server without the bus or with either store in-memory is refused the same way.
 </Warning>
 
 <Note>
@@ -73,6 +73,12 @@ The serve process checks each worker on a health ping and replaces any worker th
 
 Every worker and the serve process also enable Python's fault handler. A worker that crashes in native code writes `Fatal Python error: ...` and the stack of every thread to stderr before it dies, unless `PYTHONFAULTHANDLER` already configures it.
 
+## Run under a supervisor
+
+Run `tai serve` and every `tai backend` runtime under a supervisor that starts a process again when it exits: a Compose `restart` policy, Kubernetes, or a systemd unit with `Restart=`. A change to a [recycle-class setting](/concepts/config-and-secrets#settings-profiles) makes the affected processes exit gracefully, and the supervisor starts them again under the new env. Without a supervisor, an exited process stays down, and the roll reports the target where it stopped.
+
+The graceful-shutdown timeout each worker gets is set on the `tai serve` process's environment (`APP_ARGS_TIMEOUT_GRACEFUL_SHUTDOWN`, default 10 seconds) or passed as the uvicorn option `--timeout-graceful-shutdown SECONDS` after the `tai serve` options, and takes effect on a `tai serve` restart.
+
 ## Point at a manifest and environment
 
 The server loads a manifest and reads its environment at startup. Point at the manifest with `--manifest-path`, or set `TAI_MANIFEST_PATH` as the flag's default. Provide the environment your tools need — see the repository's `.env.example`.
@@ -82,7 +88,9 @@ export TAI_MANIFEST_PATH="$(pwd)/manifest.yml"
 tai serve --transport http
 ```
 
-The default config directory the `file` provider anchors `.env`, `manifest.yml`, and templates under is `/app`; override it with `TAI_CONFIG_DIR_PATH`.
+The default config directory the `file` provider anchors `.env`, `manifest.yml`, and templates under is `/app`; override it with `TAI_CONFIG_DIR_PATH`. That `.env` is the stored env: the `.env` that `tai` loads into the process environment at startup is never this file — when python-dotenv's search lands on it, startup logs a `WARNING` and skips it. A `.env` that names its own folder as the config directory while the process environment sets none is refused at startup, naming the file: the config directory is a deployment value, set in the environment, never in the stored env.
+
+A key you set to a non-empty value in the environment of any `tai serve` or `tai backend` process belongs to the whole deployment: its value wins over a stored value, Studio shows it locked, a save that sets it is refused, and no process on the same worker bus applies a stored copy of it (a process on another bus, or on none, judges by its own environment alone). A process you did not give the value runs its `TAI_DEFAULT_*` fallback or the field's default. Change it in the environment and restart. Leave a setting out of the environment when an admin should edit it from the app; the app then stores it. See [Deployment values and stored values](/concepts/config-and-secrets#deployment-values-and-stored-values).
 
 ## HTTP routers and headless mode
 
@@ -105,7 +113,7 @@ export TAI_RUN_MODE=debug   # single in-process server; --workers is ignored
 tai serve --transport http
 ```
 
-Set the log level with `TAI_LOG_LEVEL` (default `INFO`). A config reload that changes it re-applies logging under `tai serve`.
+Set the log level with `TAI_LOG_LEVEL` (default `INFO`). A config reload that changes it re-applies logging under `tai serve`. The `tai serve` parent process and `tai metrics` apply no stored env; they read `TAI_LOG_LEVEL` from their own environment only. A stored `TAI_LOG_LEVEL` applies in the serve workers and `tai backend`, at boot and on reload.
 
 ```bash
 export TAI_LOG_LEVEL=DEBUG

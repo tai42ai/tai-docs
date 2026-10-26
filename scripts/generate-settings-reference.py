@@ -13,8 +13,8 @@ other reference generators, which introspect the installed packages rather than
 calling a live server.
 
 Only the field DEFAULT is rendered, never a resolved runtime value: the schema
-route resolves each field against ``os.environ`` and the stored env override and
-so can carry real secret values, which must never land in committed docs. The
+route resolves each field's current value from the deployment's environment and the
+stored env, so it can carry real secret values, which must never land in committed docs. The
 default is the code-level default and is safe to publish; a secret field that
 nonetheless ships a non-empty default is a LOUD error (it exits non-zero and
 writes nothing) rather than being published.
@@ -493,8 +493,8 @@ def render(groups: list[dict]) -> str:
         "restart), and a description where one exists; each nested-group reference row carries no "
         "variable of its own and links to that sub-group's section instead. "
         "Values shown are code-level defaults; "
-        "a running server resolves each variable from the environment, then any stored "
-        "override, then this default.",
+        "a running server takes each variable from the deployment's environment when it is set "
+        "there, else from the stored env, then from its `TAI_DEFAULT_*` fallback, then this default.",
         "",
     ]
 
