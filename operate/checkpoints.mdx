@@ -1,10 +1,10 @@
 ---
 title: "Checkpoints and retention"
-description: "Where agent and flow runs keep their memory, how long it lives, and the one sweep that removes it."
+description: "Where runs keep their memory, how long it lives, and the one sweep that removes it."
 icon: "clock-rotate-left"
 ---
 
-Every agent run, flow run and conversation turn that remembers anything keeps it in the
+Every run and conversation turn that remembers anything keeps it in the
 **checkpoint store**: LangGraph checkpoints, one thread per conversation, run or agent session.
 The store is chosen once per deployment:
 
@@ -13,8 +13,8 @@ The store is chosen once per deployment:
 | `LLM_PROVIDER_CHECKPOINT` | `redis` | The store: `redis`, `postgres`, `sqlite` (development), `memory` (development), or the name of a store a plugin registers (see [Register a checkpoint store](#register-a-checkpoint-store)). |
 | `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | unset | Its connection string; unset uses the store's default connection: the shared Redis URL (`redis`) or the base Postgres DSN (`postgres`). `sqlite` needs a path. With a conn string set, its retry and timeouts come from `LLM_PROVIDER_CHECKPOINT_*` (see [Connection timeouts and retries](/concepts/config-and-secrets#connection-timeouts-and-retries)). |
 
-A run may name another provider for itself (an agent's `checkpoint_provider`, a flow's
-`checkpoint_provider`); see [What a per-run provider means](#what-a-per-run-provider-means).
+A run may name another provider for itself (an agent's `checkpoint_provider`); see
+[What a per-run provider means](#what-a-per-run-provider-means).
 
 ## The built-in stores
 
@@ -59,7 +59,7 @@ any thread nobody marked finished. A **finished** thread is one its owner marked
 
 The platform may still deliver an ask's answer or expiry up to its redelivery horizon
 (`INTERACTIONS_IDLE_TTL_SECONDS`, default 1 day) after the ask's deadline, so an async `ask` of
-an agent run or a flow run must carry a deadline at least that long before the checkpoint's
+any run must carry a deadline at least that long before the checkpoint's
 waiting retention runs out (with the defaults, within 6 days): a park with no deadline, or one
 past that point, is refused loudly before anything is parked. A resume that finds the thread's
 checkpoint gone ends the run as a failed terminal.
@@ -67,8 +67,8 @@ checkpoint gone ends the run as a failed terminal.
 ## A thread's own retention
 
 The two values above are every thread's **default** and its **ceiling**. A thread's owner may
-declare a shorter retention for the threads it starts — a flow declares one in its document
-(`config.checkpoint_retention`, see [the flows engine](/babelfish/index)) — never a longer one:
+declare a shorter retention for the threads it starts — a [Babelfish](/babelfish) flow,
+for example, declares one in its document (`config.checkpoint_retention`) — never a longer one:
 
 - A declared value above the platform's value for its horizon is refused loudly, naming both
   values; it is never shortened silently. A declared finished retention longer than the
@@ -84,7 +84,7 @@ declare a shorter retention for the threads it starts — a flow declares one in
 
 <Note>
 `LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` is gone: its place is taken by the two retention values
-above. The flows engine's `FLOW_CHECKPOINT_RETENTION_DAYS` and its
+above. The Babelfish flows engine's `FLOW_CHECKPOINT_RETENTION_DAYS` and its
 `POST /api/babelfish/checkpoints/prune` route are gone too: the same two values and the
 platform's `sweep_checkpoints` operation replace them. A deployment that still sets one of
 the removed variables is refused at boot and on every settings write, naming it.
@@ -92,17 +92,19 @@ the removed variables is refused at boot and on every settings write, naming it.
 
 ## Who marks a thread finished
 
-The code that minted a thread id owns the thread and marks it finished at its end; every
+The code that minted a thread id owns the thread and marks it finished at its end (a consumer
+may also take a caller-supplied id as its own); every
 consumer that **starts** a run on a thread takes it out of the finished set first, so a thread
 used again never sits there while it is live.
 
-- **A flow run** marks its own session thread (in its checkpoint provider's ledger) and every
-  agent session thread it owns — a node whose `session_thread` template contains
-  `{flow_run_id}` — finished at its terminal: success, error, stop or abort, never at a pause.
-  It takes all of them out of the finished set when a run (fresh, restart, resume or step)
-  starts on the session. The owned session threads are marked in the **deployment's** ledger
-  (the configured provider and connection): the flow cannot know which provider each agent run
-  on such a thread used.
+- **A consumer that owns the threads its runs start on** marks them finished at the run's
+  terminal (success, error, stop or abort), never at a pause, and takes them out of the
+  finished set when it starts a run on them again. A consumer that also owns threads whose
+  runs may each choose a per-run provider marks those in the **deployment's** ledger (the
+  configured provider and connection). The [Babelfish](/babelfish#checkpoint-retention-and-durability)
+  flows engine does both: a flow run always checkpoints on the deployment's configured store,
+  and the engine marks a run's session thread (including a caller-supplied session id, which
+  it takes as its own) and the agent session threads the run owns in the deployment's ledger.
 - **An agent run** with no `thread_id` mints its thread and marks it finished when it ends
   without a park, in its own checkpoint provider's ledger. A caller-supplied `thread_id` is the
   caller's: the run takes it out of the finished set when it starts and never marks it. A run
@@ -131,13 +133,14 @@ Before any delete, every **live-thread filter** a consumer registered is asked w
 thread is still live; a thread one claims is **spared**: logged at WARNING, counted on
 `tai42_checkpoint_sweep_spared_total{horizon,owner}` (served on `GET /metrics`), listed in the
 result, and — for a finished thread — kept in the finished set so the next sweep checks it
-again. The shipped filters claim:
+again. The filters the platform's packages and the [Babelfish](/babelfish) flows engine
+register claim:
 
 | Owner | Claims a thread that |
 | --- | --- |
 | `interactions` | backs a live async park in the interactions store. |
 | `agents` | has a live park barrier in the agents park index. |
-| `flows-engine` | has a pending interrupt on its latest checkpoint (a parked flow session). |
+| `flows-engine` | the [Babelfish](/babelfish#checkpoint-retention-and-durability) plugin's: has a pending interrupt on its latest checkpoint (a parked run of that engine). |
 
 A filter that fails fails the sweep. Deleting a thread removes every checkpoint and pending
 write it holds, however many. A checkpoint a run writes while the thread is being deleted is
@@ -170,9 +173,9 @@ process shares.
 - A thread on a per-run `memory` store lives with its process.
 - A thread on a per-run `postgres` or `sqlite` store is not swept; its marks land in that
   store's own ledger, so a deployment whose configured provider is that store sweeps them.
-- A flow-owned session thread whose agent ran on a per-run provider is marked in the
-  deployment's ledger; the sweep's delete there finds nothing, and the thread leaves on its
-  own store's waiting horizon.
+- A thread marked finished in a ledger other than its own store's (the Babelfish flows
+  engine's owned agent session threads, when the agent ran on a per-run provider) is not found
+  by the sweep's delete there, and leaves on its own store's waiting horizon.
 
 ## The store format
 
@@ -184,7 +187,7 @@ run, query or sweep that needs it fails loudly until the store is reset. A deplo
 uses no checkpoint store never builds a saver and never runs the check. The current generation
 is 4: a store written by an earlier version is reset before this one starts on it. Drain in-flight
 runs before the upgrade: the reset removes every open conversation's memory, every parked run and
-every flow session the store held.
+every other run thread the store held.
 
 ## Large values are stored once
 
@@ -213,8 +216,9 @@ turns it on or off for every store it opens with `LLM_PROVIDER_CHECKPOINT_SHARED
 - On `postgres` the values are rows of the table `tai42_checkpoint_values`, next to the saver's
   own tables; on `sqlite` they are rows of a table of the same name in the store's file; on
   `memory` they live with the process, like its checkpoints.
-- A value leaves with its thread: deleting a thread (the checkpoint sweep, `tai conversations
-  delete-thread`, a flow restart) deletes its values after its checkpoints, and on `redis` a
+- A value leaves with its thread: deleting a thread — by the checkpoint sweep, by `tai conversations
+  delete-thread`, or by a consumer deleting its own thread (a Babelfish flow restart, for
+  example) — deletes its values after its checkpoints, and on `redis` a
   thread nobody writes to again expires with its keys.
 - Reading a checkpoint fetches all its referenced values, the values nested inside them included, in
   one extra round trip; every place that holds a value receives its own copy. A reference whose

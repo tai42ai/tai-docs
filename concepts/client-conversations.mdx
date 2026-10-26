@@ -75,7 +75,7 @@ programs shaping the call:
   the rendered turn text.
 - **`reply_expr`** maps the run's result to the reply text; without it a tool result
   must itself be a string or `null`. It only ever sees a **returned** result: a
-  run that fails (a flow's `error`, `stopped`, or `aborted` terminal among them)
+  run that fails (a run's `error`, `stopped`, or `aborted` terminal among them)
   skips the mapping and resolves as the `error` outcome instead, whose text is the
   target's reply when the failure carries one, else the route's error reply
   ([failure replies](/reference/conversation-bridge#failure-replies)). It also
@@ -87,13 +87,13 @@ programs shaping the call:
 The payload also carries a **`params`** object when the inbound entry supplied one —
 a web-channel visitor's [link parameters](/plugins/tai42/channel-web#link-parameters),
 the API message door's `params` field, or a channel's **tap enrichment** when a person
-taps a control the flow offered: the tapped reply's author-set `id` arrives as
+taps a control the target offered: the tapped reply's author-set `id` arrives as
 `params.reply_id` (a sectioned row's `description` as `params.reply_description` where
 the medium carries it), a template quick-reply as `params.button_payload`, a
 click-to-chat entry as its `referral_*` fields. All are string values reachable as
 `.params.<name>`, present only when non-empty. They are untrusted transport the
-platform caps and delivers but never signs or interprets; a value a flow must trust is
-a secret the flow checks in its own store.
+platform caps and delivers but never signs or interprets; a value a target must trust is
+a secret the target checks in its own store.
 
 This is the **bridge-path** counterpart of the enrichment an
 [answer](/concepts/interactions#enrichment-on-the-answer) carries: when a tap
@@ -107,7 +107,7 @@ has nothing to say. On a `channel` route nothing is sent back (a terminal `silen
 record); on an `api` route the silence is communicated, delivered as a callback (or
 sync-wait reply, or a poll-door record) whose `status` is `silent` and which carries no answer text. That
 makes a tool target a way to answer some messages and stay quiet on others: a
-published [flow preset](/concepts/presets), say, that replies only when it has
+published [preset](/concepts/presets), say, that replies only when it has
 something to return. See the [bridge
 reference](/reference/conversation-bridge#route-targets-agent-or-tool) for the exprs
 in full.
@@ -118,7 +118,7 @@ state's `input` values into the dispatch and applies its `update` afterward — 
 to tool targets (a registered preset or a plain tool). An `agent` target takes no binding: a
 route with `target_kind: agent` that carries a `state_binding` is refused at save (`400`).
 
-A tool or flow target need not answer in one synchronous step either. Like an agent
+A tool target need not answer in one synchronous step either. Like an agent
 target, its turn can async-park on an `ask` — pausing for a person's answer or
 its expiry — and deliver its resumed reply back into the originating thread later,
 mapped through the route's reply mapping.
@@ -184,7 +184,7 @@ credentials). An inbound **location** on that channel does land as a typed
 
 A conversation carries a **locale** — a BCP 47 language tag (e.g. `he-IL`) the platform's
 [rendering layer](/concepts/storage-and-resources#locale-variants) resolves every template and
-list format against. The caller states the language; the flow never selects one, and a `null`
+list format against. The caller states the language; the target never selects one, and a `null`
 locale means none is known (never a silent default).
 
 - **`ConversationMessage.locale`** — the participant's per-message language hint the channel resolved
@@ -405,7 +405,7 @@ Every thread runs in one of two **control modes**, and the route carries the def
   or the tool dispatch answers it, exactly as [the round trip](#the-round-trip)
   describes.
 - **`manual`** — the target turn is **suppressed**. The inbound is recorded but the
-  flow does not answer it, so a human answers by hand. The platform's own control
+  target does not answer it, so a human answers by hand. The platform's own control
   turns are unaffected: pairing and the first-contact greeting still run.
 
 A route's `initial_mode` is the default; a per-thread override wins over it, so the
@@ -446,7 +446,7 @@ Three parties flip the switch:
   `PUT …/thread/mode` door.
 - **The agent itself**, from inside its own turn, with the `set_conversation_mode`
   builtin tool — it flips the **current** conversation (the thread the turn runs on),
-  so a flow can hand its own conversation off to a human. The tool reads the live
+  so an agent can hand its own conversation off to a human. The tool reads the live
   thread from the turn context and names none; called outside a turn it refuses loudly.
 - **An external system**, through the same `PUT …/thread/mode` door, which names its
   thread explicitly.
@@ -473,7 +473,7 @@ appended to the thread's memory as an `assistant` reply — the same conditional
 suppressed inbound takes, mirroring how the agent's own answer enters memory — **before**
 the record is created, so a later agent turn reads the operator's reply as prior context;
 a target with no memory skips it. An append that fails is loud and no record is created.
-Memory stays continuous both ways: a manual-mode inbound the flow never answered and the
+Memory stays continuous both ways: a manual-mode inbound the target never answered and the
 operator's own reply both sit in the thread the agent resumes on.
 
 On a linked person's aggregated thread the reply returns to the address they last wrote
@@ -513,7 +513,7 @@ whose aggregated history it is (and which person an erase would remove).
 Each transcript record carries its `origin` — `client` for an inbound turn, `operator`
 for a by-hand reply, `send` for a message the platform sent on its own (a `notify_user`
 send, a question, a notice) — so an operator's messages and the platform's sends read as
-distinct from the flow's answers. A send made during a turn carries that turn's
+distinct from the target's answers. A send made during a turn carries that turn's
 `turn_message_id`. See [send records](/reference/conversation-bridge#send-records). From
 the same Studio screen an operator can also flip the thread's [control
 mode](#control-mode-and-operator-messages) and compose a reply by hand.

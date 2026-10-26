@@ -50,8 +50,8 @@ Two defaults need a service unless you change them:
 
 - **Access control is on by default.** With it on, the server needs an identity
   provider plugin, Postgres and Redis. See the core table.
-- **The checkpoint store defaults to `redis`.** An agent or flow run needs a
-  checkpoint store. Set `LLM_PROVIDER_CHECKPOINT=memory` for local work, or give it a
+- **The checkpoint store defaults to `redis`.** Any run that keeps memory
+  needs a checkpoint store. Set `LLM_PROVIDER_CHECKPOINT=memory` for local work, or give it a
   Redis with modules or a Postgres. See the core table.
 
 ## Core
@@ -72,7 +72,7 @@ Two defaults need a service unless you change them:
 | Subject state records | Postgres (the `states` database, bound to `default` unless `TAI_DB_BINDING_STATES` names another) | `TAI_DB_BINDING_STATES`, `TAI_DATABASE_<NAME>_PG_*` | Off. With its database set and a migration pending, boot is refused with `Run 'tai db migrate'`. |
 | Run index | Postgres (the `skeleton` database) | `TAI_DATABASE_<NAME>_PG_*` | Runs are not indexed. |
 | Connectors | Postgres (the `skeleton` database), plain Redis, and the `CONNECTORS_*` keys | `TAI_DATABASE_<NAME>_PG_*`, `CONNECTOR_STORE_REDIS_URL` | No Postgres: off. No Redis: the token cache reads Postgres, with a `WARNING`, and starting an OAuth connection fails at first use. |
-| Checkpoint store for agent and flow runs | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing (development only). | `LLM_PROVIDER_CHECKPOINT`, `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | Fails at first use. With no conn string, `redis` reads `REDIS_URL` or `TAI_DEFAULT_REDIS_URL`, and `postgres` reads the base `PG_*` settings. See [Checkpoints](/operate/checkpoints). |
+| Checkpoint store for runs | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing (development only). | `LLM_PROVIDER_CHECKPOINT`, `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | Fails at first use. With no conn string, `redis` reads `REDIS_URL` or `TAI_DEFAULT_REDIS_URL`, and `postgres` reads the base `PG_*` settings. See [Checkpoints](/operate/checkpoints). |
 | LLM store (retrieval and deep agents) | `redis` (default): Redis with the JSON and search modules (Redis 8). `postgres`: Postgres. `memory` or `sqlite`: nothing. | `LLM_PROVIDER_STORE`, `LLM_PROVIDER_STORE_CONN_STRING` | Fails at first use. |
 | Schedules | An execution backend plugin that exposes scheduling | — | Answers `501`. |
 | Storage | A storage provider plugin | `storage_module` in the manifest | Answers `501`. |
@@ -115,7 +115,7 @@ other Redis features.
 | `identity-oidc` | An OIDC issuer | `TAI_IDENTITY_OIDC_ISSUER`, `TAI_IDENTITY_OIDC_AUDIENCE` | Boot is refused without them, or when the issuer's discovery or JWKS cannot be fetched. |
 | `accounts-oidc` | OIDC issuers, plain Redis for sessions and login state, and Postgres for the invitation flow | `TAI_ACCOUNTS_OIDC_*`, `TAI_ACCOUNTS_OIDC_REDIS_URL`, `TAI_DB_BINDING_TAI42_ACCOUNTS_OIDC` | Boot is refused without `TAI_ACCOUNTS_OIDC_STATE_KEY` and `TAI_ACCOUNTS_OIDC_PUBLIC_BASE_URL`, when an issuer cannot be reached, or when its Redis (`TAI_ACCOUNTS_OIDC_REDIS_URL`, or `TAI_DEFAULT_REDIS_URL` when unset) is unset, unreachable, or lacks `GETDEL` (Redis 6.2 or later). `/ready` answers `503` when that Redis stops answering. |
 
-## Flows engine
+## Babelfish Flows engine
 
 | Feature | What it needs | Setting | Without it |
 | --- | --- | --- | --- |

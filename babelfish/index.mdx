@@ -121,13 +121,14 @@ channel provider message id, the event id, or the api record id, and `inbound.so
 is the channel name, `event:<kind>`, or `api`. An [event
 turn](/reference/conversation-bridge#the-event-door) additionally carries
 `.flow_graph_kwargs.event` (`{id, kind, payload}`) with `.flow_graph_kwargs.message`
-and `.sender` both `null`. These arrive under `flow_graph_kwargs` because the
-conversation route's default no-`start_expr` kwargs are `{message, sender, turn}`
-(plus `event` on an event turn); a route with its own `start_expr` reads `.turn` and
-`.event` on the payload and forwards what it wants. A conversation-target flow preset
-must not declare `additionalProperties: false` without admitting `turn` (and `event`)
-in its input schema, or the routing that validates the kwargs against the preset's
-input schema refuses them.
+and `.sender` both `null`. These arrive under `flow_graph_kwargs` when the flow
+preset declares an `input_schema` and no `input_map`: the route's default no-`start_expr`
+kwargs `{message, sender, our_identity, channel, route, turn}` (plus `event` on an event
+turn) are validated against it and routed into the `flow` tool's `flow_graph_kwargs`; a
+route with its own `start_expr` reads `.turn` and `.event` on the payload and forwards
+what it wants. A conversation-target flow preset that declares `additionalProperties:
+false` must admit every one of those keys in its input schema, or the routing that
+validates the kwargs against it refuses them.
 
 A preset is a saved flow published to the palette, and it is managed **as a
 node, not as a flow**. The palette's **Custom Nodes** section gives each card an edit
@@ -1701,7 +1702,15 @@ lives — see [Checkpoints and retention](/operate/checkpoints). A flow run mark
 session thread finished at its terminal (success, error, stop or abort — never at a pause),
 together with every [agent session thread](#agent-session-continuity) it owns (a
 `session_thread` template that contains `{flow_run_id}`), and takes them out of the finished
-set when a run, a restart, a resume or a step starts on the session. The platform's
+set when a run, a restart, a resume or a step starts on the session. A flow run checkpoints
+on the deployment's configured store (`LLM_PROVIDER_CHECKPOINT` and its connection string):
+the `flow` and `flow_step` tools name no other provider (the `checkpoint_provider` of
+`flow_status`, `flow_state` and `flow_abort` only chooses the store those tools read and
+`flow_abort` tombstones on). The owned agent session threads are marked in the
+deployment's ledger, because the engine cannot know which provider each agent run on such
+a thread used; a mark there for a thread an agent kept on its own per-run
+`checkpoint_provider` deletes nothing, and that thread leaves on its own store's waiting
+horizon. The platform's
 `sweep_checkpoints` removes a finished thread after
 `LLM_PROVIDER_CHECKPOINT_RETENTION_FINISHED_MINUTES` and any other one after
 `LLM_PROVIDER_CHECKPOINT_RETENTION_WAITING_MINUTES`, and spares a session whose latest

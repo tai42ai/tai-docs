@@ -8,7 +8,7 @@ A **state** is a declared JSON document with one instance per **subject**. The
 platform owns the store: a conversation turn, a hook fire, a scheduled job, a
 builtin tool, and the HTTP API all read and write the same subject's document
 through one seam, and every write lands in one audit trail. Domain behaviour —
-which flow reads which state, how a record is shaped for a use case — lives in the
+which consumer reads which state, how a record is shaped for a use case — lives in the
 consumer that binds the state, never in the store.
 
 The store is a first-class platform component. It ships with the platform but
@@ -140,8 +140,8 @@ that changes whenever anything the rendering read changes; compare it for equali
 
 ### Template jq
 
-A template's `template_jq` is a map of named jq programs a door or a flow node runs against
-a subject's record, each declaring a **`purpose`**:
+A template's `template_jq` is a map of named jq programs a door or another consumer runs
+against a subject's record, each declaring a **`purpose`**:
 
 - **`input`** — `{description, purpose: "input", params, jq}`. `jq` runs over the record
   subtree at the attach path (`.` is the attached data) with the effective `$parameters`, the
@@ -154,16 +154,18 @@ a subject's record, each declaring a **`purpose`**:
   template-relative op batch (the keyed-op shape the store applies). `params` are the key
   names the `$input` object must carry — uniform with an `input` program's `params` — so apply
   refuses an `$input` missing a declared key or carrying an undeclared one (`422`); a named
-  update that declares `params` needs an
-  [adapter](/babelfish#binding-a-node-to-a-state) in a binding to fill them. `reads`/`writes`
+  update that declares `params` needs an `adapter` on the
+  [binding](#a-bindings-subject-and-scope)'s update to fill them: a jq over the run's output,
+  with the run input bound as `$input`, that builds the program's `$input` object. `reads`/`writes`
   are template-relative paths declared for readability; at put each `reads`/`writes` path is
   validated only for **structure** — that it resolves against the fragment — while the
   **write regime** (that a `writes` path lies under a declared-writable regime) is enforced at
   apply by the store guard.
 
 A program is named by reference, resolved by one rule wherever a reference is used — an
-evaluate or apply call over HTTP, MCP or the CLI, a binding validated or saved on a door or a
-babelfish node, and a binding's run:
+evaluate or apply call over HTTP, MCP or the CLI, a binding validated or saved on a door or as
+a plugin's per-node binding (a [Babelfish](/babelfish#binding-a-node-to-a-state) node, for
+example), and a binding's run:
 
 - **`<template>.<name>`** names that template's program. The template must be attached on the
   state and declare the program, else `404`.
@@ -176,8 +178,8 @@ babelfish node, and a binding's run:
 
 A door binding validated without attaching (a dry run) resolves as though each of its own
 templates not yet attached were attached at `[<template>]`, so the reference it accepts is the
-one its runs resolve. A babelfish node binding resolves through the same rule and also refuses a
-reference to a program of a template the binding does not attach.
+one its runs resolve. A plugin's per-node binding resolves through the same rule
+([Babelfish](/babelfish#binding-a-node-to-a-state)).
 The states facet serves the rule as `resolve_template_jq(state, name, *, purpose, declared=())`,
 returning a `ResolvedTemplateJq` (`template`, `program`, `purpose`, `params`, `path`); `declared`
 names templates a caller is about to attach. `resolve_template_jq_batch(refs)` resolves a list of
@@ -190,7 +192,8 @@ the `ResolvedTemplateJq`, or the `StateNotFoundError` / `ValueValidationError` t
 never hides the others' verdicts.
 
 Sibling `input` programs are ordered dependency-first, so one may call another by name. A
-[binding](/babelfish#state-templates) on any door (or a babelfish node) injects an `input`
+[binding](#a-bindings-subject-and-scope) on any door (or a plugin's per-node binding, such as
+a [Babelfish](/babelfish#state-templates) node) injects an `input`
 program's value into a run's input before the run and applies an `update` program's batch
 after it; the record-level HTTP and CLI surfaces evaluate an `input` program and apply an
 `update` program directly (see [Template jq](#template-jq-1)).
@@ -291,9 +294,9 @@ consults every registered **detach referee** before it removes the attachment an
 (`409`, listing the human-readable references each referee returns) while any binding still
 calls the template's [template jq](#template-jq). The platform's own binding holders — preset
 versions, conversation-route configs, hooks, and schedules — are checked, and any consumer that
-registers a referee is too: the flow engine registers one for its
-[per-node bindings](/babelfish#binding-a-node-to-a-state), just as it does against a state
-delete. Nothing is auto-detached — the author removes or rewrites the referencing bindings
+registers a referee is too: the [Babelfish](/babelfish) flows engine, for example, registers
+one for its [per-node bindings](/babelfish#binding-a-node-to-a-state), just as it does
+against a state delete. Nothing is auto-detached — the author removes or rewrites the referencing bindings
 first, then detaches. A consumer registers a referee with `register_detach_referee`, beside
 `register_delete_referee` on the tools facet.
 
@@ -338,7 +341,7 @@ an async `ask` and resumed later rejoins the same attribution.
 
 | Door | What it supplies | Explicit subject |
 |---|---|---|
-| **Conversation turn** | door `conversation`; the route's target scope; candidates `{"thread": <thread id>}` always, plus `{"person": <person id>}` on a multichannel target; actor = the turn's attribution user id; the turn id and inbound id | a flow reads the `turn.subject` block; a tool takes a `subject` argument |
+| **Conversation turn** | door `conversation`; the route's target scope; candidates `{"thread": <thread id>}` always, plus `{"person": <person id>}` on a multichannel target; actor = the turn's attribution user id; the turn id and inbound id | a binding's `subject_expr` reads the `turn.subject` block; a tool takes a `subject` argument |
 | **Park → continuation** | the original turn's `StateContext`, stored whole beside the continuation identity and re-deposited when the run resumes | — |
 | **Hook fire** | door `hook`; the declared target and `{kind: key}`; actor = the hook's execution key | a hook's `tool_kwargs` may carry `subject` |
 | **Schedule fire** | door `schedule`; the job's `subject` under its target; actor `null` (the fire is anonymous) | the job's `subject` |
@@ -373,8 +376,9 @@ omitted.
 
 ### A binding's subject and scope
 
-A [binding](/babelfish#binding-a-node-to-a-state) — on any door definition (a preset,
-hook, schedule, or channel route) and, in babelfish, per node — resolves its subject with
+A binding — on any door definition (a preset, hook, schedule, or channel route) and on a
+plugin's per-node binding (a [Babelfish](/babelfish#binding-a-node-to-a-state) node, for
+example) — resolves its subject with
 a jq `subject_expr` and gates itself with an optional jq `scope_expr`. Both mean the same
 on every door and every node:
 
@@ -426,7 +430,7 @@ by the time its definition is written.
 
 ### The turn subject block
 
-Every tool turn's payload carries a generic `turn` block so a flow's
+Every tool turn's payload carries a generic `turn` block so a binding's
 `subject_expr` can read the subject the platform resolved:
 
 ```json
@@ -492,8 +496,8 @@ Under a **traced attachment** the platform stamps a `_trace` object on every wri
 `at` is always present; `run`, `turn`, and `inbound` are the run, turn, and inbound
 ids, or null when the writer has none (a hook, a schedule, the API, or a builtin
 `state_*` tool has none); and `meta` is an opaque object the writing consumer supplies
-— its own identifiers, for instance — stored and shown as is. A flow's binding write
-and a hook's keyed write get the same stamp.
+— its own identifiers, for instance — stored and shown as is. A plugin consumer's binding
+write and a hook's keyed write get the same stamp.
 
 ## Unit of work
 
@@ -567,7 +571,7 @@ writes of every subject the run touched, and the calls it deferred. It is applie
 reply, and every reader of its subjects waits for it, so a participant's next message reads its
 own previous turn.
 
-**Who writes one.** A flow run's unit commit, a door binding's updates on a tool call, and a
+**Who writes one.** A unit of work's commit, a door binding's updates on a tool call, and a
 parked run's deferred binding updates each write one pending save.
 
 **Applying.** On the serving loop the save is applied in its own task right after the commit

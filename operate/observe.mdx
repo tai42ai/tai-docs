@@ -197,8 +197,8 @@ none. The index is fail-safe: a store outage never breaks a run.
 
 ## One run, one trace
 
-A run that dispatches nested work keeps a single trace. A subflow invoked as a
-tool and an agent driven as a flow node join the dispatching run's trace — their
+A run that dispatches nested work keeps a single trace. A nested run invoked as a
+tool and an agent driven by another run join the dispatching run's trace — their
 spans nest inside it rather than minting a fresh, orphaned trace — so one participant
 interaction reads end to end as one trace. A run that parks on an async question
 and resumes later — days later, on another worker — rejoins its original trace.
@@ -221,8 +221,8 @@ no-op default there is no trace to link.
 
 Every platform feature's model calls are traced. The monitoring callback is
 attached once at a shared seam that every agent kind passes through, so a
-model-usage span lands on the run's trace whatever the kind — a flow-driven
-agent, a multi-phase agent, or a voter-and-judge agent — and a new agent kind
+model-usage span lands on the run's trace whatever the kind — an agent driven by
+another run, a multi-phase agent, or a voter-and-judge agent — and a new agent kind
 inherits the coverage without wiring of its own. An agent that runs its model
 calls inside its own sandbox session bypasses that seam and is covered a
 different way, emitting its own usage (see the sandbox note under [Attribute a
@@ -239,7 +239,7 @@ are not recorded as model calls.
 
 ## Send outcomes and delivery receipts
 
-Every outbound channel send made inside a run's trace — a flow's `notify_user`
+Every outbound channel send made inside a run's trace — a run's `notify_user`
 send, a question delivered to a person, an inbound participant notice — records a
 `send:{channel}` span around the provider call. The span carries the recipient
 as its input, and the `notify_user` seam adds the provider's message ids as its
@@ -261,7 +261,7 @@ Twilio), the provider's later status closes the loop: the status is resolved bac
 to the originating send and posted as a `delivery_receipt` event on that run's
 trace, nested under its send span — a failed delivery as an `ERROR` event
 carrying the provider's error detail. The receipt is **observability only**: it
-annotates the trace, never re-sends, and never fails the flow.
+annotates the trace, never re-sends, and never fails the run.
 
 A send on a channel with a bridge route is also a [send
 record](/reference/conversation-bridge#send-records) in its conversation thread. When
@@ -312,7 +312,7 @@ no span — a rootless span would attach to no run.
 
 ## Trace a standalone tool call
 
-A tool call outside a flow or agent has no trace of its own. Load the `monitor` extension and stack it onto a tool to record the call as one live span. Load the module, then attach `monitor` to a tool.
+A tool call made outside any run has no trace of its own. Load the `monitor` extension and stack it onto a tool to record the call as one live span. Load the module, then attach `monitor` to a tool.
 
 ```yaml manifest.yml
 extensions_modules:
@@ -326,7 +326,7 @@ tools:
       greet: [[monitor]]
 ```
 
-When a flow or agent trace already owns the call, the extension suppresses its own span and just runs the tool.
+When a run's trace already owns the call, the extension suppresses its own span and just runs the tool.
 
 <Note>
 Metrics and traces are served by a monitoring backend plugin, registered under `monitoring_module`. Without one, the runtime uses a no-op default and there is nothing to query.
@@ -335,7 +335,7 @@ Metrics and traces are served by a monitoring backend plugin, registered under `
 ## Attribute a run and roll up cost
 
 Every run's trace can be tagged at the shared run chokepoint with the run's own
-identity — the flow kwargs the operator defines per delivery, carried verbatim as
+identity — the run kwargs the operator defines per delivery, carried verbatim as
 a `RunAttribution` of tags and metadata, wired once at the shared seam so every
 door attributes. The attribution is set on the trace from its first span, so it
 covers the whole run — the user, session, tags, and version are on the trace
@@ -346,7 +346,7 @@ per-tenant isolation — attribution only. Metrics aggregate over a time range
 alone — `tai obs metrics` takes no identity filter, so slice by identity on the
 trace list and roll the cost up from there.
 
-There is **no cost-aggregation module**. Cost aggregation is a flow or a view built
+There is **no cost-aggregation module**. Cost aggregation is a tool or a view built
 over these attributed traces: the platform ships the generic attribution enabler,
 and assembling spend into a cost view is delivery work on top of the trace data.
 
