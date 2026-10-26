@@ -40,10 +40,11 @@ changes what a key may hold and who may mint it:
   a **service principal** — a non-human identity that holds keys but never logs in
   — and mints keys for it. That keeps the machine-to-machine path working while
   making an owner-bound key the default.
-- **Key breadth is not admin.** A wide `["*"]` scope on a key does not make its
-  holder an administrator of the key surface — it cannot list, edit, or revoke
-  other owners' keys. Administration comes from the owner's role, never from a
-  key's scope breadth.
+- **Key breadth is not admin.** A wide `["*"]` scope on a key does not by itself
+  make its holder an administrator of the key surface; the owner's role decides
+  it. A `["*"]` key owned by an administrator, with no condition on the key, is an
+  administrator and can list, edit, and revoke other owners' keys. A `["*"]` key
+  owned by any other user, one that carries a condition, or a narrower key, cannot.
 
 ## Provisioning more keys
 
@@ -55,14 +56,32 @@ key minted in the Studio is the same key you could mint from the
 asks which principal owns it — yourself by default; an admin may pick a service
 principal or create one inline.
 
+Every field in the dialog carries a one-line hint saying what it is for and whether
+it is optional. The **Key user ID** is required: a new, unique ID the key acts as,
+such as `ci-runner`, and it cannot be changed later. It is not the same field as the
+**Principal user ID** in the inline create-service-principal form, which names the
+principal and is optional — leave it empty to generate one.
+
+**Scopes** are picked one by one, or with **Full access (all scopes)**, which mints
+the key with the universal `["*"]` scope. While it is ticked the individual scopes
+are hidden and a warning says what the key holds: every scope, including scopes
+added later, yet no further than its owner's access. If the owner is an
+administrator and the key has no condition, the key is an administrator too and can
+list, edit, and revoke other owners' keys (see *Key breadth is not admin* above).
+The box is offered to an
+admin, or to a user whose own access already holds `*`; the edit dialog opens a key
+that holds `*` with it ticked, and the keys table shows that scope as a
+**Full access** badge.
+
 The keys table carries a **Principal** column. Each row shows the principal that
 owns the key — a human or a service principal, by kind and display name. A key
 whose identity record was lost in a restore shows no principal and is marked
 **orphaned** until the backup is re-imported. Ownership is the whole story of what
 a key may hold and who may revoke it: an [owned key](/concepts/owned-keys) is
 capped at a subset of its owner's authority and dies when its owner does. The
-scope picker in the create dialog is capped to your own scopes, so a non-admin
-cannot mint a key wider than itself.
+scope picker in the create dialog is capped to your own scopes, and a non-admin is
+offered **Full access** only when it holds `*` itself, so a non-admin cannot mint a
+key wider than itself.
 
 <Note>
 Key provisioning and [access control](/concepts/access-control) run on the
