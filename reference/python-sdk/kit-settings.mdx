@@ -100,6 +100,99 @@ whose dotenv slot holds the kit's cached dotenv source).
 
 
 
+## EnvNameIndex
+
+`tai42_kit.settings.env_names.EnvNameIndex`
+
+```python
+class EnvNameIndex
+```
+
+The env names a set of env readers reads, resolved to the scalar fields they set.
+
+Built with `of`; immutable.
+
+### Members
+
+#### of
+
+`tai42_kit.settings.env_names.EnvNameIndex.of`
+
+```python
+of(cls, readers: Iterable[EnvReader]) -> EnvNameIndex
+```
+
+The index of ``readers``; a nested reader that is not among them sets nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `readers` | `Iterable[EnvReader]` | — | — |
+
+
+#### fields_set_by
+
+`tai42_kit.settings.env_names.EnvNameIndex.fields_set_by`
+
+```python
+fields_set_by(self, name: str) -> frozenset[SettingsFieldRef]
+```
+
+Every scalar field of the index's readers the env name ``name`` can set; empty when it sets none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+
+## EnvReader
+
+`tai42_kit.settings.reader_descriptions.EnvReader`
+
+```python
+class EnvReader(BaseModel)
+```
+
+One pydantic-settings class as the settings layer reads it from the env; names and shapes, never values.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `qualname` | `str` |
+| `nested_delimiter` | `str \| None` |
+| `nested_max_split` | `int \| None` |
+| `case_sensitive` | `bool` |
+| `fields` | `tuple[EnvReaderField, ...]` |
+
+
+## EnvReaderField
+
+`tai42_kit.settings.reader_descriptions.EnvReaderField`
+
+```python
+class EnvReaderField(BaseModel)
+```
+
+One field of an env reader: the env names that set it and how a delimited path names it.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `name` | `str` |
+| `env_names` | `tuple[str, ...]` |
+| `aliases` | `tuple[str, ...]` |
+| `nested` | `str \| None` |
+| `complex` | `bool` |
+
+
 ## KeyMaterial
 
 `tai42_kit.settings.base.KeyMaterial`
@@ -169,6 +262,24 @@ One env-configurable field on a settings class, as plain data.
 | `accepted_env_vars` | `list[str]` |
 
 
+## SettingsFieldRef
+
+`tai42_kit.settings.env_names.SettingsFieldRef`
+
+```python
+class SettingsFieldRef(NamedTuple)
+```
+
+One scalar settings field: its reader's qualified name and the field's name.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `group` | `str` |
+| `field` | `str` |
+
+
 ## StaleHolder
 
 `tai42_kit.settings.cache_registry.StaleHolder`
@@ -202,8 +313,9 @@ class TaiBaseSettings(BaseSettings)
 Base for env-configurable settings groups; concrete subclasses self-register.
 
 A settings class reads the env file named by its ``tai_env_file`` class attribute
-(default ``.env``); the file is parsed once per file identity. A subclass that sets
-``model_config['env_file']`` is refused at import.
+(default ``.env``), unless that file is the ``file`` config mode's stored env; the file
+is parsed once per file identity. A subclass that sets ``model_config['env_file']`` is
+refused at import.
 
 **Attributes**
 
@@ -233,8 +345,8 @@ settings_customise_sources(
 
 Put the kit's cached dotenv source in the dotenv slot.
 
-The source reads ``tai_env_file``, or no file when its reads are suspended
-(`env_file_reads_suspended`). Every other option of
+The source reads ``tai_env_file``, or no file when that file is the stored env or
+its reads are suspended (`env_file_in_effect`). Every other option of
 the source is read from ``settings_cls.model_config``, as the framework's own source
 reads it.
 
@@ -303,11 +415,11 @@ An env name under an owned settings prefix names no registered setting.
 bind_respawn_class_env() -> None
 ```
 
-Bind every registered respawn-class env var to the value the settings layer reads for it now.
+Bind every registered respawn-class field under the process env as it is now.
 
 Called once a lifespan applied its env, before it builds the resources behind those values:
-a group registered later binds its own vars at its registration. Overwrites every value an
-earlier bind recorded.
+a group registered later binds its own fields at its registration. Overwrites every binding
+an earlier bind recorded.
 
 
 ## changes_only_by_respawn
@@ -328,6 +440,68 @@ group that is unregistered or references back into the groups being judged, and
 for any ``hot`` field.
 
 
+## declare_env_reader
+
+`tai42_kit.settings.reader_descriptions.declare_env_reader`
+
+```python
+declare_env_reader(cls: type[BaseSettings]) -> None
+```
+
+Declare ``cls`` a reader of the applied env, with every nested settings class it reaches.
+
+Each class is described (`describe_env_reader`) and enters `env_readers`, not the
+settings registry; each description reaches the `on_env_reader_described` listeners,
+``cls`` first. A listener's exception propagates.
+
+
+## decode_env_readers
+
+`tai42_kit.settings.reader_descriptions.decode_env_readers`
+
+```python
+decode_env_readers(body: str | bytes) -> tuple[EnvReader, ...]
+```
+
+The env readers `encode_env_readers` encoded in ``body``; a body of another shape raises.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `body` | `str \| bytes` | — | — |
+
+
+## describe_env_reader
+
+`tai42_kit.settings.reader_descriptions.describe_env_reader`
+
+```python
+describe_env_reader(cls: type[BaseSettings]) -> EnvReader
+```
+
+The description of the pydantic-settings class ``cls``: every env name it reads and how it nests.
+
+A field whose type has no resolvable JSON-schema type raises, naming the field.
+
+
+## encode_env_readers
+
+`tai42_kit.settings.reader_descriptions.encode_env_readers`
+
+```python
+encode_env_readers(readers: Iterable[EnvReader]) -> str
+```
+
+The canonical JSON of a set of env readers: the same set gives the same text in any order.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `readers` | `Iterable[EnvReader]` | — | — |
+
+
 ## env_file_identity
 
 `tai42_kit.settings.env_file.env_file_identity`
@@ -346,6 +520,26 @@ A missing path, a directory, a FIFO, or a path ``stat`` cannot reach answers
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `path` | `str \| os.PathLike[str]` | — | — |
+
+
+## env_file_in_effect
+
+`tai42_kit.settings.env_file.env_file_in_effect`
+
+```python
+env_file_in_effect(declared: F | None) -> F | None
+```
+
+The env file a settings construction reads: ``declared``, or none when it is not read.
+
+``declared`` is not read when it resolves to the ``file`` config mode's stored env, or
+when its reads are suspended (`env_file_reads_suspended`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `declared` | `F \| None` | — | — |
 
 
 ## env_file_reads_suspended
@@ -371,6 +565,38 @@ makes threads inherit the context (``sys.flags.thread_inherit_context``).
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `path` | `str \| os.PathLike[str]` | — | — |
+
+
+## env_readers
+
+`tai42_kit.settings.reader_descriptions.env_readers`
+
+```python
+env_readers() -> tuple[EnvReader, ...]
+```
+
+Every env reader of this process: each registered settings group and each declared reader, sorted.
+
+
+## fold_env_name
+
+`tai42_kit.settings.base.fold_env_name`
+
+```python
+fold_env_name(name: str) -> str
+```
+
+``name`` as the settings layer matches env names: upper-cased.
+
+A settings group reads env names case-insensitively (pydantic-settings' default), so
+``app_args_port`` and ``APP_ARGS_PORT`` set the same field; the registry records each name
+upper-cased. A test of an env name against a set of settings names folds both sides here.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
 
 
 ## is_kubernetes_service_link
@@ -404,7 +630,9 @@ keyed_settings_cache(fn: Callable[[K], V]) -> Callable[[K], V]
 Cache a one-argument settings accessor per key, cleared on reset and re-read when the env file changes.
 
 An entry is served while the env file keeps the identity it had when the entry
-was built; ``reset_all_settings()`` drops every entry. A settings instance is
+was built; the env file is the one settings read
+(`env_file_in_effect`), so a file they do not read,
+such as the stored env, rebuilds nothing. ``reset_all_settings()`` drops every entry. A settings instance is
 epoch-stamped on construction like `settings_cache`'s. A build that raises
 stores nothing, so the next call builds again. One accessor exists per qualified name,
 re-bound by a re-import exactly as `settings_cache`'s.
@@ -460,6 +688,48 @@ field that only its own env var can set.
 | `default_var` | `str \| None` | `None` | — |
 
 
+## on_env_reader_described
+
+`tai42_kit.settings.reader_descriptions.on_env_reader_described`
+
+```python
+on_env_reader_described(listener: Callable[[EnvReader], None]) -> Callable[[EnvReader], None]
+```
+
+Subscribe ``listener`` to every env reader described from now on; returns ``listener``.
+
+Called with the description of each settings group registered (after the
+`on_settings_registered` listeners, before any value of it is read)
+and of each declared reader. Subscribing the same listener again does nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `listener` | `Callable[[EnvReader], None]` | — | — |
+
+
+## on_settings_registered
+
+`tai42_kit.settings.registry.on_settings_registered`
+
+```python
+on_settings_registered(listener: Callable[[SettingsClassInfo], None]) -> Callable[[SettingsClassInfo], None]
+```
+
+Subscribe ``listener`` to every settings group registered from now on; returns ``listener``.
+
+The listener is called with a copy of each registration (a re-import's re-registration
+included), once the group is in `registered_settings` and before any value of it is
+read. Subscribing the same listener again does nothing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `listener` | `Callable[[SettingsClassInfo], None]` | — | — |
+
+
 ## owned_env_prefixes
 
 `tai42_kit.settings.owned_prefix.owned_env_prefixes`
@@ -479,7 +749,11 @@ Every env prefix a registered group declares owned.
 present_env_value(env: Mapping[str, str], var: str) -> str | None
 ```
 
-The value the settings layer reads for ``var``: ``None`` when absent or empty, the kit's empty-is-absent rule.
+The value the settings layer reads for ``var``; ``None`` when absent or empty.
+
+Every spelling of ``var`` in ``env`` counts (`fold_env_name`): an empty one is absent
+(the kit's empty-is-absent rule) and of the others the last one wins, as the settings
+layer's env source reads them.
 
 **Parameters**
 
@@ -612,9 +886,13 @@ Drop every registered settings cache, then run the reset hooks.
 respawn_class_env_drift() -> frozenset[str]
 ```
 
-The bound respawn-class env vars whose value the settings layer reads now differs from the bound one.
+The env vars of the bound respawn-class fields whose value now differs from the value they were bound under.
 
-Such a value takes effect only in a respawned process. Empty while nothing is bound.
+Each value is read as the settings layer reads it, under every name that sets the field
+(`settings_field_env_value`): the field's own names, its nested
+groups' JSON names and its delimited names, from the process env now and from the env the
+field was bound under. Such a value takes effect only in a respawned process. Empty while
+nothing is bound.
 
 
 ## restamp_settings_born_after
@@ -680,6 +958,50 @@ cache and returns the same wrapper.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `fn` | `F` | — | — |
+
+
+## settings_field_env_value
+
+`tai42_kit.settings.env_names.settings_field_env_value`
+
+```python
+settings_field_env_value(env: Mapping[str, str], group: str, field: SettingsFieldInfo) -> str | None
+```
+
+The value ``env`` gives the scalar field ``field`` of the settings group ``group``; ``None`` when none.
+
+``group`` is the group's qualified name. Read as the settings layer reads it. In precedence
+order, highest first: the registered groups that nest ``group`` (outermost first), each
+through its JSON name with its delimited names merged over it; then the field's own names
+(`_own_layers`). Objects from several of these merge key by key, as the settings layer
+combines them. Empty values are absent. The value is in env form: a string read from one
+name as it is, anything else JSON-encoded. A name whose value must be JSON and is not raises,
+and so does a nested-group reference, which holds no value of its own.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `env` | `Mapping[str, str]` | — | — |
+| `group` | `str` | — | — |
+| `field` | `SettingsFieldInfo` | — | — |
+
+
+## settings_fields_set_by
+
+`tai42_kit.settings.env_names.settings_fields_set_by`
+
+```python
+settings_fields_set_by(name: str) -> frozenset[SettingsFieldRef]
+```
+
+Every registered scalar settings field the env name ``name`` can set; empty when it sets none.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
 
 
 ## sweep_stale_settings
