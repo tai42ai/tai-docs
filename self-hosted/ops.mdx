@@ -1,6 +1,6 @@
 ---
 title: "Ops notes"
-description: "Reverse proxies, backups, and health probes for a self-hosted server."
+description: "Reverse proxies, restarts, backups, and health probes for a self-hosted server."
 icon: "screwdriver-wrench"
 ---
 
@@ -34,6 +34,24 @@ Some features need the public origin spelled out rather than inferred:
 [connectors](/concepts/connectors) accept an OAuth redirect only when its origin
 is in `CONNECTORS_REDIRECT_URI_ALLOWLIST`. See [TLS and the front
 door](/operate#tls-and-the-front-door).
+
+## Restarts and bundle settings
+
+The bundle's app services run with `restart: unless-stopped`. Keep that policy: a
+change to a [recycle-class setting](/concepts/config-and-secrets#settings-profiles)
+makes the affected processes exit gracefully, and Compose starts them again. Without a
+restart policy, an exited process stays down.
+
+Every key the compose file sets to a non-empty value for an app service, and every
+`ENV` the image sets, belongs to the deployment (a key left empty, such as an unset
+`${SANDBOX_DOCKER_HOST:-}`, does not). A key one service's own `environment:` sets
+belongs to the deployment for every service on the same worker bus: its value wins over a
+value stored in `config/.env`, Studio shows it locked, a save that sets it is refused, and
+no such service applies a stored copy of it; a service the compose file does not give
+the value runs its `TAI_DEFAULT_*` fallback or the field's default. Change it in the compose file (or
+the `.env` it reads) and recreate the containers. A setting an admin should edit from
+Studio stays out of the compose file. See
+[Deployment values and stored values](/concepts/config-and-secrets#deployment-values-and-stored-values).
 
 ## Backups
 
@@ -76,7 +94,7 @@ The server exposes unauthenticated `/health` (liveness) and `/ready` (every wire
 store, pinged under a 5s budget) routes for orchestrators and load balancers —
 served public by the app's own route-level declaration, so no allowlisting. The
 bundle's serve healthcheck already probes `/health`. `/ready` additionally fails
-(and the process exits for a supervised restart) when one of the server's
+(and the process exits, so its supervisor starts it again) when one of the server's
 long-lived background tasks stops unexpectedly, naming the stopped task in its
 response. The full probe semantics are
 [Liveness and readiness](/operate/deploy#liveness-and-readiness).

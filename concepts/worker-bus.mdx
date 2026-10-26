@@ -61,16 +61,30 @@ Three deployment shapes cannot converge without the bus, so `tai serve` and
   config, and a pod cannot see its own replica count, so `kubernetes` mode always requires
   the bus.
 
+A fourth shape is refused whatever the deployment: a process that reaches the bus only
+through a stored copy of the bus URL (`TAI_BUS_REDIS_URL`, `TAI_BUS_REDIS` or `TAI_DEFAULT_REDIS_URL`) or
+of `TAI_BUS_NAMESPACE` while another worker on that same bus has its deployment set that
+key. The stored copy counts nowhere once a worker's deployment sets the key, and a process
+cannot stay on a bus its deployment did not give it, so it refuses to start, naming the
+keys. A process learns which keys the other workers' deployments set from the census of
+the bus it reaches, so a stored copy that points it at another bus (another Redis or
+another `TAI_BUS_NAMESPACE`) is not refused: that census holds none of the fleet's workers,
+and the process runs on the other bus, apart from the fleet.
+
 The refusal names `TAI_BUS_REDIS_URL`. A busless `kubernetes` boot is rejected on the
 missing bus, not on a later kubeconfig error, because the `kubernetes` check reads only
 boot-fixed env and runs before the config manager is built.
 
 The workers check runs in each worker at its boot, after the stored env (the config-dir
 `.env` or the config provider's store) is applied: a bus URL kept only in the stored env
-counts, and a stored empty value over a value set in the container turns the bus off and
-is refused. It counts the workers `tai serve` hands each worker in `TAI_SERVE_WORKERS`; a
-process without that count counts as one worker. A worker that refuses fails its startup,
-and `tai serve` exits non-zero. Every reload re-checks it, and a config write (an env
+counts when no worker's deployment sets it; a bus URL the deployment's environment sets
+keeps its value whatever the stored env holds, on every worker. A worker whose own
+environment lacks the bus URL while another worker's sets it is refused at its boot,
+naming the key, when the stored copy brings it to that worker's bus: the stored copy
+counts nowhere, and a worker cannot stay on a bus its deployment did not give it. A stored
+copy that brings it to another bus is not refused, as above. It counts the workers `tai serve` hands each worker in
+`TAI_SERVE_WORKERS`; a process without that count counts as one worker. A worker that
+refuses fails its startup, and `tai serve` exits non-zero. Every reload re-checks it, and a config write (an env
 change, a manifest change, a profile replace) that would leave a multi-worker server
 busless is refused. More than one worker also needs shared sub-MCP and hooks stores,
 checked the same way — see [Scale workers](/operate/deploy#scale-workers).
@@ -128,6 +142,8 @@ every fleet surface reads:
 | `joined_at` | When this life claimed the slot — the fleet's join time. |
 | `beat_at` | The last heartbeat — the "seen-since" a surface renders. |
 | `state` | `ready`, `resyncing`, or `recycling` (below). |
+| `deployment_keys` | The names this worker's own environment sets, never their values — what [the deployment owns](/concepts/config-and-secrets#deployment-values-and-stored-values) is judged from every worker's names. |
+| `env_readers` | The digest of a description of every settings name this worker reads (names and how they nest, never values), kept on the bus under that digest. Workers that read the same names share one description, and each beat leaves it at least twice that worker's heartbeat TTL to live without ever shortening it, so it outlives every live row that names it, whatever each worker's heartbeat TTL. |
 | `last_op` | The last op this worker applied and its outcome — absent until it has applied one. |
 
 The `state` is written live by the worker itself:
@@ -213,9 +229,11 @@ returns, and its generation then bumps on `tai fleet workers`. The roll stops at
 first target that does not converge — reported `timed-out` or `failed` with a
 `detail` — or when the bus cannot be read, and attempts neither the later targets nor
 the writer's own recycle; `recycle_stopped` in the response names where and why. Because that census rides the bus
-itself, the bus URL is one key a recycle can never carry — replacements would
-register on a new bus the running census cannot see — so a profile changing
-`TAI_BUS_REDIS_URL` is refused on every shape.
+itself, the keys that locate it are ones a recycle can never carry — replacements would
+register on a new bus, or under a new namespace, that the running census cannot see — so a
+config change or profile that changes `TAI_BUS_REDIS_URL`, `TAI_DEFAULT_REDIS_URL` (the bus
+URL's fallback) or `TAI_BUS_NAMESPACE` is refused on every deployment. Set them in the
+deployment's environment and restart the deployment.
 
 ## Template-cache eviction over the bus
 
