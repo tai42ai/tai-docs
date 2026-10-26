@@ -76,7 +76,7 @@ A route's `target_kind` chooses what an inbound turn runs:
 
 - **`start_expr`** — jq over the inbound payload `{message, sender, our_identity,
   channel, route, turn}` — `route` the name of the route the turn entered through, so a
-  flow bound to several routes can tell them apart — carrying `person_id` and
+  target bound to several routes can tell them apart — carrying `person_id` and
   `person_addresses` too when the target's multichannel is on, and `event` on an
   [event turn](#the-event-door) — emitting exactly
   one JSON object: the started run's kwargs (a `tool` dispatch's kwargs, or an `agent`
@@ -85,7 +85,7 @@ A route's `target_kind` chooses what an inbound turn runs:
   rendered turn text for an agent. An `agent` `start_expr` must not set the route-owned
   run identity (`thread_id` or a checkpoint key), refused at create. `person_id` is the
   person the sending address resolves to and `person_addresses` its address rows;
-  `person_id` gives a flow a channel-stable key for a linked person, one and the same
+  `person_id` gives a target a channel-stable key for a linked person, one and the same
   across the channels they paired.
 - **`reply_expr`** — jq over the run's result (the success shape), emitting the reply:
   `null` (silent), a string, or a list of answer parts. Omitted, a tool result must
@@ -120,7 +120,7 @@ publishes the same object as `inbound_form` on both the admin and caller-safe re
 The payload also carries a **`params`** object when the inbound entry supplied one —
 a web channel's [link parameters](/plugins/tai42/channel-web#link-parameters) captured
 with the visitor session, the [message door](#the-message-door)'s `params` body field,
-or a channel's **tap enrichment** when the person taps a control the flow offered (a
+or a channel's **tap enrichment** when the person taps a control the target offered (a
 tapped reply's author-set id as `params.reply_id`, a template quick-reply as
 `params.button_payload`, a click-to-chat referral as its `referral_*` fields — what
 each channel forwards is on its [plugin page](/plugins)) — string values reachable as
@@ -129,7 +129,7 @@ so guard for it (`.params.key // …`). The same enrichment rides an
 [answer's](/concepts/interactions#enrichment-on-the-answer) `params` when the tap
 instead answers a pending `ask`. The values
 are **untrusted transport**: the platform caps and delivers them but attaches no
-signature, expiry, or meaning, so a value a flow must trust is a secret the flow
+signature, expiry, or meaning, so a value a target must trust is a secret the target
 checks in its own store. Bounds: at most **16** params, each key
 `^[A-Za-z0-9_-]{1,64}$`, each value ≤ **512** characters, ≤ **2048** bytes serialized.
 Each door applies one declared policy to a violation:
@@ -163,7 +163,7 @@ whichever door it entered through:
 `inbound.id` is the channel provider message id / the [event](#the-event-door)'s own
 `event_id` / (on the api message door) the record's `message_id`, and `inbound.source`
 is the channel registry name / `event:<kind>` / `api`. `turn.subject` is the scope a
-flow's subject reads: the route's target, the `person` id (null unless the target's
+state binding's subject reads: the route's target, the `person` id (null unless the target's
 multichannel is on) and the resolved `thread` id, with the turn's `locale`.
 
 `turn.reply_window` says whether a free-form reply can reach the client right now, as the
@@ -177,7 +177,7 @@ channel reports it for the pair the turn replies on (`our_identity`, the client'
 
 The window is read once per turn, when the turn starts; a reply delivered later (a parked
 tool resumed out of band) reads it again at delivery time. The platform only reports it and
-gates no send on it: a flow uses it to choose between a free-form reply and a template, and the
+gates no send on it: a target uses it to choose between a free-form reply and a template, and the
 vendor's own refusal of a free-form send outside the window (WhatsApp `131047`, Twilio `63016`)
 stays final and fails the delivery loudly. Which channels report a window, and what opens it,
 is on each [plugin page](/plugins). A read that fails (the channel's store is unreachable)
@@ -190,6 +190,17 @@ receives the fixed kwargs `{message, sender, our_identity, channel, route, turn}
 on an event turn); a `start_expr` reads `.turn` and `.event` off the payload and forwards what
 it needs.
 
+The routed kwargs object — the fixed kwargs, or the `start_expr` result — is the target's
+whole input. A plain tool, and a preset that declares no `input_schema`, receive it as their
+arguments. A [preset](/concepts/presets) that declares an `input_schema` validates it against
+that schema; with no `input_map`, it delivers the validated object under the argument its base
+tool's [input-schema support](/concepts/presets#declarable-per-tool-input-schema) names (its
+`payload_arg`); with an `input_map`, the map builds the base tool's arguments from it. With
+no `start_expr`, a conversation-target preset's `input_schema` must therefore admit every
+default key (`message`, `sender`, `our_identity`, `channel`, `route`, `turn`, and `event` on
+an event turn): one that declares `additionalProperties: false` without them refuses the
+routed kwargs.
+
 A reply of `null` or blank is a **deliberate silence**, and how it resolves depends
 on the door. On a `channel` route the record ends in the terminal `silent` state and
 nothing is sent to the client. On an `api` route the silence is **communicated**: the
@@ -197,16 +208,16 @@ turn rides the normal delivery pipeline and its callback (or sync-wait reply) ca
 `status: "silent"` with no `answer` text, so the caller still gets a terminal result.
 A mapping fault, a denied or failed dispatch, a wrong-typed result, or a tool turn
 whose run **fails** is a client-safe `error` outcome instead. A failing target raises the
-contract's `RunTerminalFailed` (a flow's `error`, `stopped`, or `aborted` terminal arrives
+contract's `RunTerminalFailed` (a run's `error`, `stopped`, or `aborted` terminal arrives
 this way), and `reply_expr` maps only a returned result, so a failure never reaches the
 mapping and goes straight to the [failure reply](#failure-replies): the target's own reply
 when the failure carries one, else the route's error reply.
 
-### A flow preset as a tool target
+### Example: a Babelfish flow preset as a tool target
 
-Publish a flow as a named tool (a [preset](/concepts/presets)) and route to it to
-answer each message by running the flow. The flow tool takes `flow_graph_kwargs`, so
-map the message into them and pull the reply out of the result envelope:
+The [Babelfish Flows](/babelfish) plugin is one consumer of this door. It publishes a flow
+as a named tool (a [preset](/concepts/presets)). A flow preset with no `input_schema` keeps the
+`flow` tool's own `flow_graph_kwargs` argument, so the route maps the message into it:
 
 ```bash
 tai conversations create flow-line \
@@ -216,20 +227,11 @@ tai conversations create flow-line \
   --reply-expr '.result.answer // null'
 ```
 
-`.result.answer` is the flow's answer node; `// null` stays silent when the flow
-produces nothing to say. This mapping only ever sees the **success** shape: if the
-flow or tool turn ends on a non-success terminal status (`aborted`, `stopped`,
-`error`) the turn diverts to the `error` outcome and `reply_expr` never runs.
+What a conversation-routed flow reads under `flow_graph_kwargs` is on the
+[Babelfish page](/babelfish#presets); `// null` keeps the turn silent when the result
+carries no `answer`.
 
-The whole kwargs object is validated against the preset's `input_schema` and routed
-into the flow's `flow_graph_kwargs` argument, so with no `start_expr` a flow preset
-reads the default kwargs directly as `.flow_graph_kwargs.message`, `.sender`, and
-`.turn` (plus `.event` on an [event turn](#the-event-door)) — no route jq needed. A
-conversation-target flow preset must therefore admit `turn` (and `event`) in its
-`input_schema`; one that declares `additionalProperties: false` without them refuses
-the routed kwargs.
-
-Such a flow or tool turn need not answer synchronously: if it raises an async
+Such a tool turn need not answer synchronously: if it raises an async
 `ask`, the turn parks and its resumed reply is delivered back into the
 originating thread later — mapped through the route's `reply_expr` — the same
 deliver-back documented for an agent target. A **step-mode** interrupt is the
@@ -868,7 +870,7 @@ counts the answer records cleared and `states_erased` counts the thread-subject
 [declared-state](/concepts/states) records this call forgot across the routes the
 thread spans — `0` when the states feature is off or the thread held no declared
 state. The reset clears the thread's own **`thread`-subject** state only — the
-conversation's memory keyed on this thread; declared state a flow scoped to the
+conversation's memory keyed on this thread; declared state a binding scoped to the
 `person` (deliberate cross-thread memory) is cleared by [forgetting the
 person](#forgetting-a-person), not a single-thread reset. State erasure runs last under
 the same in-flight/FIFO guard, so a live turn can never race it; a failure there raises
@@ -894,7 +896,7 @@ store scoped to that identity:
   route-thread index memberships and per-thread mode override (the [thread-forget
   machinery](#forgetting-a-thread), reused);
 - its [declared-state](/concepts/states) records — both the person's own
-  **`person`-subject** memory (the cross-thread memory a flow scoped to the person) and the
+  **`person`-subject** memory (the cross-thread memory a binding scoped to the person) and the
   aggregated thread's **`thread`-subject** memory, across every route the person spans;
 - the person row `conversations:person:{person_id}`;
 - **every** `person_index` `door_address_key → person_id` mapping of its addresses;
@@ -1223,8 +1225,9 @@ and the platform sends that reply exactly as the target wrote it.
 
 A target supplies its reply on the failure it reports. A tool raises
 `RunTerminalFailed(outcome, reply="...")`; a parked run that fails on resume raises the
-same, or returns `RunFailed(outcome=..., reply="...")`. A flow supplies one through its
-flow-level On Error's [Reply](/babelfish#the-participant-reply-on-a-failed-run). The reply follows the same rule as
+same, or returns `RunFailed(outcome=..., reply="...")`. A [Babelfish](/babelfish) flow, for
+example, supplies one through its flow-level On Error's
+[Reply](/babelfish#the-participant-reply-on-a-failed-run). The reply follows the same rule as
 every `reply_texts` member: a string of 1 to 2,000 characters that is not blank. An invalid reply
 is refused where the target raises or returns it, and a reply that reaches a completion
 delivery malformed is refused loudly there, with no record written.
