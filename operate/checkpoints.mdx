@@ -11,7 +11,7 @@ The store is chosen once per deployment:
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `LLM_PROVIDER_CHECKPOINT` | `redis` | The store: `redis`, `postgres`, `sqlite` (development), `memory` (development), or the name of a store a plugin registers (see [Register a checkpoint store](#register-a-checkpoint-store)). |
-| `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | unset | Its connection string; unset uses the store's default connection: the shared Redis URL (`redis`) or the base Postgres DSN (`postgres`). `sqlite` needs a path. With a conn string set, its retry and timeouts come from `LLM_PROVIDER_CHECKPOINT_*` (see [Connection timeouts and retries](/concepts/config-and-secrets#connection-timeouts-and-retries)). |
+| `LLM_PROVIDER_CHECKPOINT_CONN_STRING` | unset | Its connection string; unset uses the store's default connection: the base `REDIS_URL`, else `TAI_DEFAULT_REDIS_URL` (`redis`), or the base Postgres DSN (`postgres`). `sqlite` needs a path. With a conn string set, its retry and timeouts come from `LLM_PROVIDER_CHECKPOINT_*` (see [Connection timeouts and retries](/concepts/config-and-secrets#connection-timeouts-and-retries)). |
 
 A run may name another provider for itself (an agent's `checkpoint_provider`); see
 [What a per-run provider means](#what-a-per-run-provider-means).
@@ -28,7 +28,8 @@ A run may name another provider for itself (an agent's `checkpoint_provider`); s
 The `redis` store needs a Redis with the JSON and search modules. Redis 8 ships both; a
 Redis 7 needs RedisJSON and RediSearch loaded. On a plain Redis the store's setup fails with
 `unknown command 'FT._LIST'`. With `LLM_PROVIDER_CHECKPOINT_CONN_STRING` unset, the store uses the
-shared `TAI_DEFAULT_REDIS_URL`, so that Redis is the one that must provide the modules. See
+base `REDIS_URL`, and when that is unset too the shared `TAI_DEFAULT_REDIS_URL`, so that Redis
+is the one that must provide the modules. See
 [Infrastructure by feature](/operate/infrastructure) for what every store needs.
 
 Only a store that survives a restart (`redis`, `postgres`, or a registered store that declares it)
