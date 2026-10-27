@@ -7,8 +7,8 @@ icon: "server"
 
 Execution-backend contract.
 
-Exposes the ``Backend`` ABC, the ``BackendRuntime`` ABC one launch subcommand implements, the
-``CallbackSchema``, and the scheduling protocol's names and models.
+Exposes the ``Backend`` ABC, the ``BackendRuntime`` ABC one launch subcommand implements with
+its liveness declarations, the ``CallbackSchema``, and the scheduling protocol's names and models.
 
 ## CONSUMING_RUNTIME
 
@@ -159,7 +159,9 @@ ONE launchable runtime of an execution backend, named by its launch subcommand.
 
 The vendor binding answers only "how MY engine starts, drains, and
 recycles"; readiness gating, signal wiring, drain-on-cancellation and pool
-turnover belong to the host base that drives this object.
+turnover belong to the host base that drives this object. The liveness
+signal is the host's too: the runtime declares which kind it has
+(`liveness`), and a progress runtime reports from its own loop.
 
 ### Members
 
@@ -214,6 +216,62 @@ job (the next child inherits the mutation).
 Declared per class like the rest, but deliberately NOT a ``ClassVar``: a
 launch option can decide whether this engine's pool persists, so an instance
 may set it. The host therefore reads it off the live runtime.
+
+
+#### liveness
+
+`tai42_contract.backend.runtime.BackendRuntime.liveness`
+
+```python
+liveness: Liveness
+```
+
+How this process signals it is alive. REQUIRED: the host refuses a runtime without it.
+
+A consuming runtime declares `ProgressLiveness`: what it is alive for is consuming,
+and its loop is what consumes. An HTTP server declares `HttpLiveness` with the path
+an orchestrator's HTTP probe requests.
+
+
+#### bind_progress
+
+`tai42_contract.backend.runtime.BackendRuntime.bind_progress`
+
+```python
+bind_progress(self, report: ProgressReporter) -> None
+```
+
+Bind the host's progress reporter: once, before `build`. A second bind raises ``RuntimeError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `report` | `ProgressReporter` | — | — |
+
+
+#### report_progress
+
+`tai42_contract.backend.runtime.BackendRuntime.report_progress`
+
+```python
+report_progress(self, *, next_within: float) -> None
+```
+
+Report one pass of this runtime's engine loop and promise the next one within ``next_within`` seconds.
+
+Called from inside the loop on every pass, idle or busy, from any thread. ``next_within``
+is the loop's own sleep or poll bound for the pass that follows; the probe judges this
+process against it, so a loop that stops passing stops reporting and is seen as such.
+Raises ``RuntimeError`` when no reporter is bound (a runtime driven without the host's
+binding, or one that declares `HttpLiveness`) and ``ValueError`` when
+``next_within`` is not positive.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `next_within` | `float` | — | — |
 
 
 #### from_args
@@ -519,6 +577,26 @@ This process's compiled-template cache was dropped.
 
 
 
+## HttpLiveness
+
+`tai42_contract.backend.runtime.HttpLiveness`
+
+```python
+class HttpLiveness
+```
+
+The process is alive while its HTTP server answers ``GET path`` with a success status on the port it serves.
+
+``path`` is absolute (starts with ``/``) and needs neither a session nor data from a backing
+store, so the answer depends on the server alone.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `path` | `str` |
+
+
 ## IntervalCadence
 
 `tai42_contract.backend.scheduling.IntervalCadence`
@@ -537,6 +615,42 @@ Fire every ``every`` seconds; ``relative`` aligns the schedule to the interval's
 | `kind` | `Literal['interval']` |
 | `every` | `float` |
 | `relative` | `bool` |
+
+
+## Liveness
+
+`tai42_contract.backend.runtime.Liveness`
+
+```python
+Liveness = ProgressLiveness | HttpLiveness
+```
+
+How a backend process signals it is alive: by its loop's progress, or by its HTTP server.
+
+
+## ProgressLiveness
+
+`tai42_contract.backend.runtime.ProgressLiveness`
+
+```python
+class ProgressLiveness
+```
+
+The process is alive while its engine loop keeps reporting progress.
+
+The host binds a reporter before ``build`` (`BackendRuntime.bind_progress`); the
+runtime calls `BackendRuntime.report_progress` from inside its loop on every pass.
+
+
+## ProgressReporter
+
+`tai42_contract.backend.runtime.ProgressReporter`
+
+```python
+class ProgressReporter(Protocol)
+```
+
+The host's receiver of a loop runtime's progress reports.
 
 
 ## ScheduleCadence
