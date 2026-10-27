@@ -85,7 +85,7 @@ function AgentPicker(props: AgentPickerProps): ReactNode
 
 | Prop | Type | Description |
 |---|---|---|
-| `error?` | `string` | The host form's field error, shown under the control while a `Select` renders. |
+| `error?` | `string` | The host form's field error, shown under the control while the select renders. |
 | `onValueChange` | `(value: string) => void` | — |
 | `query` | `AgentListQuery` | — |
 | `value` | `string` | — |
@@ -103,7 +103,7 @@ interface AgentPickerProps
 
 | Property | Type | Description |
 |---|---|---|
-| `error?` | `string` | The host form's field error, shown under the control while a `Select` renders. |
+| `error?` | `string` | The host form's field error, shown under the control while the select renders. |
 | `onValueChange` | `(value: string) => void` | — |
 | `query` | `AgentListQuery` | — |
 | `value` | `string` | — |
@@ -324,7 +324,7 @@ function ChannelPicker(props: ChannelPickerProps): ReactNode
 
 | Prop | Type | Description |
 |---|---|---|
-| `error?` | `string` | The host form's field error, shown under the control while a `Select` renders. |
+| `error?` | `string` | The host form's field error, shown under the control while the select renders. |
 | `onValueChange` | `(value: string) => void` | — |
 | `query` | `ChannelListQuery` | — |
 | `value` | `string` | — |
@@ -342,7 +342,7 @@ interface ChannelPickerProps
 
 | Property | Type | Description |
 |---|---|---|
-| `error?` | `string` | The host form's field error, shown under the control while a `Select` renders. |
+| `error?` | `string` | The host form's field error, shown under the control while the select renders. |
 | `onValueChange` | `(value: string) => void` | — |
 | `query` | `ChannelListQuery` | — |
 | `value` | `string` | — |
@@ -675,6 +675,15 @@ const CopyIcon: IconComponent
 Copy to clipboard: a sheet duplicated behind another.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## CreateFolder
+
+```ts
+type CreateFolder = (name: string, parentId: string | null) => Promise<string>
+```
+
+Create a folder under `parentId` and resolve with its id.
 
 
 ## DEFAULT_DATE_RANGE_PRESETS
@@ -1136,8 +1145,8 @@ The folder-aware empty-state ladder — every label caller-supplied.
 
 | Property | Type | Description |
 |---|---|---|
-| `empty` | `ExplorerEmptyState` | No items and no folders exist at all. |
-| `emptyFolder` | `ExplorerEmptyState` | The current folder holds nothing — no items, no subfolders — yet the  entity set is not globally empty. |
+| `empty` | `ExplorerEmptyState` | No item exists at all. Folders are places for items, so with no item there is  nothing to browse: this state shows whatever folders exist. |
+| `emptyFolder` | `ExplorerEmptyState` | The current folder holds nothing — no items, no subfolders — while items  exist elsewhere. |
 | `noMatch` | `ExplorerEmptyState` | The current folder has items but the active tag/search filter excludes  every one, and it has no subfolders to show. |
 
 **Related:** [ExplorerEmptyState](/reference/studio-sdk/components#exploreremptystate)
@@ -1149,17 +1158,17 @@ The folder-aware empty-state ladder — every label caller-supplied.
 interface ExplorerSearch<T>
 ```
 
-Controlled free-text search. `matches` owns the item shape and casing; it is
- called only with a non-empty, already-trimmed query.
+Controlled free-text search. The caller names the texts an item is searched by;
+ the explorer matches them with the SDK's one search rule (`matchesSearch`).
 
 **Properties**
 
 | Property | Type | Description |
 |---|---|---|
 | `label` | `string` | The input's accessible name. |
-| `matches` | `(item: T, query: string) => boolean` | — |
 | `onChange` | `(value: string) => void` | — |
 | `placeholder?` | `string` | — |
+| `texts` | `(item: T) => readonly string[]` | The texts the reader sees for `item` (its name, display name, description…). |
 | `value` | `string` | — |
 
 
@@ -1194,7 +1203,7 @@ function ExplorerView<T>(props: ExplorerViewProps<T>): ReactNode
 | Prop | Type | Description |
 |---|---|---|
 | `columns` | `readonly ExplorerColumn[]` | — |
-| `currentFolderId` | `string \| null` | — |
+| `currentFolderId` | `string \| null` | The open folder. One that is not among `folders` (deleted, or no longer drawn  on this screen) shows as the root, and the explorer asks `onNavigate(null)`. |
 | `emptyStates` | `ExplorerEmptyStates` | — |
 | `folders` | `readonly Folder[]` | — |
 | `getFolderId` | `(item: T) => string \| null` | The folder an item is filed in (`null` = the root directory). |
@@ -1208,6 +1217,7 @@ function ExplorerView<T>(props: ExplorerViewProps<T>): ReactNode
 | `renderRow` | `(item: T) => ReactNode` | The item's table cells (`<TD>`s) — wrapped in a keyed `<TR>` by the explorer. |
 | `rootLabel` | `string` | — |
 | `search?` | `ExplorerSearch<T>` | — |
+| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. |
 | `tags?` | `ExplorerTags<T>` | — |
 | `viewSurface` | `string` | Persist + drive the list/card toggle under this surface key. |
 
@@ -1225,7 +1235,7 @@ interface ExplorerViewProps<T>
 | Property | Type | Description |
 |---|---|---|
 | `columns` | `readonly ExplorerColumn[]` | — |
-| `currentFolderId` | `string \| null` | — |
+| `currentFolderId` | `string \| null` | The open folder. One that is not among `folders` (deleted, or no longer drawn  on this screen) shows as the root, and the explorer asks `onNavigate(null)`. |
 | `emptyStates` | `ExplorerEmptyStates` | — |
 | `folders` | `readonly Folder[]` | — |
 | `getFolderId` | `(item: T) => string \| null` | The folder an item is filed in (`null` = the root directory). |
@@ -1239,6 +1249,7 @@ interface ExplorerViewProps<T>
 | `renderRow` | `(item: T) => ReactNode` | The item's table cells (`<TD>`s) — wrapped in a keyed `<TR>` by the explorer. |
 | `rootLabel` | `string` | — |
 | `search?` | `ExplorerSearch<T>` | — |
+| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. |
 | `tags?` | `ExplorerTags<T>` | — |
 | `viewSurface` | `string` | Persist + drive the list/card toggle under this surface key. |
 
@@ -1523,6 +1534,48 @@ A folder in the tree, in the SDK's camelCase UI shape (`parentId`, `null` = root
 | `parentId` | `string \| null` | — |
 
 
+## FolderActionsMenu
+
+```ts
+function FolderActionsMenu(props: FolderActionsMenuProps): ReactNode
+```
+
+The Rename, Move and Delete buttons for one folder row/card, each owning its
+ dialog — for an explorer's `renderFolderActions` slot. Each button shows only
+ where the caller may make that write; a dialog already open stays open after its
+ button is withdrawn, so its outcome is still shown. Renders nothing for a caller
+ who may make none of the three writes.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `folder` | `Folder` | The folder the actions act on. |
+| `folders` | `readonly Folder[]` | The FULL folder tree, offered as move destinations. |
+| `onFoldersChanged` | `FoldersChanged` | The screen's refresh of its overlay read, awaited after every write. |
+
+**Related:** [FolderActionsMenuProps](/reference/studio-sdk/components#folderactionsmenuprops)
+
+
+## FolderActionsMenuProps
+
+```ts
+interface FolderActionsMenuProps
+```
+
+Props of `FolderActionsMenu`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `folder` | `Folder` | The folder the actions act on. |
+| `folders` | `readonly Folder[]` | The FULL folder tree, offered as move destinations. |
+| `onFoldersChanged` | `FoldersChanged` | The screen's refresh of its overlay read, awaited after every write. |
+
+**Related:** [Folder](/reference/studio-sdk/components#folder), [FoldersChanged](/reference/studio-sdk/components#folderschanged)
+
+
 ## FolderBreadcrumb
 
 ```ts
@@ -1587,7 +1640,7 @@ A folder chooser with inline new-folder creation, for the edit / move dialogs.
 | `disabled?` | `boolean` | — |
 | `folders` | `readonly Folder[]` | — |
 | `onChange` | `(folderId: string \| null) => void` | — |
-| `onCreateFolder` | `(name: string, parentId: string \| null) => Promise<string>` | Create a folder under `parentId` (the current selection) and resolve with its id; the picker selects it. Rejection is the caller's to surface — the picker leaves the draft in place so the operator can retry. |
+| `onCreateFolder?` | `(name: string, parentId: string \| null) => Promise<string>` | Create a folder under `parentId` (the current selection) and resolve with its id; the picker selects it. On a rejection the picker shows the error and keeps the draft in place so the operator can retry. Without it the picker offers no create — the caller may not create folders. |
 | `unfiledLabel` | `string` | The unfiled option's label (e.g. "No folder"). |
 | `value` | `string \| null` | The chosen folder id, or `null` for unfiled. |
 
@@ -1607,7 +1660,7 @@ interface FolderPickerProps
 | `disabled?` | `boolean` | — |
 | `folders` | `readonly Folder[]` | — |
 | `onChange` | `(folderId: string \| null) => void` | — |
-| `onCreateFolder` | `(name: string, parentId: string \| null) => Promise<string>` | Create a folder under `parentId` (the current selection) and resolve with its id; the picker selects it. Rejection is the caller's to surface — the picker leaves the draft in place so the operator can retry. |
+| `onCreateFolder?` | `(name: string, parentId: string \| null) => Promise<string>` | Create a folder under `parentId` (the current selection) and resolve with its id; the picker selects it. On a rejection the picker shows the error and keeps the draft in place so the operator can retry. Without it the picker offers no create — the caller may not create folders. |
 | `unfiledLabel` | `string` | The unfiled option's label (e.g. "No folder"). |
 | `value` | `string \| null` | The chosen folder id, or `null` for unfiled. |
 
@@ -1646,6 +1699,15 @@ interface FolderRowProps
 | `onOpen` | `(folderId: string) => void` | — |
 
 **Related:** [Folder](/reference/studio-sdk/components#folder)
+
+
+## FoldersChanged
+
+```ts
+type FoldersChanged = () => Promise<void>
+```
+
+Re-read the folder tree after a write; the write resolves once this settles.
 
 
 ## FormDialog
@@ -2234,6 +2296,50 @@ const MoonIcon: IconComponent
 Dark theme.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## MoveToFolderDialog
+
+```ts
+function MoveToFolderDialog(props: MoveToFolderDialogProps): ReactNode
+```
+
+A dialog that files one tool into a folder (or unfiles it). Mount while open.
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `currentFolderId` | `string \| null` | The tool's current folder (`null` = unfiled). |
+| `folders` | `readonly Folder[]` | The FULL folder tree, offered as destinations. |
+| `label` | `string` | What the dialog title calls the item (e.g. the agent's name). |
+| `onClose` | `() => void` | Close the dialog (Cancel, dismiss, or after a successful move). |
+| `onFoldersChanged` | `FoldersChanged` | The screen's refresh of its overlay read, awaited after the write. |
+| `toolName` | `string` | The tool whose overlay row is filed (its registered tool name). |
+
+**Related:** [MoveToFolderDialogProps](/reference/studio-sdk/components#movetofolderdialogprops)
+
+
+## MoveToFolderDialogProps
+
+```ts
+interface MoveToFolderDialogProps
+```
+
+Props of `MoveToFolderDialog`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `currentFolderId` | `string \| null` | The tool's current folder (`null` = unfiled). |
+| `folders` | `readonly Folder[]` | The FULL folder tree, offered as destinations. |
+| `label` | `string` | What the dialog title calls the item (e.g. the agent's name). |
+| `onClose` | `() => void` | Close the dialog (Cancel, dismiss, or after a successful move). |
+| `onFoldersChanged` | `FoldersChanged` | The screen's refresh of its overlay read, awaited after the write. |
+| `toolName` | `string` | The tool whose overlay row is filed (its registered tool name). |
+
+**Related:** [Folder](/reference/studio-sdk/components#folder), [FoldersChanged](/reference/studio-sdk/components#folderschanged)
 
 
 ## NAV_ICONS
@@ -2827,6 +2933,67 @@ A magnifier.
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
 
 
+## SearchableSelect
+
+```ts
+function SearchableSelect(props: SearchableSelectArgs): ReactNode
+```
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `SearchableSelectArgs` | — | — |
+
+
+## SearchableSelectGroupsProps
+
+```ts
+interface SearchableSelectGroupsProps extends SearchableSelectSharedProps
+```
+
+The GROUPED shape: labelled clusters, each carrying its own options.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `aria-describedby?` | `string` | IDREFs describing the trigger, concatenated ahead of an enclosing `Field`'s own. |
+| `aria-label?` | `string` | Accessible name for the trigger, its popup and its listbox when it is not wired to an enclosing `Field`. A `Field` wins where both are given, as on `Select`. |
+| `disabled?` | `boolean` | — |
+| `groups` | `readonly SelectGroup[]` | — |
+| `onValueChange` | `(value: string) => void` | — |
+| `placeholder?` | `string` | — |
+| `searchLabel` | `string` | Accessible name of the search box (e.g. "Search tools"). |
+| `value` | `string` | The chosen option's value; `''` for none (the placeholder shows). A value no option carries shows as itself on the trigger. |
+
+**Related:** [SelectGroup](/reference/studio-sdk/components#selectgroup)
+
+
+## SearchableSelectProps
+
+```ts
+interface SearchableSelectProps extends SearchableSelectSharedProps
+```
+
+The FLAT shape: one ungrouped run of options.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `aria-describedby?` | `string` | IDREFs describing the trigger, concatenated ahead of an enclosing `Field`'s own. |
+| `aria-label?` | `string` | Accessible name for the trigger, its popup and its listbox when it is not wired to an enclosing `Field`. A `Field` wins where both are given, as on `Select`. |
+| `disabled?` | `boolean` | — |
+| `onValueChange` | `(value: string) => void` | — |
+| `options` | `readonly SelectOption[]` | — |
+| `placeholder?` | `string` | — |
+| `searchLabel` | `string` | Accessible name of the search box (e.g. "Search tools"). |
+| `value` | `string` | The chosen option's value; `''` for none (the placeholder shows). A value no option carries shows as itself on the trigger. |
+
+**Related:** [SelectOption](/reference/studio-sdk/components#selectoption)
+
+
 ## Select
 
 ```ts
@@ -3392,6 +3559,7 @@ function TR(props: TableRowProps): Element
 |---|---|---|
 | `children?` | `ReactNode` | — |
 | `ref?` | `Ref<HTMLTableRowElement>` | A consumer ref for the `<tr>` itself. |
+| `selected?` | `boolean` | Draw the row as the selected one. |
 
 **Related:** [TableRowProps](/reference/studio-sdk/components#tablerowprops)
 
@@ -3454,6 +3622,7 @@ interface TableRowProps extends HTMLAttributes<HTMLTableRowElement>
 |---|---|---|
 | `children?` | `ReactNode` | — |
 | `ref?` | `Ref<HTMLTableRowElement>` | A consumer ref for the `<tr>` itself. |
+| `selected?` | `boolean` | Draw the row as the selected one. |
 
 
 ## TableSectionProps
@@ -3775,6 +3944,41 @@ structurally, so the SDK names no query library.
 | `refetch` | `() => void` | — |
 
 
+## ToolMetaWriteAccess
+
+```ts
+interface ToolMetaWriteAccess
+```
+
+Which overlay writes the caller may be offered.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `createFolder` | `boolean` | — |
+| `deleteFolder` | `boolean` | — |
+| `editTool` | `boolean` | Edit a tool's overlay row — its display name, tags, visibility or folder. |
+| `moveFolder` | `boolean` | — |
+| `renameFolder` | `boolean` | — |
+
+
+## ToolMetaWriteError
+
+```ts
+function ToolMetaWriteError(props: { error: unknown }): ReactNode
+```
+
+A failed overlay write as its dialog shows it: the muted OFF note with the server's
+ message for a not-configured refusal, an error for anything else.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `{ error: unknown }` | — | — |
+
+
 ## ToolPicker
 
 ```ts
@@ -3786,17 +3990,16 @@ function ToolPicker(props: ToolPickerProps): Element
 | Prop | Type | Description |
 |---|---|---|
 | `agentToolNames?` | `ReadonlySet<string>` | Tool names that are agent run tools; their option labels are suffixed " (agent)". |
-| `aria-label?` | `string` | Accessible name for the tool listbox when `label` renders none and no enclosing `Field` names it. `label` wins where both are given: it names the control from visible text, and the `Select` drops a caller name it would otherwise override. |
+| `aria-label?` | `string` | Accessible name for the control when `label` renders none and no enclosing `Field` names it. `label` wins where both are given: it names the control from visible text, and the control drops a caller name it would otherwise override. |
 | `badgesByTool?` | `Readonly<Record<string, readonly string[]>>` | Per-tool DECLARED capability badges (native ∪ overlay). When present, the selected tool's badges render as read-only chips beneath the select — purely informational, never affecting which options show or how they group. |
 | `description?` | `string` | Handed to the picker's `Field` (with `label`). |
 | `disabled?` | `boolean` | — |
 | `displayNames?` | `Readonly<Record<string, string>>` | Human display names keyed by raw tool name (from the tool-meta overlay). A mapped option's label reads `Display Name (raw_name)`; an unmapped name — or a mapping equal to the raw name — reads the bare raw name. The value `onChange` emits stays the raw name in every case. |
 | `emptyAction?` | `ReactNode` | Drawn after `emptyNote` in the empty state (e.g. a link to where tools come from). |
 | `emptyNote` | `string` | The empty state's sentence, drawn when the loaded list offers no option (after `excludeNames`). |
-| `error?` | `string` | The host's field error, shown under the control while a `Select` renders (with `label`). |
-| `errorNote?` | `string` | Drawn in place of the `ErrorState` and the control when the read fails, with no Retry: for a host that already draws the same read's failure with Retry elsewhere. |
+| `error?` | `string` | The host's field error, shown under the control while one renders (with `label`). |
+| `errorNote?` | `string` | Drawn in place of the `ErrorState` and the control when the read fails, a 403 included, with no Retry: for a host that already draws the same read's failure elsewhere. Such a host draws no typed entry on a 403. |
 | `excludeNames?` | `readonly string[]` | Names removed from the options (the server remains the authority). |
-| `forbiddenNote?` | `string` | Drawn on a 403 of the read in place of the error state (the no-grant state). |
 | `idPrefix?` | `string` | — |
 | `label?` | `string` | — |
 | `onChange` | `(toolName: string) => void` | — |
@@ -3820,17 +4023,16 @@ interface ToolPickerProps
 | Property | Type | Description |
 |---|---|---|
 | `agentToolNames?` | `ReadonlySet<string>` | Tool names that are agent run tools; their option labels are suffixed " (agent)". |
-| `aria-label?` | `string` | Accessible name for the tool listbox when `label` renders none and no enclosing `Field` names it. `label` wins where both are given: it names the control from visible text, and the `Select` drops a caller name it would otherwise override. |
+| `aria-label?` | `string` | Accessible name for the control when `label` renders none and no enclosing `Field` names it. `label` wins where both are given: it names the control from visible text, and the control drops a caller name it would otherwise override. |
 | `badgesByTool?` | `Readonly<Record<string, readonly string[]>>` | Per-tool DECLARED capability badges (native ∪ overlay). When present, the selected tool's badges render as read-only chips beneath the select — purely informational, never affecting which options show or how they group. |
 | `description?` | `string` | Handed to the picker's `Field` (with `label`). |
 | `disabled?` | `boolean` | — |
 | `displayNames?` | `Readonly<Record<string, string>>` | Human display names keyed by raw tool name (from the tool-meta overlay). A mapped option's label reads `Display Name (raw_name)`; an unmapped name — or a mapping equal to the raw name — reads the bare raw name. The value `onChange` emits stays the raw name in every case. |
 | `emptyAction?` | `ReactNode` | Drawn after `emptyNote` in the empty state (e.g. a link to where tools come from). |
 | `emptyNote` | `string` | The empty state's sentence, drawn when the loaded list offers no option (after `excludeNames`). |
-| `error?` | `string` | The host's field error, shown under the control while a `Select` renders (with `label`). |
-| `errorNote?` | `string` | Drawn in place of the `ErrorState` and the control when the read fails, with no Retry: for a host that already draws the same read's failure with Retry elsewhere. |
+| `error?` | `string` | The host's field error, shown under the control while one renders (with `label`). |
+| `errorNote?` | `string` | Drawn in place of the `ErrorState` and the control when the read fails, a 403 included, with no Retry: for a host that already draws the same read's failure elsewhere. Such a host draws no typed entry on a 403. |
 | `excludeNames?` | `readonly string[]` | Names removed from the options (the server remains the authority). |
-| `forbiddenNote?` | `string` | Drawn on a 403 of the read in place of the error state (the no-grant state). |
 | `idPrefix?` | `string` | — |
 | `label?` | `string` | — |
 | `onChange` | `(toolName: string) => void` | — |
@@ -4180,6 +4382,33 @@ count, so a cyclic or dangling chain truncates instead of looping.
 **Related:** [Folder](/reference/studio-sdk/components#folder)
 
 
+## foldersForView
+
+```ts
+function foldersForView(
+  folders: readonly Folder[],
+  rows: readonly Pick<{ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string }, "folder_id" | "tool_name">[],
+  population: ReadonlySet<string>,
+): Folder[]
+```
+
+The folders a screen draws, in the input order.
+
+`rows` are the overlay rows (each tool's `folder_id`), `population` the tool names
+the screen lists. Linear in folders + rows; the subtree walk is cycle-guarded, so a
+malformed parent chain yields a bounded result rather than looping.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `folders` | `readonly Folder[]` | — | — |
+| `rows` | `readonly Pick<{ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string }, "folder_id" \| "tool_name">[]` | — | — |
+| `population` | `ReadonlySet<string>` | — | — |
+
+**Related:** [Folder](/reference/studio-sdk/components#folder)
+
+
 ## formatRangeLabel
 
 ```ts
@@ -4484,7 +4713,8 @@ re-serialization preserves the userinfo (unlike host tricks), so
 evil.com.
 
 Callers render the returned string rather than their input, so the URL that was
-judged is always the URL that is navigated.
+judged is always the URL that is navigated. `isSafeHttpUrl` gives the yes/no
+answer for a caller that does not need the URL itself.
 
 **Parameters**
 
@@ -4510,6 +4740,25 @@ A short one-line rendering of a templated-text value, for read-only summaries.
 | `value` | `{ content?: string; id?: string; kwargs?: Record<string, unknown> } \| null` | — | — |
 
 
+## toFolders
+
+```ts
+function toFolders(
+  records: readonly ({ id: string; name: string; parent_id: string | null })[],
+): Folder[]
+```
+
+Map the overlay's wire folder records into the UI `Folder` shape.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `records` | `readonly ({ id: string; name: string; parent_id: string \| null })[]` | — | — |
+
+**Related:** [Folder](/reference/studio-sdk/components#folder)
+
+
 ## toSubjectTargetOptions
 
 ```ts
@@ -4528,6 +4777,27 @@ distinct target, in first-seen order, since several routes may share a target.
 | `routes` | `readonly ({ target_kind: string; target_name: string })[]` | — | — |
 
 **Related:** [SubjectTargetOption](/reference/studio-sdk/components#subjecttargetoption)
+
+
+## useCreateFolder
+
+```ts
+function useCreateFolder(onFoldersChanged: FoldersChanged): CreateFolder | undefined
+```
+
+Create a folder through the folder door and refresh the screen's tree, resolving
+with the new folder's id — the shape `FolderPicker`'s `onCreateFolder`
+takes. `undefined` when the caller may not create a folder, so the picker offers
+no create. A rejection propagates to the picker, which shows it; a not-configured
+refusal is also reported, withdrawing every overlay write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `onFoldersChanged` | `FoldersChanged` | — | — |
+
+**Related:** [CreateFolder](/reference/studio-sdk/components#createfolder), [FoldersChanged](/reference/studio-sdk/components#folderschanged)
 
 
 ## useFieldControl
@@ -4679,6 +4949,17 @@ standalone, e.g. in isolation tests) so the hook is always safe to call.
 | `dirty` | `boolean` | — | — |
 
 
+## useReportToolMetaRefusal
+
+```ts
+function useReportToolMetaRefusal(): (error: unknown) => void
+```
+
+Hand a failed overlay write here: a not-configured refusal (501
+`tool-meta-not-configured`) is recorded so every screen withdraws its overlay
+writes; any other failure is left to the caller, which shows it.
+
+
 ## useSubjectFields
 
 ```ts
@@ -4687,6 +4968,19 @@ function useSubjectFields(): { error: string | null; key: string; kind: string; 
 
 Subject field state + setters + the collapse toggle. The host feature owns the
  open-gated conversation-targets query and derives `targetOptions` from it.
+
+
+## useToolMetaWriteAccess
+
+```ts
+function useToolMetaWriteAccess(): ToolMetaWriteAccess
+```
+
+The overlay writes the caller may be offered: each one's own route reached by the
+projection (fail closed until the projection is ready) and the tool_meta store not
+known OFF.
+
+**Related:** [ToolMetaWriteAccess](/reference/studio-sdk/components#toolmetawriteaccess)
 
 
 ## useViewMode
