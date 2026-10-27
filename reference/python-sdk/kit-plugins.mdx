@@ -5,36 +5,21 @@ icon: "store"
 ---
 
 
-Plugin-spec loading: the YAML I/O for ``tai-plugin.yml``.
+Plugin-spec I/O: loading ``tai-plugin.yml``, its docs tree, and its env requirements.
 
 Every installable TAI plugin ships a ``tai-plugin.yml`` — at its repo root and
 as package-data inside the built wheel. The schema is
-`tai42_contract.plugins.PluginSpec`; these helpers do the YAML reading the
-pure contract cannot (the contract has no YAML dependency) and validate loudly.
-`parse_plugin_spec` is the shared low-level entry point — it validates
-spec content already in memory (``bytes`` or ``str``), and both loaders route
-through it.
+`tai42_contract.plugins.PluginSpec`; this package does the YAML reading the
+pure contract cannot (the contract has no YAML dependency) and validates loudly:
 
-Because a spec may arrive as untrusted network input (an artifact fetched from
-a registry, a wheel of unknown provenance), parsing is hardened against
-resource-exhaustion and ambiguity attacks: content larger than
-`MAX_PLUGIN_SPEC_BYTES` is rejected before parsing; YAML anchors/aliases
-(the billion-laughs expansion vector) and duplicate mapping keys (silent
-last-value-wins) are rejected outright; deeply nested documents that exhaust the
-interpreter stack are caught. A flat ``tai-plugin.yml`` needs none of those
-constructs, so rejecting them costs nothing.
-
-Failure surface: content- and file-level problems (over-size input, missing
-file, non-UTF-8 bytes, unparseable YAML, anchors/aliases, duplicate keys,
-excessive nesting, a non-mapping document, a wheel with zero or several spec
-files, an unreadable archive) raise `PluginSpecLoadError`; schema
-violations inside a well-formed document propagate pydantic's
-``ValidationError``, which already names every offending field. Nothing
-degrades silently.
+- `tai42_kit.plugins.spec` — the hardened spec loader (`parse_plugin_spec`
+  and the file/wheel loaders routed through it).
+- `tai42_kit.plugins.docs` — reading and validating the ``docs/`` tree.
+- `tai42_kit.plugins.env_requirements` — the env vars a spec requires at install.
 
 ## MAX_DOCS_FILE_BYTES
 
-`tai42_kit.plugins.MAX_DOCS_FILE_BYTES`
+`tai42_kit.plugins.docs.MAX_DOCS_FILE_BYTES`
 
 ```python
 MAX_DOCS_FILE_BYTES = 2 * 1024 * 1024
@@ -43,7 +28,7 @@ MAX_DOCS_FILE_BYTES = 2 * 1024 * 1024
 
 ## MAX_DOCS_TOTAL_BYTES
 
-`tai42_kit.plugins.MAX_DOCS_TOTAL_BYTES`
+`tai42_kit.plugins.docs.MAX_DOCS_TOTAL_BYTES`
 
 ```python
 MAX_DOCS_TOTAL_BYTES = 16 * 1024 * 1024
@@ -52,7 +37,7 @@ MAX_DOCS_TOTAL_BYTES = 16 * 1024 * 1024
 
 ## MAX_PLUGIN_SPEC_BYTES
 
-`tai42_kit.plugins.MAX_PLUGIN_SPEC_BYTES`
+`tai42_kit.plugins.spec.MAX_PLUGIN_SPEC_BYTES`
 
 ```python
 MAX_PLUGIN_SPEC_BYTES = 256 * 1024
@@ -61,7 +46,7 @@ MAX_PLUGIN_SPEC_BYTES = 256 * 1024
 
 ## MDX_SAFE_COMPONENTS
 
-`tai42_kit.plugins.MDX_SAFE_COMPONENTS`
+`tai42_kit.plugins.docs.MDX_SAFE_COMPONENTS`
 
 ```python
 MDX_SAFE_COMPONENTS: frozenset[str] = frozenset()
@@ -70,7 +55,7 @@ MDX_SAFE_COMPONENTS: frozenset[str] = frozenset()
 
 ## PLUGIN_DOCS_DIRNAME
 
-`tai42_kit.plugins.PLUGIN_DOCS_DIRNAME`
+`tai42_kit.plugins.docs.PLUGIN_DOCS_DIRNAME`
 
 ```python
 PLUGIN_DOCS_DIRNAME = 'docs'
@@ -79,7 +64,7 @@ PLUGIN_DOCS_DIRNAME = 'docs'
 
 ## PLUGIN_DOCS_INDEX
 
-`tai42_kit.plugins.PLUGIN_DOCS_INDEX`
+`tai42_kit.plugins.docs.PLUGIN_DOCS_INDEX`
 
 ```python
 PLUGIN_DOCS_INDEX = 'docs/index.mdx'
@@ -88,7 +73,7 @@ PLUGIN_DOCS_INDEX = 'docs/index.mdx'
 
 ## PLUGIN_SPEC_FILENAME
 
-`tai42_kit.plugins.PLUGIN_SPEC_FILENAME`
+`tai42_kit.plugins.spec.PLUGIN_SPEC_FILENAME`
 
 ```python
 PLUGIN_SPEC_FILENAME = 'tai-plugin.yml'
@@ -97,7 +82,7 @@ PLUGIN_SPEC_FILENAME = 'tai-plugin.yml'
 
 ## EnvRequirement
 
-`tai42_kit.plugins.EnvRequirement`
+`tai42_kit.plugins.env_requirements.EnvRequirement`
 
 ```python
 class EnvRequirement
@@ -121,7 +106,7 @@ requirements are never secret here.
 
 ## PluginDocsError
 
-`tai42_kit.plugins.PluginDocsError`
+`tai42_kit.plugins.docs.PluginDocsError`
 
 ```python
 class PluginDocsError(Exception)
@@ -137,7 +122,7 @@ reference, forbidden scheme, un-whitelisted mdx). Nothing degrades silently.
 
 ## PluginSpecLoadError
 
-`tai42_kit.plugins.PluginSpecLoadError`
+`tai42_kit.plugins.spec.PluginSpecLoadError`
 
 ```python
 class PluginSpecLoadError(Exception)
@@ -152,7 +137,7 @@ instead.
 
 ## accepts_env
 
-`tai42_kit.plugins.accepts_env`
+`tai42_kit.plugins.env_requirements.accepts_env`
 
 ```python
 accepts_env(spec: PluginSpec) -> bool
@@ -174,7 +159,7 @@ env-acceptance and routing key.
 
 ## load_plugin_spec
 
-`tai42_kit.plugins.load_plugin_spec`
+`tai42_kit.plugins.spec.load_plugin_spec`
 
 ```python
 load_plugin_spec(path: Path) -> PluginSpec
@@ -203,7 +188,7 @@ uniformly with the wheel and in-memory paths — so a non-UTF-8 file raises
 
 ## parse_plugin_spec
 
-`tai42_kit.plugins.parse_plugin_spec`
+`tai42_kit.plugins.spec.parse_plugin_spec`
 
 ```python
 parse_plugin_spec(data: bytes | str, *, source: str = PLUGIN_SPEC_FILENAME) -> PluginSpec
@@ -229,7 +214,7 @@ document; pydantic ``ValidationError`` for schema violations.
 
 ## read_dir_docs
 
-`tai42_kit.plugins.read_dir_docs`
+`tai42_kit.plugins.docs.read_dir_docs`
 
 ```python
 read_dir_docs(plugin_dir: Path) -> dict[str, bytes]
@@ -255,7 +240,7 @@ missing ``docs/`` directory, an empty one, or an unreadable file also raises
 
 ## read_wheel_docs
 
-`tai42_kit.plugins.read_wheel_docs`
+`tai42_kit.plugins.docs.read_wheel_docs`
 
 ```python
 read_wheel_docs(wheel_path: Path) -> dict[str, bytes]
@@ -289,7 +274,7 @@ central-directory metadata — is never trusted.
 
 ## read_wheel_plugin_spec
 
-`tai42_kit.plugins.read_wheel_plugin_spec`
+`tai42_kit.plugins.spec.read_wheel_plugin_spec`
 
 ```python
 read_wheel_plugin_spec(wheel_path: Path) -> PluginSpec
@@ -319,7 +304,7 @@ The compression method is checked before any byte is read.
 
 ## required_env
 
-`tai42_kit.plugins.required_env`
+`tai42_kit.plugins.env_requirements.required_env`
 
 ```python
 required_env(item: PluginItem) -> tuple[EnvRequirement, ...]
@@ -344,7 +329,7 @@ the end user at connect time), and every other kind requires nothing.
 
 ## required_env_for_spec
 
-`tai42_kit.plugins.required_env_for_spec`
+`tai42_kit.plugins.env_requirements.required_env_for_spec`
 
 ```python
 required_env_for_spec(spec: PluginSpec) -> tuple[EnvRequirement, ...]
@@ -365,7 +350,7 @@ value masked by any requirement stays masked).
 
 ## validate_docs
 
-`tai42_kit.plugins.validate_docs`
+`tai42_kit.plugins.docs.validate_docs`
 
 ```python
 validate_docs(files: dict[str, bytes], *, first_party: bool) -> None
