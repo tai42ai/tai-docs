@@ -37,8 +37,8 @@ volumes are never touched — only the app containers are replaced.
     ```
 
     The one-shot `db-migrate` service runs `tai db migrate`, which applies every
-    pending migration across every component — the core chain and each installed
-    plugin that owns one — in order, recording each in the `tai_schema_history`
+    pending migration across every component — the core chain, each installed
+    plugin that owns one, and each plugin the manifest loads — in order, recording each in the `tai_schema_history`
     table. It is idempotent: a run with nothing pending reports so and exits `0`.
     Preview a run first with `docker compose run --rm db-migrate db migrate --plan`,
     which lists the pending files without touching the database.
@@ -157,10 +157,16 @@ It drops every states table: `state_outbox`, `state_writes`, `state_applied_ops`
 
 ## The boot gate
 
-Each `serve` and `backend` container checks, once at startup, that every schema
-chain its configured features and plugins own is fully applied. A pending
-migration or a rewritten (checksum-mismatched) chain is a **loud refusal**, not a
-half-migrated serve:
+Each `serve` and `backend` container checks, at startup and on every reload, that
+every schema chain it depends on is fully applied: the core `skeleton` and `states`
+chains, and the chain of every plugin the manifest loads, however that plugin is
+installed, editable installs included. `tai setup --recover` runs the same check
+before it imports any manifest module. A core chain, or a plugin chain under the
+plugin's own name, whose component database is not configured is not checked. A plugin
+chain on a declared [component binding](/concepts/config-and-secrets#component-bindings)
+is always checked: an unconfigured bound database refuses boot and names the missing
+setting. A pending migration or a rewritten (checksum-mismatched) chain is a **loud
+refusal**, not a half-migrated serve:
 
 ```text
 database schema is out of date — refusing to start: skeleton: 1 pending (0002_add_index.sql). Run 'tai db migrate' to apply the pending migrations, then restart.
@@ -172,6 +178,10 @@ to boot with exactly this message — run the migrations and they come up. Runni
 `db-migrate` before the app services (the step order above) avoids the refusal
 entirely. A checksum mismatch on the `states` chain is fixed by
 [recreating the states schema](#recreate-the-states-schema).
+
+A reload the gate refuses answers `500` with this message as its `error`, and the
+server keeps serving its current configuration. `tai setup --recover` prints it as
+`Error: …` and exits non-zero.
 
 ## Runtime-installed plugins
 
