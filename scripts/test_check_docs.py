@@ -12,7 +12,8 @@ Guarantees asserted:
 3. A navbar or footer link makes its target reachable, and a chrome link that
    resolves to nothing fails.
 4. A redirect that points at itself fails.
-5. The current committed tree passes every check.
+5. Paths `.mintignore` excludes from the site are not pages.
+6. The current committed tree passes every check.
 """
 
 from __future__ import annotations
@@ -36,6 +37,25 @@ def _tree(root: Path, *slugs: str) -> None:
 
 def _rooted(monkeypatch, root: Path) -> None:
     monkeypatch.setattr(check_docs, "DOCS_ROOT", root)
+
+
+# --- site pages --------------------------------------------------------------
+
+
+def test_mintignored_paths_are_not_pages(tmp_path, monkeypatch) -> None:
+    """A page under a `.mintignore`d directory is outside the site: it is neither
+    an orphan nor a source of links, matching what the hosted build sees."""
+    _rooted(monkeypatch, tmp_path)
+    _tree(tmp_path, "index", ".venv/lib/site-packages/pkg/readme")
+    (tmp_path / ".venv/lib/site-packages/pkg/readme.mdx").write_text("[x](/missing)", encoding="utf-8")
+    (tmp_path / ".mintignore").write_text("# local tool state\n.venv\n", encoding="utf-8")
+
+    problems: list[str] = []
+    check_docs.check_orphans({"index"}, problems)
+    links = check_docs.check_links(problems)
+
+    assert problems == []
+    assert links == 0
 
 
 # --- orphans ---------------------------------------------------------------

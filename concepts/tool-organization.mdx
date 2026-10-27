@@ -69,6 +69,32 @@ A UI renders folders as a current-directory explorer with a breadcrumb: the
 current folder's subfolders first, then the tools filed directly in it, with
 unfiled tools living at the root.
 
+### One tree, a view per screen
+
+There is one folder tree per deployment. Every screen that files tools — Tools,
+Presets and Agents in the [Studio](/studio/screens) — shows the same tree, and a
+folder created, renamed, moved or deleted on one screen is the same folder on the
+others. Each screen draws its own view of that tree:
+
+- **Tools** draws every folder.
+- **Presets** and **Agents** draw a folder when its subtree holds one of that
+  screen's own items (a preset, or an agent), when its subtree holds no tool at all,
+  or when it is the parent of a folder they draw. A folder that holds only other
+  tools is left out of the view, and an empty folder shows on every screen.
+
+A folder counts as holding a tool whenever a tool's overlay row is filed in it —
+a hidden tool included — so a folder never looks empty while it still holds
+something. When you file an item or move a folder, the destination picker offers the
+whole tree, not only the screen's view.
+
+Each folder carries **Rename**, **Move** and **Delete** on all three screens; Delete
+needs the folder empty, and a refused delete shows the server's reason. Every one of
+these actions — and **New folder** inside a folder picker, and filing an item — is
+its own write route on the overlay, and a screen offers each action only to a session
+whose access reaches that route, and only once the overlay has loaded. When the
+deployment has no overlay store, a write answers `501` and every screen withdraws its
+overlay actions at once.
+
 ## Tags: two sources, one merged view
 
 A tool can carry tags from **two independent sources**, and UIs show them merged:
@@ -172,17 +198,19 @@ tai tool-meta list
 
 `set` is a merge-patch — only the flags you pass are sent, so omitting a field
 leaves it unchanged. In the [Studio](/studio/screens) the Tools screen carries the
-full per-tool edit dialog (display name, tags, folder, and the three-way
-visibility control) plus folder navigation; hidden tools are excluded from the
-screen outright, so unhiding is a CLI/API operation (set visibility **Shown**). The
-Presets screen and the Babelfish Flows page edit the display name, tags, and folder
-of the tools they list (hide management is centralized on the Tools screen).
+full per-tool edit dialog (display name, tags, badges, folder, and the three-way
+visibility control); hidden tools are excluded from the screen outright, so unhiding
+is a CLI/API operation (set visibility **Shown**). The Presets screen's **Edit
+details** dialog sets a preset's display name, tags, and folder; the Agents screen's
+**Move** files an agent into a folder; the Babelfish Flows page edits the display
+name, tags, and folder of each flow. Hide management stays on the Tools screen.
 
 ## See also
 
 - [`tai tool-meta` reference](/reference/cli/tool-meta) — the full folder and
   overlay command set.
-- [The screens](/studio/screens) — the Tools screen's folders and edit dialog.
+- [The screens](/studio/screens) — the Tools and Agents screens' folders and the
+  Tools edit dialog.
 - [Presets](/concepts/presets) — a preset's own record carries no organization; it
   rides this overlay like any tool.
 - [Babelfish](/babelfish) — flows organize through the same overlay from the Flows
