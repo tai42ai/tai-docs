@@ -322,7 +322,7 @@ def _mint_owned_key() -> str:
     policy row (both carrying the owner) land in the fake stores in the exact shape
     every real mint writes.
     """
-    from tai42_skeleton.access_control.management import add_user_api_key
+    from tai42_skeleton.access_control.api_key_lifecycle import add_user_api_key
 
     raw_key, _body, _fingerprint = asyncio.run(
         add_user_api_key(_OWNED_KEY_ID, "the owner's device key", ["read"], owner_user_id=_OWNER_ID)
@@ -358,16 +358,17 @@ def _seed_owned_keys_store() -> tuple[FakeRedis, FakeAccessControlPg]:
 
 
 def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) -> list[tuple[object, str, object]]:
-    """Point the five ``client_ctx`` seams the owned-key routes reach at the fakes.
+    """Point the six ``client_ctx`` seams the owned-key routes reach at the fakes.
 
     Redirects the key-policy history store to the in-memory generic store so the
     mint write-through runs offline. Returns the ``(object, attr, original)``
     restore list.
     """
     from tai42_identity_redis import redis_api_key_provider as provider_module
+    from tai42_skeleton.access_control import api_key_lifecycle as lifecycle_module
     from tai42_skeleton.access_control import claim_links as claim_links_module
-    from tai42_skeleton.access_control import management as management_module
     from tai42_skeleton.access_control import policy as policy_module
+    from tai42_skeleton.access_control import policy_version as policy_version_module
     from tai42_skeleton.access_control import store as store_module
     from tai42_skeleton.access_control.policy_store import AcPolicyStore
     from tai42_skeleton.operations import api_keys as ops_api_keys
@@ -377,7 +378,13 @@ def _swap_owned_keys_seams(fake_redis: FakeRedis, fake_pg: FakeAccessControlPg) 
     redis_ctx = make_client_ctx(fake_redis)
     pg_ctx = make_pg_ctx(fake_pg)
     seams: list[tuple[object, str, object]] = []
-    for module in (policy_module, provider_module, claim_links_module, management_module):
+    for module in (
+        policy_module,
+        policy_version_module,
+        provider_module,
+        claim_links_module,
+        lifecycle_module,
+    ):
         seams.append((module, "client_ctx", module.client_ctx))
         module.client_ctx = redis_ctx  # type: ignore[attr-defined]
     seams.append((store_module, "client_ctx", store_module.client_ctx))
