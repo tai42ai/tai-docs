@@ -94,7 +94,11 @@ In CI the jobs read the target from the `e2e_target` input of a manual run, else
 
 ## Release
 
-The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member opens a release PR for that package alone. A member's `tests/` and `examples/` never enter its published package, so a change under them alone releases nothing for it. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 32 packages share one repository — and publishes that package to PyPI.
+The monorepo releases through one manifest-mode `release-please` train. Scope each conventional-commit by the member directory it touches (`fix(agents): …`, `feat(toolbox): …`); a `fix:`/`feat:` commit on a member puts that package in the release PR. A member's `tests/` and `examples/` never enter its published package, so a change under them alone releases nothing for it. Merging it tags `tai42-<pkg>-v<ver>` — the component-scoped tag that lets 32 packages share one repository — and publishes that package to PyPI.
+
+First-party dependency ranges and `tai-plugin.yml` `contract:` pins are derived from the sibling versions (`>=major.minor,<major+1`). When a release moves a sibling's version past a range, the same release PR also releases every member whose ranges or contract pins move, as a patch carrying the new ranges, so the packages that depend on each other always publish together. CI checks the ranges on every change, and the release checks them again before it publishes.
+
+Pull requests to `main` merge only when they are up to date with it. The release PR is rebuilt from the tip of `main` on every push and its ranges are derived from that tip, so it merges only the tree its CI proved.
 
 Before it publishes, the release diffs each package's public API against its previous release tag with `griffe` and fails when the surface change outruns the version bump it rides. A breaking surface change must ride a conventional commit marked breaking — a major bump for a package at `>=1.0`, though a `0.x` package may take a breaking change in a minor.
 
