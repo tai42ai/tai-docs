@@ -298,13 +298,18 @@ registers a referee is too: the [Babelfish](/babelfish) flows engine, for exampl
 one for its [per-node bindings](/babelfish#binding-a-node-to-a-state), just as it does
 against a state delete. Nothing is auto-detached — the author removes or rewrites the referencing bindings
 first, then detaches. A consumer registers a referee with `register_detach_referee`, beside
-`register_delete_referee` on the tools facet.
+`register_delete_referee` on the tools facet. A detach referee is a coroutine called with the
+state's name and the template's name; it answers a list of `ReferenceHolder` entries, each
+carrying the feature `tag` its holder lives under (see [Plugin
+referees](/concepts/presets#plugin-referees)).
 
 The detach preview door (`GET /api/states/{name}/attachments/{template}/referees`,
 `tai states attachment-referees` on the CLI) runs the same gather and changes nothing. It
 answers `{"action": "detach", "holders": [...]}`, where each holder entry carries its `kind`,
-its `name`, a `locator` and a one-line `summary`, so a UI can link each one to the place that
-fixes it.
+its `tag`, its `name`, a `locator` and a one-line `summary`, so a UI can link each one to the
+place that fixes it. The preview and the refusal show the caller's view: the holders under a
+tag the caller's role cannot read come back as one count per kind and tag (see [Holders a
+role cannot read](/concepts/presets#holders-a-role-cannot-read)).
 
 Beside the referees, a consumer that keeps rows keyed on a tool name registers a **delete
 cascade** with `register_delete_cascade`. A cascade is called once for each tool a preset
