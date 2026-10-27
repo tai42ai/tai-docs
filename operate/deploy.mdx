@@ -77,6 +77,8 @@ Every worker and the serve process also enable Python's fault handler. A worker 
 
 Run `tai serve` and every `tai backend` runtime under a supervisor that starts a process again when it exits: a Compose `restart` policy, Kubernetes, or a systemd unit with `Restart=`. A change to a [recycle-class setting](/concepts/config-and-secrets#settings-profiles) makes the affected processes exit gracefully, and the supervisor starts them again under the new env. Without a supervisor, an exited process stays down, and the roll reports the target where it stopped.
 
+A supervisor restarts a process that exits, not one that stays up and stops working. On Kubernetes, give each `tai backend` process the liveness probe its kind declares, so a stalled process is restarted too: see [Backend processes](#backend-processes).
+
 The graceful-shutdown timeout each worker gets is set on the `tai serve` process's environment (`APP_ARGS_TIMEOUT_GRACEFUL_SHUTDOWN`, default 10 seconds) or passed as the uvicorn option `--timeout-graceful-shutdown SECONDS` after the `tai serve` options, and takes effect on a `tai serve` restart.
 
 ## Point at a manifest and environment
@@ -162,6 +164,10 @@ See the [access-control guide](/guides/access-control) for the end-to-end walkth
 
 ## Liveness and readiness
 
+Orchestrators check a `tai serve` worker over its HTTP probe routes, and a `tai backend` process by the signal its kind declares.
+
+### The server
+
 The server exposes two operational routes for orchestrators and load balancers. Both are `GET`, unauthenticated, and served outside the OpenAPI surface — there is no CLI command for them.
 
 | Route | Probes | Response |
@@ -198,6 +204,106 @@ Rows that share one connection are pinged once and report that one result. A dea
 <Note>
 `/ready` passes the access-control gate without reading the gate's own Redis, because the route is declared public. A dead gate Redis therefore reaches the handler and fails the `access_control` row, so the probe returns `503` while every request to a protected route is refused.
 </Note>
+
+### Backend processes
+
+A `tai backend` process serves no `/health` or `/ready`. Each process an [execution backend](/operate/backends) runs declares how an orchestrator checks it: a process that runs a loop reports each pass of that loop into a liveness file, and a process that serves HTTP is probed over HTTP.
+
+| Backend | Process | Probe | Each report promises the next pass within |
+| --- | --- | --- | --- |
+| arq | `worker` | `tai42-backend-probe` | `--poll-delay` (0.5s) |
+| Celery | `worker` | `tai42-backend-probe` | 1s |
+| Celery | `beat` | `tai42-backend-probe` | the interval the beat sleeps, at most `--max-interval` (`CELERY_BEAT_MAX_LOOP_INTERVAL`, 60s) |
+| Celery | `flower` | HTTP `GET /healthcheck` | — |
+| RQ | `worker` | `tai42-backend-probe` | 5s between dequeue polls; 1s or less while a job runs |
+| RQ | `beat` | `tai42-backend-probe` | `-i/--interval` (60s) |
+| RQ | `dashboard` | HTTP `GET /favicon.ico` | — |
+
+**The liveness file.** Each report writes the process's pid and a horizon into the file at `TAI_BACKEND_LIVENESS_PATH`: the seconds within which the loop promised its next pass, plus `TAI_BACKEND_LIVENESS_INTERVAL`. The process removes the file when it exits.
+
+The process rewrites the file only when the promise already in it would expire before the next pass. A steady loop therefore writes about once per interval, and a beat whose sleep lengthens writes at once.
+
+**The probe.** `tai42-backend-probe` ships with `tai42-kit`, so every image that runs `tai backend` has it. Run in the process's container, it reads the file and prints one line. It exits `0` while the file's age is at most its horizon plus the grace (`--grace SECONDS`, default `TAI_BACKEND_LIVENESS_GRACE`), and `1` when the file is stale or missing:
+
+```text
+alive: pid 4211 reported 2.3s ago, next pass promised within 5.5s (+25s grace; /tmp/tai-backend-liveness)
+not alive: last report 47.0s ago, next pass was promised within 5.5s (+25s grace) (pid 4211, /tmp/tai-backend-liveness)
+not alive: no liveness file at /tmp/tai-backend-liveness (the process has not reached its loop yet, or it exited)
+```
+
+A file that does not hold a pid and a horizon, or cannot be read, fails the probe with the error. An invalid `--grace` exits `2`. The probe reads its settings from the process environment only, never from an env file, so set them in the container's environment, where the process and the probe both read them:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TAI_BACKEND_LIVENESS_PATH` | `/tmp/tai-backend-liveness` | Where the process writes its liveness file. An absolute path, one per process. |
+| `TAI_BACKEND_LIVENESS_INTERVAL` | `5` | The refresh margin in seconds: a steady loop writes the file at most once per interval, and the interval is added to every promise. |
+| `TAI_BACKEND_LIVENESS_GRACE` | `25` | Seconds the probe allows past the promised pass before it reports not alive. |
+
+These are [excluded-band](/concepts/config-and-secrets#settings-profiles) deployment values: a stored env or a profile that carries one is refused.
+
+**One file per process.** A report into a file that holds the pid of another live process is refused with an error naming `TAI_BACKEND_LIVENESS_PATH`, because two writers on one file would hide either one's stall. A file left by a process that no longer exists is taken over. Each container has its own `/tmp`, so the default path suits one process per container; processes that share a filesystem, such as several on one host, each need their own path.
+
+**What a report proves.** A report comes from the engine's own loop, so a loop that stops passing stops reporting. A job that blocks the loop stops the reports.
+
+Where the pool cannot always end a job at its time budget, a job still running past that budget stops the reports too, so the probe ends the worker. On RQ's `solo` and `gevent` pools and Celery's `solo` pool, that happens once one such job runs; on Celery's `threads` pool, once every thread holds one.
+
+A Celery worker reports nothing while its broker connection is down and resumes once it reconnects. Each engine's report points and per-pool behaviour are on its plugin page: [arq](/plugins/tai42/backend-arq), [Celery](/plugins/tai42/backend-celery), [RQ](/plugins/tai42/backend-rq).
+
+**A Celery worker with an embedded beat.** `tai backend worker -B` is one process with one probe. Its beat reports into its own file, `<TAI_BACKEND_LIVENESS_PATH>-beat`, and the worker reports nothing while its beat's promise is overdue, so the probe on the worker's file covers both. The worker removes both files when it exits.
+
+**One Celery beat.** A Celery beat that cannot hold RedBeat's lock waits for it before its first tick and reports nothing while it waits. Run one beat, standalone or embedded with `-B`: a standby beat fails its startup probe.
+
+`tai backend worker` and `tai backend beat` refuse at launch any scheduler other than the reporting RedBeat scheduler they run. The refusal covers the `--scheduler` option (the beat's `-S`), the `CELERY_WORKER_SCHEDULER` / `CELERY_BEAT_SCHEDULER` environment variables, and `beat_scheduler=` as command-line configuration.
+
+**On Kubernetes.** Give a loop process (a `worker` or a `beat`) an exec `startupProbe` and `livenessProbe` on the probe. `timeoutSeconds: 5` leaves room for the probe's Python start, which can exceed the 1-second default under a CPU limit. The startup probe's 300 seconds cover the backend's 120-second wait for its app to become ready, plus the engine's start:
+
+```yaml
+startupProbe:
+  exec:
+    command: ["tai42-backend-probe"]
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+livenessProbe:
+  exec:
+    command: ["tai42-backend-probe"]
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+```
+
+Give an HTTP process an `httpGet` probe on its path and the port it serves: Flower's `--port` (default 5555) and the RQ dashboard's `-p/--port` (default 9181). Under Flower's `--url_prefix` the path is `/<prefix>/healthcheck`, and under the dashboard's `--url-prefix` it is `/<prefix>/favicon.ico`.
+
+`GET /healthcheck` answers without authentication even when Flower's own auth is on. The dashboard's `/favicon.ico` sits behind its basic auth once `--username` is set, so the probe then sends the `Authorization` header:
+
+```yaml
+startupProbe:
+  httpGet:
+    path: /favicon.ico
+    port: 9181
+    httpHeaders:
+      - name: Authorization
+        value: Basic <base64 of username:password>
+  periodSeconds: 10
+  failureThreshold: 30
+livenessProbe:
+  httpGet:
+    path: /favicon.ico
+    port: 9181
+    httpHeaders:
+      - name: Authorization
+        value: Basic <base64 of username:password>
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+**Timing.** A steady loop rewrites its file once the last write is an interval old, so after the loop stops the file turns stale within its promised next pass plus the grace, plus up to one interval. At the defaults that is about 25 to 35 seconds for a worker (arq 25.5 to 30.5, Celery 26 to 31, RQ 30 to 35), and the liveness probe above restarts the container within about a minute.
+
+A beat at its default 60-second interval promises 65 seconds, so a stalled beat is restarted within about two minutes; a beat with a schedule due sooner promises less and is restarted sooner. Raise `TAI_BACKEND_LIVENESS_GRACE` to ride out longer pauses, such as a Celery broker outage, without a restart.
+
+**The boot signal.** Every `tai backend` process writes a readiness sentinel file once its first boot resync has built its tool registry, and removes it when shutdown begins: `TAI_READY_SENTINEL_PATH`, default `/tmp/tai-ready`. Keep the path container-local and ephemeral, never on a persistent mount, so a restarted container starts unready.
+
+A backend pod has no Service endpoints for readiness to gate, but an exec `readinessProbe` on the file (`["test", "-f", "/tmp/tai-ready"]`) holds a rolling update until the new pod's registry is built.
 
 ## Preflight check
 
