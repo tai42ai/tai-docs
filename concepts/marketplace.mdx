@@ -191,9 +191,14 @@ guesses:
 
 A plugin that owns tables ships its schema as a **migration chain**, not a
 one-shot DDL apply. The framework runs the chain: `tai db migrate` discovers every
-component — the core plus each installed plugin that declares one — and applies
-its pending files in order. A plugin author owns the files; the runner owns the
-mechanism.
+component — the core, each plugin installed in the environment or the plugins prefix
+that declares one, whether or not the manifest loads it, and each plugin the manifest
+loads — and applies its pending files in order. A plugin author owns the files; the
+runner owns the mechanism.
+
+The framework also checks the chain: the [boot gate](/self-hosted/upgrades#the-boot-gate)
+refuses to start a server, or to apply a reload, while a chain of a plugin the manifest
+loads is pending or rewritten, so a plugin needs no schema check of its own.
 
 **Declare the folder.** Point the descriptor's `migrations` field at a directory
 packaged inside the wheel:
@@ -226,12 +231,34 @@ that component (declaring it requires `migrations`; a component with no chain
 migrates nothing). A component-scoped chain runs only while that component's
 [database binding](/concepts/config-and-secrets#component-bindings) is explicitly
 declared: with the binding set, the chain migrates that component's store under the
-declared name; with it unset, `tai db migrate` **visibly skips** the chain — the
-skipped chain is named in the command's result (both its table and JSON output)
-and the command exits non-zero, so an operator and any automation see that a
-declared chain did not run rather than assuming a clean migrate. `tai doctor` reports the
-same skipped chain. So the store stays off until an operator opts it in by declaring its
-binding.
+declared name; with it unset, the component is **off**, a valid state rather than a
+failure. `tai db migrate`, `tai db migrate --plan` and `tai db status` skip its chain
+and name it with this line; an off component does not change the exit code:
+
+```text
+the '<component>' component is off — its migrations-component database binding (TAI_DB_BINDING_*) is not declared, so its migration chain is not applied; declare the binding to turn the component on and migrate its store to that database.
+```
+
+With `--json`, the component is listed under `skipped_chains` as `{"component": ...}`.
+`tai doctor` names it in its schema check without failing the check, and the boot gate
+skips the chain and logs the same line as a warning. So the store stays off until an
+operator opts it in by declaring its binding.
+
+**Editable installs.** Discovery reads the installed metadata and never imports a
+plugin. A path-based editable install — setuptools, and the default editable mode of
+hatchling, flit, pdm-backend and uv_build — is found as soon as it is installed. An
+editable install served by an import hook — hatchling `dev-mode-exact`, pdm-backend
+`editables`, meson-python — records its packages in no installed file, so its chain is
+found once a manifest loads one of its modules. Until then `tai db migrate`,
+`tai db status` and `tai doctor` name it with this line, and the exit code does not
+change:
+
+```text
+distribution '<distribution>' is an editable install served by an import hook; its packages are recorded in no installed metadata, so a migration chain it declares is discovered only through a manifest that loads a module of it (run 'tai db migrate' with that manifest, or install it with a path-based editable mode).
+```
+
+With `--json`, it is listed under `unlocatable` as `{"distribution": ..., "reason": ...}`,
+beside `skipped_chains`.
 
 **Checksum immutability — never edit a shipped file.** The runner records a
 SHA-256 of every applied file. On the next migrate or [boot gate](/self-hosted/upgrades#the-boot-gate)
