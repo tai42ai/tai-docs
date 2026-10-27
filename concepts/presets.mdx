@@ -189,8 +189,10 @@ Beyond the create/version/rollback core, the surface carries five more doors:
   every extension branch tool the preset produces, so the union covers references to
   those branch names too (a preset composing `<preset>_<extension>`, a schedule firing
   it, and so on); a holder of a branch names the branch. Each holder is one entry:
-  its `kind`, its `name`, the `locator` that places the reference inside it (a version,
-  a node id), and a one-line `summary`.
+  its `kind`, the feature `tag` its own doors are registered under, its `name`, the
+  `locator` that places the reference inside it (a version, a node id), and a one-line
+  `summary`. The list is the caller's view (see [Holders a role cannot
+  read](#holders-a-role-cannot-read)).
 - **`rename`** — a preset's name *is* its live tool name, so a rename rebinds the
   tool (new name bound before the old is torn down). Rename integrity is enforced
   atomically **at this one gate**: it runs create's name pre-checks on the new name
@@ -208,6 +210,61 @@ Beyond the create/version/rollback core, the surface carries five more doors:
   read.
 - **`set-version-tags`** — replace one version's `tags` annotation. Tags are
   labels on an immutable version body, so this never rebinds the live tool.
+
+### Holders a role cannot read
+
+Every holder list shown to a caller — the rename, delete and [detach](/concepts/states#detaching)
+previews and refusals, the [unpicking refusal](/concepts/manifest#unpicking-a-used-tool) on a
+manifest write, and the [stored-object delete refusal](/concepts/storage-and-resources#templates-are-stored-resources)
+— shows each holder by name only when the caller's role may read the holder's `tag`. The
+holders of one `kind` and `tag` the role cannot read come back as one **count holder** in
+their place: its `kind` and `tag`, `name` set to the tag, a `locator` of only `{"count": n}`,
+and the summary `<kind>: <n> not readable with your role`, for example
+`schedule: 1 not readable with your role`. A refusal that holds such a count ends by naming
+who can clear it: `ask someone with access to 'schedules' to remove those references first`
+when every holder is counted, or `remove those references first; the others need someone
+with access to 'schedules'` when some are named. An admin, and every caller when access
+control is off, reads every holder by name; with access control on and no caller bound,
+every holder is counted. The gate refuses on the full list either way: a count holder blocks
+the action as the holders it stands for do.
+
+### Plugin referees
+
+A plugin that holds references to a tool name registers a **rename referee** with
+`tai42_app.tools.register_rename_referee` and a **delete referee** with
+`tai42_app.tools.register_delete_referee`, both when its module loads. A referee is a
+coroutine called once per check with a `frozenset` of every tool name the action moves or
+removes — the preset and each extension branch tool bound off it — and it answers a `dict`
+from asked name to the list of `ReferenceHolder` entries holding that name. A name it holds
+nothing on is left out or maps to `[]`; a key that was not asked, or any other answer, fails
+the action. A referee only reads: the preview calls it too. Every `ReferenceHolder` carries
+the `tag` of the feature its holder lives under, the tag a role's grant map names, so the
+caller's view can count the holders that role cannot read:
+
+```python
+from tai42_contract.app import tai42_app
+from tai42_contract.tools import ReferenceHolder
+
+
+async def alert_rule_holders(names: frozenset[str]) -> dict[str, list[ReferenceHolder]]:
+    rules = await load_alert_rules_firing(names)  # the plugin's own read
+    return {
+        name: [
+            ReferenceHolder(
+                kind="alert rule",
+                tag="alerts",
+                name=rule.name,
+                summary=f"alert rule {rule.name!r} fires {name!r}",
+            )
+            for rule in rules.get(name, [])
+        ]
+        for name in names
+    }
+
+
+tai42_app.tools.register_rename_referee(alert_rule_holders)
+tai42_app.tools.register_delete_referee(alert_rule_holders)
+```
 
 ### Every stored reference is checked at write
 

@@ -17,6 +17,14 @@ A concrete provider — a local filesystem or object store — ships as a separa
 [plugin](/concepts/config-and-secrets) and registers through `tai42_app` when the
 [manifest](/concepts/manifest) names its `storage_module`.
 
+A provider's `list(directory=None)` answers every stored path when no directory is given;
+given a directory, it answers only the paths beneath it (those starting with
+`directory_prefix(directory)`), read from the backend by that prefix rather than by listing
+the whole store, and `[]` for a directory holding nothing. A blank directory raises
+`ValueError`. `load_object(path)` answers a `StoredObject`, the bytes and the content type
+`stat` reports; its default makes two reads, `load_bytes` and `stat`, and a backend that
+answers both in one read overrides it.
+
 ## The ResourceManager
 
 The ResourceManager layers on the active provider and resolves a resource from one
@@ -69,10 +77,13 @@ list; a directory delete is refused when any object under it is named. The summa
 setting is among the holders: a stored id in `SUMMARIZATION_MIDDLEWARE_SUMMARY_PROMPT` holds
 its template (`setting 'SUMMARIZATION_MIDDLEWARE_SUMMARY_PROMPT' names '<id>' at
 summary_prompt`); that id is resolved when the summarizer is built, not checked at the env
-write. Change or remove the holders, then delete. A plugin that stores records naming
-templates registers a referee with `tai42_app.storage.register_template_delete_referee`, a
-coroutine called with the ids a delete would remove that answers one holder entry per place
-a record names one; a record that stores a tool name and its arguments reads the template
+write. Change or remove the holders, then delete. The refusal shows the caller's view: the
+holders under a feature tag the caller's role cannot read come back as one count per kind and
+tag (see [Holders a role cannot read](/concepts/presets#holders-a-role-cannot-read)). A plugin
+that stores records naming templates registers a referee with
+`tai42_app.storage.register_template_delete_referee`, a coroutine called with the `frozenset`
+of ids a delete would remove that answers a list of `ReferenceHolder` entries, one per place a
+record names one, each carrying the feature `tag` its record lives under; a record that stores a tool name and its arguments reads the template
 ids those arguments name with `await tai42_app.tools.kwargs_template_refs(tool, kwargs)`, the
 platform's own reading (a tool that is not registered names none).
 
