@@ -191,7 +191,7 @@ A live interaction plus the client-maintained `answered` flag.
 ```ts
 function SystemKindsProvider(
   props: { children: ReactNode },
-): FunctionComponentElement<ProviderProps<SystemKindsState | null>>
+): FunctionComponentElement<ProviderProps<SystemKindsContextValue | null>>
 ```
 
 Fetch the kind-status table once the caller is authenticated and hold it as SDK
@@ -205,8 +205,6 @@ affordance falls back to its reactive OFF handling.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `props` | `{ children: ReactNode }` | — | — |
-
-**Related:** [SystemKindsState](/reference/studio-sdk/hooks#systemkindsstate)
 
 
 ## SystemKindsState
@@ -547,12 +545,12 @@ The execution-key binding of the live session.
 function useFeatureOff(kind: string): boolean
 ```
 
-Whether `kind` is reported OFF by the kind-status table — the single proactive
-predicate a write affordance folds in to hide itself before a doomed write. It is
-`true` ONLY once the table is `ready` AND that kind's row carries `state: 'off'`;
-while the table is loading/failed, no provider is mounted, or the kind is unknown,
-it is `false` (treat as not-off until known — under-hiding is safe, the reactive
-501 backstop still catches a genuinely-off feature).
+Whether `kind` is OFF — the single predicate a write affordance folds in to hide
+itself before a doomed write. It is `true` once the table is `ready` AND that kind's
+row carries `state: 'off'`, or once a write refusal revealed the kind OFF
+(`useReportFeatureOff`). Otherwise — the table loading/failed, no provider
+mounted, the kind unknown — it is `false` (not-off until known: under-hiding is
+safe, a write's 501 refusal still reveals a genuinely-off feature).
 
 **Parameters**
 
@@ -569,9 +567,9 @@ function useFeatureOffMessage(kind: string): string | null
 
 The OFF row's server `detail` for `kind` — the proactive counterpart to a write
 refusal's message, so a proactively-hidden surface shows the SERVER's own
-remediation line rather than a client-composed env-var string. `null` whenever the
-kind is not reported OFF (table loading/failed, no provider, unknown kind, or the
-kind is on), mirroring `useFeatureOff`'s not-off-until-known default.
+remediation line rather than a client-composed env-var string; for a kind only a
+write refusal revealed OFF, that refusal's message. `null` whenever the kind is not
+OFF, mirroring `useFeatureOff`'s not-off-until-known default.
 
 **Parameters**
 

@@ -294,6 +294,19 @@ type JsonSchemaType = "string" | "number" | "integer" | "boolean" | "object" | "
 The JSON-Schema `type` keyword values Pydantic emits.
 
 
+## NoFiniteValueError
+
+```ts
+NoFiniteValueError
+```
+
+Thrown by `defaultValueForSchema` and `skeletonValueForSchema` when the
+schema admits no finite value: a chain of required properties refers back to its
+own definition with no `null` accepted on the way. A caller that seeds on a user
+action catches exactly this type to show the failure on its field; any other error
+is not a seeding outcome and propagates.
+
+
 ## RecordEntryContext
 
 ```ts
@@ -455,6 +468,37 @@ interface SecretRefFieldProps
 | `value` | `SecretRef \| undefined` | The current value, or `undefined` when nothing has been provided yet. |
 
 **Related:** [SecretRef](/reference/studio-sdk/schema-forms#secretref)
+
+
+## TemplatedTextCatalogContext
+
+```ts
+const TemplatedTextCatalogContext: Context<UseTemplatedTextCatalog>
+```
+
+The ambient stored-template source for the whole form. Absent (the default), a
+templated-text field gets no catalog, as every `TemplatedTextField` given none:
+the stored source offers no templates and inline content is authored as usual.
+
+**Related:** [UseTemplatedTextCatalog](/reference/studio-sdk/schema-forms#usetemplatedtextcatalog)
+
+
+## UseTemplatedTextCatalog
+
+```ts
+type UseTemplatedTextCatalog = () => TemplatedTextCatalog | undefined
+```
+
+The hook a host supplies so a form's templated-text fields can offer stored
+templates: it returns the catalog (the template ids plus the storage-presence and
+fetch state) the field's stored-template picker reads. The form holds no data edge,
+so the host owns the fetch; a field calls the hook only when it renders, so a form
+without a templated-text field never fetches the catalog.
+
+It is a HOOK, called on every render of a templated-text field, so the injected
+reference must be stable (a module-level function).
+
+**Related:** [TemplatedTextCatalog](/reference/studio-sdk/utilities#templatedtextcatalog)
 
 
 ## dateRangePairs
