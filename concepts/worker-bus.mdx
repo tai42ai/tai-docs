@@ -8,8 +8,10 @@ The worker bus is how a live change reaches every process in a deployment. When
 one worker persists a config change — a reloaded tool, a replaced manifest, a
 soft restart, a [settings-profile](/concepts/config-and-secrets#settings-profiles)
 apply, a compiled-template-cache eviction — the bus carries that change to every
-other worker sharing the manifest and collects a per-worker outcome, so the whole
-fleet converges instead of one process drifting ahead of its siblings.
+other worker on the same bus and collects a per-worker outcome, so the whole fleet
+converges instead of one process drifting ahead of its siblings. Each skeleton major
+has a bus of its own, so workers of another major are
+[a separate fleet](#two-skeleton-majors-on-one-namespace).
 
 ## It is internal infrastructure, not a plugin
 
@@ -100,8 +102,16 @@ remains — is refused, naming `HOOKS_REDIS_URL`.
 
 ## Namespacing
 
-`TAI_BUS_NAMESPACE` (default `tai`) prefixes the control channel, every reply
-channel, and every presence key. Redis pub/sub is server-global — it is **not**
+Every bus key and channel sits under one root, `{namespace}:v{major}`. The
+namespace is `TAI_BUS_NAMESPACE` (default `tai`), and the major is the major version
+of the running `tai42-skeleton`, so a server on skeleton `34.x` with the default
+namespace uses the root `tai:v34`. The major is a fact of the installed code, not a
+setting.
+
+The control channel is `{namespace}:v{major}:bus:control`, and the reply channels,
+the presence keys and their index, the slot-claim keys, and the generation counters
+sit under `{namespace}:v{major}:bus:` too. The env-reader descriptions sit under
+`{namespace}:v{major}:env-readers:`. Redis pub/sub is server-global — it is **not**
 scoped by the numeric database index — so two deployments sharing one Redis would
 cross-deliver each other's fleet ops unless they diverge by namespace.
 
@@ -110,6 +120,39 @@ When several independent stacks share one Redis, give each a unique
 `TAI_BUS_NAMESPACE`. Two stacks left on the default namespace deliver each other's
 reloads and manifest replaces to the wrong fleet.
 </Warning>
+
+### Two skeleton majors on one namespace
+
+Workers of two skeleton majors on one Redis and namespace are two separate fleets:
+each major has a bus of its own under its own root. Neither reads the other's
+presence rows or receives the other's ops, so every bus op — a reload (the soft
+restart), a recycle, an MCP or tool reload or removal, a template-cache eviction, a
+deployment-keys change — reaches only the workers of the major that sent it. Each major numbers its own slots, so both
+can hold a `serve-1`.
+
+Every census read sees its own major alone: `tai fleet workers` and the fleet report
+of a mutation list only that major's workers, and a save, a reload, an env or schema
+read, or a profile diff judges
+[deployment ownership](/concepts/config-and-secrets#deployment-values-and-stored-values)
+by that major's workers alone. This is the shape of a rolling upgrade across a skeleton major — see
+[Upgrades](/self-hosted/upgrades#rolling-upgrades-across-a-skeleton-major).
+
+The split covers the bus alone. The config store, the template store, and the other
+shared state the two majors reach — job queues and conversations among them — are
+not split by major, so both read and write the same copy.
+
+<Note>
+A config change made through a worker of one major is persisted to the shared config
+store first, so it is stored for both majors; only the live reload that follows is
+per major. The other major's workers apply a hot value at their next reload, and a
+[recycle-class](/concepts/config-and-secrets#settings-profiles) value only when their
+process restarts.
+
+A template write or delete lands in the shared template store in the same way, and
+only its cache eviction is per major. The other major's workers can keep serving their
+cached compilation for up to `TEMPLATE_CACHE_TTL` (default `300` seconds; with no TTL,
+until an eviction on their own major or a restart drops it).
+</Note>
 
 ## Worker identity
 
@@ -249,6 +292,10 @@ the deleted path is dropped, and the eviction is idempotent — it converges eve
 a partial failure, so a re-driven delete or a worker that missed the first pass
 lands on the same end state.
 
+The eviction rides the bus, so it reaches only the sender's skeleton major; the
+[note on two majors](#two-skeleton-majors-on-one-namespace) covers how long the other
+major can serve its cached copy.
+
 On a persist-across-jobs backend — a **celery prefork** pool, whose forked
 children hold their own in-memory caches for the life of the child — a
 template-eviction or any registry-mutating fleet op turns the pool over **once**
@@ -296,7 +343,7 @@ reload's own time.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `TAI_BUS_REDIS_URL` | unset | Redis URL that enables the bus. Unset = bus off (single-worker, `file` mode, no backend only). |
-| `TAI_BUS_NAMESPACE` | `tai` | Prefixes the control channel, reply channels, and presence keys. Unique per stack on a shared Redis. |
+| `TAI_BUS_NAMESPACE` | `tai` | With the running skeleton's major, roots every bus key and channel under `{namespace}:v{major}`. Unique per stack on a shared Redis; workers of two majors on one namespace are two fleets. |
 | `TAI_BUS_ACK_TIMEOUT` | `2.0` | Seconds the collector waits for the fast liveness acknowledgements before it budgets the rest of its wait toward the apply deadline. |
 | `TAI_BUS_APPLY_TIMEOUT` | `90.0` | Seconds a mutation waits for every worker to finish applying — the report cut. Never below three drain budgets (refused at boot, on every reload and on every config change). The default covers three default drains, the fork quiesce, the MCP re-probes, the rebuild and the post-apply hooks; each post-apply handler receives the seconds left of it, measured from the worker's receipt of the op. |
 | `TAI_BUS_HEARTBEAT_TTL` | `15.0` | Presence-key TTL. A worker refreshes it at a third of this; a transport blip leaves the key to this TTL and the worker re-verifies its slot on reconnect (presence survives a brief wobble), while a frozen or killed worker's row goes stale and then leaves the census within one TTL rather than blocking every op. |

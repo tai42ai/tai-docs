@@ -61,6 +61,41 @@ Read the release notes before pinning. A release that needs a step beyond the
 migration run — a data backfill, a manual expand/contract cutover — names it.
 </Note>
 
+## Rolling upgrades across a skeleton major
+
+A release can move `tai42-skeleton` to a new major version. When old and new nodes
+overlap during the upgrade — a rolling update that replaces one node at a time, or
+hosts upgraded in turn — the two majors run side by side on one Redis and one
+`TAI_BUS_NAMESPACE` until the old nodes drain. Every bus key and channel sits under
+`{namespace}:v{major}` (see [Namespacing](/concepts/worker-bus#namespacing)), so each
+major has a bus of its own and the two are separate fleets.
+
+To see which skeleton major an image carries, read the constraints file it ships:
+
+```bash
+docker run --rm --entrypoint grep docker.io/tai42/tai:1.6.33 tai42-skeleton /opt/tai/constraints.txt
+```
+
+It prints one `tai42-skeleton==<version>` line; the first number of the version is
+the major.
+
+A skeleton before `34` has no major in that root: its keys are `{namespace}:bus:*` and
+`{namespace}:env-readers:*`. An upgrade from it to `34` or later runs two separate
+fleets too, since the two layouts share no key.
+
+While both run, `tai fleet workers` calls `GET /api/fleet/workers` on whichever server
+answers, so it lists the fleet of that server's major. Behind a load balancer that
+spreads requests across old and new nodes, the listing can show either fleet from one
+call to the next, and both can show a `serve-1`.
+
+A config change is stored for both majors, but its live reload, its fleet report, and
+every other bus op reach only the major that sent it. The database, the config store,
+and the job queues stay shared — see
+[Two skeleton majors on one namespace](/concepts/worker-bus#two-skeleton-majors-on-one-namespace) for when the other major
+takes a change up and what else is shared. A job on a shared queue may be picked up by
+a backend worker of either major, and the release notes name any step a major needs
+beyond the migration run.
+
 ## Move the Langfuse stack to 4.x
 
 The `compose/langfuse/` stack runs Langfuse 4.x, and the monitoring plugin
