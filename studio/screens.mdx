@@ -19,6 +19,21 @@ page tours the surfaces you reach most. A [Studio plugin](/studio/plugins) adds
 its own links to one of these sections, or to a single shared **Plugins** section
 that follows them.
 
+Wherever a form asks you to choose a tool, an agent, a preset, a route target or a
+channel, the choice opens a list with a search box above it (**Search tools**,
+**Search agents**, **Search presets**, **Search targets**, **Search channels**). Typing
+narrows the list to the options whose label contains the text, ignoring case — for a
+tool, the label holds both its display name and its real name. **Arrow Up** and **Arrow
+Down** move through the options, **Enter** chooses one without submitting the form, and
+**Escape** closes the list; typing a letter on the closed field opens the list with
+that letter already in the search box. A checklist of tools carries its own filter
+box that narrows the same way.
+
+A form drawn from a JSON Schema — a tool's run form, a state record, a preset's
+settings — handles a schema that contains itself (an object with a field of its own
+type): it draws the nested levels the value actually holds, and below the deepest one
+shows an **Add** button that adds the next level.
+
 ## Tools
 
 The Tools screen lists every [tool](/concepts/tools-and-extensions) the
@@ -38,7 +53,9 @@ Running a tool has two modes — a synchronous run and a detached background run
 The Tools screen is also where you organize the namespace through the
 [tool-organization overlay](/concepts/tool-organization). The list is a
 current-directory explorer: a breadcrumb, the current folder's subfolders, then
-the tools filed there, with unfiled tools at the root. Each tool renders its
+the tools filed there, with unfiled tools at the root. The folders are the one
+[folder tree](/concepts/tool-organization#one-tree-a-view-per-screen) that the
+Presets and Agents screens also show; Tools shows the whole tree. Each tool renders its
 display name (its real name stays visible beside it) and groups by its **merged
 tags** — the tool's read-only plugin-native tags unioned with your editable user
 tags. A tool whose effective visibility is hidden is excluded from this list
@@ -46,14 +63,18 @@ outright — there is no toggle to reveal it; hiding is a display convenience, n
 a security boundary — a hidden tool stays callable. To bring one back, set its
 visibility to **Shown** from the CLI or API (`tai tool-meta set <tool> --visibility
 shown`); once shown it appears here again. The per-tool **edit dialog** is the one
-surface that edits all four overlay fields: display name, user tags, folder, and a
-three-way visibility control (**Default** defers to the plugin's declaration,
-**Shown** forces it visible, **Hidden** forces it out of the lists).
+surface that edits all five overlay fields: display name, user tags, badges, folder,
+and a three-way visibility control (**Default** defers to the plugin's declaration,
+**Shown** forces it visible, **Hidden** forces it out of the lists). Its **Edit**
+button appears once the tool overlay has loaded, so the dialog always opens on the
+tool's stored values; a failed save shows the server's error in the dialog.
 
-Each folder row carries **Rename** and **Move** actions; Move offers the folder
-tree as a parent picker (with inline create) and excludes the folder and its own
-descendants, so a folder can never become its own ancestor. Both appear only for a
-session that can write the overlay.
+Each folder row carries **Rename**, **Move** and **Delete** actions. Move offers the
+folder tree as a parent picker (with inline create) and excludes the folder and its
+own descendants, so a folder can never become its own ancestor. Delete removes an
+empty folder only; the server refuses one that still holds tools or folders, and the
+dialog shows that refusal. The actions appear once the tool overlay has loaded, each
+only for a session allowed to make that change.
 
 The screen also carries the app-tool live-registry admin card — **Reload** re-registers
 one app tool and **Remove** detaches it from the running registry, each named by its
@@ -63,15 +84,38 @@ projection reaches those fenced doors.
 
 ## Agents
 
-The Agents screen lists the [agents](/concepts/agents) the manifest registered,
-each with a **Run** entry that opens its run panel. **Compose agent** authors a
-new agent as a saved spec — a prompt, a tool selection, and presets baked over a
-base agent — that versions and rolls back like a [preset](/concepts/presets); the
-authored-agents panel is empty until you compose one.
+The Agents screen lists every [agent](/concepts/agents) in one explorer: the agents
+the manifest **registered** and the agents you **authored**, each row and card marked
+with its kind. The explorer has the same folders, breadcrumb and list or card view as
+the Tools screen, rooted at **All agents**, and shows its own
+[view of the folder tree](/concepts/tool-organization#one-tree-a-view-per-screen).
+The list's columns are Name, Kind, Description, Base agent, Active version and
+Actions; an authored agent's card shows its base agent and its active version, the
+values its preset holds.
 
-<Frame caption="The Agents screen: the authored-agents panel above the manifest-registered agents, each with a run entry.">
-  <img className="block dark:hidden" src="/images/studio/agents-light.png" alt="The Agents screen with an empty authored-agents panel above a manifest-registered tools_agent carrying a Run control." />
-  <img className="hidden dark:block" src="/images/studio/agents-dark.png" alt="The Agents screen with an empty authored-agents panel above a manifest-registered tools_agent carrying a Run control." />
+Each kind carries its own actions:
+
+- A **registered** agent has **Run**, which opens its streaming run panel, and a link
+  to its run tool on the Tools screen. Clicking the row opens that run tool.
+- An **authored** agent has **Run** and **Manage**, a link to the Presets screen,
+  where its versions, rollback and delete live. Clicking the row opens it there.
+- Either kind has **Move**, which files the agent into a folder, for a session
+  allowed to edit the tool overlay; it appears once the overlay has loaded.
+
+**Compose agent**, above the explorer, authors a new agent as a saved spec — a
+prompt, a tool selection, and presets baked over a base agent — that versions and
+rolls back like a [preset](/concepts/presets). It shows only for a session allowed
+to create presets; with no agent installed that can be authored over, the screen shows
+**No authorable agent installed** with a link to the marketplace instead. Above the explorer the screen also reports on the authored agents as a group: a
+loading placeholder while they load, and a **No authored agents yet** card when there
+are none, which adds "Compose an agent to bake a prompt, tools, and presets over a
+base agent." for a session that can compose. A failed read of the authored agents or
+of the folders shows its own error with **Retry**, and the rest of the list stays
+usable.
+
+<Frame caption="The Agents screen: Compose agent and the authored-agents card above the agents explorer, each agent with its kind and a Run action.">
+  <img className="block dark:hidden" src="/images/studio/agents-light.png" alt="The Agents screen with the No authored agents yet card above the agents explorer, listing a registered tools_agent with a Run control." />
+  <img className="hidden dark:block" src="/images/studio/agents-dark.png" alt="The Agents screen with the No authored agents yet card above the agents explorer, listing a registered tools_agent with a Run control." />
 </Frame>
 
 ## States
@@ -253,8 +297,12 @@ own lists:
 A stored value the deployment no longer lists stays selected and is flagged — **not
 registered** for an agent or tool, **not installed** for a channel — with "Pick
 another, or saving is refused." When the deployment lists none, the picker says so
-and links to the Agents screen or to the marketplace's plugins or channel plugins; a
-picker the session may not list shows which read it needs.
+and links to the Agents screen or to the marketplace's plugins or channel plugins. An
+Agent or Channel picker the session may not list shows which read it needs. A **Tool**
+the session may not list becomes a text box with the note "This session cannot list
+tools, so type the tool's exact name. Saving checks that the deployment serves it." —
+the same on every tool field in the Studio except the MCP include and exclude lists,
+which report the failed read instead.
 
 <Frame caption="The Door group with a channel picked: the channel's own hint under Our identity.">
   <img className="block dark:hidden" src="/images/studio/conversation-route-channel-hint-light.png" alt="The Create route dialog's Door group with the Channel door and a channel picked, showing that channel's hint for the Our identity field." />
@@ -489,7 +537,11 @@ refuses `501`. See the [read doors](/reference/conversation-bridge#the-read-door
 The Marketplace screen browses the [marketplace](/marketplace/index) plugin
 index through the server. A Browse tab runs an item-level search with facet
 chips for kind, category, and tags and a sort control; an Installed tab lists
-the plugins this server has installed and their update availability.
+the plugins this server has installed and their update availability. Each tab has a
+**Card view** / **List view** switch: Browse opens on cards and Installed on the
+table, and each tab remembers its choice in the browser. In either view, clicking a
+card or a row opens the plugin's detail, and **Load more** adds the next page of
+results.
 
 Selecting a listing opens its detail — the items it carries, its version
 history, its description, and homepage and repository links; when the plugin is
@@ -576,7 +628,9 @@ servers — the [private tool sets](/concepts/private-tool-sets) that serve a cu
 subset of tools under their own slug and MCP endpoint. It lists every entry with its
 transport and its concrete `/app/{slug}` connect URL (copy-to-clipboard) and a
 delete control behind a confirm. **Create** builds a new entry from a slug, a
-multi-select of tool names, and a transport; a slug that already exists is flagged and
+**Tools** checklist (each tool by its display name, with a **Filter tools** box
+that narrows the list and keeps ticked tools selected while they are hidden), and a
+transport; a slug that already exists is flagged and
 the replacement confirmed, because register is a silent-swap upsert.
 
 <Frame caption="The Served endpoints screen: the sub-MCP list above its inline create form.">

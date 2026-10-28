@@ -37,6 +37,7 @@ from pathlib import Path
 
 DOCS_ROOT = Path(__file__).resolve().parent.parent
 DOCS_JSON = DOCS_ROOT / "docs.json"
+MINTIGNORE = ".mintignore"
 
 _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
@@ -88,6 +89,24 @@ def iter_nav_pages(nav: dict):
     yield_pages: list[str] = []
     walk(nav)
     return yield_pages
+
+
+def site_pages() -> list[Path]:
+    """Every ``.mdx`` page of the site.
+
+    The tree under ``DOCS_ROOT`` minus the directories ``.mintignore`` keeps out of
+    the build (local tool state).
+    """
+    ignore_file = DOCS_ROOT / MINTIGNORE
+    ignored: set[str] = set()
+    if ignore_file.is_file():
+        for line in ignore_file.read_text(encoding="utf-8").splitlines():
+            entry = line.strip().strip("/")
+            if entry and not entry.startswith("#"):
+                ignored.add(entry)
+    return [
+        mdx for mdx in sorted(DOCS_ROOT.rglob("*.mdx")) if not ignored.intersection(mdx.relative_to(DOCS_ROOT).parts)
+    ]
 
 
 def page_exists(slug: str) -> bool:
@@ -182,7 +201,7 @@ def check_redirects(docs: dict, problems: list[str]) -> None:
 def check_links(problems: list[str]) -> int:
     """Record a problem for every unresolved internal link in the ``.mdx`` tree; return the count checked."""
     checked = 0
-    for mdx in sorted(DOCS_ROOT.rglob("*.mdx")):
+    for mdx in site_pages():
         text = mdx.read_text(encoding="utf-8")
         text = _FENCED_CODE.sub("", text)
         text = _INLINE_CODE.sub("", text)
@@ -197,7 +216,7 @@ def check_links(problems: list[str]) -> int:
 
 def check_orphans(referenced: set[str], problems: list[str]) -> None:
     """Fail on any ``.mdx`` file no navigation entry and no site link reaches."""
-    for mdx in sorted(DOCS_ROOT.rglob("*.mdx")):
+    for mdx in site_pages():
         slug = str(mdx.relative_to(DOCS_ROOT).with_suffix(""))
         slug_dir = slug.removesuffix("/index")
         if slug in referenced or slug_dir in referenced or orphan_exempt(slug):
@@ -222,7 +241,7 @@ def main() -> int:
             print(f"  - {p}", file=sys.stderr)
         return 1
 
-    page_count = len(list(DOCS_ROOT.rglob("*.mdx")))
+    page_count = len(site_pages())
     print(
         f"check_docs: OK -- docs.json valid, {page_count} pages, "
         f"{len(docs.get('redirects', []))} redirects, {link_count} internal links all resolve, "

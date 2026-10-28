@@ -33,6 +33,23 @@ declared input and output schemas — with the node's outcomes surfaced on Outpu
 so a node's contract is readable in build mode, and each shows an empty state when
 nothing is declared.
 
+Changes in the panel stay a draft until **Update node** applies them. Closing the
+panel, opening another node, switching mode, leaving the editor, an undo or redo that
+changes the open node, or importing a flow file over the canvas while the panel holds
+a draft first asks **Unapplied changes**: **Keep editing**, **Discard changes** (the
+node keeps its applied values), or **Apply changes** (the step then goes on, and a
+flow left unsaved by the apply asks to be saved before the editor is left). Browser
+and shell navigation ask the same way.
+
+Picking a tool in a node's panel — a Runnable, an On Error, or a router route's On
+Error — fills the node's empty kwargs from the tool schema's root `default` and its
+empty Expression from the schema's `x-tai42-default-expr`, once that tool's schema has
+loaded; slots that already hold text are left as they are. The filled values are part
+of the pick: **Discard changes** reverts them with the tool, **Apply changes** commits
+them with it. A pick applied before its tool's schema has loaded is committed without
+them, and nothing is filled when the schema arrives later. Opening a node never
+changes it: the panel shows exactly what the node holds.
+
 The Input tab also carries a **Receives from** block — *resolved by the engine after
 edge transforms* — resolved live off the canvas as you edit: the inputs the engine
 works out a node will actually receive at run time, which are its
@@ -118,6 +135,21 @@ whose controls read top to bottom:
 Every jq slot reads through the same Inline / Template control the other editor jqs
 use, so a stored template id shows and survives an open-edit-save.
 
+**The Agent card over a saved agent.** An Agent card that holds a saved agent preset
+reads that preset and shows, read-only under **Preset settings**, everything the preset
+sets: system message, provider, model (or the host default, when the preset fixes
+model settings without a model), temperature and every other model setting,
+structured output (a fixed `response_format`, or the preset's `output_schema` forced
+in as one), the output map that reshapes the result, the input schema that replaces
+the agent's own arguments, and every other fixed argument by name. A setting the
+preset fixes is hidden from the card's own fields, which sit under **Changes on top of
+the preset** (or **The card's input to the preset** for a preset with its own input
+schema); a field the preset leaves open reads "Host default (the preset sets none)".
+Every argument the card would send that the preset fixes (its tools and sub-flows
+included) is flagged, since the run refuses such a call, with a **Clear `<setting>`** button where
+the card's own field holds the value. While the preset list loads the card says so; a
+failed read of the list or of the preset shows the error with **Retry**.
+
 **The ask exit.** When the holder's target **can ask its caller** and the send-up
 switch is off, the card grows an extra exit handle labelled **ask** on its outcome
 edge — the node a caller ask routes to. Unwired it renders as a dashed ring and the
@@ -178,6 +210,16 @@ schema's shape at the top level falls back to the plain JSON tree with a small n
 rather than a crash. A per-instance **Raw** toggle flips the whole view to the plain
 tree, so the underlying data is never more than one click away, and a flow (or node)
 that declares no output shape keeps the plain results tree throughout.
+
+The run panel's **Results** shows the run's returned result — the result envelope's
+`result`, read from the run's record once the run ends (or from the resolving
+caller-ask outcome) — with the `missing_results`
+surfaces named under "Not in the result". An empty result says plainly that no step
+or branch has **Return result** turned on. Nothing is said while the run is launching,
+waits on an ask, or its record has not settled; a reopened run that is still running
+reads "No result yet: this run is still running.", and a reopened run whose record
+holds only its pause says how the run ended after it and that no result is shown. A
+failed read shows the error with **Retry**.
 
 ## Values the run state does not keep
 
@@ -255,6 +297,11 @@ buttons](/babelfish#the-routes-table); the table's advisory notes flag a row an 
 one already covers, without ever blocking the save. Each route's [key](/babelfish#route-keys) names its branch in
 the saved flow and in traces, and a route's [On Error switch](/babelfish#per-route-on-error)
 gives that route its own On Error, covering a [**runnable**, **agent**, **flow call**, or **custom node**](/babelfish#per-route-on-error) the route leads to.
+A route's On Error kwargs behave like a node's own: text that is not yet a JSON object
+stays in the panel's draft, **Update node** is refused with a message naming the route
+and asking to fix its kwargs, closing the panel asks the
+[unapplied-changes question](#the-node-edit-panel), and **Discard changes** returns
+the route to its applied kwargs.
 
 A segmented **Decided by** control at the top of the form chooses who judges the kinds
 — **LLM agent** (glossed *reads, extracts items, can loop*) or **Classifier model**
