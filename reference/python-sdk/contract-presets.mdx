@@ -28,6 +28,28 @@ CARRY_FORWARD = CarryForward()
 ```
 
 
+## PRESET_INPUT_MAP_ANNOTATION
+
+`tai42_contract.presets.models.PRESET_INPUT_MAP_ANNOTATION`
+
+```python
+PRESET_INPUT_MAP_ANNOTATION: dict[str, Any] = expression_annotation(label='input map', blurb="the caller's object, validated against the preset's input_schema", variables=[('fixed', "the preset's stored fixed_kwargs", {'limit': 10})], returns="an object of the base tool's arguments, merged with fixed_kwargs", caveats=['a key both the map result and fixed_kwargs set is refused, unless both values are objects, which merge key by key'], sample={'query': 'status'})
+```
+
+The expression annotation of a preset ``input_map``: its input document, ``$fixed`` and result rule.
+
+
+## PRESET_OUTPUT_MAP_ANNOTATION
+
+`tai42_contract.presets.models.PRESET_OUTPUT_MAP_ANNOTATION`
+
+```python
+PRESET_OUTPUT_MAP_ANNOTATION: dict[str, Any] = expression_annotation(label='output map', blurb="the base tool's result", returns="the mapped result, then validated against the preset's output_schema when one is set", caveats=['the map never runs over a result that carries a secret'], sample={'items': [{'id': 'a'}]})
+```
+
+The expression annotation of a preset ``output_map``: its input document and result rule.
+
+
 ## CarryForward
 
 `tai42_contract.presets.models.CarryForward`
@@ -111,8 +133,8 @@ and the store keeps only the reference — never the resolved value.
 | `extensions` | `list[list[ExtensionElement]]` |
 | `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
-| `input_map` | `TemplatedText \| str \| None` |
-| `output_map` | `TemplatedText \| str \| None` |
+| `input_map` | `PresetInputMap` |
+| `output_map` | `PresetOutputMap` |
 | `state_binding` | `StateBinding \| None` |
 
 
@@ -142,6 +164,20 @@ class PresetExistsError(PresetError)
 ```
 
 A preset named ``name`` already exists.
+
+
+## PresetInputMap
+
+`tai42_contract.presets.models.PresetInputMap`
+
+```python
+PresetInputMap = Annotated[TemplatedText | str | None, Field(json_schema_extra={EXPRESSION_ANNOTATION_KEY: PRESET_INPUT_MAP_ANNOTATION})]
+```
+
+A preset ``input_map`` field type: a jq program (a ``str``, or a ``TemplatedText`` rendered to one), annotated.
+
+Every surface that stores, edits, validates or reads back a preset's input map declares its field
+(or flat parameter) with this type, so each generated schema carries the same expression annotation.
 
 
 ## PresetInputSchemaSupport
@@ -190,6 +226,20 @@ class PresetNotFoundError(PresetError)
 ```
 
 No preset (or no active preset) named ``name``.
+
+
+## PresetOutputMap
+
+`tai42_contract.presets.models.PresetOutputMap`
+
+```python
+PresetOutputMap = Annotated[TemplatedText | str | None, Field(json_schema_extra={EXPRESSION_ANNOTATION_KEY: PRESET_OUTPUT_MAP_ANNOTATION})]
+```
+
+A preset ``output_map`` field type: a jq program (a ``str``, or a ``TemplatedText`` rendered to one), annotated.
+
+Every surface that stores, edits, validates or reads back a preset's output map declares its field
+(or flat parameter) with this type, so each generated schema carries the same expression annotation.
 
 
 ## PresetOutputStage
@@ -267,8 +317,8 @@ and the store keeps only the reference — never the resolved value.
 | `base_tool` | `str` |
 | `fixed_kwargs` | `dict[str, Any]` |
 | `input_schema` | `TemplatedText \| dict[str, Any] \| None` |
-| `input_map` | `TemplatedText \| str \| None` |
-| `output_map` | `TemplatedText \| str \| None` |
+| `input_map` | `PresetInputMap` |
+| `output_map` | `PresetOutputMap` |
 | `output_schema` | `TemplatedText \| dict[str, Any] \| None` |
 | `tool_meta` | `PresetSeedToolMeta \| None` |
 | `state_binding` | `StateBinding \| None` |
