@@ -8,8 +8,8 @@ mandatory input to anyone authoring narrative content.
 - Direct and concrete. Address the reader as "you"; refer to the platform as
   "tai" or "the runtime", never "we".
 - Explain what a thing **is** and what it **does** — never how it came to be.
-  No history, no roadmap, no "coming soon", no references to plans, missions,
-  streams, or pull requests.
+  A page describes the product as it is now, never how, when, or by whom it
+  was built: no history, no roadmap, no "coming soon".
 - Lead with the point. The first sentence of a page states what the page is
   for; the first sentence of a section states its takeaway.
 
