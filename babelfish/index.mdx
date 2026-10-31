@@ -21,7 +21,7 @@ Babelfish Flows ships as one installable plugin carrying two halves:
 
 - **A flow engine.** Deterministic flows registered as ordinary
   [tools](/concepts/tools-and-extensions) through the public contract — run a
-  flow, step it, read its state, and abort it. Because they are tools, everything
+  flow, step it, read its status, state and result, and abort it. Because they are tools, everything
   the platform already does to a tool applies: access control, backends,
   schedules, and tracing. Aborting a flow parked on an async ask while an answer to
   it is being driven does not cut that drive short: the abort is **requested** of it
@@ -42,6 +42,13 @@ Babelfish Flows ships as one installable plugin carrying two halves:
 A saved flow is a versioned [preset](/concepts/presets) with the graph carried in
 the preset's fixed arguments, so flows version, diff, and roll back through the
 [versioning spine](/concepts/versioning-spine) like everything else.
+
+The plugin therefore [requires](/concepts/marketplace#required-platform-features)
+the platform Postgres: saved flows write versioned presets and the node palette
+writes tool metadata, so its descriptor lists `requires: [versioning, tool_meta]`.
+A deployment that loads the plugin without the platform database configured
+refuses to start, naming the variable to set — see
+[Infrastructure by feature](/operate/infrastructure#babelfish-flows-engine).
 
 ## The explanation layer
 
@@ -247,6 +254,26 @@ A cooperative `flow_abort` stops the run before or after a node's tool call, or 
 graph invocations; a running tool call finishes first (`hard=True` cancels it). The abort
 reaches every worker by event, and a worker that misses the event still sees the request
 within 20 seconds.
+
+### Reading a run: status, state and result
+
+Three tools read a run by its `session_id` (with the flow definition as `flow_graph`, and an
+optional `checkpoint_provider`), from any worker:
+
+- **`flow_status`** reports the run's lifecycle state. While a run waits at an async park
+  (`waiting_for_client`) it also carries `park`: `{interaction_ids, expiry_at}`, the asks
+  that park waits on and its latest deadline (ISO-8601, or `null` when no ask has one). A run
+  continued and parked again on a later ask reports that later park. A stepped run's pause,
+  or a park whose record cannot be read, carries `park: null`.
+- **`flow_state`** reads the run's checkpointed values: the [run state](#run-state).
+- **`flow_result`** reads the final result of a run that has ended, from its checkpoint — the
+  envelope the run's last drive returned, so a run that paused for an answer and was
+  continued later is read the same way: `{status: success | stopped | aborted, result,
+  missing_results}`, or the error outcome `{status: error, error, …}` for an errored run.
+  A stopped, aborted or errored run is the read's value, never raised. A run that has not
+  ended (running, waiting for the client, orphaned or not found) is refused as a conflict:
+  `Session '<id>' has no result yet: its run is <state>, not ended.`. The read records no
+  `flow:result` step.
 
 A tool that returns a park signal without declaring `tai42/pauses` fails its node: a node
 failure of source `app` the node's On Error sees, with `.upstream_outputs.error_type`
@@ -1707,7 +1734,7 @@ together with every [agent session thread](#agent-session-continuity) it owns (a
 set when a run, a restart, a resume or a step starts on the session. A flow run checkpoints
 on the deployment's configured store (`LLM_PROVIDER_CHECKPOINT` and its connection string):
 the `flow` and `flow_step` tools name no other provider (the `checkpoint_provider` of
-`flow_status`, `flow_state` and `flow_abort` only chooses the store those tools read and
+`flow_status`, `flow_state`, `flow_result` and `flow_abort` only chooses the store those tools read and
 `flow_abort` tombstones on). The owned agent session threads are marked in the
 deployment's ledger, because the engine cannot know which provider each agent run on such
 a thread used; a mark there for a thread an agent kept on its own per-run
