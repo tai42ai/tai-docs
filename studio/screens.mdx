@@ -22,17 +22,30 @@ that follows them.
 Wherever a form asks you to choose a tool, an agent, a preset, a route target or a
 channel, the choice opens a list with a search box above it (**Search tools**,
 **Search agents**, **Search presets**, **Search targets**, **Search channels**). Typing
-narrows the list to the options whose label contains the text, ignoring case — for a
-tool, the label holds both its display name and its real name. **Arrow Up** and **Arrow
-Down** move through the options, **Enter** chooses one without submitting the form, and
-**Escape** closes the list; typing a letter on the closed field opens the list with
-that letter already in the search box. A checklist of tools carries its own filter
-box that narrows the same way.
+narrows the list to the options whose label or description contains the text, ignoring
+case — for a tool, the label holds both its display name and its real name, and an
+option with a description shows it as a quieter line under its label. Each change to
+the text moves the highlight to the first match and shows the list from its top.
+**Arrow Up** and **Arrow Down** move through the options, **Home** and **End** jump to
+the first and last one, **Enter** chooses one without submitting the form, and
+**Escape** closes the list. **Tab** and **Shift+Tab** close the list without choosing
+and move on to the next or previous control. Typing a letter on the closed field opens
+the list with that letter already in the search box. A checklist of tools carries its
+own filter box that narrows the same way.
 
 A form drawn from a JSON Schema — a tool's run form, a state record, a preset's
 settings — handles a schema that contains itself (an object with a field of its own
 type): it draws the nested levels the value actually holds, and below the deepest one
-shows an **Add** button that adds the next level.
+shows an **Add** button that adds the next level. A field that takes one of several
+shapes (a `oneOf` or `anyOf` union) offers each shape under a name read from its own
+schema: its discriminator tag, else its title, else the name of the definition it
+refers to as words (`MediaRef` reads **Media ref**), else its constant or its allowed
+values (**One of a, b, c, …**), else a description of its shape — **Text**, **Whole
+number**, **Number**, **True or false**, **None**, **Date**, **Email address**,
+**Link**, **List of text**, **Object with name, size**, **Map of number**, or **Any
+value**. Members of a nested union join with "or" (**List of text or whole number**),
+and a title keeps its own case (**List of URL**). Two shapes that would read the same
+gain their position, as in **Text (2)**.
 
 ## Tools
 
@@ -40,7 +53,9 @@ The Tools screen lists every [tool](/concepts/tools-and-extensions) the
 [manifest](/concepts/manifest) loaded — your own functions, mounted MCP servers,
 the standard toolbox, and any [extension](/concepts/tools-and-extensions)
 variants (a `_batch` or `_chain` branch appears as its own runnable tool).
-Select one to open its run panel.
+Select one to open its run panel. A link that names a tool (`/tools?tool=<name>`) selects
+it and opens the folder it is filed in, so the selected row shows in place; you can then
+browse to any other folder.
 
 <Frame caption="The Tools screen: the master list of loaded tools and the run panel.">
   <img className="block dark:hidden" src="/images/studio/tools-light.png" alt="The Tools screen with a list of loaded tools." />
@@ -69,12 +84,31 @@ and a three-way visibility control (**Default** defers to the plugin's declarati
 button appears once the tool overlay has loaded, so the dialog always opens on the
 tool's stored values; a failed save shows the server's error in the dialog.
 
+Above the list, a **Filter tools** box narrows the current folder to the tools whose
+real name or display name contains the text, ignoring case, and a row of tag chips
+(**Filter tools by tag**) narrows it to the tools carrying any selected tag of their
+merged tags, with an **Untagged** chip for tools that carry none. A failed read of the
+tags shows its error with **Retry** and no chips, so the chips never filter on missing
+data; past eight chips the unselected rest collapse into a **+N more** count. The
+filter lives in the page URL (`?q=` for the text, `?tags=` for the tags), so it
+survives a reload, Back and a shared link; the text is applied on **Enter** or when
+you leave an edited box. The Presets and Agents screens carry the same filter, under
+the same rule.
+
 Each folder row carries **Rename**, **Move** and **Delete** actions. Move offers the
 folder tree as a parent picker (with inline create) and excludes the folder and its
 own descendants, so a folder can never become its own ancestor. Delete removes an
 empty folder only; the server refuses one that still holds tools or folders, and the
 dialog shows that refusal. The actions appear once the tool overlay has loaded, each
-only for a session allowed to make that change.
+only for a session allowed to make that change. A move, rename or overlay edit made
+on one screen shows on the Tools, Presets, Agents and Scheduling screens at once,
+without a reload: they all read the overlay under one shared query.
+
+With no tool at all, the screen shows **No tools available** with a **Browse
+marketplace** link, or **No visible tools** when every installed tool is hidden. Any
+folders still show below that line, each with its actions, so a screen with nothing
+filed can still rename, move and delete its folders. The Presets and Agents screens
+behave the same way with their own words.
 
 The screen also carries the app-tool live-registry admin card — **Reload** re-registers
 one app tool and **Remove** detaches it from the running registry, each named by its
@@ -91,7 +125,12 @@ the Tools screen, rooted at **All agents**, and shows its own
 [view of the folder tree](/concepts/tool-organization#one-tree-a-view-per-screen).
 The list's columns are Name, Kind, Description, Base agent, Active version and
 Actions; an authored agent's card shows its base agent and its active version, the
-values its preset holds.
+values its preset holds. A **Filter agents** box narrows the list to the agents whose
+name or description contains the text, and tag chips (**Filter agents by tag**, with
+**Untagged**) narrow it by the agents' overlay tags. The chips show once the overlay
+has loaded. The filter lives in the URL as `?q=` and `?tags=`, the same as on the
+Tools screen. With no agent registered, the screen shows **No agents registered** with
+a link to the marketplace, and any folders still show below it with their actions.
 
 Each kind carries its own actions:
 
@@ -297,21 +336,30 @@ own lists:
 A stored value the deployment no longer lists stays selected and is flagged — **not
 registered** for an agent or tool, **not installed** for a channel — with "Pick
 another, or saving is refused." When the deployment lists none, the picker says so
-and links to the Agents screen or to the marketplace's plugins or channel plugins. An
-Agent or Channel picker the session may not list shows which read it needs. A **Tool**
-the session may not list becomes a text box with the note "This session cannot list
-tools, so type the tool's exact name. Saving checks that the deployment serves it." —
-the same on every tool field in the Studio except the MCP include and exclude lists,
-which report the failed read instead.
+and links to the Agents screen or to the marketplace's plugins or channel plugins. A
+picker the session may not list becomes a text box named by its field, which takes the
+exact name and keeps a stored value, with a note under it:
+
+- **Agent** — "This session cannot list agents, so type the agent's exact name. Saving
+  checks that the agent is registered."
+- **Channel** — "This session cannot list channels, so type the channel's exact name.
+  Saving checks that the channel is installed."
+- **Tool** — "This session cannot list tools, so type the tool's exact name. Saving
+  checks that the deployment serves it." The same holds on every tool field in the
+  Studio except the MCP include and exclude lists, which report the failed read
+  instead.
+
+The server checks each typed name on save and refuses one it does not know, with its
+own message.
 
 <Frame caption="The Door group with a channel picked: the channel's own hint under Our identity.">
   <img className="block dark:hidden" src="/images/studio/conversation-route-channel-hint-light.png" alt="The Create route dialog's Door group with the Channel door and a channel picked, showing that channel's hint for the Our identity field." />
   <img className="hidden dark:block" src="/images/studio/conversation-route-channel-hint-dark.png" alt="The Create route dialog's Door group with the Channel door and a channel picked, showing that channel's hint for the Our identity field." />
 </Frame>
 
-<Frame caption="The Target group when the session may not list agents: the picker names the read it needs.">
-  <img className="block dark:hidden" src="/images/studio/conversation-route-no-grant-light.png" alt="The Create route dialog's Target group with an Agent target, showing the line that names the read the agent picker needs." />
-  <img className="hidden dark:block" src="/images/studio/conversation-route-no-grant-dark.png" alt="The Create route dialog's Target group with an Agent target, showing the line that names the read the agent picker needs." />
+<Frame caption="The Target group when the session may not list agents: the Agent field takes a typed name.">
+  <img className="block dark:hidden" src="/images/studio/conversation-route-no-grant-light.png" alt="The Create route dialog's Target group with an Agent target, showing the Agent text box and the note to type the agent's exact name." />
+  <img className="hidden dark:block" src="/images/studio/conversation-route-no-grant-dark.png" alt="The Create route dialog's Target group with an Agent target, showing the Agent text box and the note to type the agent's exact name." />
 </Frame>
 
 <Frame caption="Editing a route bound to a key outside the list: the key is flagged as not a listed key and not this session's identity.">
@@ -330,8 +378,11 @@ hyphens, an optional absolute `https` callback URL with no user name or password
 it blank for a poll-only route), a `:`-free channel name, and an error reply of up to
 2,000 characters. A value that breaks its rule is refused in the form with that field's
 own message, before anything is sent. Either target kind carries the route's jq programs — `start_expr`,
-`reply_expr`, and the door-contract `cancel_expr` / `resume_expr` / `extras_expr` —
-each rendering the [visual jq editor](/studio/jq-editor) in place. An
+`reply_expr`, and the door-contract `cancel_expr` / `resume_expr` / `extras_expr`. Each
+is the route document's own templated-text field with the document's own wording: its
+**Inline text** side renders the [visual jq editor](/studio/jq-editor) in place, and its
+**Stored template** side picks a stored template and its kwargs. Editing a route keeps
+a stored template and its kwargs exactly as saved. An
 `api`-door save that sets a `callback_url` mints a fresh `callback_secret` and **reveals
 it exactly once** in the dialog under a loud caption — every such save rotates it and no
 door can re-read it, so copy it then; a `channel` save and a poll-only `api` save (no
@@ -653,6 +704,22 @@ holds:
   A connector-owned entry renders read-only — it is kept in sync by its connection, so
   you remove it by disconnecting. A malformed edit is a loud inline error and no
   request is sent.
+
+  Both views check the `include` and `exclude` names against the tools the server
+  advertises before the entry's own selection. The server keeps a name it does not
+  advertise (it may bind later, or through a stored preset), so the editor warns and
+  never refuses the save. In the form view each such name's chip reads
+  "`<name>` (not advertised)", and a warning line follows the list: "This server does
+  not advertise `<names>`. Saving keeps them, but they bind no tool from this server."
+  for `include`, or "… but they hide nothing." for `exclude`. The add row offers every
+  advertised tool, found by its name or its description. A server the status does not
+  carry yet reads "This server is not mounted yet, so its tools cannot be listed. Save
+  it to pick from its tools. Existing entries above stay editable.", and a failed read
+  shows its error in place of the picker. The raw-JSON view gives the same warning
+  under the text, naming the server and the list ("The server “`<title>`” does not
+  advertise `<names>` in its include list. …"); a failed read there shows its error
+  with **Retry**, and its names stay unchecked until the read succeeds. Both views
+  share one read per server, and a save reads it again.
 - **Extensions** — the extensions the server loaded, grouped by kind, and the
   manifest's extension settings: `extensions_modules`, `backend_module` and the
   per-tool extension maps of `tools`, `mcp` and `api_tools`. Extensions are attached to

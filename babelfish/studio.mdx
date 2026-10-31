@@ -42,12 +42,18 @@ flow left unsaved by the apply asks to be saved before the editor is left). Brow
 and shell navigation ask the same way.
 
 Picking a tool in a node's panel — a Runnable, an On Error, or a router route's On
-Error — fills the node's empty kwargs from the tool schema's root `default` and its
-empty Expression from the schema's `x-tai42-default-expr`, once that tool's schema has
-loaded; slots that already hold text are left as they are. The filled values are part
+Error — that replaces a bound tool clears the kwargs written for the bound tool, broken
+JSON included, since they name that tool's arguments; the Expression is the node's
+input, not the tool's, so it is kept. Picking the bound tool again changes nothing, and
+kwargs typed while no tool is bound are kept. A Map node's own tool picker clears its
+per-item kwargs the same way. The pick then fills the node's empty kwargs from the tool
+schema's root `default` and its empty Expression from the schema's
+`x-tai42-default-expr`, once that tool's schema has loaded; slots that already hold
+text are left as they are. The cleared and filled values are part
 of the pick: **Discard changes** reverts them with the tool, **Apply changes** commits
-them with it. A pick applied before its tool's schema has loaded is committed without
-them, and nothing is filled when the schema arrives later. Opening a node never
+them with it. A pick applied before its tool's schema has loaded is committed with
+the kwargs cleared but nothing filled, and nothing is filled when the schema arrives
+later. Opening a node never
 changes it: the panel shows exactly what the node holds.
 
 The Input tab also carries a **Receives from** block — *resolved by the engine after
@@ -147,8 +153,20 @@ the preset** (or **The card's input to the preset** for a preset with its own in
 schema); a field the preset leaves open reads "Host default (the preset sets none)".
 Every argument the card would send that the preset fixes (its tools and sub-flows
 included) is flagged, since the run refuses such a call, with a **Clear `<setting>`** button where
-the card's own field holds the value. While the preset list loads the card says so; a
-failed read of the list or of the preset shows the error with **Retry**.
+the card's own field holds the value. **Clear Model settings** clears the model, the
+temperature and every other stored model setting. An argument the card carries without
+a field of its own reads **Carried argument "`<key>`"**, and its clear drops just that
+key, keeping the other carried arguments. While the preset list loads the card says
+so; a failed read of the list or of the preset shows the error with **Retry**, and a
+failed reload of the list shows that error even while an earlier list is still held,
+rather than saying the preset is not in the list.
+
+**The Start template and the prompt.** The engine merges the Start result over the
+card's own settings, its keys winning. So while a Start template is chosen (and the
+preset does not fix the prompt), the card says under **System message**: "The Start
+template "`<id>`" shapes this agent's start input: a system_message it gives is the
+agent's prompt, in place of the one set here.", followed by an **Open in Storage** link
+to the template.
 
 **The ask exit.** When the holder's target **can ask its caller** and the send-up
 switch is off, the card grows an extra exit handle labelled **ask** on its outcome
@@ -217,9 +235,23 @@ caller-ask outcome) — with the `missing_results`
 surfaces named under "Not in the result". An empty result says plainly that no step
 or branch has **Return result** turned on. Nothing is said while the run is launching,
 waits on an ask, or its record has not settled; a reopened run that is still running
-reads "No result yet: this run is still running.", and a reopened run whose record
-holds only its pause says how the run ended after it and that no result is shown. A
-failed read shows the error with **Retry**.
+reads "No result yet: this run is still running.".
+
+A run that paused on an ask stays watched while it waits: the panel keeps reading its
+status, so a run continued from outside the panel (an answer given elsewhere, an
+expiry) is seen running again and then ended. The parked line shows the deadline of the
+park the status names, so a run that paused again on a later ask shows that ask's
+deadline, and the **View full trace** link shows while the run is paused as well as once
+it is over. Once such a run ends, its run record still holds only the pause, so
+**Results** reads the run's final result with the
+[`flow_result`](/babelfish#reading-a-run-status-state-and-result) tool. A run that ended in an error shows no
+**Results**: its status shows the error. A run whose state is gone reads "This run
+paused for an answer, and its state is no longer available, so no result can be read.".
+
+A failed read shows "Could not read the result:" and the error, with **Retry**. A stored
+value the Studio cannot read as a result names where it breaks, in the form "The run's
+stored result is in a format this studio cannot read, so it is not shown. Details:
+`<path>`: `<message>`".
 
 ## Values the run state does not keep
 
@@ -581,6 +613,18 @@ Every control rebuilds from the stored binding: an update's adapter form recover
 from the stored adapter jq, and a state or template the binding names but the server no
 longer serves shows a **Template not attached.** error with the raw jq, never a blank
 control. A refused save renders the engine's message verbatim.
+
+## Steps that call nothing
+
+A Runnable step with no tool and no Expression is legal: the engine runs it as a
+pass-through whose output is its own input. So that such a step is never a surprise, the
+**Save flow** dialog (opened once a save passes the editor's checks and the engine's
+validation, for **Save** and for save-and-exit) and the editor's **Duplicate flow** dialog
+(**Save as** and **Duplicate**) list each one, in canvas order, as a line in the dialog:
+"'`<step>`' has no tool and no Expression, so it calls nothing: its output is its input,
+passed on as it is." The step is named by its name, or its id when it has none. The
+warnings never block the write. The flow list's own **Duplicate** copies the stored flow
+as it is and lists none.
 
 ## Upload
 
