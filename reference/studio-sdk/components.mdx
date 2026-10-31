@@ -1145,7 +1145,7 @@ The folder-aware empty-state ladder — every label caller-supplied.
 
 | Property | Type | Description |
 |---|---|---|
-| `empty` | `ExplorerEmptyState` | No item exists at all. Folders are places for items, so with no item there is  nothing to browse: this state shows whatever folders exist. |
+| `empty` | `ExplorerEmptyState` | No item exists at all. With no folder either, it is the whole view; with  folders, it shows above them, which keep their actions. |
 | `emptyFolder` | `ExplorerEmptyState` | The current folder holds nothing — no items, no subfolders — while items  exist elsewhere. |
 | `noMatch` | `ExplorerEmptyState` | The current folder has items but the active tag/search filter excludes  every one, and it has no subfolders to show. |
 
@@ -1217,7 +1217,7 @@ function ExplorerView<T>(props: ExplorerViewProps<T>): ReactNode
 | `renderRow` | `(item: T) => ReactNode` | The item's table cells (`<TD>`s) — wrapped in a keyed `<TR>` by the explorer. |
 | `rootLabel` | `string` | — |
 | `search?` | `ExplorerSearch<T>` | — |
-| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. |
+| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. When the selected item  is filed in a drawn folder, the explorer opens that folder (`onNavigate`) — once  per item and folder, so the reader can still browse away from it. |
 | `tags?` | `ExplorerTags<T>` | — |
 | `viewSurface` | `string` | Persist + drive the list/card toggle under this surface key. |
 
@@ -1249,7 +1249,7 @@ interface ExplorerViewProps<T>
 | `renderRow` | `(item: T) => ReactNode` | The item's table cells (`<TD>`s) — wrapped in a keyed `<TR>` by the explorer. |
 | `rootLabel` | `string` | — |
 | `search?` | `ExplorerSearch<T>` | — |
-| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. |
+| `selectedItemKey?` | `string` | The key (as `getItemKey` gives it) of the item the screen has selected. Its  row/card carries `data-selected="true"`, which the stylesheet draws as the one  selected look every explorer shares. The screen still marks the item's name  link `aria-current`, which is what assistive tech reads. When the selected item  is filed in a drawn folder, the explorer opens that folder (`onNavigate`) — once  per item and folder, so the reader can still browse away from it. |
 | `tags?` | `ExplorerTags<T>` | — |
 | `viewSurface` | `string` | Persist + drive the list/card toggle under this surface key. |
 
@@ -2946,6 +2946,24 @@ function SearchableSelect(props: SearchableSelectArgs): ReactNode
 | `props` | `SearchableSelectArgs` | — | — |
 
 
+## SearchableSelectGroup
+
+```ts
+interface SearchableSelectGroup
+```
+
+A labelled cluster of `SearchableSelectOption`s.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `label` | `string` | — |
+| `options` | `readonly SearchableSelectOption[]` | — |
+
+**Related:** [SearchableSelectOption](/reference/studio-sdk/components#searchableselectoption)
+
+
 ## SearchableSelectGroupsProps
 
 ```ts
@@ -2961,13 +2979,34 @@ The GROUPED shape: labelled clusters, each carrying its own options.
 | `aria-describedby?` | `string` | IDREFs describing the trigger, concatenated ahead of an enclosing `Field`'s own. |
 | `aria-label?` | `string` | Accessible name for the trigger, its popup and its listbox when it is not wired to an enclosing `Field`. A `Field` wins where both are given, as on `Select`. |
 | `disabled?` | `boolean` | — |
-| `groups` | `readonly SelectGroup[]` | — |
+| `groups` | `readonly SearchableSelectGroup[]` | — |
 | `onValueChange` | `(value: string) => void` | — |
 | `placeholder?` | `string` | — |
 | `searchLabel` | `string` | Accessible name of the search box (e.g. "Search tools"). |
 | `value` | `string` | The chosen option's value; `''` for none (the placeholder shows). A value no option carries shows as itself on the trigger. |
 
-**Related:** [SelectGroup](/reference/studio-sdk/components#selectgroup)
+**Related:** [SearchableSelectGroup](/reference/studio-sdk/components#searchableselectgroup)
+
+
+## SearchableSelectOption
+
+```ts
+interface SearchableSelectOption extends SelectOption
+```
+
+One option of a `SearchableSelect`: a `SelectOption` that may carry a `description`,
+a line of text drawn under its label and searched alongside it.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `description?` | `string` | — |
+| `disabled?` | `boolean` | — |
+| `label` | `string` | — |
+| `value` | `string` | — |
+
+**Related:** [SelectOption](/reference/studio-sdk/components#selectoption)
 
 
 ## SearchableSelectProps
@@ -2986,12 +3025,12 @@ The FLAT shape: one ungrouped run of options.
 | `aria-label?` | `string` | Accessible name for the trigger, its popup and its listbox when it is not wired to an enclosing `Field`. A `Field` wins where both are given, as on `Select`. |
 | `disabled?` | `boolean` | — |
 | `onValueChange` | `(value: string) => void` | — |
-| `options` | `readonly SelectOption[]` | — |
+| `options` | `readonly SearchableSelectOption[]` | — |
 | `placeholder?` | `string` | — |
 | `searchLabel` | `string` | Accessible name of the search box (e.g. "Search tools"). |
 | `value` | `string` | The chosen option's value; `''` for none (the placeholder shows). A value no option carries shows as itself on the trigger. |
 
-**Related:** [SelectOption](/reference/studio-sdk/components#selectoption)
+**Related:** [SearchableSelectOption](/reference/studio-sdk/components#searchableselectoption)
 
 
 ## Select
@@ -3337,32 +3376,86 @@ Storage: a database cylinder with two shelves.
 function SubjectSection(props: SubjectSectionProps): ReactNode
 ```
 
-**Props**
+**Parameters**
 
-| Prop | Type | Description |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `props` | `SubjectSectionProps` | — | — |
+
+**Related:** [SubjectSectionProps](/reference/studio-sdk/components#subjectsectionprops)
+
+
+## SubjectSectionKeyFieldProps
+
+```ts
+interface SubjectSectionKeyFieldProps extends SubjectSectionSharedProps
+```
+
+The HOST'S key: the section draws `keyField` where the key goes, labelled by the host.
+
+**Properties**
+
+| Property | Type | Description |
 |---|---|---|
 | `caption` | `string` | The block's descriptive caption, shown under the expanded header. |
 | `error` | `string \| null` | — |
+| `keyField` | `ReactNode` | — |
 | `kind` | `string` | — |
-| `onKeyChange` | `(value: string) => void` | — |
 | `onKindChange` | `(value: string) => void` | — |
 | `onTargetChange` | `(value: string) => void` | — |
 | `onToggle` | `() => void` | — |
 | `open` | `boolean` | — |
-| `subjectKey` | `string` | — |
-| `subjectKeyDescription` | `string` | The Subject key field's helper description. |
 | `target` | `string` | — |
 | `targetOptions` | `readonly SubjectTargetOption[]` | — |
 | `targetPlaceholder` | `string` | The target select's empty-choice placeholder. |
 
-**Related:** [SubjectSectionProps](/reference/studio-sdk/components#subjectsectionprops)
+**Related:** [SubjectSectionSharedProps](/reference/studio-sdk/components#subjectsectionsharedprops), [SubjectTargetOption](/reference/studio-sdk/components#subjecttargetoption)
 
 
 ## SubjectSectionProps
 
 ```ts
-interface SubjectSectionProps
+type SubjectSectionProps = SubjectSectionTextKeyProps & { keyField?: undefined } | SubjectSectionKeyFieldProps & { onKeyChange?: undefined; subjectKey?: undefined; subjectKeyDescription?: undefined }
 ```
+
+What `SubjectSection` accepts: exactly one of the two key shapes.
+
+**Related:** [SubjectSectionKeyFieldProps](/reference/studio-sdk/components#subjectsectionkeyfieldprops), [SubjectSectionTextKeyProps](/reference/studio-sdk/components#subjectsectiontextkeyprops)
+
+
+## SubjectSectionSharedProps
+
+```ts
+interface SubjectSectionSharedProps
+```
+
+What every subject section takes, whatever its key field.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `caption` | `string` | The block's descriptive caption, shown under the expanded header. |
+| `error` | `string \| null` | — |
+| `kind` | `string` | — |
+| `onKindChange` | `(value: string) => void` | — |
+| `onTargetChange` | `(value: string) => void` | — |
+| `onToggle` | `() => void` | — |
+| `open` | `boolean` | — |
+| `target` | `string` | — |
+| `targetOptions` | `readonly SubjectTargetOption[]` | — |
+| `targetPlaceholder` | `string` | The target select's empty-choice placeholder. |
+
+**Related:** [SubjectTargetOption](/reference/studio-sdk/components#subjecttargetoption)
+
+
+## SubjectSectionTextKeyProps
+
+```ts
+interface SubjectSectionTextKeyProps extends SubjectSectionSharedProps
+```
+
+The TEXT key: the section draws a "Subject key" text field over `subjectKey`.
 
 **Properties**
 
@@ -3382,7 +3475,7 @@ interface SubjectSectionProps
 | `targetOptions` | `readonly SubjectTargetOption[]` | — |
 | `targetPlaceholder` | `string` | The target select's empty-choice placeholder. |
 
-**Related:** [SubjectTargetOption](/reference/studio-sdk/components#subjecttargetoption)
+**Related:** [SubjectSectionSharedProps](/reference/studio-sdk/components#subjectsectionsharedprops), [SubjectTargetOption](/reference/studio-sdk/components#subjecttargetoption)
 
 
 ## SubjectTargetOption
@@ -4006,6 +4099,7 @@ function ToolPicker(props: ToolPickerProps): Element
 | `placeholder?` | `string` | Shown once the list is loaded; a pending read reads "Loading tools…". |
 | `query` | `ToolListQuery` | The tool list read the host owns, `data` projected to the names it offers. |
 | `tagsByTool?` | `Readonly<Record<string, readonly string[]>>` | Per-tool native tags; when present, options are grouped and a tag filter shows. |
+| `toolDescriptions?` | `Readonly<Record<string, string>>` | Each tool's description keyed by raw tool name. A described option draws it under its label, and the search matches it as it matches the label. |
 | `unlistedLabel?` | `string` | Flags a stored value the loaded list does not carry (see the module docs). |
 | `value` | `string \| null` | — |
 
@@ -4039,6 +4133,7 @@ interface ToolPickerProps
 | `placeholder?` | `string` | Shown once the list is loaded; a pending read reads "Loading tools…". |
 | `query` | `ToolListQuery` | The tool list read the host owns, `data` projected to the names it offers. |
 | `tagsByTool?` | `Readonly<Record<string, readonly string[]>>` | Per-tool native tags; when present, options are grouped and a tag filter shows. |
+| `toolDescriptions?` | `Readonly<Record<string, string>>` | Each tool's description keyed by raw tool name. A described option draws it under its label, and the search matches it as it matches the label. |
 | `unlistedLabel?` | `string` | Flags a stored value the loaded list does not carry (see the module docs). |
 | `value` | `string \| null` | — |
 
