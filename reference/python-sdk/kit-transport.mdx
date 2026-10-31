@@ -9,7 +9,10 @@ MCP client transports over a unix-domain socket + the transport selector.
 
 The UDS transports implement the contract ``Transport`` Protocol; ``get_mcp_transport``
 picks between them, fastmcp's remote transports for URL servers, or a plain
-dict-config for command servers.
+dict-config for command servers, launched as the declared `StdioLaunch` says:
+``resolve_stdio_command`` finds the command and the install location it is in, and
+``stdio_child_env`` composes the child's ``env`` with that location's import directories
+(see `tai42_kit.transport.stdio_launch`).
 
 ## BaseUDSTransport
 
@@ -58,6 +61,24 @@ Open an MCP client session over the socket, yielding it for the block.
 
 
 
+## ResolvedStdioCommand
+
+`tai42_kit.transport.stdio_launch.ResolvedStdioCommand`
+
+```python
+class ResolvedStdioCommand
+```
+
+The executable a stdio server runs, and the import directories its child gets.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `executable` | `str` |
+| `import_dirs` | `tuple[str, ...]` |
+
+
 ## SSEUDSTransport
 
 `tai42_kit.transport.sse_uds_transport.SSEUDSTransport`
@@ -88,6 +109,71 @@ Open an MCP client session over the socket's SSE endpoint.
 
 
 
+## ScriptLocation
+
+`tai42_kit.transport.stdio_launch.ScriptLocation`
+
+```python
+class ScriptLocation
+```
+
+One directory plugin installs write console scripts to, and what a script launched from it imports.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `scripts_dir` | `str` |
+| `import_dirs` | `tuple[str, ...]` |
+
+
+## StdioLaunch
+
+`tai42_kit.transport.stdio_launch.StdioLaunch`
+
+```python
+class StdioLaunch
+```
+
+The install locations a bare stdio command is searched in, in order.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `locations` | `tuple[ScriptLocation, ...]` |
+
+
+## declare_stdio_launch
+
+`tai42_kit.transport.stdio_launch.declare_stdio_launch`
+
+```python
+declare_stdio_launch(launch: StdioLaunch) -> None
+```
+
+Declare the stdio launch for this process.
+
+The owner of the install locations calls it; a later declaration replaces the earlier one.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `launch` | `StdioLaunch` | — | — |
+
+
+## declared_stdio_launch
+
+`tai42_kit.transport.stdio_launch.declared_stdio_launch`
+
+```python
+declared_stdio_launch() -> StdioLaunch
+```
+
+The stdio launch declared in this process (no locations when none was declared).
+
+
 ## get_mcp_transport
 
 `tai42_kit.transport.utils.get_mcp_transport`
@@ -104,7 +190,12 @@ caller (which owns the runtime/CLI) supplies it, so it arrives unvalidated and
 any other value raises. A URL server gets fastmcp's SSE or streamable-http
 transport, chosen by fastmcp's own URL inference, carrying only the config's
 headers and built on `mcp_http_client`; it ignores ``uds_protocol``. A
-command server returns a plain fastmcp dict-config.
+command server returns a plain fastmcp dict-config whose ``command`` is the
+executable `resolve_stdio_command` finds
+for it (a bare name with no executable match raises) and whose ``env`` is the
+config's, carrying the import directories of the install location the command was
+found in, when that location declares any
+(`stdio_child_env`).
 
 **Parameters**
 
@@ -112,4 +203,53 @@ command server returns a plain fastmcp dict-config.
 |---|---|---|---|
 | `config` | `TaiMCPConfig` | — | — |
 | `uds_protocol` | `str` | `'http'` | — |
+
+
+## resolve_stdio_command
+
+`tai42_kit.transport.stdio_launch.resolve_stdio_command`
+
+```python
+resolve_stdio_command(command: str, env: Mapping[str, str]) -> ResolvedStdioCommand
+```
+
+Return what a stdio server launched as ``command`` with ``env`` runs.
+
+A command with a directory part is returned unchanged, with no import directories. A
+bare name resolves to the first executable match on ``env``'s ``PATH`` when it sets
+one, then in the declared locations' scripts directories, then on this process's
+``PATH`` when ``env`` sets none; a match in a location carries that location's import
+directories, a match on a ``PATH`` none. With no executable match, raises
+`PermissionError` when a file of that name exists but is not executable, else
+`FileNotFoundError`, naming every directory searched.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `command` | `str` | — | — |
+| `env` | `Mapping[str, str]` | — | — |
+
+
+## stdio_child_env
+
+`tai42_kit.transport.stdio_launch.stdio_child_env`
+
+```python
+stdio_child_env(env: Mapping[str, str], import_dirs: Sequence[str]) -> dict[str, str]
+```
+
+Return the ``env`` a stdio server child declared with ``env`` is launched with.
+
+A copy of ``env``. With ``import_dirs``, its ``PYTHONPATH`` is the server's own
+``PYTHONPATH`` entries (empty entries dropped), then ``import_dirs``, joined with
+`os.pathsep`; with none, the copy is unchanged. Every other key passes through
+as given.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `env` | `Mapping[str, str]` | — | — |
+| `import_dirs` | `Sequence[str]` | — | — |
 
