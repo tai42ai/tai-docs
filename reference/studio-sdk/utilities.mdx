@@ -1482,7 +1482,7 @@ one (see the module note on the `__` boundary invariant).
 
 ```ts
 function hiddenToolNames(
-  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
+  tagEntries: readonly ({ badges: string[]; description: string | null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
   overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
 ): Set<string>
 ```
@@ -1501,7 +1501,7 @@ plugin-hidden tool correctly keeps it OUT of the set (unhidden).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
+| `tagEntries` | `readonly ({ badges: string[]; description: string \| null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
 | `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
 
 
@@ -2037,7 +2037,7 @@ The api-key payloads; read by settings AND the hooks execution-key picker.
 
 ```ts
 function toolBadgesByName(
-  tagEntries: readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
+  tagEntries: readonly ({ badges: string[]; description: string | null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
   overlayRows: readonly ({ badges: string[]; display_name: string | null; folder_id: string | null; hidden: boolean | null; tags: string[]; tool_name: string })[],
 ): Readonly<Record<string, readonly string[]>>
 ```
@@ -2053,8 +2053,27 @@ carrying no native tag entry is still surfaced.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `tagEntries` | `readonly ({ badges: string[]; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
+| `tagEntries` | `readonly ({ badges: string[]; description: string \| null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
 | `overlayRows` | `readonly ({ badges: string[]; display_name: string \| null; folder_id: string \| null; hidden: boolean \| null; tags: string[]; tool_name: string })[]` | — | — |
+
+
+## toolDescriptionsByName
+
+```ts
+function toolDescriptionsByName(
+  tagEntries: readonly ({ badges: string[]; description: string | null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[],
+): Readonly<Record<string, string>>
+```
+
+The raw-name → description map a tool picker reads (its `toolDescriptions`). Only
+tools that declare a non-empty description appear; a tool that declares none is
+simply absent (its option draws no description line).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tagEntries` | `readonly ({ badges: string[]; description: string \| null; hidden: boolean; name: string; schedulable: boolean; tags: string[] })[]` | — | — |
 
 
 ## toolMetaKey
@@ -2068,6 +2087,18 @@ display name, tags, folder and visibility rows. Every screen that files or label
 tools by the overlay (tools, presets, agents, the schedule picker) reads it under
 this one key, and every overlay or folder write invalidates it, so a move made on
 one screen shows on every other without a reload.
+
+
+## toolTagsKey
+
+```ts
+const toolTagsKey: readonly ["tools", "tags"]
+```
+
+Each tool's own declarations (`GET /api/tools/tags`): its description, native tags,
+visibility and badges. A screen that reads them under this key shares its cached read
+with the Tools screen, which reads them here. The key sits under `toolsListKey`,
+so an invalidation of the registered-tool population refreshes it too.
 
 
 ## toolsListKey
