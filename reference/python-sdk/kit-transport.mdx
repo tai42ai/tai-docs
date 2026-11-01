@@ -8,10 +8,11 @@ icon: "route"
 MCP client transports over a unix-domain socket + the transport selector.
 
 The UDS transports implement the contract ``Transport`` Protocol; ``get_mcp_transport``
-picks between them, fastmcp's remote transports for URL servers, or a plain
-dict-config for command servers, launched as the declared `StdioLaunch` says:
-``resolve_stdio_command`` finds the command and the install location it is in, and
-``stdio_child_env`` composes the child's ``env`` with that location's import directories
+picks between them, fastmcp's remote transports for URL servers, or fastmcp's stdio
+transport for command servers, launched as the declared `StdioLaunch` says:
+``resolve_stdio_command`` finds the command and the install location it is in,
+``stdio_child_env`` composes the child's ``env`` with that location's import directories,
+and the child's stderr is this process's standard error descriptor
 (see `tai42_kit.transport.stdio_launch`).
 
 ## BaseUDSTransport
@@ -179,7 +180,7 @@ The stdio launch declared in this process (no locations when none was declared).
 `tai42_kit.transport.utils.get_mcp_transport`
 
 ```python
-get_mcp_transport(config: TaiMCPConfig, *, uds_protocol: str = 'http') -> HTTPUDSTransport | SSEUDSTransport | StreamableHttpTransport | SSETransport | dict[str, Any]
+get_mcp_transport(config: TaiMCPConfig, *, uds_protocol: str = 'http') -> HTTPUDSTransport | SSEUDSTransport | StreamableHttpTransport | SSETransport | StdioTransport
 ```
 
 Build the fastmcp transport for one MCP server config.
@@ -190,12 +191,15 @@ caller (which owns the runtime/CLI) supplies it, so it arrives unvalidated and
 any other value raises. A URL server gets fastmcp's SSE or streamable-http
 transport, chosen by fastmcp's own URL inference, carrying only the config's
 headers and built on `mcp_http_client`; it ignores ``uds_protocol``. A
-command server returns a plain fastmcp dict-config whose ``command`` is the
-executable `resolve_stdio_command` finds
-for it (a bare name with no executable match raises) and whose ``env`` is the
-config's, carrying the import directories of the install location the command was
-found in, when that location declares any
-(`stdio_child_env`).
+command server gets fastmcp's stdio transport running the executable
+`resolve_stdio_command` finds for it (a bare
+name with no executable match raises) with the config's ``args``, and an ``env`` that
+is the config's, carrying the import directories of the install location the command
+was found in, when that location declares any
+(`stdio_child_env`); the child's stderr is
+this process's standard error descriptor
+(`stdio_child_stderr`). A config that sets
+none of ``uds``, ``url`` and ``command`` raises `ValueError` naming the server.
 
 **Parameters**
 
