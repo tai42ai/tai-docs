@@ -575,8 +575,8 @@ function ConfirmDialog(props: ConfirmDialogProps): ReactNode
 | `confirmDisabled?` | `boolean` | Hold the confirm button disabled while the caller knows the action cannot pass. |
 | `confirmLabel` | `string` | The confirm button's resting label (e.g. `Delete scope`). |
 | `confirmVariant?` | `"primary" \| "danger"` | — |
-| `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the loud `ErrorState`, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
-| `error?` | `string \| Error \| null` | The failed action's error, rendered loudly; omit/`null` while there is none.  A thrown `Error` or the message on its own — `Field`'s `error` is a plain string, and the two props sit side by side on a form, so this one accepts that spelling too rather than making one surface's `error` unassignable to the other's. |
+| `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the failure, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
+| `error?` | `unknown` | The failed action's rejection, shown through `WriteFailure`; omit/`null` while there is none. Any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable. |
 | `isPending` | `boolean` | — |
 | `onClose` | `() => void` | — |
 | `onConfirm` | `() => void` | — |
@@ -601,8 +601,8 @@ interface ConfirmDialogProps
 | `confirmDisabled?` | `boolean` | Hold the confirm button disabled while the caller knows the action cannot pass. |
 | `confirmLabel` | `string` | The confirm button's resting label (e.g. `Delete scope`). |
 | `confirmVariant?` | `"primary" \| "danger"` | — |
-| `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the loud `ErrorState`, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
-| `error?` | `string \| Error \| null` | The failed action's error, rendered loudly; omit/`null` while there is none.  A thrown `Error` or the message on its own — `Field`'s `error` is a plain string, and the two props sit side by side on a form, so this one accepts that spelling too rather than making one surface's `error` unassignable to the other's. |
+| `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the failure, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
+| `error?` | `unknown` | The failed action's rejection, shown through `WriteFailure`; omit/`null` while there is none. Any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable. |
 | `isPending` | `boolean` | — |
 | `onClose` | `() => void` | — |
 | `onConfirm` | `() => void` | — |
@@ -2118,6 +2118,47 @@ const MarketplaceIcon: IconComponent
 Marketplace: a shopping bag.
 
 **Related:** [IconComponent](/reference/studio-sdk/components#iconcomponent)
+
+
+## McpListingRefusal
+
+```ts
+function McpListingRefusal(props: McpListingRefusalProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `message` | `string` | The platform's message of the refused write. |
+| `reason` | `McpListingRefusalReason` | Why the write was refused. |
+
+**Related:** [McpListingRefusalProps](/reference/studio-sdk/components#mcplistingrefusalprops)
+
+
+## McpListingRefusalProps
+
+```ts
+interface McpListingRefusalProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `message` | `string` | The platform's message of the refused write. |
+| `reason` | `McpListingRefusalReason` | Why the write was refused. |
+
+**Related:** [McpListingRefusalReason](/reference/studio-sdk/components#mcplistingrefusalreason)
+
+
+## McpListingRefusalReason
+
+```ts
+type McpListingRefusalReason = "starting" | "not_loaded"
+```
+
+Why the answering worker holds no listing for the server a refused call had to read.
 
 
 ## MediaDocument
@@ -4325,6 +4366,34 @@ interface ViewToggleProps
 **Related:** [ViewMode](/reference/studio-sdk/components#viewmode)
 
 
+## WriteFailure
+
+```ts
+function WriteFailure(props: WriteFailureProps): ReactNode
+```
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `error` | `unknown` | The rejected value of the write. |
+
+**Related:** [WriteFailureProps](/reference/studio-sdk/components#writefailureprops)
+
+
+## WriteFailureProps
+
+```ts
+interface WriteFailureProps
+```
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `error` | `unknown` | The rejected value of the write. |
+
+
 ## XCircleIcon
 
 ```ts
@@ -4667,6 +4736,29 @@ OR semantics: an empty selection matches everything; otherwise an item
 |---|---|---|---|
 | `itemTags` | `readonly string[]` | — | — |
 | `selected` | `ReadonlySet<string>` | — | — |
+
+
+## mcpListingRefusalOf
+
+```ts
+function mcpListingRefusalOf(
+  api: Pick<ApiClient, "isMcpStartingError" | "isMcpNotLoadedError">,
+  error: unknown,
+): McpListingRefusalReason | null
+```
+
+The listing refusal `error` is, read through the client that raised it, or `null` when it
+is not one: a read of a server's tools or a selection-changing write, refused because the
+worker that answered holds no listing for the server.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `api` | `Pick<ApiClient, "isMcpStartingError" \| "isMcpNotLoadedError">` | — | — |
+| `error` | `unknown` | — | — |
+
+**Related:** [McpListingRefusalReason](/reference/studio-sdk/components#mcplistingrefusalreason)
 
 
 ## normalizeCustomRange
