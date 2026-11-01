@@ -9,11 +9,10 @@ MCP client transports over a unix-domain socket + the transport selector.
 
 The UDS transports implement the contract ``Transport`` Protocol; ``get_mcp_transport``
 picks between them, fastmcp's remote transports for URL servers, or fastmcp's stdio
-transport for command servers, launched as the declared `StdioLaunch` says:
-``resolve_stdio_command`` finds the command and the install location it is in,
-``stdio_child_env`` composes the child's ``env`` with that location's import directories,
-and the child's stderr is this process's standard error descriptor
-(see `tai42_kit.transport.stdio_launch`).
+transport for command servers, whose bare command ``resolve_stdio_command`` finds on a
+``PATH`` or among the commands the declared `StdioLaunch` provider exposes, and
+whose child's stderr is this process's standard error descriptor (see
+`tai42_kit.transport.stdio_launch`).
 
 ## BaseUDSTransport
 
@@ -62,24 +61,6 @@ Open an MCP client session over the socket, yielding it for the block.
 
 
 
-## ResolvedStdioCommand
-
-`tai42_kit.transport.stdio_launch.ResolvedStdioCommand`
-
-```python
-class ResolvedStdioCommand
-```
-
-The executable a stdio server runs, and the import directories its child gets.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `executable` | `str` |
-| `import_dirs` | `tuple[str, ...]` |
-
-
 ## SSEUDSTransport
 
 `tai42_kit.transport.sse_uds_transport.SSEUDSTransport`
@@ -110,50 +91,15 @@ Open an MCP client session over the socket's SSE endpoint.
 
 
 
-## ScriptLocation
-
-`tai42_kit.transport.stdio_launch.ScriptLocation`
-
-```python
-class ScriptLocation
-```
-
-One directory plugin installs write console scripts to, and what a script launched from it imports.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `scripts_dir` | `str` |
-| `import_dirs` | `tuple[str, ...]` |
-
-
-## StdioLaunch
-
-`tai42_kit.transport.stdio_launch.StdioLaunch`
-
-```python
-class StdioLaunch
-```
-
-The install locations a bare stdio command is searched in, in order.
-
-**Attributes**
-
-| Attribute | Type |
-|---|---|
-| `locations` | `tuple[ScriptLocation, ...]` |
-
-
 ## declare_stdio_launch
 
 `tai42_kit.transport.stdio_launch.declare_stdio_launch`
 
 ```python
-declare_stdio_launch(launch: StdioLaunch) -> None
+declare_stdio_launch(provider: StdioLaunch) -> None
 ```
 
-Declare the stdio launch for this process.
+Declare the stdio launch provider for this process.
 
 The owner of the install locations calls it; a later declaration replaces the earlier one.
 
@@ -161,7 +107,7 @@ The owner of the install locations calls it; a later declaration replaces the ea
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `launch` | `StdioLaunch` | — | — |
+| `provider` | `StdioLaunch` | — | — |
 
 
 ## declared_stdio_launch
@@ -172,7 +118,7 @@ The owner of the install locations calls it; a later declaration replaces the ea
 declared_stdio_launch() -> StdioLaunch
 ```
 
-The stdio launch declared in this process (no locations when none was declared).
+The stdio launch provider declared in this process (one exposing no commands when none was declared).
 
 
 ## get_mcp_transport
@@ -193,11 +139,8 @@ transport, chosen by fastmcp's own URL inference, carrying only the config's
 headers and built on `mcp_http_client`; it ignores ``uds_protocol``. A
 command server gets fastmcp's stdio transport running the executable
 `resolve_stdio_command` finds for it (a bare
-name with no executable match raises) with the config's ``args``, and an ``env`` that
-is the config's, carrying the import directories of the install location the command
-was found in, when that location declares any
-(`stdio_child_env`); the child's stderr is
-this process's standard error descriptor
+name with no executable match raises) with the config's ``args`` and its ``env``
+exactly as declared; the child's stderr is this process's standard error descriptor
 (`stdio_child_stderr`). A config that sets
 none of ``uds``, ``url`` and ``command`` raises `ValueError` naming the server.
 
@@ -214,18 +157,17 @@ none of ``uds``, ``url`` and ``command`` raises `ValueError` naming the server.
 `tai42_kit.transport.stdio_launch.resolve_stdio_command`
 
 ```python
-resolve_stdio_command(command: str, env: Mapping[str, str]) -> ResolvedStdioCommand
+resolve_stdio_command(command: str, env: Mapping[str, str]) -> str
 ```
 
-Return what a stdio server launched as ``command`` with ``env`` runs.
+Return the executable a stdio server launched as ``command`` with ``env`` runs.
 
-A command with a directory part is returned unchanged, with no import directories. A
-bare name resolves to the first executable match on ``env``'s ``PATH`` when it sets
-one, then in the declared locations' scripts directories, then on this process's
-``PATH`` when ``env`` sets none; a match in a location carries that location's import
-directories, a match on a ``PATH`` none. With no executable match, raises
-`PermissionError` when a file of that name exists but is not executable, else
-`FileNotFoundError`, naming every directory searched.
+A command with a directory part is returned unchanged. A bare name resolves to the
+first executable match on ``env``'s ``PATH`` when it sets one, then the command of that
+name the declared provider exposes now, then on this process's ``PATH`` when ``env``
+sets none. With no executable match, raises `PermissionError` when a match is
+not an executable file, else `FileNotFoundError`, naming the ``PATH`` searched
+and the exposed command names.
 
 **Parameters**
 
@@ -233,27 +175,4 @@ directories, a match on a ``PATH`` none. With no executable match, raises
 |---|---|---|---|
 | `command` | `str` | — | — |
 | `env` | `Mapping[str, str]` | — | — |
-
-
-## stdio_child_env
-
-`tai42_kit.transport.stdio_launch.stdio_child_env`
-
-```python
-stdio_child_env(env: Mapping[str, str], import_dirs: Sequence[str]) -> dict[str, str]
-```
-
-Return the ``env`` a stdio server child declared with ``env`` is launched with.
-
-A copy of ``env``. With ``import_dirs``, its ``PYTHONPATH`` is the server's own
-``PYTHONPATH`` entries (empty entries dropped), then ``import_dirs``, joined with
-`os.pathsep`; with none, the copy is unchanged. Every other key passes through
-as given.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `env` | `Mapping[str, str]` | — | — |
-| `import_dirs` | `Sequence[str]` | — | — |
 
