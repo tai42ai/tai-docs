@@ -79,7 +79,7 @@ Run `tai serve` and every `tai backend` runtime under a supervisor that starts a
 
 A supervisor restarts a process that exits, not one that stays up and stops working. On Kubernetes, give each `tai backend` process the liveness probe its kind declares, so a stalled process is restarted too: see [Backend processes](#backend-processes).
 
-The graceful-shutdown timeout each worker gets is set on the `tai serve` process's environment (`APP_ARGS_TIMEOUT_GRACEFUL_SHUTDOWN`, default 10 seconds) or passed as the uvicorn option `--timeout-graceful-shutdown SECONDS` after the `tai serve` options, and takes effect on a `tai serve` restart. On SIGTERM or SIGINT a worker stops taking new connections, writes the replies of the calls still in flight, MCP replies included, and then closes its open event streams; the timeout caps that whole stop.
+The graceful-shutdown timeout each worker gets is set on the `tai serve` process's environment (`APP_ARGS_TIMEOUT_GRACEFUL_SHUTDOWN`, default 10 seconds) or passed as the uvicorn option `--timeout-graceful-shutdown SECONDS` after the `tai serve` options, and takes effect on a `tai serve` restart. On SIGTERM or SIGINT a worker stops taking new connections, writes the replies of the calls still in flight, MCP replies included, and then closes its open event streams; the timeout caps that stop phase of the server. The app's shutdown follows it, within the bounds the app's modules declare: twice `HOOKS_RUN_SHUTDOWN_GRACE_SECONDS` for the hook-run attempts, 30 seconds for the credential refreshes to finish a write-back, `STATES_OUTBOX_SHUTDOWN_GRACE_SECONDS` for the states outbox, and `TAI_TOOL_RUNS_SHUTDOWN_DRAIN_SECONDS` for the tool-run supervisors (100 seconds at the defaults). A leaving worker announces the sum, the timeout plus those bounds (110 seconds at the defaults), on its census row, which reads `recycling` from the start of its stop until the stop ends, and a fleet restart waits that long for it to go; a `tai backend` worker announces its backend's drain bound plus the same bounds (430 seconds at the defaults for the shipped backends). Give the deployment's termination grace room for the sum. A Celery worker run with `-B` also waits up to 10 seconds, after its drain, for its embedded beat to end, a wait outside the sum it announces: give it that much more grace.
 
 ## Point at a manifest and environment
 
@@ -215,7 +215,7 @@ A `tai backend` process serves no `/health` or `/ready`. Each process an [execut
 | Celery | `worker` | `tai42-backend-probe` | 1s |
 | Celery | `beat` | `tai42-backend-probe` | the interval the beat sleeps, at most `--max-interval` (`CELERY_BEAT_MAX_LOOP_INTERVAL`, 60s) |
 | Celery | `flower` | HTTP `GET /healthcheck` | — |
-| RQ | `worker` | `tai42-backend-probe` | 5s between dequeue polls; 1s or less while a job runs |
+| RQ | `worker` | `tai42-backend-probe` | 5s between dequeue polls; 1s or less while a job runs or waits for a config reload's re-import to finish |
 | RQ | `beat` | `tai42-backend-probe` | `-i/--interval` (60s) |
 | RQ | `dashboard` | HTTP `GET /favicon.ico` | — |
 
@@ -245,13 +245,15 @@ These are [excluded-band](/concepts/config-and-secrets#settings-profiles) deploy
 
 **What a report proves.** A report comes from the engine's own loop, so a loop that stops passing stops reporting. A job that blocks the loop stops the reports.
 
-Where the pool cannot always end a job at its time budget, a job still running past that budget stops the reports too, so the probe ends the worker. On RQ's `solo` and `gevent` pools and Celery's `solo` pool, that happens once one such job runs; on Celery's `threads` pool, once every thread holds one.
+Where the pool cannot always end a job at its time budget, a job still running past that budget stops the reports too, so the probe ends the worker. On RQ's `solo` pool and Celery's `solo`, `threads` and `eventlet` pools, that happens once one such job runs. The `gevent` pools of RQ and Celery cancel a job's work at the budget, so there it happens once a job's work still runs a tick after that cancel.
+
+A job or a fork that arrives while a config reload re-imports the manifest modules waits for the re-import to finish. On RQ and Celery the worker reports each second while it waits; an arq job waits without holding up the worker's loop, so the reports go on.
 
 A Celery worker reports nothing while its broker connection is down and resumes once it reconnects. Each engine's report points and per-pool behaviour are on its plugin page: [arq](/plugins/tai42/backend-arq), [Celery](/plugins/tai42/backend-celery), [RQ](/plugins/tai42/backend-rq).
 
 **A Celery worker with an embedded beat.** `tai backend worker -B` is one process with one probe. Its beat reports into its own file, `<TAI_BACKEND_LIVENESS_PATH>-beat`, and the worker reports nothing while its beat's promise is overdue, so the probe on the worker's file covers both. The worker removes both files when it exits.
 
-**One Celery beat.** A Celery beat that cannot hold RedBeat's lock waits for it before its first tick and reports nothing while it waits. Run one beat, standalone or embedded with `-B`: a standby beat fails its startup probe.
+**One Celery beat.** A Celery beat that cannot hold RedBeat's lock waits for it before its first tick, trying once a second and reporting each try, so it reads alive while it waits and starts ticking within a second of the lock lapsing (RedBeat holds it for 5 × `--max-interval`, 300 s at the default, and a cleanly stopped beat releases it at once). Run one beat, standalone or embedded with `-B`; a second one waits and takes over only if the first stops.
 
 `tai backend worker` and `tai backend beat` refuse at launch any scheduler other than the reporting RedBeat scheduler they run. The refusal covers the `--scheduler` option (the beat's `-S`), the `CELERY_WORKER_SCHEDULER` / `CELERY_BEAT_SCHEDULER` environment variables, and `beat_scheduler=` as command-line configuration.
 
@@ -299,7 +301,7 @@ livenessProbe:
 
 **Timing.** A steady loop rewrites its file once the last write is an interval old, so after the loop stops the file turns stale within its promised next pass plus the grace, plus up to one interval. At the defaults that is about 25 to 35 seconds for a worker (arq 25.5 to 30.5, Celery 26 to 31, RQ 30 to 35), and the liveness probe above restarts the container within about a minute.
 
-A beat at its default 60-second interval promises 65 seconds, so a stalled beat is restarted within about two minutes; a beat with a schedule due sooner promises less and is restarted sooner. Raise `TAI_BACKEND_LIVENESS_GRACE` to ride out longer pauses, such as a Celery broker outage, without a restart.
+A beat at its default 60-second interval promises 65 seconds, so a stalled beat is restarted within about two minutes; a beat with a schedule due sooner promises less and is restarted sooner; a beat waiting for RedBeat's lock promises 6 seconds and reads alive. Raise `TAI_BACKEND_LIVENESS_GRACE` to ride out longer pauses, such as a Celery broker outage, without a restart.
 
 **The boot signal.** Every `tai backend` process writes a readiness sentinel file once its first boot resync has built its tool registry, and removes it when shutdown begins: `TAI_READY_SENTINEL_PATH`, default `/tmp/tai-ready`. Keep the path container-local and ephemeral, never on a persistent mount, so a restarted container starts unready.
 

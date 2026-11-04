@@ -74,15 +74,17 @@ located by an env var the server reads:
 | Mount | Env var | Holds |
 | --- | --- | --- |
 | Config directory | `TAI_MANIFEST_PATH` (in `TAI_CONFIG_DIR_PATH`) | the manifest — the **registration** of every runtime-installed plugin |
-| Plugin prefix | `TAI_PLUGINS_PREFIX` | the installed plugin **code** |
+| Plugins directory | `TAI_PLUGINS_DIR` (set by the image to `/app/plugins`) | the installed plugin **code**: the plugin layer every in-process plugin shares, and each `mcp-server` package's own environment |
 | Local storage data | `STORAGE_LOCAL_ROOT_PATH` (set by the image to `/app/templates`) | files the local storage provider serves |
 
-The bundle bind-mounts `config/` for the first and backs `/app/templates` with
-the `tai-storage-local-data` named volume for the third. Give the plugin prefix
-its own persistent volume the same way, or a [marketplace](/concepts/marketplace)
-install lands in the image's ephemeral venv and is lost when the container is
-replaced. Persist all three, or a recreated container loses stored files or boots
-with the code and its registration out of sync. The bundled Postgres and Redis
+The bundle bind-mounts `config/` for the first, mounts the `tai-plugins-data`
+named volume at `/app/plugins` for the second on every app service and the
+`db-migrate` one-shot, and backs `/app/templates` with the
+`tai-storage-local-data` named volume for the third. A packaged
+[marketplace](/concepts/marketplace) install refuses while `TAI_PLUGINS_DIR` is
+unset, and every serve and backend process mounts the same directory. Persist all
+three, or a recreated container loses stored files or boots with the code and its
+registration out of sync. The bundled Postgres and Redis
 keep their own named data volumes.
 
 See [Add plugins](/operate#add-plugins) for the two ways a deployment installs

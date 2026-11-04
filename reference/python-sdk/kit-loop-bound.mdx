@@ -1,0 +1,146 @@
+---
+title: "Loop-bound resources (tai42_kit.loop_bound)"
+description: "The per-event-loop, per-client-epoch resource registries, the close of a retired epoch's registries, and the one release of a loop's registries and then its pooled clients, run at the loop's end or at an app's shutdown on a loop that lives on."
+icon: "arrows-rotate"
+---
+
+
+What the kit keeps per event loop, and the release that closes it.
+
+Vendor-free: the registry machinery here needs only the standard library and the kit's
+client epoch. The end of a loop, and an application's shutdown on a loop that lives on, await
+`release_loop_bound_resources`; `close` first marks
+its loop closing (`tai42_kit.loop_closing`), and a loop not marked refuses no lease after a
+release. A generation's retire on the serving loop calls
+`close_retired_registries` for the retired epoch.
+
+## LoopRegistryMap
+
+`tai42_kit.loop_bound.registry.LoopRegistryMap`
+
+```python
+class LoopRegistryMap
+```
+
+Per-event-loop, per-epoch map of `ResourceRegistry` instances.
+
+Registries are keyed per event loop (their ``asyncio.Lock``s and pooled
+resources bind to the loop that first uses them) in a ``WeakKeyDictionary``,
+so a loop's registries drop when the loop is collected, and per epoch under
+that: the current epoch's registry serves the loop until the epoch advances,
+when the next use builds a fresh one; a retired epoch's registry stays open,
+for old-epoch work on that loop still using it, until the retire closes it on
+its loop (`close_retired_registries`) or the loop's release closes it
+(`_release_registries`). On a loop its end has marked closing
+(`tai42_kit.loop_closing`) `current` refuses with ``RuntimeError``
+rather than build a registry nothing would release; on a loop that lives on,
+the next use after a release builds afresh. The map can be reached
+from multiple threads (each running its own loop), so every explicit access
+is serialized under a ``threading.Lock``.
+
+### Members
+
+#### current
+
+`tai42_kit.loop_bound.registry.LoopRegistryMap.current`
+
+```python
+current(self) -> R
+```
+
+Return the current-epoch registry for the running loop, rebuilding after close_all.
+
+A closing loop is refused with ``RuntimeError``.
+
+
+
+## ResourceRegistry
+
+`tai42_kit.loop_bound.registry.ResourceRegistry`
+
+```python
+class ResourceRegistry
+```
+
+Create-once cache of long-lived async resources keyed by a string.
+
+Concrete registries expose a typed accessor that builds a cache key and a
+factory coroutine returning ``(resource, cleanup_fn)``, then delegate to
+`_get_or_init_resource`. Each key's resource is created at most once
+under a double-checked per-key lock and cached for the registry's lifetime.
+A factory that finishes after `close_all` has run closes the freshly
+opened resource and fails the get loudly rather than leaking an unmanaged
+resource past shutdown. On a loop its end has marked closing
+(`tai42_kit.loop_closing`) a get raises ``RuntimeError`` before it
+serves or opens anything. `close_all` closes every cached resource,
+collecting failures into an ``ExceptionGroup`` so none is dropped silently.
+
+### Members
+
+#### has_live_resources
+
+`tai42_kit.loop_bound.registry.ResourceRegistry.has_live_resources`
+
+```python
+has_live_resources: bool
+```
+
+Whether any created-and-not-yet-closed resource is still cached.
+
+
+#### close_all
+
+`tai42_kit.loop_bound.registry.ResourceRegistry.close_all`
+
+```python
+async close_all(self) -> None
+```
+
+Close every cached resource and refuse later gets; every failure is raised together.
+
+
+
+## close_retired_registries
+
+`tai42_kit.loop_bound.registry.close_retired_registries`
+
+```python
+async close_retired_registries(epoch: int) -> None
+```
+
+Close the retired ``epoch``'s registry of every loop-bound registry map on the running loop, and drop it.
+
+The retire of a generation calls it on the serving loop once the generation's admitted
+work has drained or the drain budget has run out. The current epoch is refused with
+``ValueError``: its registries still serve. Every registry is tried even after a
+failure; the failures are raised together as one ``ExceptionGroup``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `epoch` | `int` | — | — |
+
+
+## release_loop_bound_resources
+
+`tai42_kit.loop_bound.release.release_loop_bound_resources`
+
+```python
+async release_loop_bound_resources() -> None
+```
+
+Release everything the kit keeps for the running event loop, every epoch of it.
+
+Its loop-bound resource registries are closed, then its pooled clients. Registries go first, so
+a resource built on a pooled client closes before the client. Each step runs whatever the other
+raised; one failure is raised as itself, several as
+``ExceptionGroup("releasing the loop's kit resources failed", ...)``.
+
+A release does not end the loop's leasing: on a loop that lives on, the next lease builds its
+pool or registry anew and the loop's next release closes it.
+`close` marks its loop closing first
+(`tai42_kit.loop_closing`), so a lease after its release is refused instead of opening
+what nothing would release. A loop not marked (one ``asyncio.run`` ends) refuses nothing: a
+lease on it after its last release opens a resource that stays open.
+

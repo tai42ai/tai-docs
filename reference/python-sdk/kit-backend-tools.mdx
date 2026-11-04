@@ -1,0 +1,448 @@
+---
+title: "Backend tools (tai42_kit.backend tool surface)"
+description: "The backend_* tool surface every backend offers, built once by the kit: the ten schedule tools over a ScheduleStore, the twelve task and worker tools over a WorkerInspection, and the UnsupportedBackendTool refusal."
+icon: "toolbox"
+---
+
+
+The ``backend_*`` tool surface every backend offers: its names, its refusal and its not-ready text.
+
+The kit registers the surface once over a backend's seams: the ten schedule tools over its
+`ScheduleStore`
+(`tai42_kit.backend.schedule_tools`) and the twelve task and worker tools over its
+`WorkerInspection`
+(`tai42_kit.backend.inspection_tools`). A tool the backend cannot serve is still
+registered, and raises `UnsupportedBackendTool` when called.
+
+Each tool is registered through `backend_tool` as a tool of the backend package that
+registers the surface, not of the kit module that builds it.
+
+## BACKEND_TOOL_TAG
+
+`tai42_kit.backend.tool_surface.BACKEND_TOOL_TAG`
+
+```python
+BACKEND_TOOL_TAG: Final = 'backend'
+```
+
+
+## SCHEDULE_TOOLS
+
+`tai42_kit.backend.tool_surface.SCHEDULE_TOOLS`
+
+```python
+SCHEDULE_TOOLS: Final = (SCHEDULE_LIST_TOOL, 'backend_get_schedule', 'backend_update_schedule', 'backend_enable_schedule', 'backend_disable_schedule', 'backend_run_schedule_now', 'backend_schedule_exists', SCHEDULE_DELETE_TOOL, SCHEDULE_EXPORT_TOOL, SCHEDULE_IMPORT_TOOL)
+```
+
+
+## INSPECTION_TOOLS
+
+`tai42_kit.backend.tool_surface.INSPECTION_TOOLS`
+
+```python
+INSPECTION_TOOLS: Final = ('backend_ping_worker', 'backend_list_active_workers', 'backend_task_status', 'backend_task_result', 'backend_cancel_task', 'backend_active_tasks', 'backend_reserved_tasks', 'backend_scheduled_tasks', 'backend_registered_tasks', 'backend_list_failed_tasks', 'backend_worker_stats', 'backend_worker_queues')
+```
+
+
+## BACKEND_TOOLS
+
+`tai42_kit.backend.tool_surface.BACKEND_TOOLS`
+
+```python
+BACKEND_TOOLS: Final = SCHEDULE_TOOLS + INSPECTION_TOOLS
+```
+
+
+## backend_tool
+
+`tai42_kit.backend.tool_surface.backend_tool`
+
+```python
+backend_tool(module: str) -> Callable[[_Tool], _Tool]
+```
+
+The decorator registering one ``backend_*`` tool, tagged ``backend``, as a tool of ``module``.
+
+``module`` is the backend package registering the surface. The host attributes a tool to the
+module its function names (``__module__``) and admits the tools of the package the manifest's
+``backend_module`` names, so the kit-built function is named into that package before it is
+registered. The builder modules keep their annotations evaluated, so a tool's annotations
+resolve whichever module it names.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `module` | `str` | — | — |
+
+
+## NOT_READY
+
+`tai42_kit.backend.tool_surface.NOT_READY`
+
+```python
+NOT_READY: Final = 'Task {task_id} is not ready (status: {status})'
+```
+
+
+## UnsupportedBackendTool
+
+`tai42_kit.backend.tool_surface.UnsupportedBackendTool`
+
+```python
+class UnsupportedBackendTool(NotImplementedError)
+```
+
+Raised by a ``backend_*`` tool, or one form of it, the backend cannot serve.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `label` | — |
+| `tool` | — |
+
+
+The ten schedule tools every scheduling backend offers, built once over its schedule store.
+
+`register_schedule_tools` registers them over a backend's
+`ScheduleStore`: list, get, update, enable, disable,
+run now, exists, delete, and the export/import pair. Each tool has one argument list and one
+reply on every backend; a status reply is ``{"status": ..., "name": name}``. What a store cannot
+represent is refused here, by its declared capabilities: a disabled schedule on a store that holds
+none, a relative interval on a store that honours none.
+
+## NO_CHANGES
+
+`tai42_kit.backend.schedule_tools.NO_CHANGES`
+
+```python
+NO_CHANGES = 'No changes provided; nothing updated.'
+```
+
+
+## split_fired_tool
+
+`tai42_kit.backend.schedule_tools.split_fired_tool`
+
+```python
+split_fired_tool(name: str, kwargs: dict[str, Any], tool_name_arg: str) -> tuple[str, dict[str, Any]]
+```
+
+The fired tool's name and the remaining kwargs of a stored schedule's job kwargs.
+
+``kwargs`` is left untouched. A schedule without ``tool_name_arg`` in its kwargs was not
+created through the backend's schedule door, and raises ``ValueError``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `kwargs` | `dict[str, Any]` | — | — |
+| `tool_name_arg` | `str` | — | — |
+
+
+## disabled_import_refusal
+
+`tai42_kit.backend.schedule_tools.disabled_import_refusal`
+
+```python
+disabled_import_refusal(name: str, label: str) -> str
+```
+
+The import error of a disabled record on a store that holds no disabled schedule.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `label` | `str` | — | — |
+
+
+## register_schedule_tools
+
+`tai42_kit.backend.schedule_tools.register_schedule_tools`
+
+```python
+register_schedule_tools(
+    store: ScheduleStore,
+    settings: Callable[[], BackendDispatchSettings],
+    label: str,
+    module: str,
+) -> None
+```
+
+Register the ten schedule tools of one backend over ``store``.
+
+``settings`` is the backend's settings accessor, read at each call for the tool-name argument
+the stored job kwargs carry the fired tool under. ``label`` is the backend's name, as a
+refusal names it. ``module`` is the backend package the tools are registered as tools of
+(`backend_tool`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `store` | `ScheduleStore` | — | — |
+| `settings` | `Callable[[], BackendDispatchSettings]` | — | — |
+| `label` | `str` | — | — |
+| `module` | `str` | — | — |
+
+
+The twelve task and worker tools every backend offers, built once over its worker inspection.
+
+`BackendInspection` is the base a backend's
+`WorkerInspection` builds on: each view it does not
+override refuses with `UnsupportedBackendTool`, and its
+capabilities default to ``False``. `register_inspection_tools` registers the tools over it,
+each with one argument list on every backend; a ``worker_name`` the backend cannot address, or a
+``terminate`` it cannot honour, is refused here before the view is reached.
+
+## BackendInspection
+
+`tai42_kit.backend.inspection_tools.BackendInspection`
+
+```python
+class BackendInspection
+```
+
+A backend's worker inspection: every view refused until the backend implements it.
+
+``label`` is the backend's name, as a refusal names it. A subclass overrides the views its
+engine answers and sets `addresses_workers` / `terminates` when it can.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `label` | — |
+
+### Members
+
+#### addresses_workers
+
+`tai42_kit.backend.inspection_tools.BackendInspection.addresses_workers`
+
+```python
+addresses_workers: bool
+```
+
+Whether the views can narrow to one worker by its name; ``False`` unless overridden.
+
+
+#### terminates
+
+`tai42_kit.backend.inspection_tools.BackendInspection.terminates`
+
+```python
+terminates: bool
+```
+
+Whether `cancel` serves ``terminate=True``; ``False`` unless overridden.
+
+
+#### ping
+
+`tai42_kit.backend.inspection_tools.BackendInspection.ping`
+
+```python
+async ping(self, worker_name: str | None) -> dict[str, Any]
+```
+
+Ask the workers whether they are alive, and return their answers.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### active_workers
+
+`tai42_kit.backend.inspection_tools.BackendInspection.active_workers`
+
+```python
+async active_workers(self) -> list[str]
+```
+
+The names of the workers alive now.
+
+
+#### task_status
+
+`tai42_kit.backend.inspection_tools.BackendInspection.task_status`
+
+```python
+async task_status(self, task_id: str) -> str
+```
+
+The vendor's status word for the task ``task_id``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+
+
+#### task_result
+
+`tai42_kit.backend.inspection_tools.BackendInspection.task_result`
+
+```python
+async task_result(self, task_id: str, timeout: float | None) -> tuple[bool, str, Any]
+```
+
+The task's ``(ready, status, value)``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+| `timeout` | `float \| None` | — | — |
+
+
+#### cancel
+
+`tai42_kit.backend.inspection_tools.BackendInspection.cancel`
+
+```python
+async cancel(self, task_id: str, terminate: bool) -> str
+```
+
+Cancel the task ``task_id``; return what was done.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+| `terminate` | `bool` | — | — |
+
+
+#### active_tasks
+
+`tai42_kit.backend.inspection_tools.BackendInspection.active_tasks`
+
+```python
+async active_tasks(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The tasks running now.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### reserved_tasks
+
+`tai42_kit.backend.inspection_tools.BackendInspection.reserved_tasks`
+
+```python
+async reserved_tasks(self) -> dict[str, Any]
+```
+
+The tasks taken off the queue and waiting for a free worker slot.
+
+
+#### scheduled_tasks
+
+`tai42_kit.backend.inspection_tools.BackendInspection.scheduled_tasks`
+
+```python
+async scheduled_tasks(self) -> dict[str, Any]
+```
+
+The tasks waiting for a later time.
+
+
+#### registered_tasks
+
+`tai42_kit.backend.inspection_tools.BackendInspection.registered_tasks`
+
+```python
+async registered_tasks(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The task names the workers can run.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### failed_tasks
+
+`tai42_kit.backend.inspection_tools.BackendInspection.failed_tasks`
+
+```python
+async failed_tasks(self) -> list[dict[str, Any]]
+```
+
+The tasks that failed.
+
+
+#### worker_stats
+
+`tai42_kit.backend.inspection_tools.BackendInspection.worker_stats`
+
+```python
+async worker_stats(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The workers' runtime statistics.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### worker_queues
+
+`tai42_kit.backend.inspection_tools.BackendInspection.worker_queues`
+
+```python
+async worker_queues(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The queues the workers consume.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+
+## register_inspection_tools
+
+`tai42_kit.backend.inspection_tools.register_inspection_tools`
+
+```python
+register_inspection_tools(inspection: BackendInspection, module: str) -> None
+```
+
+Register the twelve task and worker tools of one backend over ``inspection``.
+
+``module`` is the backend package the tools are registered as tools of
+(`backend_tool`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `inspection` | `BackendInspection` | — | — |
+| `module` | `str` | — | — |
+

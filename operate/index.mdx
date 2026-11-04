@@ -39,8 +39,12 @@ connectors, monitoring, accounts, and the extra tools) installs at runtime
 through the [marketplace](/concepts/marketplace) or bakes into a derived image —
 see [Add plugins](#add-plugins).
 
-The image entrypoint is `tai` and its default command is `serve`. Three
-long-lived processes come out of the same image:
+The image runs `tai` under `tini` (`ENTRYPOINT ["tini", "--", "tai"]`) and its
+default command is `serve`. `tini` is the container's init: it forwards signals to
+`tai` and reaps every orphaned process, such as what a host-sandbox exec leaves
+behind. A container that runs the server itself as PID 1 needs an init of its own
+(`docker run --init`, or an init as the entrypoint). Three long-lived processes come
+out of the same image:
 
 | Process | Command | What it does |
 | --- | --- | --- |
@@ -52,7 +56,8 @@ A one-shot `config-init` step hands the bind-mounted `config/` directory to the
 image's user (uid 1000), since the runtime writes its saved settings there. A
 one-shot `db-migrate` step runs `tai db migrate`, and `serve` and `backend` wait
 for both to complete before they start. It applies the ordered migration chain
-— the core plus each installed plugin that owns one — and is idempotent: a run
+— the core, and each plugin that owns one, installed or loaded by the
+manifest — and is idempotent: a run
 with nothing pending is a no-op. Each app container also refuses to serve on an
 out-of-date database, so a missed migration is a loud refusal, not a broken serve.
 
@@ -105,14 +110,16 @@ The image is the minimal core. A deployment adds the plugins it needs one of two
 ways.
 
 **Runtime, through the marketplace.** A running server installs, updates, and
-uninstalls plugins against itself — it `pip install`s the package into its own
-environment, patches the [manifest](/concepts/manifest), and reloads, so the
+uninstalls plugins against itself — it builds the package's environment under
+the plugins directory and switches to it, patches the
+[manifest](/concepts/manifest), and reloads, so the
 plugin is live with no restart — router/middleware and channel inbound routes
 come live on that same reload, whose epoch rebuild re-imports the plugin and
 re-registers its routes. See [Install a plugin](/marketplace/install). For
-those installs to survive a container recreation, the server's plugin-prefix
-setting must point at a mounted, persistent directory — see [the persistent
-mounts](/self-hosted/quickstart#the-persistent-mounts).
+those installs to survive a container recreation, `TAI_PLUGINS_DIR` must point at
+a mounted, persistent directory — see [the persistent
+mounts](/self-hosted/quickstart#the-persistent-mounts). A packaged install refuses
+while it is unset.
 
 **Build time, in a derived image.** Bake a fixed roster into your own image on
 top of the core, then name the added modules in your manifest:
@@ -130,7 +137,7 @@ USER tai
 ```
 
 A marketplace install writes two things a real deployment must keep across a
-container recreation — the installed plugin **code** (`TAI_PLUGINS_PREFIX`) and
+container recreation — the installed plugin **code** (`TAI_PLUGINS_DIR`) and
 its **registration** in the manifest (`TAI_MANIFEST_PATH`). Persist both on their
 own mounts, or a recreated container boots with the code and its registration out
 of sync. The [persistent mounts](/self-hosted/quickstart#the-persistent-mounts)
@@ -192,13 +199,15 @@ probed with `tai42-backend-probe` or over its own HTTP path, as
 marketplace-install persistence model is the platform-side piece to get right:
 
 <Note>
-Marketplace installs on Kubernetes need the plugin-prefix directory on a shared,
-persistent volume (a `ReadWriteMany` PVC) so every `serve`
+Marketplace installs on Kubernetes need the `TAI_PLUGINS_DIR` directory on a
+shared, persistent volume (a `ReadWriteMany` PVC) so every `serve`
 and `backend` pod sees the same installed code, plus the manifest on persistent
-storage. An install `pip install`s into the one pod that handled the request and
-broadcasts the manifest reload fleet-wide — the other pods only reload the
-manifest, so unless the prefix is shared they try to import a package they do not
-have. `serve` and `backend` are separate Deployments — two pods even at one
+storage. An install builds the plugin's environment from the one pod that handled
+the request and broadcasts the manifest reload fleet-wide — the other pods only
+reload the manifest, so unless the directory is shared they try to import a
+package they do not have. A pod whose directory does not match the install store
+refuses to start (see [the plugin check at
+boot](/self-hosted/upgrades#the-plugin-check-at-boot)). `serve` and `backend` are separate Deployments — two pods even at one
 replica each — so `ReadWriteOnce` suffices only when a single node holds every
 mounting pod (disable `backend`, or co-schedule the two onto one node); otherwise
 the shared `ReadWriteMany` mount is required. Every marketplace install/upgrade

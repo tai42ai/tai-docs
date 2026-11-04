@@ -40,11 +40,11 @@ $ tai config env get [OPTIONS]
 Merge KEY=VALUE pairs into the stored env and reload the fleet.
 
 A hot-class key is re-read in place. A recycle-class key rolls a worker
-recycle across the fleet (the response carries the recycle rows; the worker
-that took the write recycles itself after replying, and its supervisor starts
-it again). A key that locates the worker bus (a bus URL or the bus
-namespace), a deployment / boot-identity (X-band) key and a key the
-deployment sets are refused under any spelling of their names, naming the
+recycle across the fleet (the response carries the recycle rows; when the
+roll converged and the worker that took the write needs its own restart, it
+recycles itself after replying, and its supervisor starts it again). A key
+that locates the worker bus (a bus URL or the bus namespace), a deployment /
+boot-identity (X-band) key and a key the deployment sets are refused under any spelling of their names, naming the
 key: a bus key or a key the deployment sets changes in the deployment's
 environment. A write whose resulting stored env would set one name under two
 spellings is refused, naming both: to rename a spelling, remove the old one in
@@ -286,12 +286,32 @@ Soft-restart this process from its manifest, fanning out to every worker.
 
 Refreshes env, resets settings caches, and re-initializes from the manifest
 in-process (no pod restart), then propagates to the fleet; `--target` restricts
-the fan-out to named workers.
+the fan-out to named workers, and only they are judged for a restart.
 
-Each worker's row names the recycle-class keys awaiting a respawn
-(`awaiting_respawn`): the soft restart carries every hot key in place, and
-those keys take effect only when that worker is respawned through the
-deployment's supervisor.
+The soft restart carries every hot key in place. An applied worker's row
+names the recycle-class keys whose value differs from the one it bound
+(`awaiting_respawn`); a worker whose reload was refused at its epoch
+build (the build discarded before its swap) replies `failed` naming the
+keys still drifted after the discard (`awaiting_respawn`); any other
+failed reload, a failed discard among them, carries none. Every worker
+whose reload built and reports such a key is then restarted one at a time
+through the deployment's supervisor, the answering worker last, after the
+reply once the roll converged. A worker whose reload was refused at its epoch build is never
+restarted: the stored config did not build on it and a restart may fail
+the same way, so it keeps serving its current config, its restart
+withheld. Any worker other than the answering one whose state is unknown
+(its reload failed otherwise or did not finish, it has no row, its reply
+is malformed, or the bus was unreachable) is asked once it is ready, and
+restarted unless its reply confirms it clean or states a refused build
+(its restart then withheld). The answering worker is never asked: when
+its own state is unknown, it needs its own restart, run after the reply
+once the roll converged.
+
+The response is the per-worker fleet report, the restart roll it ran
+(`recycle`, `null` when the roll had no worker to visit: every
+addressed worker confirmed no recycle-class key, or the only ones naming one
+were refused at their epoch build) and the workers still
+awaiting a respawn after it (`awaiting_respawn`).
 
 Example: `tai config reload`
 

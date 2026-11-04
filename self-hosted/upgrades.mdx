@@ -31,6 +31,15 @@ volumes are never touched — only the app containers are replaced.
     docker compose pull
     ```
   </Step>
+  <Step title="Stop the app services">
+    ```bash
+    docker compose stop serve backend metrics
+    ```
+
+    The app containers stop and their volumes stay; Postgres and Redis keep running for
+    the steps below. A server of the old image loads its plugins through the plugin
+    environments the next step rebuilds, so none may run while they are rebuilt.
+  </Step>
   <Step title="Run the migrations">
     ```bash
     docker compose run --rm db-migrate
@@ -43,14 +52,24 @@ volumes are never touched — only the app containers are replaced.
     Preview a run first with `docker compose run --rm db-migrate db migrate --plan`,
     which lists the pending files without touching the database.
   </Step>
-  <Step title="Recreate the app services only">
+  <Step title="Rebuild the plugin environments">
+    ```bash
+    docker compose run --rm --no-deps serve plugins rebuild
+    ```
+
+    A deployment with plugins installed through the marketplace rebuilds their
+    environments against the new image while no app service runs; a server refuses
+    to start on environments that no longer match the image. See
+    [Rebuild the plugin environments](#rebuild-the-plugin-environments).
+  </Step>
+  <Step title="Start the app services on the new image">
     ```bash
     docker compose run --rm config-init
     docker compose up -d --no-deps serve backend metrics
     ```
 
     `config-init` hands `config/` to the image's user, as a full `up` does before
-    the app services start. `--no-deps` then recreates the three app services
+    the app services start. `--no-deps` then recreates the three stopped app services
     against the new image without restarting Postgres or Redis, so the datastores
     — and their volumes — stay up.
   </Step>
@@ -95,6 +114,12 @@ and the job queues stay shared — see
 takes a change up and what else is shared. A job on a shared queue may be picked up by
 a backend worker of either major, and the release notes name any step a major needs
 beyond the migration run.
+
+Plugins installed through the marketplace do not overlap this way. Every node loads
+them from the one plugins directory, and
+[`tai plugins rebuild`](#rebuild-the-plugin-environments) switches that directory's
+environments to builds for the new image. Stop every node of the old image before
+the rebuild, and start nodes of the new image after it.
 
 ## Move the Langfuse stack to 4.x
 
@@ -221,10 +246,98 @@ server keeps serving its current configuration. `tai setup --recover` prints it 
 ## Runtime-installed plugins
 
 An image upgrade replaces the **core** only. Plugins added at runtime through the
-[marketplace](/concepts/marketplace) live in the server's plugin prefix
-(`TAI_PLUGINS_PREFIX`), not in the image, so **they do not update with a new image
-tag** — a freshly pinned image boots with the same plugin versions the prefix
-already holds.
+[marketplace](/concepts/marketplace) live in the plugins directory
+(`TAI_PLUGINS_DIR`), not in the image, so **they do not update with a new image
+tag** — a freshly pinned image boots with the same plugin versions the install
+store records. The directory holds one environment per kind of plugin: the
+**plugin layer**, shared by every in-process plugin, and one virtual environment
+per `mcp-server` package.
+
+### Rebuild the plugin environments
+
+Those environments were built against the previous image. Rebuild them against the
+new one after the migrations, with every app service stopped and before any starts
+on the new image:
+
+```bash
+docker compose run --rm --no-deps serve plugins rebuild
+```
+
+`tai plugins rebuild` runs with the deployment's environment and manifest, as
+`tai serve` does, so a setting kept only in the env store applies to it. It holds
+the fleet-wide lock the installer holds, checks every environment against the
+install store and the running image, rebuilds each one that does not match
+(fetching a GitHub-sourced plugin's archive again when the directory lost it),
+deletes the other builds and the server environments no plugin is recorded in, and prints
+one row per environment: its `environment` (`layer`, or `server <package>`), its
+`result` — `up to date`, `rebuilt`, or `removed` — and a `detail`, which for a rebuilt
+environment is the check's finding. When it rebuilt a plugin layer that holds plugins,
+it ends with `running servers load the rebuilt plugin layer on their next start`. It switches each
+rebuilt environment's `current` link to the new build and deletes the old builds, and
+a running server loads its plugins through `current`, so a server of the old image
+left running would load the new image's builds: stop every server first, as the
+steps above do. A server loads the rebuilt environments on its next start. It needs
+the database settings,
+`TAI_PLUGINS_DIR`, pip, and the package index, and a failure prints `Error: …`
+(with pip's report on a failed build) and exits `1`.
+
+### The plugin check at boot
+
+Each `serve` and `backend` process checks, once at startup and after the
+[schema check](#the-boot-gate), that the plugins directory matches the install store
+and the running image. It only reads. A mismatch is a loud refusal that names the
+fix:
+
+```text
+plugin environment was built for Python 3.12 on linux-x86_64 but this image runs Python 3.13 on linux-x86_64 — refusing to start. Run 'tai plugins rebuild' against this image
+```
+
+The same check refuses when a plugin in the layer provides a package the image
+already ships at another version (`plugin environment conflicts with this image`),
+when a plugin's own requirements are not met by the image (`plugin environment is
+inconsistent with this image`), and when a server package's environment has no
+interpreter or records no Python version. Each of these ends `Run 'tai plugins
+rebuild' against this image`.
+
+It also refuses when the directory does not match the install store (`plugin
+environment is out of date: the plugins directory <dir> does not match the install
+store (…)`, naming each plugin it is missing or holds unrecorded), and when an
+environment's current build has no readable build record. Every build carries its
+record, `tai42-build.json`, written last: the plugins it was built from, the plugins
+it left out and why, the Python version and the platform. A current build without
+one is incomplete, and a record that is not the document a build writes does not
+read:
+
+```text
+plugin environment has no build record <build>/tai42-build.json — refusing to start: its current build <build id> is incomplete. Run 'tai plugins rebuild' against this deployment, then start again
+plugin environment has an unreadable build record <build>/tai42-build.json — refusing to start: <reason>. Run 'tai plugins rebuild' against this deployment, then start again
+```
+
+These end `Run 'tai plugins rebuild' against this deployment, then start again`. A
+server package's environment reads `plugin environment of server package <package>`
+in place of `plugin environment`. When packaged plugins are recorded but
+`TAI_PLUGINS_DIR` is unset, the refusal reads `installed plugins need
+TAI_PLUGINS_DIR` and names them: set it to the directory they were installed into.
+With no `skeleton` database configured there is no install store, so the check is
+skipped and logged. `tai doctor` reports the same check per environment (`plugins:
+layer`, `plugins: server <package>`).
+
+### Plugins the new core does not support
+
+A plugin whose declared tai42-contract range does not cover the new image's contract
+is **left out** of the rebuilt layer and recorded in the build record as excluded,
+with the reason: the rebuild lists it as `left out <ref> <version>: <reason>`, an
+install or update that rebuilds the layer adds the same line to its notes, the
+installed inventory shows it as incompatible, and
+`tai plugins upgrade --all` moves it to a version that supports the new core, or
+reports that none is published. While the manifest still names one of its modules,
+as an install leaves it, the server refuses to start (the Warning below): remove
+the plugin with `tai plugins uninstall <ref> --offline`, or drop its entries from
+the manifest, start the server, then install a version that fits. A layer that
+still holds such a plugin, or that leaves out one the image now supports, is out
+of date to the boot check, and `tai plugins rebuild` puts it right.
+
+### Update the plugins
 
 Update them as a step of their own, after the image upgrade:
 
@@ -233,7 +346,7 @@ tai plugins upgrade --all
 ```
 
 This resolves each installed plugin to the newest version compatible with the
-core you are now running and installs it into the same persistent prefix. A
+core you are now running and builds it into the plugins directory. A
 **router** or **middleware** plugin — and a channel's inbound webhook route — comes
 live on the next reload / config-apply, not on a container restart: the epoch
 rebuild that a reload runs re-imports the plugin package and its route-sibling
@@ -245,8 +358,10 @@ The image pins its own core versions as a pip/uv constraints file at
 install — a marketplace install, `python -m pip install` by hand, or a derived
 image's build step — that would move a core package (`tai42-contract`, `tai42-kit`,
 `tai42-skeleton`, `tai42-cli`, or any other package the image ships) off the image's
-version is refused by the resolver, never silently downgraded or upgraded. An
-incompatible plugin fails loudly at install:
+version is refused by the resolver, never silently downgraded or upgraded. The
+marketplace builds the plugin layer against the same file and never lets a plugin
+replace a package the image provides; it refuses such an install with a `409` that
+carries pip's report. A hand install fails loudly the same way:
 
 ```text
 ERROR: Cannot install tai42-monitoring-langfuse==3.0.3 because these package versions have conflicting dependencies.
@@ -254,10 +369,44 @@ ERROR: Cannot install tai42-monitoring-langfuse==3.0.3 because these package ver
 ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
 ```
 
+### A plugin that blocks the upgrade
+
+A plugin whose own dependency pin rejects the new image cannot be rebuilt: `tai
+plugins rebuild` stops with pip's report, the server refuses to start, and the
+running-server uninstall cannot be reached. Remove the plugin from the host
+instead:
+
+```bash
+docker compose run --rm --no-deps serve plugins uninstall <ref> --offline
+```
+
+`tai plugins uninstall <ref> --offline` runs with no server, on the deployment
+host, with the deployment's environment (the same variables `tai serve` runs
+with, `TAI_PLUGINS_DIR` included) and the server package installed beside the
+CLI, as it is in the image. It holds the same fleet-wide lock the installer and
+`tai plugins rebuild` hold. It changes only the environment the plugin lives in:
+for an in-process plugin it rebuilds the plugin layer from the other installed
+plugins, and for an `mcp-server` package it withdraws and deletes that package's
+own environment. It then strips the plugin's entries from the manifest through the
+same validated config write the running server uses and removes its row from the
+install store. A server that is running keeps what it loaded until its next start.
+
+Every other server package's environment is left as it was, so after an image
+upgrade it can still be built for the previous image. Run the rebuild again before
+you start the app services, so it brings those environments up to date and the
+boot check passes:
+
+```bash
+docker compose run --rm --no-deps serve plugins rebuild
+```
+
+Then start the app services and install a version of the removed plugin that fits
+the new image.
+
 The venv is root-owned, so a direct install into it runs as root — a derived image's
 `USER root` build step, or `docker exec -u 0` into a running container. The
-marketplace installer writes to its own `--prefix` and is unaffected. After a manual
-or derived-image install, run `python -m pip check` to confirm the environment is
+marketplace builds under `TAI_PLUGINS_DIR` and is unaffected. After a manual or
+derived-image install, run `python -m pip check` to confirm the environment is
 consistent.
 
 <Warning>
@@ -265,12 +414,12 @@ A manifest-declared plugin that is incompatible with the new core — or otherwi
 cannot load — **aborts boot loudly**: the process exits naming the module, its
 kind, and the reason, rather than coming up missing a plugin the manifest asked
 for. Fix or update the plugin, point the manifest at a working one, or remove it
-from the manifest, then boot again. A plugin that cannot load during a live
-config reload aborts that reload instead: the previous generation keeps serving
-and the reload call returns the failure (a non-2xx naming the module, which `tai
-config reload` prints before exiting non-zero). Keep the plugin prefix on
-persistent storage so the installed set survives the container recreation an
-upgrade performs.
+— from the manifest, or with `tai plugins uninstall <ref> --offline` — then boot
+again. A plugin that cannot load during a live config reload aborts that reload
+instead: the previous generation keeps serving and the reload call returns the
+failure (a non-2xx naming the module, which `tai config reload` prints before
+exiting non-zero). Keep the plugins directory on persistent storage so the
+installed set survives the container recreation an upgrade performs.
 </Warning>
 
 ## See also

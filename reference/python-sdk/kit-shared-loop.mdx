@@ -1,0 +1,74 @@
+---
+title: "Shared event loop (tai42_kit.backend.shared_loop)"
+description: "The host's running event loop, shared with the jobs of a backend pool that runs them as green threads of the host's OS thread."
+icon: "share-nodes"
+---
+
+
+The host's running event loop, shared with jobs that run on another thread of execution.
+
+A backend whose pool runs its jobs as green threads of the host's one OS thread cannot give a job a
+loop of its own: asyncio runs one loop per OS thread at a time, and the host already runs its loop
+there. `SharedLoop` hands each job's coroutine to the host's loop instead, and the job waits
+for its result.
+
+## SharedLoop
+
+`tai42_kit.backend.shared_loop.SharedLoop`
+
+```python
+class SharedLoop
+```
+
+A loop that already runs on another thread of execution, to which a job hands its coroutine and then waits.
+
+The loop is the host's: this object neither runs, stops nor closes it, and the kit's resources
+bound to it are the host's, released by its stop. A job's coroutine runs as a task of that loop,
+in the context the job handed it in, and the job's thread waits for the task's outcome. Where
+every job is a green thread of the loop's own OS thread, that wait yields to the other green
+threads, so the jobs' coroutines interleave on the loop with the host's own work. Jobs run on it
+while the host runs it; a job handed once it has closed, or once `close` has run, raises
+at once.
+
+### Members
+
+#### run
+
+`tai42_kit.backend.shared_loop.SharedLoop.run`
+
+```python
+run(self, coroutine: Coroutine[Any, Any, Any]) -> Any
+```
+
+Run ``coroutine`` to completion on the host's loop and return its result, or raise its exception.
+
+The job raises what the coroutine's task ends with, ``CancelledError`` when the task was
+cancelled (as the host's run ends every task left on its loop).
+
+An exception raised into the job's wait (its pool's time limit, a stop of the job) cancels the
+coroutine's task on the loop and waits on until that task has ended, its cleanup included:
+the job holds what it holds until its coroutine has ended, and then raises that exception.
+Each further exception raised into the wait is forwarded as another cancel the same way, and
+the job ends with the last, each earlier one as its context. An error the coroutine ends with
+meanwhile is logged at ERROR with its traceback, since the job raises the wait's exception. A
+coroutine that swallows the cancel is waited for until it returns, and the job still ends
+with the wait's exception.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `coroutine` | `Coroutine[Any, Any, Any]` | — | — |
+
+
+#### close
+
+`tai42_kit.backend.shared_loop.SharedLoop.close`
+
+```python
+close(self) -> None
+```
+
+Let the host's loop go: every later job is refused; the loop and its kit resources stay the host's.
+
+

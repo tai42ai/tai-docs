@@ -1,13 +1,13 @@
 # Contributing to tai-docs
 
 `tai-docs` is the source of the TAI documentation site at
-[tai42.ai](https://tai42.ai). Pages are MDX in this repo and the navigation lives
+[docs.tai42.ai](https://docs.tai42.ai). Pages are MDX in this repo and the navigation lives
 in `docs.json`. The site is deployed from committed files on `main`, so a merged
 change is a published change — this repo ships no released version of its own.
 The shared contribution discipline for the whole ecosystem is documented on the
 site itself, which is the single source of truth:
 
-**https://tai42.ai/contributing**
+**https://docs.tai42.ai/contributing**
 
 Please read that page before opening a documentation pull request.
 

@@ -85,10 +85,18 @@ or data, decided by its kind (above). **Delivery** is how the plugin *arrives*,
 and it is set by one field: `package`.
 
 - **Package delivery** (`package` present) — the listing points at a pip
-  distribution. Installing pip-installs it into the server's environment, exactly
-  as every code plugin does. A data plugin may still ship a package: an
-  `mcp-server` whose command is a console script the wheel installs, for example,
-  is data-payload *and* package-delivered. Delivery is independent of payload.
+  distribution. An in-process plugin installs into the **plugin layer**: one
+  environment shared by every installed in-process plugin, built under
+  `TAI_PLUGINS_DIR` against the image's own constraints and added after the image
+  on the server's import path. It never replaces a package the image provides. A
+  data plugin may still ship a package: an `mcp-server` whose command is a console
+  script its wheel declares, for example, is data-payload *and* package-delivered.
+  Such a server package installs into **its own virtual environment** at
+  `TAI_PLUGINS_DIR/servers/<package>/current`, never into the layer, and its
+  server launches from there with no path of the server's own added. The item's
+  `command` must name a console script its own package declares, and no other
+  installed server package may already provide that name; the install refuses
+  either with a `409`. Delivery is independent of payload.
 - **Descriptor delivery** (`package` absent) — a *descriptor-only plugin*. Every
   item is data, so there is nothing to import and nothing to pip-install. The
   registry lists it with `source: spec`: the artifact is the `tai-plugin.yml`
@@ -191,9 +199,9 @@ guesses:
 
 A plugin that owns tables ships its schema as a **migration chain**, not a
 one-shot DDL apply. The framework runs the chain: `tai db migrate` discovers every
-component — the core, each plugin installed in the environment or the plugins prefix
-that declares one, whether or not the manifest loads it, and each plugin the manifest
-loads — and applies its pending files in order. A plugin author owns the files; the
+component — the core, each plugin in the image, the plugin layer, or a server
+package's own environment that declares one, whether or not the manifest loads it,
+and each plugin the manifest loads — and applies its pending files in order. A plugin author owns the files; the
 runner owns the mechanism.
 
 The framework also checks the chain: the [boot gate](/self-hosted/upgrades#the-boot-gate)
@@ -284,18 +292,20 @@ a from-scratch replay reproduces it exactly.
 
 ## Installing into a server
 
-Install is a server-side operation: the server resolves the listing, installs
-the verified package into its own environment, patches its manifest per
+Install is a server-side operation: the server resolves the listing, builds the
+verified package into a fresh plugin layer (or, for a server package, its own
+environment) and switches to it, patches its manifest per
 provided item, and reloads. The server records the marketplace ref and installed
 version locally, so `installed`, update checks, and advisories answer from
 local truth. The whole flow is one CLI command or one Studio click — see
 [Install a plugin](/marketplace/install). An update keeps each MCP server's tool
 selection (its entry's `include` / `exclude`).
 
-Because the install writes into the server's own environment and manifest, a
-self-hosted deployment keeps both on persistent storage — the plugin-prefix
-directory and the manifest file — so a container recreation does not lose the
-plugin. See [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
+Because the install writes the plugins directory and the manifest, a self-hosted
+deployment keeps both on persistent storage — the `TAI_PLUGINS_DIR` directory and
+the manifest file — so a container recreation does not lose the plugin. A packaged
+install refuses until `TAI_PLUGINS_DIR` is set; a descriptor-only install needs no
+directory. See [the persistent mounts](/self-hosted/quickstart#the-persistent-mounts).
 
 ### Installing a descriptor-only plugin
 

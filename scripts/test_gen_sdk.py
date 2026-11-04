@@ -28,6 +28,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import gen_sdk  # noqa: E402
+import sdk_pages  # noqa: E402
 
 
 def _fresh_loader():
@@ -39,13 +40,13 @@ def test_checklist_coverage() -> None:
     loader = _fresh_loader()
     pages, symbols = gen_sdk.build_pages(loader)
 
-    missing = [s for s in gen_sdk.REQUIRED_SYMBOLS if s not in symbols]
+    missing = [s for s in sdk_pages.REQUIRED_SYMBOLS if s not in symbols]
     assert not missing, f"required symbols absent from render: {missing}"
 
     # And each required symbol is a real Markdown heading in some page, so it is
     # navigable — not merely counted.
     all_text = "\n".join(pages.values())
-    for sym in gen_sdk.REQUIRED_SYMBOLS:
+    for sym in sdk_pages.REQUIRED_SYMBOLS:
         assert (f"## {sym}\n" in all_text) or (f"#### {sym}\n" in all_text) or (f"###### {sym}\n" in all_text), (
             f"required symbol {sym!r} not rendered as a heading"
         )
@@ -56,20 +57,20 @@ def test_checklist_coverage() -> None:
         for key in ("title:", "description:", "icon:"):
             assert key in text.split("---", 2)[1], f"{slug}: frontmatter missing {key}"
 
-    print(f"  checklist: all {len(gen_sdk.REQUIRED_SYMBOLS)} required symbols present across {len(pages)} pages")
+    print(f"  checklist: all {len(sdk_pages.REQUIRED_SYMBOLS)} required symbols present across {len(pages)} pages")
 
 
 def test_fail_loud_missing_symbol(tmp_path: Path) -> None:
     """A required symbol that cannot be rendered -> exit 1, no files written."""
     original_out = gen_sdk.OUT_DIR
-    original_required = gen_sdk.REQUIRED_SYMBOLS
+    original_required = sdk_pages.REQUIRED_SYMBOLS
     gen_sdk.OUT_DIR = tmp_path
-    gen_sdk.REQUIRED_SYMBOLS = [*original_required, "ThisSymbolDoesNotExist"]
+    sdk_pages.REQUIRED_SYMBOLS = [*original_required, "ThisSymbolDoesNotExist"]
     try:
         rc = gen_sdk.main()
     finally:
         gen_sdk.OUT_DIR = original_out
-        gen_sdk.REQUIRED_SYMBOLS = original_required
+        sdk_pages.REQUIRED_SYMBOLS = original_required
 
     assert rc == 1, "generator must exit non-zero when a required symbol is absent"
     written = list(tmp_path.glob("*.mdx"))
@@ -103,7 +104,7 @@ def test_later_module_docstring_renders_before_its_first_symbol() -> None:
     doc section renders immediately above that module's first rendered heading.
     """
     loader = _fresh_loader()
-    spec = next(s for s in gen_sdk.PAGES if s["slug"] == "kit-llm")
+    spec = next(s for s in sdk_pages.PAGES if s["slug"] == "kit-llm")
     text, _ = gen_sdk.render_page(loader, spec)
 
     classifier = loader.modules_collection["tai42_kit.llm.classifier"]
@@ -184,7 +185,7 @@ def test_contract_monitoring_setext_heading_becomes_bold() -> None:
     outside the frontmatter (whose closing ``---`` follows the icon line).
     """
     loader = _fresh_loader()
-    spec = next(s for s in gen_sdk.PAGES if s["slug"] == "contract-monitoring")
+    spec = next(s for s in sdk_pages.PAGES if s["slug"] == "contract-monitoring")
     text, _ = gen_sdk.render_page(loader, spec)
 
     assert "**FAIL-SAFE INVARIANT**" in text, "writer section title not folded to bold"

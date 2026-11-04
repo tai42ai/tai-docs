@@ -30,7 +30,7 @@ release pipeline signs and scans every artifact it publishes.
 
 `docker.io/tai42/tai` is the official image, mirrored at `ghcr.io/tai42ai/tai`.
 It is one minimal-core image that runs every deployment role from a single
-entrypoint (`tai`): the HTTP server, the task backend worker, and the metrics
+entrypoint (`tai`, run under the `tini` init): the HTTP server, the task backend worker, and the metrics
 reader. What a container becomes is chosen by its command and its
 [manifest](/concepts/manifest), not by a different image per role.
 
@@ -141,10 +141,10 @@ The image pins its core versions as a pip/uv constraints file
 install that would move a core package off the image's version is refused by the
 resolver rather than silently downgraded or upgraded; the venv is root-owned, so a hand or
 derived-image install into it runs as root (`USER root`, or `docker exec -u 0`),
-while a marketplace install lands in its own prefix.
+while a marketplace install builds its own environments under `TAI_PLUGINS_DIR`.
 
 <Note>
-Runtime-installed plugins live in the server's plugin prefix, not in the image.
+Runtime-installed plugins live in the plugins directory (`TAI_PLUGINS_DIR`), not in the image.
 An image upgrade replaces the core but **does not** update a runtime-installed
 plugin — see [Upgrades](/self-hosted/upgrades#runtime-installed-plugins).
 </Note>

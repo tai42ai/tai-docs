@@ -962,6 +962,22 @@ reaches the surface:
 
 A computed total is not a special case — it is a `display` slot the reaction fills.
 
+A reaction calls its handler with three arguments (`interaction_id`, `event`, `values`)
+and reads its answer as a form update. A handler whose own arguments or answer have
+another shape is adapted by its [preset](/concepts/presets): an `input_schema` that
+declares the three arguments, an [`input_map`](/concepts/presets#input-and-output-maps)
+that turns them into the handler's own arguments, and an `output_map` that returns the
+form update. A base tool that takes a preset's `input_schema` as its payload argument
+needs no input map. A [saved flow](/babelfish) is one: it takes its inputs as
+`flow_graph_kwargs` and answers with its run envelope (`status`, `result`,
+`missing_results`), which is not a form update. So a flow used as a `reaction_tool`
+carries a schema and an output map on its preset: an `input_schema` for
+`interaction_id`, `event` and `values`, which reach the flow as its
+`flow_graph_kwargs`, and an `output_map` that picks the update out of the envelope —
+`.result.<surface>`, where `<surface>` is the result surface that holds it. Without the
+map the reaction is refused for its unknown keys, and the person sees the surface's
+error.
+
 ### Reaction-fed choices
 
 A reaction may **replace a field's choice list** while the form is open (the slots for

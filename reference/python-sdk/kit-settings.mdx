@@ -211,6 +211,19 @@ ReloadClass = Literal['hot', 'recycle', 'excluded']
 ```
 
 
+## RespawnClassBindings
+
+`tai42_kit.settings.registry.RespawnClassBindings`
+
+```python
+class RespawnClassBindings
+```
+
+An opaque token for the respawn-class bindings held at one moment.
+
+Made by `respawn_class_bindings` and read only by `restore_respawn_class_bindings`.
+
+
 ## SettingsClassInfo
 
 `tai42_kit.settings.registry.SettingsClassInfo`
@@ -420,6 +433,21 @@ Bind every registered respawn-class field under the process env as it is now.
 Called once a lifespan applied its env, before it builds the resources behind those values:
 a group registered later binds its own fields at its registration. Overwrites every binding
 an earlier bind recorded.
+
+
+## bind_unbound_respawn_class_env
+
+`tai42_kit.settings.registry.bind_unbound_respawn_class_env`
+
+```python
+bind_unbound_respawn_class_env() -> None
+```
+
+Bind every registered respawn-class field that holds no binding under the process env as it is now.
+
+Called once the resources behind the current env are committed: a group whose binding a
+restore dropped is bound under the env those resources were built under. A field already
+bound keeps its binding. Nothing is bound while no lifespan has bound the respawn-class env.
 
 
 ## changes_only_by_respawn
@@ -878,6 +906,17 @@ reset_all_settings() -> None
 Drop every registered settings cache, then run the reset hooks.
 
 
+## respawn_class_bindings
+
+`tai42_kit.settings.registry.respawn_class_bindings`
+
+```python
+respawn_class_bindings() -> RespawnClassBindings
+```
+
+The respawn-class bindings held now, for `restore_respawn_class_bindings` to put back.
+
+
 ## respawn_class_env_drift
 
 `tai42_kit.settings.registry.respawn_class_env_drift`
@@ -917,6 +956,28 @@ instances are judged when its epoch retires.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `mark` | `int` | — | — |
+
+
+## restore_respawn_class_bindings
+
+`tai42_kit.settings.registry.restore_respawn_class_bindings`
+
+```python
+restore_respawn_class_bindings(bindings: RespawnClassBindings) -> None
+```
+
+Put back the respawn-class bindings ``bindings`` holds, dropping every binding made since.
+
+A group registered since keeps its registration and holds no binding until it registers
+again (a module re-import) or `bind_unbound_respawn_class_env` binds it, under the env
+then. A module that stays imported never registers again, so its fields stay unbound until
+that call.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `bindings` | `RespawnClassBindings` | — | — |
 
 
 ## settings_birth_mark

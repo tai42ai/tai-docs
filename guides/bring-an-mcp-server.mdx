@@ -29,6 +29,29 @@ mcp:
       env: {}
 ```
 
+The official image carries the package runners `uvx` and `npx`, so a stdio server
+launched as `uvx <package>` or `npx <package>` starts on the image as it is; the runner
+fetches the package on its first use.
+
+A `command` with a directory part is launched as given. A bare `command` is found at
+its first executable match, in this order:
+
+1. the entry's own `env.PATH`, when it sets one;
+2. a command an installed `mcp-server` package exposes under exactly that name — the
+   console scripts its own package declares, run from that package's own environment;
+3. the runtime's `PATH`, only when the entry's `env` sets no `PATH`.
+
+A bare `command` with no executable match fails the server's start with a message that
+names the `PATH` searched and the exposed command names, and any file of that name that
+is not executable. The server is launched with its `env` exactly as the entry declares
+it, plus a short safe-list of the runtime's own environment (`HOME`, `PATH`, `USER`, …);
+nothing else is added, and a `PATH` the entry sets replaces the inherited one.
+
+A [marketplace](/concepts/marketplace) `mcp-server` plugin that ships a package names one
+of its own console scripts as its `command`: the install builds the package into its own
+environment and refuses, with a `409`, a `command` the package does not declare or that
+another installed server package already exposes.
+
 Use `include` / `exclude` on an entry to expose only a subset of the mounted server's tools.
 
 ## Inspect and reload
@@ -41,7 +64,7 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
     tai mcp status
     ```
 
-    The payload carries three blocks: `bound` maps each attached server's title to the tool names it serves, `failed` lists the servers a viability probe skipped — each entry carrying the server `title`, a coarse `status`, a `category` (`auth`, `unreachable`, `preset_store` when the preset store could not be read while the server's tools were being bound, or `error`), a redacted `message`, and the `http_status` the failure carried (`null` for a pure transport failure) — and `health` reports each server's most recent tool-dispatch outcome, keyed by title (a skipped server carries the block at its empty values).
+    The payload carries three blocks: `bound` maps each attached server's title to the tool names it serves, `failed` lists the servers a viability probe skipped — each entry carrying the server `title`, a coarse `status`, a `category` (`auth`, `unreachable` for a transport error or a start that outran the start budget, `starting` for a start still in progress when the caller stopped waiting, which binds when the start completes, `preset_store` when the preset store could not be read while the server's tools were being bound, or `error`), a redacted `message`, and the `http_status` the failure carried (`null` for a pure transport failure) — and `health` reports each server's most recent tool-dispatch outcome, keyed by title (a skipped server carries the block at its empty values).
 
     ```json
     {
@@ -86,6 +109,17 @@ Use `include` / `exclude` on an entry to expose only a subset of the mounted ser
     ```
 
     Each `health` entry has four fields, detailed in [the `health` block reference](#the-health-block) below.
+  </Step>
+  <Step title="List a server's tools">
+    List every tool a server advertised when it was bound, before the entry's selection, with whether the entry picks it and whether it is bound.
+
+    ```bash
+    tai mcp tools example-http
+    ```
+
+    The command reads `GET /api/mcp-status/{title}/advertised-tools`, a read-tier route: the answering worker answers from the listing it bound the server from, and never starts the server or connects to it. Each row gives the tool's served `name`, whether the selection picks it (`selected`), whether the live binding carries it (`bound`), and, for a picked tool that is not bound, its `unbound_reason`: `preset_conflict` when a preset owns its name, `unusable_schema` when its input schema cannot be adapted, or `pending_bind` when no bind has applied the entry's current selection yet (a bind is in progress, or the next reload binds it). A name the entry's `include` (or else `exclude`) list carries that the server no longer advertises follows as a `not advertised` row (`unadvertised` in the JSON).
+
+    With no listing held, the read refuses: `503` with `code` `mcp-server-starting` while the server's start is in progress, `503` with `code` `mcp-server-not-loaded` when the answering worker has not loaded the server, and `502` with the recorded cause when its last start or bind failed. An unknown title is a `404`.
   </Step>
   <Step title="Replace the set at runtime">
     Write the full replacement `mcp` list to a JSON file, then apply it. This hot-reloads the section without restarting the server. `set` remains the bootstrap and restore path — use it to lay down the whole section at once.

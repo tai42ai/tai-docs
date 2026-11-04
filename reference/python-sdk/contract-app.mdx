@@ -102,7 +102,7 @@ In-process admin operations: MCP binding, tool reload, config reload.
 `tai42_contract.app.facets.runtime.AppAdmin.reload_mcp`
 
 ```python
-reload_mcp(self, title: str) -> dict[str, Any]
+async reload_mcp(self, title: str) -> dict[str, Any]
 ```
 
 Rebind the MCP server titled ``title`` and return its status.
@@ -119,7 +119,7 @@ Rebind the MCP server titled ``title`` and return its status.
 `tai42_contract.app.facets.runtime.AppAdmin.deregister_mcp`
 
 ```python
-deregister_mcp(self, title: str) -> dict[str, Any]
+async deregister_mcp(self, title: str) -> dict[str, Any]
 ```
 
 Remove the MCP server titled ``title`` and return its status.
@@ -136,7 +136,7 @@ Remove the MCP server titled ``title`` and return its status.
 `tai42_contract.app.facets.runtime.AppAdmin.reload_config`
 
 ```python
-reload_config(self) -> dict[str, Any]
+async reload_config(self) -> dict[str, Any]
 ```
 
 Re-init the process config in place and return the reload report.
@@ -183,7 +183,7 @@ Run the registered ``kind`` reloader for ``action`` on ``name``.
 `tai42_contract.app.facets.runtime.AppAdmin.reload_failed_mcps`
 
 ```python
-reload_failed_mcps(self) -> list[dict[str, Any]]
+async reload_failed_mcps(self) -> list[dict[str, Any]]
 ```
 
 Retry every MCP that failed to bind and return their statuses.
@@ -669,7 +669,7 @@ no-op returning ``False`` where the send-receipt store is unconfigured.
 class AppClients(Protocol)
 ```
 
-Pooled async client lifecycle for the process.
+Pooled async clients for the process.
 
 ### Members
 
@@ -702,17 +702,6 @@ the connection key.
 | `settings` | `Any` | `None` | — |
 | `fresh` | `bool` | `False` | — |
 | `kwargs` | `Any` | `{}` | — |
-
-
-#### shutdown_clients
-
-`tai42_contract.app.facets.runtime.AppClients.shutdown_clients`
-
-```python
-async shutdown_clients(self) -> None
-```
-
-Close every live client pool for the running loop.
 
 
 
@@ -1991,9 +1980,8 @@ on_post_swap(self, func: Callable[[], Any]) -> Callable[[], Any]
 
 Register an establisher for a loop-affine background loop (a periodic poll or sweep).
 
-Run on the real serving loop at boot and after every epoch swap — never on
-the throwaway build-thread loop the per-epoch handlers run on — so the loop
-it spawns attaches to the serving loop and retires with its generation.
+Run on the serving loop at boot and after every epoch swap, so the loop it
+spawns attaches to the serving loop and retires with its generation.
 
 **Parameters**
 
@@ -2043,6 +2031,42 @@ dequeued and forked mid-rebuild would run the job against a half-built
 registry. The latch is one-way — it resolves once and stays resolved, so
 a later bus reconnect (which re-runs the self-resync while the app is
 already live) never un-readies the process.
+
+
+#### waiting_on_fleet_work
+
+`tai42_contract.app.facets.runtime.AppLifecycle.waiting_on_fleet_work`
+
+```python
+waiting_on_fleet_work(self) -> AbstractAsyncContextManager[None]
+```
+
+Span a wait of the current request, supervised tool run or admitted job on work outside this process.
+
+For work that may drive this process's reload, such as a queued job whose change the
+fleet applies. While the wait lasts, the reload's retire neither counts it against the
+drain budget nor closes its transport, so it never severs the waiting work; once the wait
+ends that work is drained like any other. Off a served request, supervised run or
+admitted job nothing is recorded. The span adds no bound: the wait keeps its own.
+
+
+#### admitted_job
+
+`tai42_contract.app.facets.runtime.AppLifecycle.admitted_job`
+
+```python
+admitted_job(self) -> AbstractContextManager[None]
+```
+
+Admit the enclosed body, one backend job's run, as the live serving generation's work.
+
+The admission holds while the body runs on the serving loop. A config reload's retire then
+drains it: it waits, within the drain budget, for the job to end before it closes the
+generation's loop-bound resources (its transports, client pools, checkpoint savers and
+stores). While the job waits on a recorded lock (``waiting_on_fleet_work``, the reload
+gate) it is not counted, and a reload the job itself drives does not wait on it. A job on
+any other event loop is not the serving generation's work: nothing is recorded, and that
+loop's end releases its resources.
 
 
 

@@ -1,6 +1,6 @@
 ---
 title: "Backends (tai42_contract.backend)"
-description: "The Backend protocol a compute backend implements."
+description: "The Backend protocol a compute backend implements, and the seams the kit builds every backend's tools over: the TaskDoor its task branches queue through, the ScheduleWriter and ScheduleStore its schedules are written and read through, and the WorkerInspection its task and worker views read."
 icon: "server"
 ---
 
@@ -8,7 +8,10 @@ icon: "server"
 Execution-backend contract.
 
 Exposes the ``Backend`` ABC, the ``BackendRuntime`` ABC one launch subcommand implements with
-its liveness declarations, the ``CallbackSchema``, and the scheduling protocol's names and models.
+its liveness declarations, the ``CallbackSchema``, the scheduling protocol's names and models, and
+the three seams a backend plugs its engine into: the ``TaskDoor`` (its queue), the ``ScheduleStore``
+(its schedule storage, read back as ``StoredSchedule``; its ``ScheduleWriter`` part is the one
+schedule writer) and the ``WorkerInspection`` (its worker views).
 
 ## CONSUMING_RUNTIME
 
@@ -26,12 +29,45 @@ backend. A backend that names its consuming runtime anything else does not get
 the manifest export.
 
 
+## CRONTAB_FIELDS
+
+`tai42_contract.backend.scheduling.CRONTAB_FIELDS`
+
+```python
+CRONTAB_FIELDS: Final = ('minute', 'hour', 'day_of_month', 'month_of_year', 'day_of_week')
+```
+
+
+## PROCESS_PRELUDE_ENV
+
+`tai42_contract.backend.runtime.PROCESS_PRELUDE_ENV`
+
+```python
+PROCESS_PRELUDE_ENV: Final[str] = 'TAI_PROCESS_PRELUDE'
+```
+
+The environment variable naming the process prelude the running process was started with.
+
+The host's entry sets it once it has run the prelude, before it imports anything else
+(`BackendRuntime.process_prelude`); the launch compares it with the prelude the selected
+runtime declares.
+
+
 ## SCHEDULE_BRANCH_SUFFIX
 
 `tai42_contract.backend.scheduling.SCHEDULE_BRANCH_SUFFIX`
 
 ```python
 SCHEDULE_BRANCH_SUFFIX: Final = '_schedule_task'
+```
+
+
+## SCHEDULE_CADENCE_ADAPTER
+
+`tai42_contract.backend.scheduling.SCHEDULE_CADENCE_ADAPTER`
+
+```python
+SCHEDULE_CADENCE_ADAPTER: Final[TypeAdapter[IntervalCadence | CrontabCadence]] = TypeAdapter(ScheduleCadence)
 ```
 
 
@@ -127,7 +163,25 @@ app's own worker bus, internal to the app. A backend-runtime process
 receives fleet ops through the app's bus subscription exactly like a serving
 HTTP worker — the backend carries no control-plane surface of its own.
 
+Each backend declares its own drain bound (`drain_timeout`); the app
+announces it, together with its own shutdown bounds, when the process leaves,
+so a fleet restart waits for the worker to finish its in-flight work rather
+than reporting it timed out.
+
 ### Members
+
+#### drain_timeout
+
+`tai42_contract.backend.base.Backend.drain_timeout`
+
+```python
+drain_timeout: float
+```
+
+How long, in seconds, this backend's worker may take to finish its in-flight work and exit when stopped.
+
+Read at call time, so a settings change applies to the next stop.
+
 
 #### launch
 
@@ -162,6 +216,23 @@ recycles"; readiness gating, signal wiring, drain-on-cancellation and pool
 turnover belong to the host base that drives this object. The liveness
 signal is the host's too: the runtime declares which kind it has
 (`liveness`), and a progress runtime reports from its own loop.
+
+A runtime runs only on the objects its `build` produced. The host re-imports the
+package a runtime comes from on every config reload, so that the package's registrations
+re-fire into the new configuration, and a reload can land between `build` and the run
+body as well as during it. The runtime is a process-lifetime object and stays whole across
+those re-imports: it holds what it built and never resolves its own objects again through
+the import system. It hands its engine the objects themselves wherever the engine's interface
+takes an object; it imports nothing of its own package after `build`; the state its
+engine reads lives on the objects it built, never in its package's module globals; and it
+connects receivers to an engine's process-wide signals from `build`, never at import.
+
+Where an engine's interface takes only an import path (a setting that names a class, a stored
+job that names its function), the engine resolves that name itself, possibly after a reload,
+and so may reach the re-imported copy. An object handed over by name therefore keeps no state
+of its own: it reads what it needs from its arguments, from the objects the build produced
+that the engine passes it, or from the process environment, so the re-imported copy behaves
+as the built one.
 
 ### Members
 
@@ -216,6 +287,24 @@ job (the next child inherits the mutation).
 Declared per class like the rest, but deliberately NOT a ``ClassVar``: a
 launch option can decide whether this engine's pool persists, so an instance
 may set it. The host therefore reads it off the live runtime.
+
+
+#### process_prelude
+
+`tai42_contract.backend.runtime.BackendRuntime.process_prelude`
+
+```python
+process_prelude: str | None = None
+```
+
+The ``module:callable`` the process must have run before any other import, or ``None``.
+
+Declared by a runtime whose engine reshapes the interpreter's blocking primitives (its
+threads, locks, sockets and sleeps) and so must do it before any other module has bound
+them. The host's entry runs it, with no arguments, first thing in a fresh process, and the
+launch refuses a runtime whose prelude this process was not started with
+(`ProcessPreludeRequired`). Not a ``ClassVar``, like `pool_turnover_required`:
+a launch option can decide it, so the host reads it off the live runtime.
 
 
 #### liveness
@@ -306,6 +395,9 @@ Construct engine objects.
 
 Runs BEFORE the readiness gate — building is not consuming — and before any
 run body. Default: nothing to build.
+
+What it builds is everything the run body and the stop path use: a config reload
+re-imports this runtime's package after it returns (see the class docstring).
 
 Concrete rather than abstract: a runtime whose engine object is built by
 ``from_args`` alone must not be forced to declare an empty override.
@@ -471,6 +563,19 @@ Fire on a five-field crontab (minute, hour, day of month, month, day of week).
 | `month_of_year` | `str` |
 | `day_of_week` | `str` |
 
+### Members
+
+#### expression
+
+`tai42_contract.backend.scheduling.CrontabCadence.expression`
+
+```python
+expression: str
+```
+
+The five-field crontab expression; validating ``{"expression": ...}`` with it gives this cadence back.
+
+
 
 ## ExecutionMode
 
@@ -629,6 +734,26 @@ Liveness = ProgressLiveness | HttpLiveness
 How a backend process signals it is alive: by its loop's progress, or by its HTTP server.
 
 
+## ProcessPreludeRequired
+
+`tai42_contract.backend.runtime.ProcessPreludeRequired`
+
+```python
+class ProcessPreludeRequired(RuntimeError)
+```
+
+The selected runtime declares a process prelude this process was not started with.
+
+Raised by the launch before anything of the runtime starts. The host answers it by starting
+the process again with the prelude run first; `prelude` names it.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `prelude` | — |
+
+
 ## ProgressLiveness
 
 `tai42_contract.backend.runtime.ProgressLiveness`
@@ -652,6 +777,10 @@ class ProgressReporter(Protocol)
 ```
 
 The host's receiver of a loop runtime's progress reports.
+
+``next_within`` is a positive number of seconds. A loop whose own interval is zero (it passes
+again without sleeping) promises a fixed positive floor instead: its engine's own floor for the
+wait, where the engine has one, else a bound its next pass returns within.
 
 
 ## ScheduleCadence
@@ -700,6 +829,27 @@ raises can be rebound and resumed under that authority).
 | `execution_key` | `str \| None` |
 | `subject` | `StateSubject \| None` |
 | `state_binding` | `StateBinding \| None` |
+
+
+## ScheduleDetail
+
+`tai42_contract.backend.scheduling.ScheduleDetail`
+
+```python
+class ScheduleDetail(ScheduleListRow)
+```
+
+One schedule as its read replies it: the listing row plus the arguments it fires with.
+
+``args`` and ``kwargs`` are the fired tool's arguments plus the reserved door stamps the
+fire needs, as in `ScheduleRecord`.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `args` | `list[Any]` |
+| `kwargs` | `dict[str, Any]` |
 
 
 ## ScheduleImportError
@@ -763,6 +913,11 @@ class ScheduleListRow(BaseModel)
 
 One row of the schedule listing: no arguments, no kwargs.
 
+``next_run_at_ts`` is the next run's POSIX timestamp, ``None`` when the schedule has no next
+run (``0.0`` is a timestamp like any other). ``next_run_at_iso`` is derived from it, the UTC
+ISO-8601 form or ``None``: a row is built without it, and a given value that disagrees with
+the timestamp is refused.
+
 **Attributes**
 
 | Attribute | Type |
@@ -817,4 +972,584 @@ A backend's last scheduling failure for a schedule, when the backend records one
 | `model_config` | — |
 | `message` | `str` |
 | `at_iso` | `str \| None` |
+
+
+## ScheduleStore
+
+`tai42_contract.backend.schedule_store.ScheduleStore`
+
+```python
+class ScheduleStore(ScheduleWriter, Protocol)
+```
+
+A backend's schedule storage: its capabilities, its reads and its writes.
+
+A write or a read raises on a store failure; ``False`` or ``None`` answers only "no such
+schedule".
+
+### Members
+
+#### holds_disabled
+
+`tai42_contract.backend.schedule_store.ScheduleStore.holds_disabled`
+
+```python
+holds_disabled: bool
+```
+
+Whether the store holds a disabled schedule (``enabled=False``) as such.
+
+A store that holds none keeps every schedule it stores enabled: `write` refuses a
+disabled record and `set_enabled` is never called on it.
+
+
+#### exists
+
+`tai42_contract.backend.schedule_store.ScheduleStore.exists`
+
+```python
+async exists(self, name: str) -> bool
+```
+
+Whether a schedule named ``name`` is stored.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### read
+
+`tai42_contract.backend.schedule_store.ScheduleStore.read`
+
+```python
+async read(self, name: str) -> StoredSchedule | None
+```
+
+The schedule named ``name``, or ``None`` when none is stored.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### read_all
+
+`tai42_contract.backend.schedule_store.ScheduleStore.read_all`
+
+```python
+async read_all(self) -> list[StoredSchedule]
+```
+
+Every stored schedule, enabled or disabled; one deleted while the store is read is left out.
+
+
+#### delete
+
+`tai42_contract.backend.schedule_store.ScheduleStore.delete`
+
+```python
+async delete(self, name: str) -> bool
+```
+
+Remove the schedule ``name``; ``False`` when none was stored.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### set_enabled
+
+`tai42_contract.backend.schedule_store.ScheduleStore.set_enabled`
+
+```python
+async set_enabled(self, name: str, enabled: bool) -> bool
+```
+
+Enable or disable the schedule ``name``; ``False`` when none is stored.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `enabled` | `bool` | — | — |
+
+
+#### run_now
+
+`tai42_contract.backend.schedule_store.ScheduleStore.run_now`
+
+```python
+async run_now(self, name: str) -> bool
+```
+
+Make the schedule ``name`` run at once, its recurrence kept; ``False`` when none is stored.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+
+
+#### update
+
+`tai42_contract.backend.schedule_store.ScheduleStore.update`
+
+```python
+async update(
+    self,
+    name: str,
+    *,
+    cadence: IntervalCadence | CrontabCadence | None,
+    next_run_at_ts: float | None,
+) -> bool
+```
+
+Change the schedule ``name`` in one step; ``False`` when none is stored.
+
+``cadence``, when given, replaces its cadence; ``next_run_at_ts``, when given, moves its
+next run to that POSIX timestamp. At least one is given. A new cadence without a
+``next_run_at_ts`` takes its next run from the store's own rule for a new cadence.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `name` | `str` | — | — |
+| `cadence` | `IntervalCadence \| CrontabCadence \| None` | — | — |
+| `next_run_at_ts` | `float \| None` | — | — |
+
+
+
+## ScheduleWriter
+
+`tai42_contract.backend.schedule_store.ScheduleWriter`
+
+```python
+class ScheduleWriter(Protocol)
+```
+
+A backend's schedule writer: the one write every schedule write door goes through.
+
+A write door checks a cadence against `relative_intervals` before it writes.
+
+### Members
+
+#### relative_intervals
+
+`tai42_contract.backend.schedule_store.ScheduleWriter.relative_intervals`
+
+```python
+relative_intervals: bool
+```
+
+Whether the store honours an interval cadence with ``relative=True``.
+
+
+#### write
+
+`tai42_contract.backend.schedule_store.ScheduleWriter.write`
+
+```python
+async write(self, record: ScheduleRecord) -> None
+```
+
+Create or replace the schedule ``record`` names, as ``record`` defines it.
+
+The one writer behind the schedule branch, create, update and import. ``record.tool`` is
+stored inside the job kwargs under the backend's tool-name argument. The write is durable
+when this returns; it raises on a store failure.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `record` | `ScheduleRecord` | — | — |
+
+
+
+## StoredSchedule
+
+`tai42_contract.backend.schedule_store.StoredSchedule`
+
+```python
+class StoredSchedule(BaseModel)
+```
+
+One schedule as its store holds it, with its runtime state.
+
+``kwargs`` are the stored job kwargs: the fired tool's name under the backend's tool-name
+argument, the tool's arguments and the reserved stamps. ``next_run_at_ts`` is the next run's
+POSIX timestamp, ``None`` when the store records no next run. ``error`` is the store's last
+scheduling failure for the schedule, when it records one.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `name` | `str` |
+| `args` | `list[Any]` |
+| `kwargs` | `dict[str, Any]` |
+| `cadence` | `ScheduleCadence` |
+| `enabled` | `bool` |
+| `next_run_at_ts` | `float \| None` |
+| `error` | `ScheduleRowError \| None` |
+
+
+## TaskDoor
+
+`tai42_contract.backend.dispatch.TaskDoor`
+
+```python
+class TaskDoor(Protocol)
+```
+
+A backend's queue door: submit a job, name it, wait for it.
+
+``HandleT`` is the vendor's own handle on a submitted job (a result object, a job record);
+only the door reads it.
+
+### Members
+
+#### task_opts
+
+`tai42_contract.backend.dispatch.TaskDoor.task_opts`
+
+```python
+task_opts: Mapping[str, Any]
+```
+
+The vendor's own task options, by name and annotation, beyond the platform's set.
+
+Each becomes a keyword-only argument (default ``None``) of the sync and async branch
+tools, and reaches `submit` in its ``options`` when the caller gave a value.
+
+
+#### submit
+
+`tai42_contract.backend.dispatch.TaskDoor.submit`
+
+```python
+async submit(
+    self,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    options: dict[str, Any],
+    callback: CallbackSchema | None,
+) -> HandleT
+```
+
+Queue one job running the dispatched tool with ``args`` and ``kwargs``; return its handle.
+
+``kwargs`` are the prepared job kwargs (the tool name and the reserved stamps inside).
+``options`` are the task options the caller gave, ``None`` values already dropped and the
+callback taken out: the door maps each onto its queue's API and raises on one it cannot
+honour. ``callback``, when given, already carries what its follow-up job needs; the door
+chains it to run on the job's result.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `args` | `tuple[Any, ...]` | — | — |
+| `kwargs` | `dict[str, Any]` | — | — |
+| `options` | `dict[str, Any]` | — | — |
+| `callback` | `CallbackSchema \| None` | — | — |
+
+
+#### task_id
+
+`tai42_contract.backend.dispatch.TaskDoor.task_id`
+
+```python
+task_id(self, handle: HandleT) -> str
+```
+
+The id a caller looks the submitted job up by.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `handle` | `HandleT` | — | — |
+
+
+#### wait
+
+`tai42_contract.backend.dispatch.TaskDoor.wait`
+
+```python
+async wait(self, handle: HandleT, timeout: float) -> Any
+```
+
+Wait up to ``timeout`` seconds for the job to finish and return its result.
+
+A failed job raises its failure as the vendor retains it. A job still unfinished at
+``timeout`` raises `TaskWaitTimeoutError`; the job itself is left running.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `handle` | `HandleT` | — | — |
+| `timeout` | `float` | — | — |
+
+
+
+## TaskWaitTimeoutError
+
+`tai42_contract.backend.dispatch.TaskWaitTimeoutError`
+
+```python
+class TaskWaitTimeoutError(TimeoutError)
+```
+
+Raised by `TaskDoor.wait` when the job is still unfinished at its timeout.
+
+Its own class, so a job that itself failed with a ``TimeoutError`` is never read as an
+unfinished one.
+
+
+## WorkerInspection
+
+`tai42_contract.backend.inspection.WorkerInspection`
+
+```python
+class WorkerInspection(Protocol)
+```
+
+A backend's read-only views of its workers and their tasks, plus cancelling a task.
+
+``worker_name`` narrows a view to one worker; ``None`` covers every worker. A view is
+handed a ``worker_name`` only when `addresses_workers`, and `cancel` a
+``terminate=True`` only when `terminates`.
+
+### Members
+
+#### addresses_workers
+
+`tai42_contract.backend.inspection.WorkerInspection.addresses_workers`
+
+```python
+addresses_workers: bool
+```
+
+Whether the views can narrow to one worker by its name.
+
+
+#### terminates
+
+`tai42_contract.backend.inspection.WorkerInspection.terminates`
+
+```python
+terminates: bool
+```
+
+Whether `cancel` serves ``terminate=True``: the backend's workers stop a task while it runs.
+
+
+#### ping
+
+`tai42_contract.backend.inspection.WorkerInspection.ping`
+
+```python
+async ping(self, worker_name: str | None) -> dict[str, Any]
+```
+
+Ask the workers whether they are alive, and return their answers.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### active_workers
+
+`tai42_contract.backend.inspection.WorkerInspection.active_workers`
+
+```python
+async active_workers(self) -> list[str]
+```
+
+The names of the workers alive now.
+
+
+#### task_status
+
+`tai42_contract.backend.inspection.WorkerInspection.task_status`
+
+```python
+async task_status(self, task_id: str) -> str
+```
+
+The vendor's status word for the task ``task_id``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+
+
+#### task_result
+
+`tai42_contract.backend.inspection.WorkerInspection.task_result`
+
+```python
+async task_result(self, task_id: str, timeout: float | None) -> tuple[bool, str, Any]
+```
+
+The task's ``(ready, status, value)``: whether it finished, its status word, its result.
+
+With a ``timeout`` it waits up to that many seconds for the task to finish; with ``None``
+it reads the current state at once. ``value`` is the result when ``ready``. A failed task
+raises its failure as the vendor retains it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+| `timeout` | `float \| None` | — | — |
+
+
+#### cancel
+
+`tai42_contract.backend.inspection.WorkerInspection.cancel`
+
+```python
+async cancel(self, task_id: str, terminate: bool) -> str
+```
+
+Cancel the task ``task_id``; return what was done.
+
+Without ``terminate`` a task that has not started is kept from running and a running one is
+left to finish; with ``terminate`` a running task is stopped as well. A backend that cannot
+cancel a running task without stopping it refuses the call without ``terminate`` for a
+running task rather than stopping it. The reply says what was done; when a worker answers
+that it cannot stop the task it runs, the call is refused rather than leaving the task
+running behind a reply that says otherwise, and a stop the workers did not confirm within
+the time the backend waits for it is reported as not confirmed, with the status the task
+reached.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `task_id` | `str` | — | — |
+| `terminate` | `bool` | — | — |
+
+
+#### active_tasks
+
+`tai42_contract.backend.inspection.WorkerInspection.active_tasks`
+
+```python
+async active_tasks(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The tasks running now.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### reserved_tasks
+
+`tai42_contract.backend.inspection.WorkerInspection.reserved_tasks`
+
+```python
+async reserved_tasks(self) -> dict[str, Any]
+```
+
+The tasks taken off the queue and waiting for a free worker slot.
+
+
+#### scheduled_tasks
+
+`tai42_contract.backend.inspection.WorkerInspection.scheduled_tasks`
+
+```python
+async scheduled_tasks(self) -> dict[str, Any]
+```
+
+The tasks waiting for a later time (an ``eta`` or ``countdown``).
+
+
+#### registered_tasks
+
+`tai42_contract.backend.inspection.WorkerInspection.registered_tasks`
+
+```python
+async registered_tasks(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The task names the workers can run.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### failed_tasks
+
+`tai42_contract.backend.inspection.WorkerInspection.failed_tasks`
+
+```python
+async failed_tasks(self) -> list[dict[str, Any]]
+```
+
+The tasks that failed, as the vendor retains them.
+
+
+#### worker_stats
+
+`tai42_contract.backend.inspection.WorkerInspection.worker_stats`
+
+```python
+async worker_stats(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The workers' runtime statistics.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
+
+#### worker_queues
+
+`tai42_contract.backend.inspection.WorkerInspection.worker_queues`
+
+```python
+async worker_queues(self, worker_name: str | None) -> dict[str, Any]
+```
+
+The queues the workers consume.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `worker_name` | `str \| None` | — | — |
+
 

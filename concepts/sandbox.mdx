@@ -45,6 +45,111 @@ plainly: `sandbox-local` is the no-isolation, direct-on-the-host provider.
 
 See [operate/sandbox](/operate/sandbox) for installing and wiring a provider.
 
+## Running and stopping a command
+
+A session runs a command two ways. A one-shot `exec` runs it to its end and returns
+its exit code, stdout and stderr. An interactive `exec_start` returns a handle: its
+`output` streams the command's stdout and stderr and ends with one exit item, and
+the handle writes the command's stdin, closes it, and kills the command. Every
+provider gives the handle the same lifetime:
+
+- **Stdin.** A one-shot exec's stdin is fed while its output is read, so a command
+  that echoes its input (`cat`, a filter) takes a stdin larger than any pipe buffer.
+  A command that exits, or closes its stdin, before reading all of it still returns
+  its result, and the input it did not read is dropped (on `sandbox-local`, unless
+  a process the command started still holds its stdin; see below). Any other failed stdin
+  write raises one `SandboxError`; on a one-shot exec it also stops the command. An
+  interactive write after the stdin is closed or the command has exited raises
+  `SandboxError` as well.
+- **The deadline.** Both `exec` and `exec_start` require `timeout_seconds`, fixed
+  as the command starts. A command still running at its deadline is killed then,
+  whether or not anything reads its output, and the call (or the next read of an
+  interactive `output`) raises `SandboxExecTimeoutError`. The error carries the
+  stdout and stderr byte counts, never the content: when the output ended with the
+  kill, they count every byte the command gave, read or not; when a process the
+  command started still held the output after the kill, they count the output
+  received up to the stop, and a note on the error says so. The output an
+  interactive command gave but nobody read is not yielded once the timeout is
+  raised. A command that ended within its deadline returns its full output, however
+  late or slowly it is read.
+- **A kill after the exit.** `kill()` may be called at any time and more than once.
+  Once the command has exited, a kill is idempotent and never raises, and the exit
+  status `output` reports stays the command's own.
+- **The end of a killed command's output.** Once `kill()` has returned, the output
+  ends promptly and raises no `SandboxExecTimeoutError`, even past its
+  `timeout_seconds` and even while a process that left the command's group still
+  holds the output open. The output the provider had received before the kill, read
+  or not, is still yielded first, in order: every whole unit of output (a chunk, a
+  frame, a message) the provider's own process had already taken in from the
+  command's transport. Output not yet taken in at the kill, still on its way or held
+  by the operating system or the command's runtime, and the part of a unit still
+  arriving, may end with the command. The output then ends with exactly one exit
+  item carrying the command's exit status; a provider that cannot read that status
+  raises `SandboxError` instead, and never invents one.
+- **A failure of the command itself.** A provider that reports a failure of the
+  command itself, such as stdin input it accepted that the command never got, ends
+  the output with a `SandboxError` in place of the exit item. A kill never clears
+  that failure: the output still ends with it.
+- **What the handle holds.** A handle may keep provider resources until `kill()`
+  has returned or its session is destroyed, and the command's own exit releases
+  none of them. A consumer done with a handle calls `kill()`.
+- **Processes the command left running.** Whether a kill also stops processes the
+  command started and left running, before or after the command's own exit, is each
+  provider's own behaviour, stated on its page. The contract promises the command's
+  own end only.
+
+Both providers stop a running command's whole process group on a kill, a timeout,
+a one-shot call that fails or is cancelled, or an interactive start that is
+cancelled: the command and every process it started that is still in its group.
+Each keeps a small shell process in the command's group, so the group keeps its id
+after the command has exited and a stop never signals a group id since given to
+other processes. A process that left the group (a `setsid` daemon, for example) is
+not stopped by either. After the command's exit they differ:
+
+- [`sandbox-local`](/plugins/tai42/sandbox-local) keeps each interactive command's
+  process group until `kill()` or the session's teardown, so a kill after the exit
+  still stops what the command left in its group. A completed one-shot call lets
+  its group go, and what it left running keeps running. A session's teardown stops
+  only its interactive commands: a one-shot call still running when its session is
+  torn down runs on until it ends or reaches its timeout. A command that exits while
+  a process it started still holds its stdin, with input not yet written, fails: a
+  one-shot call raises a `SandboxError`, and an interactive command's output ends
+  with one in place of its exit.
+- [`sandbox-docker`](/plugins/tai42/sandbox-docker) runs each command under a small
+  shell wrapper that holds its group while the command runs or a process it started
+  still holds the command's output. Until the wrapper ends, a kill stops every
+  process still in the group, even after the command's own exit; once it has ended,
+  a kill finds nothing to stop and what the command left running keeps running. A
+  kill has a fixed limit of 5 seconds: one that does not finish in time raises
+  `SandboxError`, noted with what the stop had reported by then: its own error
+  line, the part of it that arrived, or the engine's refusal of the stop. A command that ended within its deadline is read to its end within the
+  Docker engine's own limit: the engine closes a command's output stream about
+  2 seconds after the command exits, so when more than roughly 1 MiB of output is
+  still pending in the engine, a reader that pauses for longer loses it, and the
+  provider cannot see that loss. Its session image must provide `sh`, the `setsid`, `mkfifo`, `mv`,
+  `rm`, `cat`, `kill`, `readlink`, `ls` and `sleep` commands (`sleep` taking a
+  fractional time), `/proc`, and a writable `/tmp`; an image without a shell cannot
+  run any command. The session container runs the engine's init as its main
+  process, which reaps what a command leaves behind.
+
+Each provider's page covers its details.
+
+A provider proves this behaviour with the conformance suite in `tai42_kit.sandbox`:
+its tests hand a live provider to `run_sandbox_conformance`, and an empty return
+certifies it. The suite checks the session lifecycle, the `spec.env` credential
+channel, a one-shot stdin far larger than any buffer echoed back whole by `cat`, a
+one-shot `head -c 1` of that stdin returning within its timeout, the interactive
+seam (a repeated kill after the exit that never raises, a write after the exit
+that raises a typed `SandboxError`, and the output received before a `kill()`
+still read after it), late and slow reads of a command that ended within its
+deadline, its output larger than the provider's transport buffers included, a kill
+past the deadline, the deadline's kill of a command nothing reads and of one that
+closed its output, the byte counts its timeout carries, the timeout of a command
+whose output a process it started still holds, the stop of what a command left in
+its process group past its own exit, at its deadline and by `kill()`, file
+transfer, workspace-path resolution, the consumer-label round trip, the TTL reap,
+and the loud rejection of a spec the provider cannot honor.
+
 ## Durability
 
 Durability is one tier on the session spec: `durability: "ephemeral" |
