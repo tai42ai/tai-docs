@@ -1,0 +1,264 @@
+---
+title: "Backend dispatch (tai42_kit.backend dispatch helpers)"
+description: "The sync, async, and schedule branch tools every backend registers over its TaskDoor and ScheduleWriter, their task options, the worker queue labels, and the checks every schedule write shares."
+icon: "shuffle"
+---
+
+
+The three dispatching branch tools every backend offers, built once over its seams.
+
+`register_task_branches` registers the three BACKEND tool extensions. Each factory receives
+``(func, name, description)`` and returns a new-named branch tool bound alongside the original:
+
+- ``<tool>_sync_task`` queues the call and waits for its result;
+- ``<tool>_async_task`` queues the call and replies with the job's id;
+- ``<tool>_schedule_task`` writes a recurring schedule firing the tool.
+
+A branch's signature is the tool's own parameters widened with the branch's options (built with
+makefun, so a tool caller sees real parameters). A backend supplies only its seams: the
+`TaskDoor` its task branches queue through, and the
+`ScheduleWriter` its schedule branch writes through.
+
+## SYNC_TASK_EXTENSION
+
+`tai42_kit.backend.branches.SYNC_TASK_EXTENSION`
+
+```python
+SYNC_TASK_EXTENSION: Final = 'sync_task'
+```
+
+
+## ASYNC_TASK_EXTENSION
+
+`tai42_kit.backend.branches.ASYNC_TASK_EXTENSION`
+
+```python
+ASYNC_TASK_EXTENSION: Final = 'async_task'
+```
+
+
+## register_task_branches
+
+`tai42_kit.backend.branches.register_task_branches`
+
+```python
+register_task_branches(
+    door: TaskDoor[Any],
+    schedules: ScheduleWriter,
+    settings: Callable[[], BackendDispatchSettings],
+    label: str,
+) -> None
+```
+
+Register the sync, async and schedule branch extensions of one backend.
+
+``settings`` is the backend's settings accessor, read at each dispatch (the tool-name
+argument, the sync wait's timeout). ``label`` is the backend's name, as a refusal names it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `door` | `TaskDoor[Any]` | — | — |
+| `schedules` | `ScheduleWriter` | — | — |
+| `settings` | `Callable[[], BackendDispatchSettings]` | — | — |
+| `label` | `str` | — | — |
+
+
+The options a dispatching branch tool takes beyond the tool's own arguments, and their split.
+
+`BACKEND_TASK_OPTS` are the task options every backend honours; a backend adds its own
+through `task_opts`. `SCHEDULE_OPTS` are the
+schedule branch's own arguments. Each becomes a keyword argument of the branch tool, so a
+dispatch's kwargs carry them beside the tool's arguments until `split_task_options` takes
+them out.
+
+## CALLBACK_OPTION
+
+`tai42_kit.backend.task_options.CALLBACK_OPTION`
+
+```python
+CALLBACK_OPTION = 'callback_kwargs'
+```
+
+
+## BACKEND_TASK_OPTS
+
+`tai42_kit.backend.task_options.BACKEND_TASK_OPTS`
+
+```python
+BACKEND_TASK_OPTS: dict[str, Any] = {'countdown': int | None, 'expires': str | float | None, 'eta': str | None, CALLBACK_OPTION: CallbackSchema | None, 'queue': str | None}
+```
+
+
+## SCHEDULE_OPTS
+
+`tai42_kit.backend.task_options.SCHEDULE_OPTS`
+
+```python
+SCHEDULE_OPTS: dict[str, Any] = {SCHEDULE_NAME_KEY: str, SCHEDULE_CADENCE_KEY: dict[str, Any]}
+```
+
+
+## split_task_options
+
+`tai42_kit.backend.task_options.split_task_options`
+
+```python
+split_task_options(kwargs: dict[str, Any], opts: Iterable[str]) -> dict[str, Any]
+```
+
+Pop every option named in ``opts`` out of ``kwargs``; return those the caller gave a value.
+
+An option whose value is ``None`` was not given and is dropped; every other value, a falsy
+one included, is kept.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `kwargs` | `dict[str, Any]` | — | — |
+| `opts` | `Iterable[str]` | — | — |
+
+
+## take_callback
+
+`tai42_kit.backend.task_options.take_callback`
+
+```python
+take_callback(options: dict[str, Any], kwargs: dict[str, Any]) -> CallbackSchema | None
+```
+
+Pop the callback out of the split ``options``; carry onto it what its follow-up job needs.
+
+A callback given as a plain mapping is validated into a `CallbackSchema` (an invalid
+one raises ``ValidationError``). ``kwargs`` are the job's prepared kwargs: the forwarded door
+pair the follow-up job needs is read from them
+(`carry_forwarded_fire`).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `options` | `dict[str, Any]` | — | — |
+| `kwargs` | `dict[str, Any]` | — | — |
+
+
+Worker queue labels and the queue name each derives.
+
+A label (letters, digits, ``_``, ``-``) names a worker pool. Its queue is
+``<settings queue>.<label>``: a label holds no ``.`` or ``:``, so a derived name never equals
+the settings queue, nor any key a backend builds by suffixing the settings queue with ``:``.
+A worker CLI takes the label through `queue_label_option`.
+
+## QUEUE_LABEL_PATTERN
+
+`tai42_kit.backend.queue_labels.QUEUE_LABEL_PATTERN`
+
+```python
+QUEUE_LABEL_PATTERN = re.compile('[A-Za-z0-9_-]+')
+```
+
+
+## check_queue_label
+
+`tai42_kit.backend.queue_labels.check_queue_label`
+
+```python
+check_queue_label(label: str) -> str
+```
+
+Return ``label``, or raise ``ValueError`` when it is not letters, digits, ``_`` or ``-``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `label` | `str` | — | — |
+
+
+## derived_queue
+
+`tai42_kit.backend.queue_labels.derived_queue`
+
+```python
+derived_queue(settings_queue: str, label: str | None) -> str
+```
+
+The queue name for ``label`` under ``settings_queue``; ``None`` is ``settings_queue`` itself.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `settings_queue` | `str` | — | — |
+| `label` | `str \| None` | — | — |
+
+
+## queue_label_option
+
+`tai42_kit.backend.queue_labels.queue_label_option`
+
+```python
+queue_label_option(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None
+```
+
+The click callback of a worker's ``--queue`` option: the checked label, or ``None`` when unset.
+
+A label outside the grammar raises ``click.BadParameter`` naming the option.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `ctx` | `click.Context` | — | — |
+| `param` | `click.Parameter` | — | — |
+| `value` | `str \| None` | — | — |
+
+
+What every schedule write door shares: the cadence check and the stored job kwargs.
+
+Each door that writes a schedule (the schedule branch tool, update, import) checks the cadence
+against the backend's `ScheduleWriter` before it
+writes; the writer stores the record's tool inside the job kwargs it fires with.
+
+## check_cadence_supported
+
+`tai42_kit.backend.schedule_writes.check_cadence_supported`
+
+```python
+check_cadence_supported(
+    writer: ScheduleWriter,
+    cadence: IntervalCadence | CrontabCadence,
+    label: str,
+) -> None
+```
+
+Raise ``ValueError`` when ``writer`` cannot honour ``cadence``; ``label`` names the backend.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `writer` | `ScheduleWriter` | — | — |
+| `cadence` | `IntervalCadence \| CrontabCadence` | — | — |
+| `label` | `str` | — | — |
+
+
+## fired_kwargs
+
+`tai42_kit.backend.schedule_writes.fired_kwargs`
+
+```python
+fired_kwargs(record: ScheduleRecord, tool_name_arg: str) -> dict[str, Any]
+```
+
+The job kwargs ``record`` fires with: its kwargs plus its tool under ``tool_name_arg``.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `record` | `ScheduleRecord` | — | — |
+| `tool_name_arg` | `str` | — | — |
+

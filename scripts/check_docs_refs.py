@@ -110,11 +110,14 @@ _COMPOSE_SUBST_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*(?P<op>:-|:\?)(?P<re
 # `x-tai42-expression` names no distribution. It mirrors the trailing lookahead:
 # a distribution token is a whole hyphen-word, never a substring of one. The
 # first lookahead forces a maximal token match (so no shorter
-# prefix can be matched); the second excludes image asset paths such as
-# `/tai42-logo-icon.png` (a `tai42-` token immediately followed by an image
-# extension), which are icons, not distribution names. A slash prefix alone is NOT
-# excluded, so a distribution token inside a URL is still detected.
-_DIST_RE = re.compile(r"(?<![a-z0-9-])tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp))")
+# prefix can be matched); the second excludes file names such as the image asset
+# path `/tai42-logo-icon.png` or the build record `tai42-build.json` (a `tai42-`
+# token immediately followed by an image or JSON extension), which are files, not
+# distribution names. A slash prefix alone is NOT excluded, so a distribution token
+# inside a URL is still detected.
+_DIST_RE = re.compile(
+    r"(?<![a-z0-9-])tai42-[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9-])(?!\.(?:png|svg|ico|jpe?g|gif|webp|json))"
+)
 
 # The monorepo that houses every first-party package. Its member directories are
 # addressed as `github.com/tai42ai/tai42/tree/<ref>/<member-path>`.

@@ -143,14 +143,22 @@ already at a higher generation), and **fresh ready capacity** of each kind has
 booted under the new config, counted per kind to cover the recycled workers.
 The targets are the workers on the census when the apply started together with those
 on it when the roll begins, so a worker that briefly dropped off the census is waited
-for rather than skipped. A row that is not `recycled` is where the roll stopped:
+for rather than skipped. A `timed-out` or `failed` row is where the roll stopped:
 `timed-out` (within the step budget the old life did not go or fresh capacity did not
 boot, or the target never returned to ready) or `failed` (the worker refused the op,
 or the bus could not be reached while it was in hand), with a `detail` naming why; the
-roll also stops when the bus cannot be read before a target is reached. The response's
+roll also stops when the bus cannot be read before a target is reached. Two rows do not
+stop the roll. A `self-deferred` row is a restart the roll cannot confirm: the writer's own
+self-exit after its reply, or a target whose exit is held by its own in-flight change (it
+leaves once that change's reply is answered; the roll does not wait for it). A `withheld`
+row is a target asked once ready whose reload was refused at its epoch build (the build
+discarded before its swap) yet reports recycle-class keys. A withheld target is left
+running on its current config: the stored config did not build on it, and a restart may
+fail the same way. A discard that itself failed is no refused build: it leaves the
+worker's state unknown. The response's
 `recycle_stopped` names where the roll stopped and why: its `name` is empty when the bus
-could not be read before a target was reached, and it is `null` when every target
-recycled. Later targets and the applier's own recycle are then not attempted, and the
+could not be read before a target was reached, and it is `null` when the roll ran to its
+end. Later targets and the applier's own recycle are then not attempted, and the
 call still answers `200` with the report, as every fleet mutation does.
 
 ## Reloading is a first-class state
@@ -180,15 +188,33 @@ and manifest updates, it lets a server pick up configuration and capability chan
 without dropping its process. Across a fleet, `tai fleet reload-config`
 soft-restarts every worker on the bus (or only `--target` ones) and returns the
 per-worker report — see [Manage a fleet](/operate/manage-a-fleet). The soft restart
-never respawns a process, so a recycle-class value changed in the stored env outside
-the pipeline (a hand edit of `.env`, a `kubectl edit` of the config Secret) is named by
-the reload instead: each worker's report lists it under `awaiting_respawn` (its value
-differs from the one the worker bound — at boot, or when the plugin that declares it was
-loaded), the worker
-that ran the reload command logs one ERROR line naming every such worker, and it takes
-effect when the deployment's supervisor starts that worker again. The response of an
-env write or a profile apply names under `awaiting_respawn` the workers still awaiting
-a respawn after its roll — empty when the roll converged.
+carries every hot change in place without dropping a process. A recycle-class value
+changed in the stored env outside the pipeline (a hand edit of `.env`, a `kubectl edit`
+of the config Secret) is named by the reload: each worker's report lists it under
+`awaiting_respawn` (its value differs from the one the worker bound — at boot, or when
+the plugin that declares it was loaded). The reload then rolls a
+[recycle](/concepts/config-and-secrets#settings-profiles) over the workers it addressed
+that name such a key, one at a time. Every other worker whose state the reload left
+unknown is asked once it is ready, and restarted unless its reply confirms it clean or
+states a refused build; the workers that confirmed clean keep running. A worker whose
+reload was refused at its epoch build discards the build and keeps serving its current
+config; its `failed` reply carries the payload
+`{"status": "discarded", "awaiting_respawn": [...]}`, the recycle-class keys standing off
+their bound value after the discard. When that list names keys, the roll withholds the
+worker's restart, since the stored config did not build on it and a restart may fail the
+same way: the worker is left running and stays named in `awaiting_respawn`. The worker
+that ran the reload command is never asked: its own reload row is its statement, and when
+its own state is unknown it needs its own restart. It restarts itself last, after its
+reply, only when it needs its own restart and the roll converged. It logs an ERROR line naming every worker still
+awaiting a respawn after the roll, to be restarted through the deployment's supervisor,
+and a separate ERROR line naming every withheld worker, whose stored config, or the cause
+its build error names, is fixed before any restart. The response's `recycle` reports that
+roll and `awaiting_respawn` names the workers (name and keys) still awaiting a respawn
+after it — withheld workers included, and empty when no worker is left owing one. A reload run under a bound (a backend job, or a call under the turn budget)
+hands its roll to the worker it runs for: `roll_deferred` is `true`, `roll_deferred_to`
+names that worker, which carries the roll out on its own, and `recycle` carries no
+rows. The response of an env write or a profile apply carries the same fields after its
+own roll.
 
 ## The kinds summary
 

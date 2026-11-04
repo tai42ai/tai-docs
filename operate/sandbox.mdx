@@ -28,11 +28,24 @@ an engine:
 tai plugins install tai42-sandbox-docker
 ```
 
-- Set `SANDBOX_DOCKER_HOST` to the socket path or the `tcp://` engine endpoint.
+- Set `SANDBOX_DOCKER_HOST` to the engine: a `unix:///var/run/...` socket path, a
+  bare socket path, or a `tcp://host:port` endpoint (also written `http://` or
+  `https://`). A network host that names no port is dialled on 2376 over TLS
+  (under mTLS, or an `https://` host) and on 2375 when dialled plain. A Windows
+  named pipe (`npipe://`), a `unix://` that names no socket path, and any other
+  form are refused.
 - Mount the mTLS client certificates at the fixed path `/certs/client` (a volume
   mount, **not** an env var).
 - No `TAI_MCP_SANDBOX` selector is needed — installing the plugin patches the
   `sandbox_module` in.
+- A session image must provide `sh`, the `setsid`, `mkfifo`, `mv`, `rm`, `cat`,
+  `kill`, `readlink`, `ls` and `sleep` commands (`sleep` taking a fractional
+  time), `/proc`, and a writable `/tmp`: every command runs under a small shell
+  wrapper that starts it in a process group of its own and records its process id
+  in `/tmp`, so a stop can kill that group, and a stop looks through `/proc` for a
+  process that still holds the command's output. An image without a shell cannot
+  run any command. The image needs no init of its own: the session container runs
+  the engine's init as its main process.
 
 ## Install and wire `sandbox-local`
 
@@ -47,6 +60,13 @@ tai plugins install tai42-sandbox-local
 - It provides isolation `none` **only** and rejects a `container` or `vm`
   isolation floor. A deployment that keeps the default
   `sandbox_isolation="container"` must lower the floor to `none` to run under it.
+- It keeps a small shell process in each command's process group so a stop still
+  reaches what the command started. For an interactive command it keeps that shell
+  until `kill()` or the session's teardown, so a consumer done with a handle calls
+  `kill()`. The shell ends when the provider lets the group go, and the init
+  process (PID 1) reaps it. The published image runs `tai` under `tini`, so `tini`
+  reaps it. A container that runs the server itself as PID 1 needs an init:
+  `docker run --init`, or an init as the entrypoint.
 
 <Warning>
 `sandbox-local` runs the code on the host with no isolation. The code holds the

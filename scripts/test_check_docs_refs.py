@@ -79,6 +79,15 @@ def test_logo_asset_not_mistaken_for_distribution() -> None:
     print("  logo asset path: not mistaken for a distribution")
 
 
+def test_json_file_name_not_mistaken_for_distribution() -> None:
+    """A `tai42-build.json` file name is not read as a distribution name."""
+    dist_map = _dist_map()
+    docs = [("fake/upgrades.mdx", "Every build carries its record, `<build>/tai42-build.json`.")]
+    problems = check_docs_refs.check_distribution_names(docs, set(dist_map))
+    assert problems == [], problems
+    print("  json file name: not mistaken for a distribution")
+
+
 def test_vendor_annotation_not_mistaken_for_distribution() -> None:
     """`x-tai42-expression` is a JSON-Schema vendor annotation, not a distribution.
 

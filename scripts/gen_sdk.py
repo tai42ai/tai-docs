@@ -4,8 +4,9 @@
 This script loads the PUBLIC API of ``tai42_contract``, ``tai42_kit``, and the
 ``tai42_skeleton`` app surface as a griffe object model (static analysis of the
 source tree — no imports are executed) and renders one MDX reference page per
-logical area under ``reference/python-sdk/``. Docstrings are the source of
-truth; every rendered symbol traces to a real object in the source.
+entry of the page catalogue in ``sdk_pages`` under ``reference/python-sdk/``.
+Docstrings are the source of truth; every rendered symbol traces to a real
+object in the source.
 
 Run it from a context where the three source packages resolve — the
 tai42-skeleton virtualenv does::
@@ -25,6 +26,7 @@ import json
 import sys
 from pathlib import Path
 
+import sdk_pages
 from sdk_mdx import frontmatter, mdx_escape_prose, table_code, table_text
 
 try:
@@ -50,293 +52,6 @@ SRC_PATHS = [
 
 OUT_DIR = DOCS_ROOT / "reference" / "python-sdk"
 DOCS_JSON = DOCS_ROOT / "docs.json"
-
-
-# --------------------------------------------------------------------------- #
-# Page specification: each page renders one or more modules. Order is stable so
-# the generated nav and anchors do not churn between runs.
-# --------------------------------------------------------------------------- #
-
-PAGES: list[dict] = [
-    {
-        "slug": "contract-app",
-        "title": "App facade (tai42_contract.app)",
-        "description": "The assembled TaiApp facade and its per-feature namespaces.",
-        "icon": "layer-group",
-        "modules": ["tai42_contract.app", "tai42_contract.app.facets"],
-    },
-    {
-        "slug": "contract-agent",
-        "title": "Agents (tai42_contract.agent)",
-        "description": "The Agent base class plugin authors subclass.",
-        "icon": "robot",
-        "modules": ["tai42_contract.agent"],
-    },
-    {
-        "slug": "contract-versioning",
-        "title": "Versioning (tai42_contract.versioning)",
-        "description": "The VersionedStore primitive behind presets and policies.",
-        "icon": "code-branch",
-        "modules": ["tai42_contract.versioning"],
-    },
-    {
-        "slug": "contract-presets",
-        "title": "Presets (tai42_contract.presets)",
-        "description": "The PresetStore protocol and preset document models.",
-        "icon": "sliders",
-        "modules": ["tai42_contract.presets"],
-    },
-    {
-        "slug": "contract-connectors",
-        "title": "Connectors (tai42_contract.connectors)",
-        "description": "The ProviderDescriptor a connector plugin declares.",
-        "icon": "plug",
-        "modules": ["tai42_contract.connectors.providers"],
-    },
-    {
-        "slug": "contract-extensions",
-        "title": "Extensions (tai42_contract.extensions)",
-        "description": "The ExtensionKind taxonomy and extension base surface.",
-        "icon": "puzzle-piece",
-        "modules": ["tai42_contract.extensions"],
-    },
-    {
-        "slug": "contract-monitoring",
-        "title": "Monitoring (tai42_contract.monitoring)",
-        "description": "The MonitoringReader and MonitoringWriter protocols.",
-        "icon": "chart-line",
-        "modules": ["tai42_contract.monitoring.reader", "tai42_contract.monitoring.writer"],
-    },
-    {
-        "slug": "contract-storage",
-        "title": "Storage (tai42_contract.storage)",
-        "description": "The Storage protocol a storage provider implements.",
-        "icon": "database",
-        "modules": ["tai42_contract.storage"],
-    },
-    {
-        "slug": "contract-backend",
-        "title": "Backends (tai42_contract.backend)",
-        "description": "The Backend protocol a compute backend implements.",
-        "icon": "server",
-        "modules": ["tai42_contract.backend"],
-    },
-    {
-        "slug": "contract-sandbox",
-        "title": "Sandbox (tai42_contract.sandbox)",
-        "description": "The Sandbox ABC a sandbox provider implements, plus its session, spec, and policy models.",
-        "icon": "box",
-        "modules": ["tai42_contract.sandbox"],
-    },
-    {
-        "slug": "contract-channels",
-        "title": "Channels (tai42_contract.channels)",
-        "description": "The Channel protocol a delivery channel plugin implements.",
-        "icon": "paper-plane",
-        "modules": ["tai42_contract.channels"],
-    },
-    {
-        "slug": "contract-accounts",
-        "title": "Accounts (tai42_contract.accounts)",
-        "description": "The AccountsProvider contract and the login-method metadata models.",
-        "icon": "user-lock",
-        "modules": [
-            "tai42_contract.accounts.provider",
-            "tai42_contract.accounts.models",
-        ],
-    },
-    {
-        "slug": "contract-tools",
-        "title": "Tools (tai42_contract.tools)",
-        "description": "Tool registration types and the app tools namespace.",
-        "icon": "wrench",
-        "modules": ["tai42_contract.tools"],
-    },
-    {
-        "slug": "contract-manifest",
-        "title": "Manifest (tai42_contract.manifest)",
-        "description": "The manifest model a server loads at startup.",
-        "icon": "file-lines",
-        "modules": ["tai42_contract.manifest"],
-    },
-    {
-        "slug": "contract-plugins",
-        "title": "Plugins (tai42_contract.plugins)",
-        "description": "The PluginSpec model behind tai-plugin.yml.",
-        "icon": "store",
-        "modules": ["tai42_contract.plugins"],
-    },
-    {
-        "slug": "contract-interactions",
-        "title": "Interaction outcomes (tai42_contract.interactions)",
-        "description": "The typed outcomes a resumed run returns: suspended, buffered, and failed.",
-        "icon": "comments",
-        "modules": ["tai42_contract.interactions.models.response"],
-    },
-    {
-        "slug": "kit-plugins",
-        "title": "Plugin I/O and env (tai42_kit.plugins)",
-        "description": "Loading a tai-plugin.yml, reading its docs, and deriving the env a spec requires.",
-        "icon": "store",
-        "modules": ["tai42_kit.plugins"],
-    },
-    {
-        "slug": "kit-registration",
-        "title": "Provider registration (tai42_kit.access_control, tai42_kit.accounts)",
-        "description": "The identity-provider and accounts-provider registries a plugin registers into at import.",
-        "icon": "id-card",
-        "modules": ["tai42_kit.access_control.registry", "tai42_kit.accounts.registry"],
-    },
-    {
-        "slug": "kit-clients",
-        "title": "Pooled clients (tai42_kit.clients)",
-        "description": "Pooled Postgres/Redis clients and connection settings.",
-        "icon": "network-wired",
-        "modules": ["tai42_kit.clients"],
-    },
-    {
-        "slug": "kit-postgres",
-        "title": "Postgres client (tai42_kit.clients.impl.postgres)",
-        "description": "The pooled Postgres client, autocommit reads, pinned and dedicated connections.",
-        "icon": "database",
-        "modules": ["tai42_kit.clients.impl.postgres"],
-    },
-    {
-        "slug": "kit-llm",
-        "title": "LLM factories and the classifier contract (tai42_kit.llm)",
-        "description": "LLM, embedding, checkpoint, and store factories, plus the classifier contract models.",
-        "icon": "brain",
-        "modules": ["tai42_kit.llm", "tai42_kit.llm.classifier"],
-    },
-    {
-        "slug": "kit-monitoring",
-        "title": "Run traces (tai42_kit.monitoring)",
-        "description": (
-            "The run-trace opener: a run's one lineage, its `run` span, "
-            "and the span that continues a handed-over lineage."
-        ),
-        "icon": "diagram-project",
-        "modules": ["tai42_kit.monitoring.run_trace"],
-    },
-    {
-        "slug": "kit-checkpoint",
-        "title": "Checkpoint stores (tai42_kit.llm.checkpoint)",
-        "description": (
-            "The checkpoint-store seam: the provider registry and its facts, the resource and retention seams, "
-            "and the protocols and helpers a store's registration builds on."
-        ),
-        "icon": "floppy-disk",
-        "modules": ["tai42_kit.llm.checkpoint"],
-    },
-    {
-        "slug": "kit-settings",
-        "title": "Settings (tai42_kit.settings)",
-        "description": "The base settings class and the settings registry.",
-        "icon": "gear",
-        "modules": ["tai42_kit.settings"],
-    },
-    {
-        "slug": "kit-transport",
-        "title": "Transports (tai42_kit.transport)",
-        "description": "UDS transports and the MCP transport factory.",
-        "icon": "route",
-        "modules": ["tai42_kit.transport"],
-    },
-    {
-        "slug": "kit-net",
-        "title": "Network guard (tai42_kit.net)",
-        "description": "The URL guard and safe fetch helpers.",
-        "icon": "shield-halved",
-        "modules": ["tai42_kit.net"],
-    },
-    {
-        "slug": "kit-interactions",
-        "title": "Park index and park seams (tai42_kit.interactions)",
-        "description": (
-            "The shared park index, the terminal chain notice, and the give-up handler seam a driver "
-            "that parks registers so the waiter of a park its driver ends (an abandoned resume, or a "
-            "resumed answer a preset's output map refused) is told."
-        ),
-        "icon": "square-parking",
-        "modules": [
-            "tai42_kit.interactions.park_index",
-            "tai42_kit.interactions.park_adoption",
-            "tai42_kit.interactions.park_giveup",
-        ],
-    },
-    {
-        "slug": "kit-logging",
-        "title": "Logging (tai42_kit.logging)",
-        "description": "Structured logging settings and setup.",
-        "icon": "file-lines",
-        "modules": ["tai42_kit.logging"],
-    },
-    {
-        "slug": "skeleton-app",
-        "title": "Skeleton app (tai42_skeleton.app)",
-        "description": "The concrete TaiMCP app, including the raw fastmcp escape hatch.",
-        "icon": "microchip",
-        "modules": ["tai42_skeleton.app.server"],
-    },
-    {
-        "slug": "skeleton-asgi",
-        "title": "ASGI factory (tai42_skeleton.asgi)",
-        "description": "The public create_app factory for embedding the server in a user-owned ASGI process.",
-        "icon": "server",
-        "modules": ["tai42_skeleton.asgi"],
-    },
-    {
-        "slug": "skeleton-states",
-        "title": "State record validation (tai42_skeleton.states)",
-        "description": (
-            "The store-free record validator, the effective-schema composer, and the state-template document validator."
-        ),
-        "icon": "list-check",
-        "modules": [
-            "tai42_skeleton.states.schema",
-            "tai42_skeleton.states.templates.compose",
-            "tai42_skeleton.states.templates.validate",
-        ],
-    },
-]
-
-# The public Protocols/ABCs a plugin author implements, the escape-hatch
-# accessor, the guarded fetch helper, the Postgres client's connection
-# helpers, and the store-free record validator. Every one MUST appear as a
-# rendered heading or the run fails.
-REQUIRED_SYMBOLS = [
-    "Agent",
-    "VersionedStore",
-    "AppVersioning",
-    "AppPresets",
-    "PresetStore",
-    "MonitoringReader",
-    "MonitoringWriter",
-    "ProviderDescriptor",
-    "ExtensionKind",
-    "TaiApp",
-    "Backend",
-    "Sandbox",
-    "Storage",
-    "Channel",
-    "PluginSpec",
-    "fastmcp",
-    "fetch_url",
-    "RunFailed",
-    "ParkIndex",
-    "terminal_chain_notice",
-    "ParkGiveUpOutcome",
-    "register_park_giveup_handler",
-    "fire_park_giveup",
-    "CheckpointProvider",
-    "CheckpointValueStore",
-    "FinishedThreadLedger",
-    "ValueEncoding",
-    "PostgresClient",
-    "read_connection",
-    "pinned_connection",
-    "RecordValidator",
-]
 
 
 # --------------------------------------------------------------------------- #
@@ -731,7 +446,7 @@ def build_pages(loader: GriffeLoader) -> tuple[dict[str, str], set[str]]:
     """
     rendered_pages: dict[str, str] = {}
     all_symbols: set[str] = set()
-    for spec in PAGES:
+    for spec in sdk_pages.PAGES:
         text, symbols = render_page(loader, spec)
         rendered_pages[spec["slug"]] = text
         all_symbols.update(symbols)
@@ -753,7 +468,7 @@ def main() -> int:
         print(f"gen_sdk: rendering failed: {exc}", file=sys.stderr)
         return 1
 
-    missing = [s for s in REQUIRED_SYMBOLS if s not in all_symbols]
+    missing = [s for s in sdk_pages.REQUIRED_SYMBOLS if s not in all_symbols]
     if missing:
         print(
             "gen_sdk: required symbols missing from generated reference: " + ", ".join(missing),
@@ -771,7 +486,7 @@ def main() -> int:
     for slug, text in rendered_pages.items():
         (OUT_DIR / f"{slug}.mdx").write_text(text, encoding="utf-8")
 
-    update_nav([spec["slug"] for spec in PAGES])
+    update_nav([spec["slug"] for spec in sdk_pages.PAGES])
 
     print(
         f"gen_sdk: wrote {len(rendered_pages)} pages to {OUT_DIR} "

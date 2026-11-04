@@ -17,6 +17,7 @@ is not installed simply is not discovered.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import importlib.metadata
 import importlib.util
@@ -110,6 +111,11 @@ def discover_plugins() -> dict[str, PluginInfo]:
     return plugins
 
 
+async def _no_route_mount_overrides() -> dict[str, dict[str, str]]:
+    """No persisted route-mount overrides: each route module binds at its plugin's declared base."""
+    return {}
+
+
 def import_plugin_settings(plugins: Iterable[PluginInfo]) -> None:
     """Import each plugin's descriptor modules so its settings groups register.
 
@@ -137,7 +143,7 @@ def import_plugin_settings(plugins: Iterable[PluginInfo]) -> None:
         if info.spec.contract is None:
             continue
         tai42_app.bind(TaiMCP(name="Tai"))
-        mount_map = build_mount_map(list(info.modules), reserved, dict)
+        mount_map = asyncio.run(build_mount_map(list(info.modules), reserved, _no_route_mount_overrides))
         for module in info.modules:
             try:
                 with bind_module(mount_map.get(module)):

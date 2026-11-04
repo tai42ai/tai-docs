@@ -99,7 +99,9 @@ async current(self, **kwargs) -> AsyncIterator[T]
 Lease the pooled client for ``kwargs``, creating it on first use.
 
 A disconnection inside the body evicts and closes the client and raises
-`ClientDisconnectedError`; retry to rebuild it.
+`ClientDisconnectedError`; retry to rebuild it. On a loop its end has
+marked closing (`tai42_kit.loop_closing`) a new lease raises
+``RuntimeError``; a lease held from before keeps its client.
 
 **Parameters**
 
@@ -400,20 +402,4 @@ pools; the current epoch cannot be drained.
 |---|---|---|---|
 | `epoch` | `int` | — | — |
 | `deadline` | `float` | — | — |
-
-
-## shutdown_all_clients
-
-`tai42_kit.clients.base.shutdown_all_clients`
-
-```python
-async shutdown_all_clients() -> None
-```
-
-Close every live client pool for the running event loop.
-
-Sweeps every epoch of the per-loop class-keyed cache and closes each pooled
-client — process-teardown semantics, independent of leases. Closes are
-best-effort — failures are collected and raised together, never silently
-dropped.
 

@@ -1,0 +1,165 @@
+---
+title: "Private event loop (tai42_kit.backend.private_loop)"
+description: "The event loop a backend job's OS thread runs itself, and the end that loop runs: the loop marked closing, its loop-bound resources released, its leftover tasks cancelled and ended, its async generators closed."
+icon: "rotate"
+---
+
+
+An event loop a job's own thread runs itself, one job at a time, and the end of that loop.
+
+A backend whose pool gives every running job an OS thread with no loop running on it lets the job
+run its coroutine on a loop of its own: `PrivateLoop`. A backend may make one for each job
+and close it as the job ends, or keep one for job after job and close it as the process that ran
+them stops; each run is one job's, and `PrivateLoop.close` ends the loop the same way for both.
+
+Every run of the loop makes it the thread's current event loop while it runs and leaves the thread
+with none after, as ``asyncio.Runner`` does, and runs it until the future it waits for is done and
+the callbacks that end scheduled have run. A task that raises a ``SystemExit`` or
+``KeyboardInterrupt`` ends with it, and asyncio throws the same exception out of the call that runs
+the loop as well; the loop keeps a record of its tasks and reads the exit a task ended with, so the
+run tells a task's exit, after which the loop runs on and the exit reaches the job it belongs to by
+the ordinary await, from an exception raised in the loop's own code by no task (a signal handler, a
+pool's time limit raised into the job's thread, ``loop.stop()``, a done callback raising a task's
+exit again, the loop failing to run at all).
+
+An exception raised by no task ends the job: the job's task is cancelled and run to its end, its
+cleanup included, and the job then raises the exception. A further exception while that task ends
+(a signal in the wind-down's own code, an exception the loop raises on every run) ends that and is
+what the job ends with, the first exception as its context; the loop so left with its work unended
+is closed at once (`PrivateLoop.close`) and serves no further job.
+
+The kit keeps its loop-bound resources (pooled clients, checkpoint savers, stores) per loop, and the
+loop's close ends the loop in the order ``asyncio.Runner`` does, with the kit's release as the
+application's own clean-up that runs inside the run, before the runner's close: after the mark below, the
+release runs on the loop itself, while every task left on it is still alive, since a resource may own
+tasks of its own (a connection pool's workers) that its close awaits to their end. Every task left
+on the loop is then cancelled and run to its end, round after round until no task is left, so a
+task made while the others end (one a task's cleanup starts, one the release leaves running, one a
+thread hands the loop) is ended as well; the async generators left suspended on it are then closed
+and the tasks their close made ended the same way, and the loop closes. Before the release, the close
+marks the loop closing (`tai42_kit.loop_closing`): a task that leases a pooled client or a registry from
+then on (one still running, or one in its cleanup) gets a ``RuntimeError`` naming the loop as
+closing, as a closed connection pool refuses a new connection, so nothing is opened that the release
+would not close; a lease the task held from before keeps working until it is released. Work that
+starts itself anew each time it is cancelled keeps the close running, as a task that ignores its
+cancel keeps ``asyncio.run`` waiting.
+
+The loop's default executor (the threads of ``asyncio.to_thread`` and ``run_in_executor(None, ...)``)
+is shut down as the loop closes without waiting for its threads, where ``asyncio.run`` joins them:
+a thread cannot be cancelled, so a job that awaited one is not held by it once the exception that
+ends the job has reached the loop, and the thread ends on its own, its result unread. When that
+exception reaches a loop waiting for a thread is the pool's to say: a signal handler's interrupts
+the loop's wait at once, while an exception raised into the job's thread from another thread lands
+only once the loop runs Python code again, which a loop waiting for its I/O does not do until the
+wait ends (with the thread's end, at the latest). A thread that hands the loop work after its close
+fails at once with asyncio's ``RuntimeError``.
+
+Pure Python cannot guard every instruction against an asynchronous exception (a signal handler's,
+or one a pool raises into the thread), so an exception that lands in this module's own code is
+raised where it lands: on the job's thread the job raises it, and in ``close``, ``close`` raises it.
+Inside a callback the loop runs, asyncio itself catches it: a ``SystemExit`` or
+``KeyboardInterrupt`` it throws out of the loop, which ends the job as above; any other exception it
+logs at ERROR and runs on, so the job does not raise it and what that callback was to do stays
+undone. The callback by which this module ends a run stops the loop even when such an exception
+lands in its ``loop.stop()`` call, so the run still ends, as its work did.
+
+Two windows stay open. An exception that lands at the first instruction of that callback, or in
+asyncio's own scheduling of it as the work ends, is logged before the loop is stopped, and the run
+waits on until the process is ended from outside, as a run of ``asyncio.run`` does in the same
+case. A thread's hand-off that reaches the loop from the start of the close's last pass over it until
+its closing is dropped with the loop's pending callbacks, and a thread that waits for that
+hand-off's result waits on.
+
+## PrivateLoop
+
+`tai42_kit.backend.private_loop.PrivateLoop`
+
+```python
+class PrivateLoop
+```
+
+An event loop of a job's own, run by the job's thread itself, one job at a time, until `close`.
+
+### Members
+
+#### loop
+
+`tai42_kit.backend.private_loop.PrivateLoop.loop`
+
+```python
+loop: asyncio.AbstractEventLoop
+```
+
+The asyncio loop the jobs run on.
+
+
+#### closed
+
+`tai42_kit.backend.private_loop.PrivateLoop.closed`
+
+```python
+closed: bool
+```
+
+Whether the loop is closed: by `close`, by a job whose work on it could not be ended, or directly.
+
+
+#### run
+
+`tai42_kit.backend.private_loop.PrivateLoop.run`
+
+```python
+run(self, coroutine: Coroutine[Any, Any, Any]) -> Any
+```
+
+Run ``coroutine`` to completion on the loop as one job, and return its result.
+
+The job raises what the coroutine's task ends with, a ``SystemExit`` or ``KeyboardInterrupt``
+included: the loop runs on after a task's exit, so an exit from any task of the coroutine
+reaches its awaiter as any exception does, and the loop serves the next job.
+
+An exception raised by no task (a signal handler, a time limit raised into the job's thread,
+``loop.stop()``, a done callback raising a task's exit again) cancels the coroutine's task
+and runs the loop until that task has ended, its cleanup included, and is then raised; an
+error the task ends with after that cancel is logged at ERROR with its traceback, and so is
+one the task had already ended with when the exception came, the log saying it came before.
+
+A further exception while the task is cancelled and ends ends that: the job raises it, the
+first as its context, and the loop is closed (`close`). A job that holds no task of
+its coroutine closes the coroutine: the loop is closed, its task factory was replaced, or an
+exception landed as the task was made, before the job held it. In that last case the task
+stays on the loop, and the loop's next run runs it: it fails at once on the closed
+coroutine, which asyncio logs at ERROR as an exception never retrieved, and that run's own
+job is unaffected.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `coroutine` | `Coroutine[Any, Any, Any]` | — | — |
+
+
+#### close
+
+`tai42_kit.backend.private_loop.PrivateLoop.close`
+
+```python
+close(self) -> None
+```
+
+Release the kit's resources for the loop, end the work left on it, close its async generators, close it.
+
+Once this thread can run the loop, the loop is marked closing, then the kit's release runs
+while the tasks left on the loop are still alive, so a resource whose close awaits tasks of
+its own finds them running; from the mark a new lease of a pooled client or a registry on
+the loop raises ``RuntimeError``. Every task on the loop is then cancelled and the loop run
+until each has ended, round after round until no task is left, as ``asyncio.run`` ends its
+tasks on its way out; an error a task ends with then is logged at ERROR with its traceback.
+The async generators left suspended on the loop are then closed, followed by the same end of
+the tasks their close made. A release that fails raises once all of that has run. A step
+that raises ends the steps after it, and the loop still closes. A loop running (on another
+thread) cannot be closed: the close raises ``RuntimeError``, leaves the loop running and
+unmarked, and releases nothing. The loop's default executor is shut down without waiting
+for its threads (the module docstring tells why). A loop already closed is left as it is.
+
+
