@@ -143,8 +143,7 @@ def check_parity(embedded: dict[str, list[str]], staged: dict[str, list[str]], s
             ("the sweep has", _themes_by_key(staged_files, shot_set)),
         ):
             errors.extend(
-                f"{label} {key}-{sorted(keyed[key])[0]}.png but not {key}-{theme}.png; "
-                "a shot of this set needs every theme"
+                f"{label} {key}-{min(keyed[key])}.png but not {key}-{theme}.png; a shot of this set needs every theme"
                 for key in sorted(keyed)
                 for theme in sorted(set(shot_set.themes) - keyed[key])
             )
