@@ -576,7 +576,7 @@ function ConfirmDialog(props: ConfirmDialogProps): ReactNode
 | `confirmLabel` | `string` | The confirm button's resting label (e.g. `Delete scope`). |
 | `confirmVariant?` | `"primary" \| "danger"` | — |
 | `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the failure, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
-| `error?` | `unknown` | The failed action's rejection, shown through `WriteFailure`; omit/`null` while there is none. Any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable. |
+| `failure?` | `{ error: unknown; scope: string }` | The action's failure, for a confirm whose action can fail in this dialog: `error` is the rejection, shown through `WriteFailure`, or `null` while there is none, and any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable; `scope` is what the failure's report names as its scope. |
 | `isPending` | `boolean` | — |
 | `onClose` | `() => void` | — |
 | `onConfirm` | `() => void` | — |
@@ -602,7 +602,7 @@ interface ConfirmDialogProps
 | `confirmLabel` | `string` | The confirm button's resting label (e.g. `Delete scope`). |
 | `confirmVariant?` | `"primary" \| "danger"` | — |
 | `disabledNote?` | `ReactNode` | A muted node shown in the error slot INSTEAD of the failure, for the OFF (disabled-feature) case: the action's store is not configured, so the failure is a state, not an error. When set it takes the error slot AND disables the confirm button — the action can only refuse, so there is nothing to retry. |
-| `error?` | `unknown` | The failed action's rejection, shown through `WriteFailure`; omit/`null` while there is none. Any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable. |
+| `failure?` | `{ error: unknown; scope: string }` | The action's failure, for a confirm whose action can fail in this dialog: `error` is the rejection, shown through `WriteFailure`, or `null` while there is none, and any rejected value is accepted as it was thrown (a message string shows as it is), so the client's refusal codes stay readable; `scope` is what the failure's report names as its scope. |
 | `isPending` | `boolean` | — |
 | `onClose` | `() => void` | — |
 | `onConfirm` | `() => void` | — |
@@ -1423,6 +1423,7 @@ function FailedReplyOutcome(props: FailedReplyOutcomeProps): ReactNode
 | Prop | Type | Description |
 |---|---|---|
 | `error` | `unknown` | The rejected value of the write. |
+| `scope` | `string` | The name of the write that failed. |
 
 **Related:** [FailedReplyOutcomeProps](/reference/studio-sdk/components#failedreplyoutcomeprops)
 
@@ -1438,6 +1439,7 @@ interface FailedReplyOutcomeProps
 | Property | Type | Description |
 |---|---|---|
 | `error` | `unknown` | The rejected value of the write. |
+| `scope` | `string` | The name of the write that failed. |
 
 
 ## Field
@@ -1522,7 +1524,7 @@ function FleetOutcomeReport(props: FleetOutcomeReportProps): ReactNode
 |---|---|---|
 | `action?` | `"failed" \| "reload" \| "save" \| "deregister" \| "remove"` | Whose framing the broadcast's report takes. |
 | `recycle` | `Pick<{ fresh: ({ generation: number; kind: string; name: string })[]; recycle: ({ detail: string \| null; generation_before: number; keys: string[]; kind: string; name: string; status: string })[]; recycle_stopped: { detail: string; kind: string; name: string \| null } \| null; skipped: string[] }, "fresh" \| "recycle" \| "recycle_stopped"> \| null` | The roll the change ran, or `null` when it ran none. |
-| `scope?` | `string` | What the roll's heading names as its scope, where a report holds several rolls. |
+| `scope` | `string` | The write the report's panels and roll name as their scope. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 **Related:** [FleetOutcomeReportProps](/reference/studio-sdk/components#fleetoutcomereportprops)
@@ -1540,7 +1542,7 @@ interface FleetOutcomeReportProps
 |---|---|---|
 | `action?` | `"failed" \| "reload" \| "save" \| "deregister" \| "remove"` | Whose framing the broadcast's report takes. |
 | `recycle` | `Pick<{ fresh: ({ generation: number; kind: string; name: string })[]; recycle: ({ detail: string \| null; generation_before: number; keys: string[]; kind: string; name: string; status: string })[]; recycle_stopped: { detail: string; kind: string; name: string \| null } \| null; skipped: string[] }, "fresh" \| "recycle" \| "recycle_stopped"> \| null` | The roll the change ran, or `null` when it ran none. |
-| `scope?` | `string` | What the roll's heading names as its scope, where a report holds several rolls. |
+| `scope` | `string` | The write the report's panels and roll name as their scope. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 
@@ -1555,7 +1557,8 @@ function FleetReloadReport(props: FleetReloadReportProps): ReactNode
 | Prop | Type | Description |
 |---|---|---|
 | `recycle` | `{ fresh: ({ generation: number; kind: string; name: string })[]; recycle: ({ detail: string \| null; generation_before: number; keys: string[]; kind: string; name: string; status: string })[]; recycle_stopped: { detail: string; kind: string; name: string \| null } \| null; skipped: string[] } \| null` | The reply's `recycle`: the roll the reload ran. |
-| `summary` | `FleetReportSummary` | The reply folded by `summarizeFleetReload`. |
+| `scope` | `string` | The write the report's panels and roll name as their scope. |
+| `summary` | `FleetReloadSummary` | The reply folded by `summarizeFleetReload`. |
 
 **Related:** [FleetReloadReportProps](/reference/studio-sdk/components#fleetreloadreportprops)
 
@@ -1571,7 +1574,8 @@ interface FleetReloadReportProps
 | Property | Type | Description |
 |---|---|---|
 | `recycle` | `{ fresh: ({ generation: number; kind: string; name: string })[]; recycle: ({ detail: string \| null; generation_before: number; keys: string[]; kind: string; name: string; status: string })[]; recycle_stopped: { detail: string; kind: string; name: string \| null } \| null; skipped: string[] } \| null` | The reply's `recycle`: the roll the reload ran. |
-| `summary` | `FleetReportSummary` | The reply folded by `summarizeFleetReload`. |
+| `scope` | `string` | The write the report's panels and roll name as their scope. |
+| `summary` | `FleetReloadSummary` | The reply folded by `summarizeFleetReload`. |
 
 
 ## FleetReport
@@ -1590,6 +1594,7 @@ always mount it unconditionally beside their own success line.
 | Prop | Type | Description |
 |---|---|---|
 | `action?` | `"failed" \| "reload" \| "save" \| "deregister" \| "remove"` | Whose framing the copy takes: a saved config change (`'save'`), a dispatched reload (`'reload'`), a connector detach fan-out (`'deregister'`), a live-registry tool removal (`'remove'`), or a failed write's reply (`'failed'`). All but `'save'` drop the "Change saved" framing; `'deregister'` and `'remove'` also point remediation back at re-running that same detach, since a reload would re-attach the detached server or tool. |
+| `scope` | `string` | The write each panel's heading names as its scope. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 **Related:** [FleetReportProps](/reference/studio-sdk/components#fleetreportprops)
@@ -1606,6 +1611,7 @@ interface FleetReportProps
 | Property | Type | Description |
 |---|---|---|
 | `action?` | `"failed" \| "reload" \| "save" \| "deregister" \| "remove"` | Whose framing the copy takes: a saved config change (`'save'`), a dispatched reload (`'reload'`), a connector detach fan-out (`'deregister'`), a live-registry tool removal (`'remove'`), or a failed write's reply (`'failed'`). All but `'save'` drop the "Change saved" framing; `'deregister'` and `'remove'` also point remediation back at re-running that same detach, since a reload would re-attach the detached server or tool. |
+| `scope` | `string` | The write each panel's heading names as its scope. |
 | `summary` | `FleetReportSummary \| null` | — |
 
 
@@ -1815,6 +1821,7 @@ function FormDialog(props: FormDialogProps): ReactNode
 | `cancelLabel?` | `string` | The Cancel button's label. |
 | `children` | `ReactNode` | The form body — the caller's fields. |
 | `description?` | `string` | — |
+| `errorScope` | `string` | The write the failure's report names as its scope. |
 | `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
 | `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
 | `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
@@ -1839,6 +1846,7 @@ interface FormDialogProps
 | `cancelLabel?` | `string` | The Cancel button's label. |
 | `children` | `ReactNode` | The form body — the caller's fields. |
 | `description?` | `string` | — |
+| `errorScope` | `string` | The write the failure's report names as its scope. |
 | `onClose` | `() => void` | Called on a close gesture (Cancel, Escape, overlay) and on a successful submit — at most once per dialog lifecycle. A close landing mid-submit wins: the later resolution does not fire a second `onClose`. |
 | `onSubmit` | `() => void \| Promise<void>` | The action the form performs. A returned promise is awaited: the dialog closes only when it RESOLVES; a rejection (or a synchronous throw) keeps the dialog open and renders the failure loudly. A `void` return closes the dialog synchronously. |
 | `pendingLabel` | `string` | The Spinner's accessible label while the action runs (e.g. `Creating`). |
@@ -2926,7 +2934,7 @@ function RecycleRollSection(props: RecycleRollSectionProps): ReactNode
 | Prop | Type | Description |
 |---|---|---|
 | `roll` | `Pick<RecycleRoll, "recycle" \| "fresh" \| "recycle_stopped">` | The roll, read from a reply that nests it or one that carries its fields flat. |
-| `scope?` | `string` | The part of the operation the roll belongs to, named after the heading. |
+| `scope` | `string` | The write the roll belongs to, named after the heading. |
 
 **Related:** [RecycleRollSectionProps](/reference/studio-sdk/components#recyclerollsectionprops)
 
@@ -2942,7 +2950,7 @@ interface RecycleRollSectionProps
 | Property | Type | Description |
 |---|---|---|
 | `roll` | `Pick<RecycleRoll, "recycle" \| "fresh" \| "recycle_stopped">` | The roll, read from a reply that nests it or one that carries its fields flat. |
-| `scope?` | `string` | The part of the operation the roll belongs to, named after the heading. |
+| `scope` | `string` | The write the roll belongs to, named after the heading. |
 
 
 ## RevealInput
@@ -3406,7 +3414,7 @@ A vertical flex column on the spacing scale.
 |---|---|---|
 | `children` | `ReactNode` | — |
 | `className?` | `string` | — |
-| `gap?` | `2 \| 3 \| 4 \| 6` | The gap step; 4 is the default and needs no modifier class. |
+| `gap?` | `2 \| 4 \| 3 \| 6` | The gap step; 4 is the default and needs no modifier class. |
 | `ref?` | `Ref<HTMLDivElement>` | A consumer ref for the wrapper element itself. |
 | `style?` | `CSSProperties` | — |
 
@@ -3425,7 +3433,7 @@ interface StackProps extends LayoutElementProps
 |---|---|---|
 | `children` | `ReactNode` | — |
 | `className?` | `string` | — |
-| `gap?` | `2 \| 3 \| 4 \| 6` | The gap step; 4 is the default and needs no modifier class. |
+| `gap?` | `2 \| 4 \| 3 \| 6` | The gap step; 4 is the default and needs no modifier class. |
 | `ref?` | `Ref<HTMLDivElement>` | A consumer ref for the wrapper element itself. |
 | `style?` | `CSSProperties` | — |
 
@@ -4465,6 +4473,7 @@ function WriteFailure(props: WriteFailureProps): ReactNode
 | Prop | Type | Description |
 |---|---|---|
 | `error` | `unknown` | The rejected value of the write. |
+| `scope` | `string` | The name of the write that failed. |
 
 **Related:** [WriteFailureProps](/reference/studio-sdk/components#writefailureprops)
 
@@ -4480,6 +4489,7 @@ interface WriteFailureProps
 | Property | Type | Description |
 |---|---|---|
 | `error` | `unknown` | The rejected value of the write. |
+| `scope` | `string` | The name of the write that failed. |
 
 
 ## XCircleIcon
