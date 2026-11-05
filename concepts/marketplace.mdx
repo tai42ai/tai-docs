@@ -78,6 +78,28 @@ it; the installer uses the `provides` list to patch the server
 server manifest: `tai-plugin.yml` describes what a plugin *offers*, the server
 manifest declares what a server *loads*.
 
+### Required platform features
+
+A plugin whose code cannot work while a platform feature is off names that feature
+in `requires`, by its kind — the name its `GET /api/system/kinds` row and the
+[OFF table](/concepts/config-and-secrets#off-behavior-per-feature) use:
+
+```yaml tai-plugin.yml
+requires:
+  - versioning
+  - tool_meta
+```
+
+Every boot and every reload checks every plugin the deployment loads: the plugins
+the manifest's module lists and `studio_plugins` name, and the config provider
+`TAI_CONFIG_MODE` selects. The check runs before any manifest-named module imports
+(the config provider is already loaded by then, since the configuration is read
+through it). A required feature that is off refuses the start with one
+error naming the plugin, the feature, and the variable that turns it on; a name
+that is no platform feature refuses it and lists every known feature. A refused
+reload leaves the running configuration serving. `requires` needs a code item: a
+descriptor-only plugin loads no module, so there is nothing to check.
+
 ## Delivery: package or descriptor
 
 A listing carries two independent axes. **Payload** is what each item *is* — code
