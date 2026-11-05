@@ -1,0 +1,88 @@
+# Keeps the dev group's sibling ranges and uv.lock current. The Python dependencies
+# resolve from path sources on the sibling monorepo checkout, which Dependabot cannot
+# retrieve, so nothing else moves them when a sibling releases or an advisory lands.
+#
+# Each run moves the ranges to the sibling's current majors, re-resolves the whole
+# lock, and opens a self-merging regeneration PR when anything moved
+# (regen-automerge.yml auto-merges any docs/regenerate-* branch); the `gate` job
+# syncs the new lock on that PR before it merges.
+#
+# A fork names its own monorepo with the SOURCE_REPO_OWNER and MONOREPO_REPO
+# variables. Without TAI_CI_TOKEN and TAI_DOCS_PR_TOKEN the job skips itself.
+
+name: refresh-sibling-pins
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 6 * * *"
+
+permissions: {}
+
+concurrency:
+  group: refresh-sibling-pins
+  cancel-in-progress: true
+
+jobs:
+  tokens:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          PRESENT: ${{ secrets.TAI_CI_TOKEN != '' && secrets.TAI_DOCS_PR_TOKEN != '' }}
+        run: echo "present=${PRESENT}" >> "$GITHUB_OUTPUT"
+
+  refresh:
+    needs: tokens
+    if: needs.tokens.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the regeneration branch
+      pull-requests: write # open the automated regeneration PR
+    steps:
+      - name: Check out tai-docs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: tai-docs
+
+      - name: Check out the monorepo
+        # The monorepo may be private, so the clone authenticates with TAI_CI_TOKEN
+        # via a git url.insteadOf rewrite.
+        env:
+          TAI_CI_TOKEN: ${{ secrets.TAI_CI_TOKEN }}
+          SOURCE_OWNER: ${{ vars.SOURCE_REPO_OWNER || github.repository_owner }}
+          MONOREPO_REPO: ${{ vars.MONOREPO_REPO || 'tai42' }}
+        run: |
+          git config --global \
+            url."https://x-access-token:${TAI_CI_TOKEN}@github.com/".insteadOf \
+            "https://github.com/"
+          git clone --depth 1 "https://github.com/${SOURCE_OWNER}/${MONOREPO_REPO}.git" tai42
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Move the ranges and re-resolve the lock
+        working-directory: tai-docs
+        run: |
+          python3 scripts/refresh_sibling_pins.py
+          uv lock --upgrade
+
+      - name: Open an automated PR when anything moved
+        # `token` is a PAT/App token, not the default GITHUB_TOKEN: a PR opened with
+        # GITHUB_TOKEN does not trigger further workflows, so `gate` would never run.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          token: ${{ secrets.TAI_DOCS_PR_TOKEN }}
+          path: tai-docs
+          branch: docs/regenerate-sibling-pins
+          commit-message: "build(deps): refresh the sibling ranges and uv.lock"
+          title: "build(deps): refresh the sibling ranges and uv.lock"
+          body: |
+            Automated refresh of the dev group's ranges to the sibling monorepo's
+            current majors, with the whole lock re-resolved.
+
+            Self-merges once the required checks pass.
+          labels: dependencies, automated
+          delete-branch: true

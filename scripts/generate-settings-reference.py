@@ -106,7 +106,7 @@ def _owner_label(module: str) -> str:
     """
     top_level = module.split(".", 1)[0]
     dists = importlib.metadata.packages_distributions().get(top_level)
-    return sorted(set(dists))[0] if dists else top_level
+    return min(set(dists)) if dists else top_level
 
 
 # The per-named-database Postgres group is loaded once per named database under a
