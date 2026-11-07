@@ -180,6 +180,19 @@ running, and is retried only where the tool's retry policy opts in.
 A plugin route opts into the same refusal by declaring `reload_gated` on its
 registration; the route surface enforces it around the handler.
 
+A worker that has decided to leave — for example its own restart after its change's roll, a
+recycle roll that reached it, or a stop — is a state the API describes the same way. A change
+to the configuration, connections or plugins the workers serve that reloads or rolls the
+fleet, or a restart of it, reaching such a worker over HTTP is refused at the door with a
+`503` whose body names the worker's reason under `leaving`, before the change validates,
+persists or broadcasts anything; no such change that began after the decision holds the
+worker's exit. A tool call that reaches the refusal off the HTTP route fails as the tool's own
+error with the same text. The refusal carries no `Retry-After`, because the worker is not
+coming back: the caller retries shortly on a fresh connection, and once the leaving worker
+has stopped taking connections the retry is served by a worker that is not leaving, when the
+fleet still has one — a stop of the whole server leaves none, and the retry finds no server to
+answer it: the connection is refused, or dropped unanswered as the server exits.
+
 ## Soft restart
 
 `reload_config` is the soft restart: it refreshes environment values and reloads the
