@@ -449,13 +449,50 @@ old name and every extension branch tool bound off it together, on a rename and
 on the rename preview; it answers holders keyed by asked name and has no side
 effect. Any holder blocks the rename and the holders are named. Registering
 the same provider object twice raises loudly — a double registration is a
-plugin bug, never a silent duplicate consult.
+plugin bug, never a silent duplicate consult. Re-keying what the plugin holds under
+the name belongs in a rename cascade (`register_rename_cascade`).
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `provider` | `ToolRenameReferee` | — | — |
+
+
+#### register_rename_cascade
+
+`tai42_contract.tools.AppTools.register_rename_cascade`
+
+```python
+register_rename_cascade(self, provider: ToolRenameCascade) -> None
+```
+
+Register a `ToolRenameCascade` run when a preset rename proceeds.
+
+A plugin holding records keyed by a preset/tool name calls this through the
+``tai42_app`` handle when its module loads. A cascade is called once for each tool
+the rename moves (the preset, then each extension branch tool bound off it), with
+that tool's old and new name, only after every veto and guard has passed and the
+new name is bound, before the old name is torn down; a cascade raising fails the
+rename and undoes it. Registering the same provider object twice raises loudly — a
+double registration is a plugin bug, never a silent duplicate re-key.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `ToolRenameCascade` | — | — |
+
+
+#### rename_cascades
+
+`tai42_contract.tools.AppTools.rename_cascades`
+
+```python
+rename_cascades(self) -> list[ToolRenameCascade]
+```
+
+Every registered `ToolRenameCascade`, in registration order.
 
 
 #### register_delete_referee
@@ -919,6 +956,15 @@ interprets nothing about it — a logic-free carrier.
 
 ```python
 ToolRefsExtractor = Callable[[dict[str, Any]], Iterable[ComposedToolRef]]
+```
+
+
+## ToolRenameCascade
+
+`tai42_contract.tools.ToolRenameCascade`
+
+```python
+ToolRenameCascade = Callable[[str, str], Awaitable[None]]
 ```
 
 
