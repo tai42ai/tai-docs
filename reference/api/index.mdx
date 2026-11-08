@@ -108,7 +108,7 @@ or on record values.
 | `401` | The `x-api-key` header is missing or invalid. |
 | `404` | The addressed resource does not exist. |
 | `500` | An unexpected server error — the body carries a correlation `error_id`. |
-| `503` | The server is applying a config reload — retry shortly. |
+| `503` | The server is applying a config reload, or the worker that took the call is leaving — retry shortly. |
 
 ## The reload-gated 503
 
@@ -126,6 +126,33 @@ response carries a `Retry-After` header with the seconds to wait:
 
 Retry the request after the `Retry-After` interval. Read-only routes stay
 available throughout a reload.
+
+## The leaving 503
+
+A serve worker that has decided to leave — for example its own restart after a change it
+wrote rolled the fleet, a recycle roll that reached it, or a stop — begins no change to the
+configuration or the fleet it serves. Every route that changes the configuration,
+connections or plugins the workers serve and reloads or rolls the fleet for it, or restarts
+the fleet (each lists the `503` in its reference), reached on such a worker, answers `503`
+before any of the work starts; nothing is validated, persisted or broadcast. Other writes, a
+preset or a template for example, are served as on any worker. The body names the worker's
+reason under `leaving` and carries no `Retry-After` header:
+
+```json
+{
+  "error": "leaving — this worker is leaving (the writer's own restart after its change's roll) and begins no change; retry shortly",
+  "leaving": "the writer's own restart after its change's roll"
+}
+```
+
+There is no interval to wait out, because the worker is not coming back: retry shortly, on a
+fresh connection. The leaving worker stops taking connections as it leaves, so the retry is
+then served by a worker that is not leaving, when the fleet still has one — a stop of the
+whole server leaves none, and the retry finds no server to answer it: the connection is
+refused, or dropped unanswered as the server exits; a retry that still reaches the leaving
+worker meets the same refusal. The same refusal reaches a tool call made through
+`POST /api/run-tool` as the tool's own failure: a `500` whose body carries the same `error`
+text and no `leaving` key.
 
 ## Unexpected errors and validation
 
