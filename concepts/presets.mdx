@@ -198,7 +198,12 @@ Beyond the create/version/rollback core, the surface carries five more doors:
   atomically **at this one gate**: it runs create's name pre-checks on the new name
   and **blocks with a `409` listing every holder** — the same full referee union
   above (referencing presets and behavioral wiring alike) — so you update those
-  references first rather than have the rename silently strand them. It also rejects
+  references first rather than have the rename silently strand them. Once nothing
+  holds the name, the new name is bound, every registered rename cascade runs for each
+  name the rename moves (the preset, then each extension branch tool), and only then is
+  the old name torn down; a cascade that raises undoes the rename — the cascades already
+  applied re-key back, the new name is unbound, the record re-pointed — and the rename
+  answers a `500` carrying the cascade's message. It also rejects
   a conflicted record (`409`) and a no-op rename (`400`). Display metadata is not a
   behavioral reference: a tool's [organization overlay](/concepts/tool-organization)
   follows the name across a rename rather than blocking it.
@@ -264,6 +269,30 @@ async def alert_rule_holders(names: frozenset[str]) -> dict[str, list[ReferenceH
 
 tai42_app.tools.register_rename_referee(alert_rule_holders)
 tai42_app.tools.register_delete_referee(alert_rule_holders)
+```
+
+### Plugin cascades
+
+A referee blocks an action on a reference the author must update; a plugin whose records
+should *follow* the name instead registers a cascade, again when its module loads. A
+**rename cascade** (`tai42_app.tools.register_rename_cascade`) is a coroutine called with
+one tool's old and new name, once for each tool a rename moves — the preset, then each
+extension branch tool bound off it — after every referee has allowed the rename and the
+new name is bound, before the old name is torn down; it re-keys what the plugin holds under
+the old name onto the new. A cascade that raises fails the rename, and the platform undoes
+it by calling every cascade it already applied with the names swapped: a cascade is its own
+undo, so a re-key onto a name that already holds records is an error it raises, never a
+merge. The platform does not order the cascades among themselves. A **delete cascade**
+(`tai42_app.tools.register_delete_cascade`) is called once with each tool name a delete
+removes, after every referee has allowed the delete and before the record is removed, and
+removes what the plugin holds under it.
+
+```python
+async def move_alert_rules(old_name: str, new_name: str) -> None:
+    await rekey_alert_rules(old_name, new_name)  # the plugin's own write, refusing a taken target
+
+
+tai42_app.tools.register_rename_cascade(move_alert_rules)
 ```
 
 ### Every stored reference is checked at write
