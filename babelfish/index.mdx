@@ -1648,10 +1648,12 @@ An unknown or missing `kind` is `422`; the response is `{kind, name}` (plus `ver
 preset). The per-node bindings have direct routes too, keyed `(flow_name, node_id)`:
 `GET /api/babelfish/bindings` (by `?flow=` or `?state=`),
 `PUT/DELETE /api/babelfish/bindings/{flow_name}/{node_id}`,
-`DELETE /api/babelfish/bindings/{flow_name}` (removes every per-node binding of a flow — the
-Studio calls it when a flow is deleted — returning `{removed}`), and
-`POST /api/babelfish/bindings/move`. Every one answers the same gated refusal (`503`,
-`reason: states_unavailable`) when the flow states feature is off.
+and `DELETE /api/babelfish/bindings/{flow_name}` (removes every per-node binding of a flow,
+returning `{removed}`). Every one of these routes answers the same gated refusal (`503`,
+`reason: states_unavailable`) when the flow states feature is off. A flow rename or delete
+calls none of them: the plugin's rename cascade re-keys the flow's bindings onto the new
+name and its delete cascade removes them, inside the platform's own operation, and both
+return without touching a store when the feature is off.
 
 ## Shipped defaults are files
 
@@ -1843,20 +1845,16 @@ and the server decides at submit.
 **Rename.** **Rename** on a flow row, or the editor's **Rename flow** control, opens
 the **Rename flow** dialog ("Moves the flow's tool identity to a new name."), with a
 **New flow name** field. Holders that block the rename are listed under "Still used
-by — update these first:". The flow's own state bindings are not listed: they move to
-the new name with the rename, and a status line counts them ("This flow has 1 state
-binding; it moves to the new name with the rename."). The dialog moves those bindings
-first and then renames the flow, as one action; when the rename fails, it moves them
-back. If moving them back fails too, the dialog shows the rename's error and names
-the name the bindings are left under: renaming the flow to that name, once nothing
-blocks it, reattaches them. A refusal at submit that names only the flow's own
-bindings is answered by moving them and renaming once more, unless an earlier attempt
-left bindings under another name, in which case the dialog shows the refusal; a refusal
-that names any other holder shows that list and the refusal's first line. While a
-rename cancelled earlier is still running, the dialog holds **Rename** for that flow
-and says so. Bindings cannot move onto a flow that already holds any binding: the rename is
-refused with "flow 'taken' already has state bindings — delete them before re-keying
-'greet' onto it".
+by — update these first:". The flow's own state bindings are not listed and never block:
+the rename is one server-side action, and the plugin's rename cascade re-keys every
+binding of the flow onto the new name inside it, so the dialog sends the rename alone.
+A refusal at submit that names holders shows them in that same list beside the
+refusal's first line; any other server error shows on the dialog's error line, and the
+dialog stays open. Bindings never merge onto another flow: a new name that already
+holds state bindings fails the cascade, the server undoes the rename, and the error
+reads "preset 'greet' cannot be renamed — a rename cascade failed for 'greet' ->
+'taken': flow 'taken' already has state bindings — delete them before re-keying 'greet'
+onto it".
 
 **Delete.** The flow list's **Delete**, the editor's **Delete flow** control, and a
 custom node's delete in the palette each open a confirm that lists the holders under
