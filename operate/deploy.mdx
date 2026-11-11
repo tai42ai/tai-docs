@@ -73,6 +73,20 @@ The serve process checks each worker on a health ping and replaces any worker th
 
 Every worker and the serve process also enable Python's fault handler. A worker that crashes in native code writes `Fatal Python error: ...` and the stack of every thread to stderr before it dies, unless `PYTHONFAULTHANDLER` already configures it.
 
+### CPU-bound jobs and the compute pool
+
+Every server process — each `tai serve` worker and each `tai backend` worker process — runs its CPU-bound jobs in a compute pool of [`COMPUTE_WORKERS`](/concepts/config-and-secrets#timeouts-and-limits) worker processes (default `2`), its own unless noted below; jq compile and evaluation are such jobs. A long job runs in a pool process, so the server process keeps serving requests and answers the health ping above in time, and `/health` keeps answering. The pool starts with the first job a process runs and stops with the process.
+
+Two kinds of backend worker process keep no pool of their own. A process a backend worker forks to run its jobs (a prefork pool child, a forked work-horse) runs its compute jobs in the pool of the worker that forked it. A backend worker on a green-thread pool (`gevent`, `eventlet`) starts one helper process, its pool host, with its first compute job; the host keeps the pool, so that worker's first job takes up to a second longer and each later job pays under a millisecond for the hop. The host stops with its worker; if it ends earlier, the jobs it was running fail to their callers, the next job starts a fresh host and the worker logs the `WARNING` `compute pool host replaced after it ended`.
+
+A job that the process keeping the pool (a pool host, or the worker that forked the job's process) cannot take because it has no file descriptor free fails to its caller alone; that process logs the `ERROR` `a compute job was not taken: this process has no file descriptor free for its socket; its caller raises` and keeps serving its other jobs.
+
+While jobs run, one server process may use up to `1 + COMPUTE_WORKERS` CPU cores, so size a host or container for that many per process (with `--workers 4` and the default, up to 12).
+
+A job that runs past its budget fails to its caller (`TimeoutError` from the pool; a jq job past [`JQ_TIMEOUT_SECONDS`](/concepts/config-and-secrets#timeouts-and-limits) fails as the author's `JqBudgetExceededError`): the pool killed that worker process and starts a fresh one, and the server process itself is unaffected. The budget is kept by the process that runs the pool (the server process, or a pool host): when that process is killed outright (`SIGKILL`), a worker process that is running a job finishes that job before it ends.
+
+If a pool's worker processes die while idle (for example, killed by the out-of-memory killer), the next job starts a fresh pool and the process logs the `WARNING` `compute pool replaced after its workers died`.
+
 ## Run under a supervisor
 
 Run `tai serve` and every `tai backend` runtime under a supervisor that starts a process again when it exits: a Compose `restart` policy, Kubernetes, or a systemd unit with `Restart=`. A change to a [recycle-class setting](/concepts/config-and-secrets#settings-profiles) makes the affected processes exit gracefully, and the supervisor starts them again under the new env. Without a supervisor, an exited process stays down, and the roll reports the target where it stopped.

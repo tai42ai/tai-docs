@@ -1,0 +1,380 @@
+---
+title: "Compute pool (tai42_kit.compute)"
+description: "The pool of worker processes a process runs its CPU-bound jobs in, off the event loop: the pool, its share with the children a process forks, the pool host a process started through a prelude runs its jobs in, the client that reaches a pool over a socket, the COMPUTE_WORKERS setting that sizes it, and the errors a job raises."
+icon: "gears"
+---
+
+
+CPU-bound work off the event loop: a pool of worker processes, shared with the children a process forks.
+
+`compute_pool` is what runs the process's jobs; `ComputePool` runs a picklable job
+in a worker and awaits it; ``COMPUTE_WORKERS`` sizes it (`ComputeSettings`).
+`share_compute_pool` lets the children a process forks run their jobs in its pool. A process
+started through a process prelude runs its jobs in a pool host it starts, through a
+`HostedPool`. A process reaches a pool it does not run through a `ComputePoolClient`.
+
+## ComputeJobFailedError
+
+`tai42_kit.compute.errors.ComputeJobFailedError`
+
+```python
+class ComputeJobFailedError(RuntimeError)
+```
+
+The job raised an exception that cannot be rebuilt in the caller: the job's failure, not the platform's.
+
+The message carries the exception's type and message; the worker's traceback is the cause. It
+declares no error kind, because the kind is the job's and the platform does not know it.
+
+
+## ComputePool
+
+`tai42_kit.compute.pool.ComputePool`
+
+```python
+class ComputePool
+```
+
+A pool of ``workers`` worker processes running picklable jobs.
+
+``start`` launches the workers and ``stop`` ends them; a pool runs once. ``run`` on a pool
+that is not running raises `ComputePoolUnavailableError`:
+a job never runs anywhere but in a worker. A running pool is stopped when its process exits
+through the interpreter or through ``multiprocessing``'s child exit. The pool's process must
+run OS threads (`runs_in_this_process`).
+
+### Members
+
+#### workers
+
+`tai42_kit.compute.pool.ComputePool.workers`
+
+```python
+workers: int
+```
+
+The number of worker processes the pool runs.
+
+
+#### broken
+
+`tai42_kit.compute.pool.ComputePool.broken`
+
+```python
+broken: bool
+```
+
+Whether the library reports the running pool failed, as it does once an idle worker died.
+
+A broken pool refuses every job until it is stopped. A pool not started or stopped is not broken.
+
+
+#### runs_in_this_process
+
+`tai42_kit.compute.pool.ComputePool.runs_in_this_process`
+
+```python
+runs_in_this_process() -> bool
+```
+
+Whether a pool can run in this process: its threads are OS threads, no prelude reshaped them.
+
+A process started through a process prelude
+(`PROCESS_PRELUDE_ENV` names one) cannot run one.
+
+
+#### start
+
+`tai42_kit.compute.pool.ComputePool.start`
+
+```python
+start(self) -> None
+```
+
+Launch the worker processes.
+
+Raises ``RuntimeError`` when the pool is already running, and
+`ComputePoolUnavailableError` when it was stopped or when
+no pool can run in this process (`runs_in_this_process`).
+
+
+#### stop
+
+`tai42_kit.compute.pool.ComputePool.stop`
+
+```python
+stop(self) -> None
+```
+
+End the worker processes; a job still pending or running raises in its caller.
+
+Stopping a pool that never started only marks it stopped.
+
+
+#### run
+
+`tai42_kit.compute.pool.ComputePool.run`
+
+```python
+async run(self, fn: Callable[[*Ts], T], /, *args: *Ts, timeout: float | None = None) -> T
+```
+
+Run ``fn(*args)`` in a worker process and return its result.
+
+An exception ``fn`` raises is raised here as itself, the worker's traceback chained as its
+cause (`WorkerTraceback`); one that cannot be rebuilt here
+raises `ComputeJobFailedError` carrying its type and
+message, with the same cause. A job whose module fails to import in the worker raises
+that import error the same way. ``timeout`` (seconds, ``None`` for none) bounds the
+job once a worker takes it up: past it the worker is terminated at once and
+``TimeoutError`` is raised; nothing the job itself started is cleaned up. A worker that
+ends while running the job raises
+`ComputeWorkerLostError`; a pool that is not running, or
+broke, raises `ComputePoolUnavailableError`. An argument
+or a result that cannot be pickled raises the pickling error.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[*Ts], T]` | — | — |
+| `args` | `*Ts` | `()` | — |
+| `timeout` | `float \| None` | `None` | — |
+
+
+#### run_packed
+
+`tai42_kit.compute.pool.ComputePool.run_packed`
+
+```python
+async run_packed(self, payload: bytes, name: str, *, timeout: float | None = None) -> JobOutcome
+```
+
+Run a packed job (`pack`) in a worker and return its outcome.
+
+Raises what `run` raises for the pool's own failures (``TimeoutError``,
+`ComputeWorkerLostError`,
+`ComputePoolUnavailableError`), naming ``name``;
+cancelling the awaiting task terminates the job's worker.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `payload` | `bytes` | — | — |
+| `name` | `str` | — | — |
+| `timeout` | `float \| None` | `None` | — |
+
+
+
+## ComputePoolClient
+
+`tai42_kit.compute.pool_wire.ComputePoolClient`
+
+```python
+class ComputePoolClient
+```
+
+The client end: runs jobs in the pool of the process serving the rendezvous.
+
+### Members
+
+#### server_ended
+
+`tai42_kit.compute.pool_wire.ComputePoolClient.server_ended`
+
+```python
+server_ended: bool
+```
+
+Whether a job's send was refused: the serving process's end of the rendezvous is closed.
+
+
+#### run
+
+`tai42_kit.compute.pool_wire.ComputePoolClient.run`
+
+```python
+async run(self, fn: Callable[[*Ts], T], /, *args: *Ts, timeout: float | None = None) -> T
+```
+
+Run ``fn(*args)`` in a worker of the serving process's pool and return its result.
+
+The same contract as `ComputePool.run`; the timeout and the termination of the
+worker happen in the serving process's pool, and a pool error raised there arrives here
+without its cause. A job the serving process's closed end refused raises
+`JobNotSentError` and is recorded (`server_ended`); a job whose socket this
+process cannot make, or whose socket closes with no reply, raises
+`ComputePoolUnavailableError` and is not.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[*Ts], T]` | — | — |
+| `args` | `*Ts` | `()` | — |
+| `timeout` | `float \| None` | `None` | — |
+
+
+#### close
+
+`tai42_kit.compute.pool_wire.ComputePoolClient.close`
+
+```python
+close(self) -> None
+```
+
+Close the rendezvous: a later job raises that the pool is gone.
+
+
+
+## ComputePoolUnavailableError
+
+`tai42_kit.compute.errors.ComputePoolUnavailableError`
+
+```python
+class ComputePoolUnavailableError(RuntimeError)
+```
+
+The compute pool facility cannot serve: a pool, a pool host or a share cannot run or start, or ended.
+
+It is raised when a job cannot reach a pool that runs it, or gets no result from it, and when
+a pool's share cannot start serving the children of its process.
+
+
+## ComputeSettings
+
+`tai42_kit.compute.settings.ComputeSettings`
+
+```python
+class ComputeSettings(TaiBaseSettings)
+```
+
+Process-wide compute pool settings, read from ``COMPUTE_``-prefixed environment variables.
+
+**Attributes**
+
+| Attribute | Type |
+|---|---|
+| `model_config` | — |
+| `workers` | `int` |
+
+
+## ComputeWorkerLostError
+
+`tai42_kit.compute.errors.ComputeWorkerLostError`
+
+```python
+class ComputeWorkerLostError(RuntimeError)
+```
+
+The worker process running the job ended before it returned a result.
+
+
+## HostedPool
+
+`tai42_kit.compute.pool_host.HostedPool`
+
+```python
+class HostedPool
+```
+
+The owner's side of its jobs: each runs in the pool host the process reaches when the job is sent.
+
+### Members
+
+#### run
+
+`tai42_kit.compute.pool_host.HostedPool.run`
+
+```python
+async run(self, fn: Callable[[*Ts], T], /, *args: *Ts, timeout: float | None = None) -> T
+```
+
+Run ``fn(*args)`` in a worker of the pool host the process reaches and return its result.
+
+The contract of `run`. A job the
+host's closed end refused never reached it, so it is sent once more, to the host the
+process reaches then; a second refusal raises.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `Callable[[*Ts], T]` | — | — |
+| `args` | `*Ts` | `()` | — |
+| `timeout` | `float \| None` | `None` | — |
+
+
+
+## WorkerTraceback
+
+`tai42_kit.compute.errors.WorkerTraceback`
+
+```python
+class WorkerTraceback(Exception)
+```
+
+The worker's traceback of the exception this is chained to as the cause.
+
+
+## compute_pool
+
+`tai42_kit.compute.process_pool.compute_pool`
+
+```python
+compute_pool() -> ComputePool | ComputePoolClient | HostedPool
+```
+
+Return what runs this process's compute jobs, by the kind of process the module's list names.
+
+That is the client of the pool or host the process reaches, its
+`HostedPool`, or its own
+`ComputePool`, which the first call starts.
+
+
+## compute_settings
+
+`tai42_kit.compute.settings.compute_settings`
+
+```python
+compute_settings() -> ComputeSettings
+```
+
+Return the process-wide `ComputeSettings`, cached after first load.
+
+
+## share_compute_pool
+
+`tai42_kit.compute.process_pool.share_compute_pool`
+
+```python
+share_compute_pool() -> None
+```
+
+Let every child this process forks from now on run its compute jobs in this process's pool.
+
+Starts the serving thread, not the pool: the pool starts on the first job, the process's own
+or a child's. A second call changes nothing. In a process that itself reaches another
+process's pool it changes nothing either: that process's children reach the same pool; nor in
+a process started through a process prelude or forked at any remove from one, whose
+children's jobs run where the module's list says. Raises
+`ComputePoolUnavailableError` when the share cannot start
+serving (a process at its descriptor limit, or a serving thread that cannot start or run a
+loop of its own); nothing is shared then.
+
+
+## stop_compute_pool
+
+`tai42_kit.compute.process_pool.stop_compute_pool`
+
+```python
+stop_compute_pool() -> None
+```
+
+Stop this process's own compute pool and the pool host it started; nothing to do when none runs.
+
+A process that reaches another process's pool has neither. Sharing outlives the stop: a
+child's next job starts a fresh pool here; and a later job of this process starts a fresh pool
+or host.
+

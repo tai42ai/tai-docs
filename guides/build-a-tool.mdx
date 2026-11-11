@@ -118,6 +118,52 @@ rather than handing its model a tool error to retry around. A
 [Babelfish](/babelfish#how-a-run-runs-tool-calls-loops-and-abort) flow node awaits an
 undeclared tool inside the node; a declared one pauses the run.
 
+## CPU-bound work
+
+An async tool shares its server process's event loop with every other request, so work
+that holds the interpreter for seconds (parsing, scoring, a large transform) goes to the
+process's compute pool through `tai42_app.compute.run(fn, *args, timeout=...)`. The job
+lives in a module of its own, apart from the tool module:
+
+```python myapp/scoring.py
+def score(text: str) -> float:
+    """Score a text."""
+    ...
+```
+
+```python myapp/tools.py
+from tai42_contract.app import tai42_app
+
+from myapp.scoring import score
+
+
+@tai42_app.tools.tool
+async def score_text(text: str) -> float:
+    """Score a text without holding the event loop."""
+    return await tai42_app.compute.run(score, text, timeout=30)
+```
+
+`fn` is a module-level function, and its arguments and result are picklable. A worker
+process imports `fn`'s module afresh, with no app bound, so that module must import without
+touching `tai42_app` or registering anything — plain functions and their imports only. A job
+whose module registers a tool or reads app state at import fails in the worker, and that
+import error is raised in the tool like any exception the job raises.
+
+An exception `fn` raises is raised in the tool as itself, with the worker's traceback chained
+as its cause (`WorkerTraceback`); an exception that cannot be rebuilt in the tool raises
+`ComputeJobFailedError`, which carries its type and message, with the same cause. Past
+`timeout` (seconds, counted from when a worker takes the job up; `None` for no limit) the
+worker process is terminated at once and the call raises `TimeoutError`; nothing the job itself
+started (a process, a file) is cleaned up. Cancelling the call terminates the worker the same
+way. A pool that cannot run the job raises `ComputePoolUnavailableError`, and a worker that
+ends mid-job raises `ComputeWorkerLostError`. `WorkerTraceback` and the three errors come from
+[`tai42_kit.compute`](/reference/python-sdk/kit-compute); the errors are `RuntimeError`s. A job
+never runs on the caller's loop instead. If the pool breaks because an idle worker process died
+(for example, killed by the out-of-memory killer), the next job starts a fresh pool and the
+process logs `WARNING` `compute pool replaced after its workers died`; a job caught in the
+broken pool raises `ComputePoolUnavailableError`, and later jobs run normally. The pool's size
+is `COMPUTE_WORKERS` (see [Deploy](/operate/deploy#cpu-bound-jobs-and-the-compute-pool)).
+
 ## See also
 
 - [Tools and extensions](/concepts/tools-and-extensions) — what a tool is and how an extension wraps one.
