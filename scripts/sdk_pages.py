@@ -201,6 +201,18 @@ PAGES: list[dict] = [
         "modules": ["tai42_kit.loop_closing"],
     },
     {
+        "slug": "kit-compute",
+        "title": "Compute pool (tai42_kit.compute)",
+        "description": (
+            "The pool of worker processes a process runs its CPU-bound jobs in, off the event loop: the pool, "
+            "its share with the children a process forks, the pool host a process started through a prelude "
+            "runs its jobs in, the client that reaches a pool over a socket, the COMPUTE_WORKERS setting that "
+            "sizes it, and the errors a job raises."
+        ),
+        "icon": "gears",
+        "modules": ["tai42_kit.compute"],
+    },
+    {
         "slug": "kit-backend-tools",
         "title": "Backend tools (tai42_kit.backend tool surface)",
         "description": (
