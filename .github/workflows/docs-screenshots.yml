@@ -628,6 +628,16 @@ jobs:
           pnpm -r build
           echo "TAI_E2E_STUDIO_DIST_PATH=$PWD/apps/studio/dist" >> "$GITHUB_ENV"
 
+      - name: Build and install the reference plugin
+        # The studio stack's manifest names the reference plugin (its tools module
+        # and its Studio bundle). It is built from the same Studio checkout as the
+        # SPA and installed into the env the webServer boots from. --no-deps: its one
+        # dependency is already the monorepo's own editable package, and resolving it
+        # again would replace that with a published wheel.
+        run: |
+          pnpm --dir studio --filter @tai42/e2e run build:reference-plugin
+          uv pip install --python tai42/.venv --no-deps ./studio/e2e/reference-plugin
+
       - name: Install the browser-suite workspace
         working-directory: tai42/e2e/ui
         run: pnpm install --frozen-lockfile
