@@ -2132,12 +2132,13 @@ loop's end releases its resources.
 class AppMedia(Protocol)
 ```
 
-The served-media ingestion namespace (``app.media``).
+The served-media seam (ingest, bind, read) — the ``app.media`` namespace.
 
 A channel adapter or the web upload door streams inbound bytes through the ONE
 ``ingest_media`` chokepoint; the platform caps, sniffs, stores, and mints a served
-reference, returning the typed `IngestedMedia`. The body is the skeleton's; this facet
-is the contract the doors and the impl agree on.
+reference, returning the typed `IngestedMedia`. ``read_media`` reads a stored media
+back by its id under the served route's rules. The body is the skeleton's; this facet is the
+contract the doors and the impl agree on.
 
 ### Members
 
@@ -2213,6 +2214,39 @@ DIFFERENT message. Returns the now-bound `IngestedMedia` (``pending == False``).
 |---|---|---|---|
 | `media_id` | `str` | — | — |
 | `origin` | `MediaOrigin` | — | — |
+
+
+#### read_media
+
+`tai42_contract.app.facets.media.AppMedia.read_media`
+
+```python
+async read_media(self, media_id: str, *, max_bytes: int) -> StoredMedia
+```
+
+Read the stored media the served route ``{MEDIA_ROUTE_PREFIX}{media_id}`` serves.
+
+The same rules as that route apply. ``max_bytes`` is the caller's bound on the size it
+accepts; a larger media is refused, never truncated, and an inbound item is refused from its
+recorded size before its bytes are loaded. Returns the bytes and their stored MIME type.
+Raises loudly, never silently:
+`MediaNotFoundError` — one uniform error for a malformed
+id, an unknown id (never stored, or its media removed), an item still pending (not yet bound
+to its message), an inbound record whose bytes are absent, and a deployment with no media
+store configured (no oracle; the route answers a malformed id with its own error and the rest
+alike);
+`MediaStoreUnavailableError` — the record exists and no
+blob provider is registered;
+`MediaTooLargeError` — the stored media is larger than
+``max_bytes``.
+A fault of the store itself propagates unchanged.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `media_id` | `str` | — | — |
+| `max_bytes` | `int` | — | — |
 
 
 
@@ -4802,7 +4836,7 @@ Inbound-message and delivery-status entry surface for medium adapters.
 media: AppMedia
 ```
 
-Served-media ingestion entry surface for channel adapters and the upload door.
+Served-media seam (ingest, bind, read) for channel adapters, plugins and the upload door.
 
 
 #### monitoring

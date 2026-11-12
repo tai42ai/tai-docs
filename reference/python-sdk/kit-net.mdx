@@ -75,13 +75,13 @@ The message carries the vendor HOST plus the HTTP status code or the
 transport-exception class ONLY — never the request URL — so a credential riding
 the URL path or query never reaches an error string. ``status_code`` is the HTTP
 status when the fault was an error response (or an unfollowed redirect), else
-``None`` (a transport fault — timeout, connection error, a torn read — or a
-malformed response header). ``transient`` tells the caller whether a redelivery
+``None`` (a transport fault — timeout, connection error, a torn read — a
+malformed response header, or a URL that cannot be parsed). ``transient`` tells the caller whether a redelivery
 could plausibly succeed; it is derived from the status — a 5xx, a 408 (Request
 Timeout) or a 429 (Too Many Requests, a vendor throttle) is transient, and so is a
 transport fault (status ``None``); every other 4xx/3xx is permanent — unless an
 explicit value is given for a fault the status cannot classify (a malformed response
-header is permanent).
+header or a URL that cannot be parsed is permanent).
 
 **Attributes**
 
@@ -307,6 +307,27 @@ Whether ``host`` names this machine: ``localhost`` or a loopback IP literal (``1
 | `host` | `str` | — | — |
 
 
+## media_url_host
+
+`tai42_kit.net.fetch_media.media_url_host`
+
+```python
+media_url_host(url: str) -> str
+```
+
+The host a media fetch of ``url`` contacts first, for error and log text only.
+
+Parses ``url`` as `fetch_media` and `open_media_stream` do, so a URL this
+returns a host for is never refused by them as unparsable; one that cannot be parsed raises
+the same permanent, URL-free `MediaFetchError`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `url` | `str` | — | — |
+
+
 ## open_media_stream
 
 `tai42_kit.net.fetch_media.open_media_stream`
@@ -339,7 +360,8 @@ context exits, including on an exception raised while iterating ``chunks``. Faul
 carry the request URL: an SSRF rejection surfaces as
 `UrlGuardError` (host only); an HTTP-status, transport,
 or malformed-header fault as `MediaFetchError` (vendor host + status/class only) —
-at open, or from the ``chunks`` iterator on a mid-body fault.
+at open, or from the ``chunks`` iterator on a mid-body fault; a ``url`` that cannot be
+parsed as a permanent `MediaFetchError` naming no host.
 
 **Parameters**
 
