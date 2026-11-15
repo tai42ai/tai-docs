@@ -26,9 +26,9 @@ and licensed commercially; the agenda ships with it, not on PyPI.
 
 ## What the template stores
 
-The template's schema fragment holds four keyed lists and three single slots. The lists are
+The template's schema fragment holds three keyed lists and four single slots. The lists are
 under the `composing` writer regime — many keyed writers per list — while `turn_talk`,
-`last_outbound`, and `transcript` are each `single`, one whole-object writer:
+`last_outbound`, `transcript` and `pass_due` are each `single`, one whole-object writer:
 
 - **`ledger`** — one row per **intent**: `id`, `kind`, an optional **`item`** (the intent's
   item identity when the kind declares one intent per item; `null` for an itemless kind),
@@ -59,6 +59,9 @@ under the `composing` writer regime — many keyed writers per list — while `t
   the sole writer — the platform exposes no thread read to plugins — appending a `user`
   inbound line and, when it speaks, an `assistant` outbound line each turn, truncated to the
   talk slot's `transcript_window_lines`. The talk slot reads the PRIOR window as context.
+- **`pass_due`** — `{run, pass, due: [{key, settled}]}`, the opening of the pass being
+  recorded: the keys due at the top of the pass and whether each already carried a resolution,
+  written by the pass's first `outcome` call and read by its later calls.
 
 ### Two ids named `run`
 
@@ -444,14 +447,14 @@ declared `params` ride the single object `$params`. The core predicates read ver
 | Program | Params | What it answers |
 | --- | --- | --- |
 | `reached` | `(phase_key)` | the predecessor is satisfied: a first phase always; a phase-predecessor phase only when that predecessor's current outcome is `done`; a `record`-predecessor phase once the earlier items' same phase is settled in any way; a `{phase, outcomes}` predecessor when the predecessor's current outcome is one of the named labels |
-| `pending` | `(phase_key; run)` | `reached ∧ (no current outcome ∨ (reactivated this run ∧ ¬outcome_after_binding) ∨ stale)` — a phase that WANTS to fire this run, ordering aside |
+| `pending` | `(phase_key; run)` | `reached ∧ (no current outcome ∨ (answered this run ∧ ¬outcome_after_binding) ∨ wait_met ∨ stale)` — a phase that WANTS to fire this run, ordering aside; `answered` is a binding to the phase this run (the user's answer, an event, or a follow-on's re-activation), `wait_met` the resolution this run (or by reconcile) of the phase its current row waits on |
 | `stale` | `(phase_key; run)` | the phase's predecessor holds a current outcome that is settled, reaches (the named label for a `{phase, outcomes}` predecessor, a `done` resolution for a bare phase name) and was recorded THIS run, while the phase's own current outcome is from another run or from an earlier pass of this run — a re-settled predecessor makes its successors due again. A `record` predecessor and a phase with no predecessor are never stale |
 | `ordering_satisfied` | `(phase_key; run)` | for each `ordering_waits` `{kind, phase}`, no matching phase of ANY open intent of that kind is still `pending` — the acting intent included, the waiting phase itself excluded, `phase: "*"` matching every phase of the kind; a settled/waiting/never-reached target satisfies, only a reached-but-unfired one blocks |
 | `phase_due` | `(phase_key; run)` | `pending ∧ ordering_satisfied` — the branch condition a pass fires on |
 | `active` | `(id; run)` | an intent minted this run ∨ with any pending phase ∨ with any phase bound this run — reads `pending`, never `due`, so ordering never masks an intent inactive |
 | `item_of` | `(id)` | the intent's `item` identity, or `null` for an itemless kind |
 
-The rest of the 56 input programs: `answer_target`, `answered`, `anything_due`, `bound`,
+The rest of the 57 input programs: `answer_target`, `answered`, `anything_due`, `bound`,
 `clarify_rows`, `clarify_step`, `close_targets`, `closed`, `complete`, `compose`,
 `current_outcome`, `deadlocked`, `done_outcome`, `due`, `due_set`, `expectations`,
 `fill_target`, `follow_on_instances`, `group_of`, `has_open_phase`, `intent_has_inbound`,
@@ -459,7 +462,7 @@ The rest of the 56 input programs: `answer_target`, `answered`, `anything_due`, 
 `manifest_phase`, `open_clarify`, `open_intents`, `open_option_expectations`,
 `open_yes_no_expectation`, `outcome_after_binding`, `pending_follow_ons`, `placed`,
 `rank_targets`, `reactivated`, `reply_safe`, `resolve`, `settled`, `settled_this_run`,
-`turn_source`, `unresolved_class`, `via`, `waiting`, `wordless_conflict`, and the graph
+`turn_source`, `unresolved_class`, `via`, `wait_met`, `waiting`, `wordless_conflict`, and the graph
 helpers the attach check reads to refuse cycles (`mint_adjacency`, `ow_adjacency`,
 `seq_edges`, `reachable_cyclic`).
 
@@ -538,8 +541,24 @@ The five are:
   `resolutions`; a `wait_for` label's derived party is `user`, `phase`, or one of the
   manifest's declared `parties`; a `who: "phase"` label requires `waits_on`) and writes one
   `ledger_phases` row per outcome — the class and party read from the declaration, never the
-  handler (`writes` `ledger_phases`). Two results carrying one key are refused before a row is
-  written (`agenda: two results resolve to phase <key> in one pass; …`). A breach raises loudly.
+  handler. A pass's results arrive in one call or in one call per result, in any order; the
+  first call stores the pass's opening in `pass_due` — the keys due at the top of the pass and
+  whether each already carried a resolution — and every call judges each result against it and
+  against the rows of phases outside it (`writes` `pass_due`, `ledger_phases`), so a result's
+  own checks give the same answer whatever the call it arrives in. A refused call writes nothing:
+  a valid result inside it is not recorded. A phase is answered once per pass: a second
+  result on one key in a pass, in the same call or a later one, is refused before a row is
+  written. Each result's checks run before a repeated key is named, so the call names the first
+  fault in result order, and a repeat with no other fault in its call reads
+  (`agenda: two results resolve to phase <key> in one pass; a phase is answered once per pass, never twice`).
+  A wait on a phase that carried a resolution at the opening is refused
+  (`agenda: label '<label>' on <kind>.<phase> waits on <key>, which is already settled — return a resolving label`);
+  a wait on a phase still open at the opening is recorded, even when that phase resolved earlier
+  in the pass: `wait_met` lists the waiting phase pending as soon as the waited phase carries
+  this run's resolution, and it is due again from the next pass, once its ordering waits hold.
+  Results for a pass arriving while `pass_due` holds a later pass of the same run are refused
+  (`agenda: results for pass <pass> of run <run> arrived after pass <later pass> of that run opened; a run's passes are numbered upward and a pass's results are recorded before the next pass opens`); the record keeps one opening, the latest call's.
+  A breach raises loudly.
 - **`compose_mark`** — after the pass loop, writes the `closed` mark on every fully-settled
   intent, the `sent` run stamp on each rendered row, `last_outbound` `{run}` when the turn
   speaks, and the `transcript` window (`writes` `ledger`, `ledger_phases`, `transcript`,
@@ -655,9 +674,14 @@ update records the returned label, deriving the class and party from the declara
   [`on_error`](/babelfish#handling-a-nodes-error) path. The template computes no static pass
   bound and the manifest declares none; what makes the loop finite is the attach check's
   refusal of a cycle in the `predecessor`, `ordering_waits` and mint graphs, plus the rule
-  that a fired phase records an outcome and so stops being due. The cap on the client's loop
-  must be generous enough for the manifest's longest predecessor/ordering-wait chain, which
-  the client sizes from its own declarations.
+  that a fired phase records an outcome and so stops being due until a wait that outcome
+  names is met. The cap on the client's loop must be generous enough for the manifest's
+  longest predecessor/ordering-wait chain, which the client sizes from its own declarations.
+- **One loop per run, passes numbered upward.** A run drives one pass loop; the loop numbers
+  its passes upward, records each pass's results through `outcome` before the next pass opens,
+  and dispatches exactly the due set it read at the pass's opening. `outcome` refuses results
+  that arrive for a pass while the record's opening is a later pass of the run; a loop that re-numbers passes
+  within a run reads its own earlier rows as later ones.
 
 ## How re-entry binds
 
@@ -704,8 +728,11 @@ in `waits_on` records a resolution.
 ## Termination
 
 The loop always terminates. `due` excludes a phase with an outcome after its latest binding
-this run, and every fired handler records an outcome (the compose assertion catches one that
-did not), so a phase never re-fires. A phase-predecessor chain ends the moment a phase
+this run unless that outcome's wait is met, and every fired handler records an outcome (the
+compose assertion catches one that did not). A phase whose wait is met is due again, and `outcome`
+refuses a wait on a phase that carried a resolution at the pass's opening: the phase's next
+result resolves, or waits on something that can still change (a phase still open at the pass's
+opening, an open phase, a user or a party). A phase-predecessor chain ends the moment a phase
 resolves to anything other than `done`: a not-done resolution leaves every phase successor
 unreached, so the intent runs out of open phases and compose closes it, speaking that
 terminal resolution. Item order under a `record` predecessor is the exception — it advances on
