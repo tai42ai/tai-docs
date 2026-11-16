@@ -501,37 +501,56 @@ provider does not redeliver in a loop; the event makes an otherwise-silent drop 
   but cannot bridge as a turn, carrying a `reason`: `unsupported_type` (no mappable content, or
   the provider signalled a message type it will not deliver — for example a WhatsApp
   "unsupported message type" notice), `too_large` (a byte-ingested file over its per-kind cap),
-  or `could_not_receive` (the byte source could not be fetched, or no storage provider is
-  configured). The participant receives the route's own notice for that reason when the route
-  sets one (`reply_texts.rejected_unsupported_type`, `rejected_too_large` or
-  `rejected_could_not_receive`), else one fixed generic notice — `"This content type is not
-  supported here."`, `"That file is too large to accept here."`, or `"That attachment could not
-  be received."` — and this event records the drop, so unsupported content is visible rather
-  than silently discarded.
+  `could_not_receive` (the byte source could not be fetched, or no storage provider is
+  configured), or `unreadable` (a message the channel recognises but whose body it cannot read
+  — for example a completed WhatsApp form whose response is not a JSON object, a message
+  whose text is blank on WhatsApp, Telegram or Slack, or a Telegram tap on a keyboard whose options are no longer
+  live when the update carries no label for the tapped button). The participant receives the route's own notice for that reason when the
+  route sets one (`reply_texts.rejected_unsupported_type`, `rejected_too_large`,
+  `rejected_could_not_receive` or `rejected_unreadable`), else one fixed generic notice —
+  `"This content type is not supported here."`, `"That file is too large to accept here."`,
+  `"That attachment could not be received."`, or `"That message could not be read. Please send
+  it again."` — and this event records the drop, so unsupported content is visible rather than
+  silently discarded.
 - **`conversations_inbound_unrouted`** — emitted when a reply arrives for an address with no
   bound conversation route. It is distinct from a rejection: an unrouted reply and a
   recognised-but-unbridgeable content are different faults.
 
 ### The working-on-it signal
 
-While the platform works on a reply to a bridged inbound message it shows the channel's own
-"working-on-it" indicator — the typing dots on WhatsApp and Telegram — and refreshes it under
-the vendor's short expiry so it does not lapse mid-turn. The indicator stops the instant the
-reply is sent, when the record leaves the in-flight delivery states, or when the turn ends
-with no send; a hard ceiling bounds a turn that never sends. It is best-effort and cosmetic: a
-signal failure never reaches the turn.
+While a run owes a user a reply, the platform shows that user the channel's own
+"working-on-it" indicator — the typing dots on WhatsApp and Telegram, the typing bubble on the
+web chat page — and refreshes it under the vendor's short expiry so it does not lapse mid-wait.
+It covers every wait the user has on such a run: a bridged inbound message's turn from the
+moment it is accepted, and the wait after the user answers a question the run asked them — a
+typed reply, a tapped button or a submitted form — whether the run was waiting for the answer
+or was parked and resumes on it.
+
+While a question the run sent stands, to that user or to anyone else, the run is waiting on
+an answer, not working on the reply: the platform stops refreshing the indicator and clears it
+where the channel has a stop (the web chat page); on WhatsApp and Telegram, which have no stop,
+the vendor's indicator lapses on its own within seconds. It shows again once no question the
+run sent stands (the last one is answered or withdrawn).
+
+The indicator stops the instant the reply is sent, when the turn ends with no send, when the
+reply's record leaves the in-flight delivery states, and after three refreshes in a row fail.
+One stretch of showing it — from a turn's start, or from the answer to the last question
+standing, until the reply — is bounded by a hard ceiling: at the ceiling the platform stops
+refreshing the indicator until the next stretch, clearing it where the channel has a stop and
+letting the vendor's indicator lapse where it has none. It is best-effort and cosmetic: a signal
+failure is logged and never reaches the run.
 
 Two settings tune it (`CONVERSATIONS_` prefix; see [Settings](#settings) for defaults):
 
-- `CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` — the hard ceiling on one turn's refresh loop;
-  `0` disables the loop entirely (the kill switch).
+- `CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` — the hard ceiling on one stretch of the
+  indicator; `0` disables the indicator entirely (the kill switch).
 - `CONVERSATIONS_WORKING_SIGNAL_REFRESH_MARGIN_SECONDS` — the margin subtracted from the
   vendor indicator's lifetime to choose the refresh interval, so each refresh lands before it
   lapses.
 
 Not every channel drives it: Slack and Twilio show none (their API offers no bot typing
-indicator), and the web chat page shows its own client-side typing indicator rather than a
-server-driven refresh.
+indicator). The web channel writes each refresh and each stop as a `chat.working` frame on the
+conversation's stream, which the chat page shows as its typing bubble.
 
 ## The event door
 
@@ -1265,6 +1284,7 @@ member (each 1 to 2,000 characters) is refused at the route write.
 | `rejected_unsupported_type` | an inbound message the channel cannot carry | `This content type is not supported here.` | `--reply-rejected-unsupported-type` |
 | `rejected_too_large` | an inbound file over the size cap | `That file is too large to accept here.` | `--reply-rejected-too-large` |
 | `rejected_could_not_receive` | an inbound file the channel could not fetch | `That attachment could not be received.` | `--reply-rejected-could-not-receive` |
+| `rejected_unreadable` | an inbound message the channel could not read | `That message could not be read. Please send it again.` | `--reply-rejected-unreadable` |
 
 `pairing_code` is a template: it must contain `{pairing_code}` (the code) and may contain
 `{expires_at}` (the code's ISO-8601 expiry), with no other field, conversion or format spec.
@@ -1427,7 +1447,7 @@ setting below is refused at boot and on every env write.
 | `thread_lease_refresh_seconds` | `30` | Thread-lease refresh interval; must stay below the lease. |
 | `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
-| `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one turn's [working-on-it](#the-working-on-it-signal) refresh loop; `0` disables the loop entirely (the kill switch). |
+| `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one stretch of the [working-on-it](#the-working-on-it-signal) indicator, from a turn's start or from the answer to the last question standing until the reply; `0` disables the indicator entirely (the kill switch). |
 | `working_signal_refresh_margin_seconds` | `5` | Seconds subtracted from a channel's vendor-indicator lifetime to pick the refresh interval, so each refresh lands before the indicator lapses. |
 
 A turn waiting for a busy thread starts when the running turn releases the thread (a

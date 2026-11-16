@@ -146,7 +146,7 @@ carries the failure's message with zero counts and makes `ok` false. A record th
 committed before the failure stays written although the report counts none, so once the store
 is reachable import the section again — under `skip` those records count as `skipped_existing`.
 
-Two kinds of check stay at the HTTP door and do not run on a restore, because their verdict
+Three kinds of check stay at the HTTP door and do not run on a restore, because their verdict
 depends on what the running server has registered rather than on the backup itself:
 
 - **Target existence.** A restored conversation config or route may name a target the backup
@@ -156,6 +156,11 @@ depends on what the running server has registered rather than on the backup itse
   checks. A restored preset whose base cannot bind is stored as a row; when the server next
   loads its presets (a reload or a restart) it is quarantined and listed as `conflicted`, with
   the reason logged at error level.
+- **A preset's bound-route check** — the refusal of a [save or a
+  rollback](/guides/create-and-version-a-preset#save-a-new-version) whose version would leave a
+  bound conversation route unable to bind. A restore writes the archive's active version as it
+  is, without re-running the bind check of the routes bound to that preset or to a preset that
+  composes it.
 
 A `versioned_documents` restore holds one connection of the skeleton database while its preset
 checks read the template and states stores, so it needs **two** connections of that

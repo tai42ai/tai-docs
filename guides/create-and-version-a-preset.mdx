@@ -64,6 +64,8 @@ also have a `--clear-*` option that removes the field on the new version. This o
 tai presets save-version greet-named --output-map-file greet-output.jq --clear-input-map
 ```
 
+A save is refused with `409`, and nothing is written, when the new version would leave a [conversation route](/concepts/client-conversations#the-routing-table) unable to bind — a route whose target is this preset, or a preset that composes it, directly or through other presets. The error names each such route, the preset it is bound to, and why it cannot bind (for example, the new version lets an agent ask its caller, but the route declares no `reply_expr` and no `resume_expr`). For a route whose target is this preset, every reason the new version cannot bind it refuses the save, even a reason the route already had before the save. For a route bound to a composing preset, only what the save adds counts: a reason that route already could not bind before the save does not refuse it, and the server logs it as a warning naming the route; a reason the save adds still refuses it.
+
 Inspect the history and one version:
 
 ```bash
@@ -73,11 +75,13 @@ tai presets get-version greet 1
 
 ## Roll back
 
-Make a prior version active again. Rollback appends a new version pointing at the target body — it never rewrites history.
+Make a prior version active again. Rollback moves the active pointer to that version — it adds no version and never rewrites history, so every later version stays in the list and you can roll forward to it the same way.
 
 ```bash
 tai presets rollback greet 1
 ```
+
+A rollback is checked the same way as a save: it is refused with `409`, and the active version stays where it is, when the version rolled back to would leave a bound conversation route unable to bind (see [Save a new version](#save-a-new-version)). The error names the version, for example `preset 'greet' cannot be rolled back to version 1 — that version would leave conversation route(s) unable to bind: …`.
 
 ## Tag a version
 
