@@ -102,6 +102,14 @@ reply** and a muted ring, and its run popup shows the status `deferred`.
   <img className="hidden dark:block" src="/images/studio/run-view-deferred-node-dark.png" alt="A finished run on the canvas: the runnables warmup and answer settled with a success check, and the runnable later, set to run after the reply, settled with the clock glyph and a muted ring." />
 </Frame>
 
+The Output tab shows one read-only section for each output the node publishes, each
+headed by its key when there are several. An **Iterate** or **Map** node publishes its list —
+one element per body run, keyed by each body end node's id, holding that node's `status`
+and `value`. A looping **Router** publishes its verdict under its own name, one list per
+wired kind (`<router>__each_<kind>`, or `<router>__while_<kind>` under a while condition),
+and the [result line](/babelfish#dispatch-once-or-loop) `<router>__result` that collects
+those lists by kind name.
+
 When an agent node carries a [structured-output
 schema](/babelfish#structured-agent-output), the Output tab renders that schema live
 and its label reads **Output (structured)**. Editing that schema to **remove** a field
@@ -245,6 +253,11 @@ rather than a crash. A per-instance **Raw** toggle flips the whole view to the p
 tree, so the underlying data is never more than one click away, and a flow (or node)
 that declares no output shape keeps the plain results tree throughout.
 
+When the declared output shape itself cannot be read, the value shows raw under the line
+"Could not read the flow's declared output shape, so its result shows as the raw value:"
+in **Results**, or "Could not read this node's declared output shape, so its output shows
+as the raw value:" in a node's run popup, followed by the error.
+
 The run panel's **Results** shows the run's returned result — the result envelope's
 `result`, read from the run's record once the run ends (or from the resolving
 caller-ask outcome) — with the `missing_results`
@@ -301,9 +314,16 @@ input and output.*
   <img className="hidden dark:block" src="/images/studio/run-popup-recorded-dark.png" alt="A node's run popup showing its input and output loaded from the recorded step, with no note." />
 </Frame>
 
+A node's run popup shows one output section for each of the node's outputs the run kept or
+recorded, the published keys first, each headed by its key when there are several and
+rendered against that key's declared shape — a looping Router's popup shows its verdict,
+each kind's list and its result as separate sections.
+
 A node inside a loop body shows one row per iteration — from the running loop's results, the
 loop's published output, or, with a monitoring plugin, the recorded body steps under each
-finished iteration (rows of a nested loop's node read *Iteration 0 › 1*). Before any iteration
+finished iteration. Rows of a node in a nested body read *Iteration 0 › 1*, one more index
+per level at any depth, and the body of a looping Router's kind inside a loop body reads its
+rows the same way. Before any iteration
 finishes the popup says *No iteration of this loop has finished yet.*; a node that ran in none
 says *This node did not run in any finished iteration.*; with no monitoring plugin it says
 *Per-iteration detail for this node is not kept in the run state. A monitoring plugin records
@@ -328,6 +348,31 @@ it.*
   <img className="block dark:hidden" src="/images/studio/run-popup-nested-rows-light.png" alt="A nested loop body node's run popup listing rows Iteration 0 › 0 through Iteration 1 › 1 with each value." />
   <img className="hidden dark:block" src="/images/studio/run-popup-nested-rows-dark.png" alt="A nested loop body node's run popup listing rows Iteration 0 › 0 through Iteration 1 › 1 with each value." />
 </Frame>
+
+## The Map card's On Error switch
+
+The [**Map**](/babelfish#looping-over-a-list) card's panel has an **On Error** switch with
+two settings:
+
+- **Whole loop** (the default): "A failed item stops the loop and fails the run. The flow's
+  On Error, when set, runs on that failure." That On Error runs only on the run's terminal
+  failure: it can notify or shape the error, but the run still fails. The card has no error
+  handle.
+- **Per item**: "Connect an On Error node. A failed item takes the handler's result and the
+  loop goes on." The card shows an error handle. Connect an On Error node to it. On save, that
+  node becomes the On Error of the map's body step. The On Error node's panel says
+  "Recover the item and go on."
+
+The switch is not saved on its own. It is read back from the flow: a map whose body step
+carries an On Error opens as **Per item**. Two mismatches block saving; each is shown on
+the card and in the "Fix these before saving:" list, and Save stays disabled:
+
+- Whole loop with an On Error node still attached: "On Error is set to Whole loop, so the
+  attached On Error node never runs. Set it to Per item or remove the node."
+- Per item with no On Error node attached: "On Error is set to Per item but no On Error node
+  is connected. Connect one or set it to Whole loop."
+
+Export and run refuse a flow with either mismatch too, with the same text.
 
 ## The Router card
 
