@@ -117,41 +117,37 @@ The bases come from the authed plugin listing (`GET /api/plugins`), whose entrie
 
 ## The built-in jq editor
 
-A plugin field that holds a jq expression renders the platform's **built-in visual jq
-editor** — no registration, no extension point, no gating. The
-[Studio SDK](/reference/studio-sdk/index) re-exports the
-[jq-studio](/studio/jq-editor) `JqField` component and its declaration types; the
-Studio host injects the design system through a `PrimitivesProvider` and installs the
-editor's evaluation worker once, at the shell. A plugin simply imports `JqField` and
-renders it — the visual canvas is present by construction, exactly as it is on every
-host field and every other plugin's field.
+A plugin field that holds a jq expression renders the
+[built-in jq editor](/studio/jq-editor#built-in-everywhere) directly:
 
 ```ts
-import { JqField } from '@tai42/studio-sdk';
+import { JqField } from '@tai42/jq-studio';
 ```
 
-A jq field declares what the expression's input document is, seeds a sample for the
-editor's Test panel, and optionally supplies a server-validate hook — the declaration
-threads onto the field so its context chip, Test seeding, and Validate action read
-from one object. See [the jq editor](/studio/jq-editor) for the component and
+The plugin's build also leaves `@tai42/jq-studio` unbundled, beside the
+[shared modules](#building-the-bundle): a bundled copy carries its own editor context,
+worker, and wasm, and the host's injection never reaches it.
+
+See [the field](/studio/jq-editor#the-field) for the component and its props, and
 [jq-studio's repository](https://github.com/tai42ai/jq-studio) for its full API.
 
 A plugin rendering a server schema through `SchemaForm` gets the editor with no code
-at all: a string or templated-text property carrying the
-[`x-tai42-expression` annotation](/reference/api/index#expression-fields) renders
-`JqField` automatically, with the annotation's own label, blurb, and sample. The
-import is lazy, so a form with no annotated field never bundles the editor.
+for every property carrying the
+[`x-tai42-expression` annotation](/reference/api/index#expression-fields) — see
+[From the schema, with no code](/studio/jq-editor#from-the-schema-with-no-code).
 
-<Note>
-**Migrating from the expression-editor extension point.** SDK 8 removed the optional
-`registerExpressionEditor` context method, the `ExpressionField` and
-`ExpressionEditorsProvider` components, the expression-editor `contributions`, and the
-separate editor-props contract version. A plugin that consumed those symbols now
-imports `JqField` (and its declaration types) from the SDK's jq re-export and renders
-it directly — there is no editor to contribute, resolve, feature-detect, or version.
-The editor is built in, so a jq field is always available; the "no editor registered"
-degradation the old extension point admitted no longer exists.
-</Note>
+## Building the bundle
+
+A plugin's build leaves `react`, `react-dom`, `react/jsx-runtime`, `react-dom/client`, and
+`@tai42/studio-sdk` unbundled: the Studio's import map serves the one shared copy of each,
+so the plugin binds the host's React and design system. A bundled copy of React breaks the
+React singleton.
+
+Vite's `rollupOptions.external` keeps an `import` of these modules external. When a
+bundled CommonJS dependency calls `require('react')`, that call is left to Rolldown's
+`require` shim, which throws in the browser; such a build passes the list to
+`esmExternalRequirePlugin({ external })` instead, which turns each call into an import
+the map resolves.
 
 ## The plugin manifest
 

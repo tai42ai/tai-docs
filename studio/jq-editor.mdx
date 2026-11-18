@@ -13,57 +13,112 @@ editor, and it is a standalone library you can embed in any app of your own.
 jq-studio is developed in the open at
 [github.com/tai42ai/jq-studio](https://github.com/tai42ai/jq-studio) and published
 to npm as [`@tai42/jq-studio`](https://www.npmjs.com/package/@tai42/jq-studio)
-(Apache-2.0). Its full component reference — the node vocabulary, the faithfulness
-guarantee, the theming contract, and the worker model — lives in that repository.
-This page covers how the Studio ships it and how to embed it; it does not restate
-the editor's own docs.
+(Apache-2.0). Its full component reference lives in that repository. This page
+covers what the editor shows, how the Studio ships it, and how to embed it.
 </Note>
 
 ## Built in, everywhere
 
-The [Studio SDK](/reference/studio-sdk/index) re-exports jq-studio's `JqField`
-component and its declaration types. The Studio host does two things once, at the
-shell level, so the editor is available to every field:
+A field imports jq-studio's `JqField` component and its declaration types from
+`@tai42/jq-studio`; the Studio's import map resolves that specifier to the one served
+copy, so the shell, its features, and every plugin share one editor. The Studio host
+does three things once, at the shell level, so the editor is available to every field:
 
 - it injects the Studio's design system through a **`PrimitivesProvider`**, so the
   editor renders in the host's own inputs, buttons, and tokens rather than a bundled
-  look; and
+  look;
 - it installs the editor's **single evaluation worker** — one dedicated Web Worker
-  shared across the page — so jq evaluation runs off the main thread for every field.
+  shared across the page — so jq evaluation runs off the main thread for every field;
+  and
+- it injects `JqField` as every form's expression field — see
+  [From the schema, with no code](#from-the-schema-with-no-code).
 
 Because the host does this, a jq field never installs, registers, or gates the
 editor. A [host field](/concepts/access-control#the-jq-policy) — an access-control
 policy condition, a [hook](/concepts/hooks) condition or expression — offers the
 canvas, and a plugin field offers it (a [Babelfish](/babelfish) flow's jq field among
-them), all from the one re-export. There is no "is an editor present?" conditional and no
-provider to opt into: the editor is part of the SDK, so a field that renders
-`JqField` gets the visual canvas by construction.
+them). A field that renders `JqField` gets the visual canvas by construction.
+
+## The field
+
+`JqField` is a resting text control holding the jq — a single-line input, or a
+textarea when `multiline` is set — beside a **Visual editor** button, named "Open the
+visual editor for `<label>`", that opens the canvas in a modal dialog titled with the
+field's label. Typing in the control and saving the dialog both hand the new jq to the
+field's `onChange`. A `description` and an `error` render under the control, wired to
+it through `aria-describedby`; the error is announced as an alert.
+
+A field also declares what its expression reads. `shape` says what `.` is for the
+field: it drives the editor's context chip and the skeleton the Test panel seeds.
+`sampleInput` and `sampleVariables` supply live samples that take precedence over that
+skeleton and over each declared variable's static sample. `serverValidate`, when
+given, is the hook behind the Test panel's **Validate** action.
 
 ## From the schema, with no code
 
 A form does not have to name its jq fields at all. `SchemaForm` reads the
 [`x-tai42-expression` annotation](/reference/api/index#expression-fields) the server
-puts on a jq-typed string property and renders `JqField` for it — the resting
-control plus the visual-editor door — carrying the annotation's label, blurb, input
-keys, and Test-panel sample straight onto the field. So the server decides which
-properties are expressions, and every form over that schema agrees.
+puts on a jq-typed string property and carries the annotation's label, blurb, input
+keys, and Test-panel sample onto the [expression field](#the-field). So the server
+decides which properties are expressions, and every form over that schema agrees.
 
 The annotation is read wherever the property sits: beside a `$ref`, on an `anyOf`
 wrapper (an optional field, or a union of several shapes), inside array items, and on
 the values of a record. A templated-text property — one that takes either inline text
-or a stored template — carries the door too: its **Inline text** / **Stored template**
+or a stored template — offers the editor too: its **Inline text** / **Stored template**
 switch keeps the editor on the inline text, and the stored-template side picks the
-template and its kwargs. Every door is a button named "Open the visual editor for
-`<label>`". The server marks the jq inputs of api-key and hook conditions, preset
-input and output maps, hook subject keys, state-template checks and resolutions, the
-[door-contract](/concepts/asking-the-caller#the-door-contract) expressions of hooks
-and routes, and jq validation, so each of those fields opens the editor.
+template and its kwargs. The server marks the jq inputs of api-key and hook
+conditions, preset input and output maps, hook subject keys, state-template checks and
+resolutions, the [door-contract](/concepts/asking-the-caller#the-door-contract)
+expressions of hooks and routes, and jq validation, so each of those fields opens the editor.
 
-The door is code-split. `SchemaForm` reaches the editor through a dynamic import
-behind a lazy boundary, taken only when a field actually carries a well-formed
-annotation — a form with no expression fields never pulls the editor, its worker, or
-its wasm into the bundle. A malformed annotation, or a `language` this client does
-not know, degrades silently to the ordinary text input rather than throwing.
+`SchemaForm` does not import `JqField` or anything else of jq, so a consumer that
+bundles the SDK to render forms carries no editor, worker, or wasm. The Studio host
+injects `JqField` as the expression field once, for every form in the shell, through
+`ExpressionFieldContext`; a form's `expressionField` prop overrides it for that one
+form. With no injected expression field, an annotated field renders the plain string
+input. A malformed annotation, or a `language` this client does not know, degrades
+silently to the ordinary text input rather than throwing.
+
+## The canvas
+
+**The node vocabulary.** The canvas paints eight node kinds, each with a semantic
+hue shared with the flow canvas, so a colour means the same thing in both:
+
+- **Input** (primary) — the data the expression receives, `.`.
+- **Value** (muted) — a literal or a path into the input.
+- **Operator** (muted) — combines two values (`+`, `==`, `//`, …).
+- **Condition** (warning) — chooses a result with if / else.
+- **Try/Catch** (danger) — runs logic and recovers on error.
+- **Call Function** (primary) — applies a built-in or defined function.
+- **Define Function** (primary) — declares a reusable function.
+- **Comment** (muted) — a note; never runs.
+
+Kinds that share a hue (Input, Call Function, and Define Function on primary;
+Value, Operator, and Comment on muted) wear a terse kind badge and are further
+told apart by glyph and shape, so two same-coloured cards never read alike. A
+**Legend** on the toolbar lists every kind and the wire notations — pipe, operand,
+and function grant — generated from the same registry the canvas paints from, so it
+can never drift from what you see.
+
+**The editor shell.** Around the canvas sits a **Test** panel that runs the
+generated jq against [the field's sample](#the-field) — editable, and run locally in
+WASM (Cmd/Ctrl+Enter) — plus, when the field gives `serverValidate`, a **Validate**
+action that checks the expression server-side. A **live readout** shows the jq the
+graph currently serialises to as you edit, and an **error summary** chip counts the
+graph's problems and jumps the view to each one in turn.
+
+**The faithfulness guarantee.** The editor draws a graph only when it can prove that
+reading the graph back gives exactly your expression. Before any loaded expression
+is adopted for editing, its graph is serialised back to jq and a WASM oracle checks
+that the two behave identically; only a faithful round-trip is drawn. Everything else
+is non-destructive: an expression the editor cannot draw, or one whose graph would
+read back differently, keeps your text verbatim and shows it as text with a neutral
+**"not shown here"** notice — your expression is never altered, and the editable
+canvas is reached only through an explicit **Start empty** that you choose. This
+keeps two questions apart — *is the jq valid* and *can the editor draw it*. Only jq
+that genuinely fails to compile raises a loud **"invalid expression"** alert; valid
+jq the editor cannot represent is neutral, never flagged as broken.
 
 ## A standalone library
 
@@ -74,7 +129,7 @@ not know, degrades silently to the ordinary text input rather than throwing.
 import { JqField, PrimitivesProvider } from '@tai42/jq-studio';
 
 <PrimitivesProvider primitives={myPrimitives}>
-  <JqField value={expr} onChange={setExpr} />
+  <JqField label="Expression" value={expr} onChange={setExpr} />
 </PrimitivesProvider>;
 ```
 
@@ -97,6 +152,6 @@ evaluation off-thread.
 ## See also
 
 - [jq-studio on GitHub](https://github.com/tai42ai/jq-studio) — the editor's own repository and its component docs.
-- [Author a Studio plugin](/studio/plugins#the-built-in-jq-editor) — how a plugin field renders the built-in editor, and the migration for plugins that used the old extension point.
+- [Author a Studio plugin](/studio/plugins#the-built-in-jq-editor) — how a plugin field renders the built-in editor.
 - [Visual jq in flows](/babelfish/jq-editor) — how the flow editor authors jq with the same editor.
 - [The jq policy](/concepts/access-control#the-jq-policy) — a host jq field the editor serves.

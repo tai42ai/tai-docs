@@ -46,6 +46,10 @@ whichever worker later resumes it.
 | `LLM_PROVIDER_CHECKPOINT_SHARED_VALUES` | unset | Whether large values are stored once per thread. Unset: on for a store that copies channel values into every checkpoint, off for one that stores a channel once per version; `true` or `false` sets it for every store this deployment opens. |
 | `LLM_PROVIDER_CHECKPOINT_SHARED_VALUE_BYTES` | `65536` | Where large values are stored once, a sub-value whose encoding is larger is stored once per thread and referenced. See [Large values are stored once](#large-values-are-stored-once). |
 
+<Note>
+`LLM_PROVIDER_` is an [owned settings prefix](/concepts/config-and-secrets#owned-settings-prefixes).
+</Note>
+
 A **waiting** thread is one its owner may still continue: a parked run, an open conversation,
 any thread nobody marked finished. A **finished** thread is one its owner marked finished.
 
@@ -82,14 +86,6 @@ for example, declares one in its document (`config.checkpoint_retention`) — ne
 - A finished thread is due its declared finished retention after its mark.
 - A park on such a thread must fit its declared waiting retention: an async `ask` whose
   deadline runs past it is refused before anything is parked.
-
-<Note>
-`LLM_PROVIDER_CHECKPOINT_TTL_MINUTES` is gone: its place is taken by the two retention values
-above. The Babelfish flows engine's `FLOW_CHECKPOINT_RETENTION_DAYS` and its
-`POST /api/babelfish/checkpoints/prune` route are gone too: the same two values and the
-platform's `sweep_checkpoints` operation replace them. A deployment that still sets one of
-the removed variables is refused at boot and on every settings write, naming it.
-</Note>
 
 ## Who marks a thread finished
 

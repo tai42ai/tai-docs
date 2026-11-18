@@ -5,25 +5,13 @@ icon: "diagram-project"
 ---
 
 Every jq expression a flow carries — a node's expression, a branch or loop
-condition, a binding's injection or update jq — is authored in one field two ways: by typing
-jq into the field's resting text control, or in a **visual editor**, opened from that
-control, that draws the expression as a small, editable node graph and writes it back
-as jq. The wire always carries the jq text.
-
-That visual editor is not a flow-only thing and not a plugin you install. It is
-[**jq-studio**](/studio/jq-editor) — the platform's open-source, built-in jq editor.
-The [Studio SDK](/reference/studio-sdk/index) re-exports its `JqField` component, the
-Studio host injects the design system and installs the evaluation worker, and the
-flow editor renders that field directly. The same editor serves every jq field on
-every Studio surface — a host field, another plugin's field, a flow's field — with
-nothing to register and no gating.
+condition, a binding's injection or update jq — is authored in one field two ways:
+as jq text, or on the canvas of the platform's [built-in jq editor](/studio/jq-editor),
+the same editor every Studio jq field uses.
 
 <Note>
-The editor itself — its node vocabulary, the faithfulness guarantee, the theming
-contract, and the worker model — is documented with [jq-studio](/studio/jq-editor)
-and in its [open-source repository](https://github.com/tai42ai/jq-studio). This page
-covers what is specific to authoring a **flow**: the field's tabs and what each field
-seeds the editor with.
+This page covers what is specific to authoring a **flow**: the field's tabs and what
+each field seeds the editor with.
 </Note>
 
 ## Inline or Template
@@ -31,26 +19,17 @@ seeds the editor with.
 A jq field in the flow editor is a two-tab control — **Inline** and **Template** —
 and the two are mutually exclusive: the wire carries exactly one.
 
-- **Inline** is the SDK's `JqField`: a resting text control holding the jq, plus a
-  **Visual editor** button that opens the visual canvas in a modal dialog. Edit the
-  jq as text in the control, or open the dialog to build it as a node graph; on save
-  the dialog writes the jq back to the same control. A `description` and an `error`
-  helper slot render under the control, wired to it for screen readers.
+- **Inline** is jq-studio's [`JqField`](/studio/jq-editor#the-field).
 - **Template** picks a stored [template](/concepts/storage-and-resources) and edits
   its kwargs through a schema-assisted form.
 
 The active tab follows the draft: a field that already holds a template opens on
 **Template**, otherwise on **Inline**. There is no separate "Editor" tab and no
-auto-open of the canvas — the visual editor is always reached from the Inline
-control's Visual editor button. Switching tabs is a mode change that clears the mode
+auto-open of the canvas. Switching tabs is a mode change that clears the mode
 you leave, after a confirm when it holds data.
 
-Inside the visual editor, a loaded expression is drawn as a graph **only** when it
-round-trips faithfully back to your exact jq. An expression the editor cannot draw
-keeps your text verbatim and shows it with a neutral notice — your jq is never altered
-— and the editable canvas is then reached only through an explicit **Start empty**.
-That fallback lives inside the dialog; it is not a tab. See
-[the jq editor](/studio/jq-editor) for the canvas itself.
+The editor's [non-destructive fallback](/studio/jq-editor#the-canvas) for an expression
+it cannot draw lives inside the dialog; it is not a tab.
 
 ## What each field seeds
 
@@ -67,7 +46,18 @@ validator, the **Validate** action checks the same shape server-side:
   `.result` still null (a condition must return true or false);
 - an **On Error** condition or expression sees the **error envelope** — the failed
   node's error on `.upstream_outputs` (`.error`, `.error_type`, `.error_kind`,
-  `.additional`);
+  `.additional`); there `.upstream_outputs.<node>` is that node's output history (a
+  list, newest last), so read the latest output as `.upstream_outputs.<node>[-1]`. A
+  read of a field off `.upstream_outputs.<node>` in an On Error program, or in a
+  Recovery node's expression where it runs as the handler, is refused at build
+  however the program spells it — a dotted path, a pipe, an `as` alias, a bracket
+  key, inside a string's `\(...)` interpolation. A `type == "array"` or `== null` test
+  on the entry narrows the branch it guards, so the spelled-out idiom below is read as
+  the latest output in both runs. A
+  Recovery node that ordinary routing also reaches runs the same expression as a
+  normal step too, where `.upstream_outputs.<node>` is the latest output itself; read
+  it as `(.upstream_outputs.<node> | if type == "array" then .[-1] else . end)` to get
+  the latest output in both runs;
 - the flow-level On Error's **Reply** sees the same error envelope, with the handler's
   outcome under `.upstream_outputs.additional` (`.handler_result`, or `.handler_error` when
   the handler failed), and must return text or `null`
@@ -104,12 +94,67 @@ validator, the **Validate** action checks the same shape server-side:
 - a **map item argument** sees the **loop-body envelope**, where `$iterate.item` is
   the current item (never null here) and `$iterate.iteration` its zero-based position.
 
-In every envelope, `.outputs.<node>` and `.inputs.<node>` hold a node's results in order,
-newest last, for each node some expression of the flow names there; the run state keeps no
-history of a node no expression reads that way (see [Run state](/babelfish#run-state)). An
+`.outputs.<node>` and `.inputs.<node>` hold a node's results in order, newest last, for
+each node some expression of the flow names there (in a return expression `.inputs` is
+empty, and in a Recovery handler run it holds the tool's arguments); the run state keeps no
+history of a node no expression reads that way (see [Run state](/babelfish#run-state)). A
+field read off that list (`.outputs.<node>.<field>`) is refused at build; read the latest
+result as `.outputs.<node>[-1].<field>`. A `type == "array"` or `== null` test on the entry
+narrows the branch it guards, so `if .outputs.<node> == null then … else
+.outputs.<node>[-1].<field> end` builds. A conditional's entry exists only when an On Error
+handler may recover one of its branches (the branch's own, else the flow's On Error or
+`FLOW_DEFAULT_ON_ERROR`); it is read the same way.
+
+The build types every expression against the envelope of its field and refuses what jq is
+proven to get wrong there whenever the value is present: a field read on a node's stored output history; a
+comparison of a schema-typed field against a literal of a type or enum value it can never
+equal; a field read on a list the schema declares (read `.<list>[0].<field>` for one element
+or `.<list>[].<field>` for each); a number index on an object (in a node expression
+`.upstream_outputs.<node>` is the output itself, so `.upstream_outputs.<node>[-1]` raises);
+a number index on a string, a number or a boolean, one or several (`[0, 1]`), such as a field
+the schema declares a string (jq indexes a string only by a slice: read `.<string>[0:1]`); a slice of an object, a
+number or a boolean; an iteration (`[]`) of a string, a number, a boolean or a read that is
+`null` wherever it runs (iterate it as `(.<read> // [])[]`);
+a field read on a field the schema declares a string, a number or a boolean; and an `==` /
+`!=` between a list or an object and a scalar literal, which is always false (or always
+true). A read is refused only when nothing it may be other than `null` — after a `type` or
+`null` test narrows it, and on the right of a `//` where the left side's read is `null` or
+`false` — is a value the step can take. A `null` (an optional field left out, a node that has
+not run) never saves a read: a field the schema declares a string and leaves optional refuses
+`.<field>.x`, which raises on every run that stores it. A step is refused the same way inside a
+`try` body or under `?`, where jq swallows its raise and yields no output: the read is wrong
+there too, so write the read that holds rather than a `try` around one that fails. A comparison whose operand has a fallback that may equal
+the literal (`// "x"`, `else "x"`, `catch "x"`) is never refused. Nothing is refused where
+jq never runs: in a branch a literal condition never takes (the `then` of `if false` or
+`if null`, the `else` of any other literal, an `elif` condition there included); in the `else`
+of a condition whose every output is a number, a string, a list or an object (an array or
+object construction, an interpolated string, `length`); and on the right of a
+`//` whose left side always yields a value other than `null` or `false` — a literal such as
+`"x"` or `1`, an array construction, an object construction or an interpolated string whose
+parts all yield a value, `length`, a comma with such a side (`(.<read>, 1)`), a `//` whose
+fallback is such a value (`(.<read> // "x")`), or an `if` with an `else` whose every branch is
+one. After a read that may be `null`, an iteration, an `if` without `else` or an object whose
+entry may yield no output (`{k: empty}`), the right of the `//` runs, so it is checked.
+
+A node an On Error handler may recover (its own, or that of the branch that routed to it)
+stores the handler's result as its output, so its `.upstream_outputs.<node>` entry, each
+element of `.outputs.<node>` and its `return_expr`'s `.result` may also be that result: an
+object an `expr` handler builds, or any value a handler tool returns. The schema does not
+describe that result, so a read of such a node is refused only when it fails on the
+handler's result too, such as comparing the output to a scalar when the handler is an `expr`.
+
+A holder with an [ask exit](/babelfish#the-ask-exit-and-sending-an-ask-up) (`on_ask`, with
+send-up off) stores `{"status": "asked", "asks": [...]}` as its output when its held call
+settles with caller asks, each ask a parked entry (`.id`, `.status`, ...). So its
+`.upstream_outputs.<node>` entry, each element of `.outputs.<node>` and its `return_expr`'s
+`.result` may also be that object: `.upstream_outputs.<node>.asks[0].id` and
+`.upstream_outputs.<node>.status == "asked"` build, and a read of such a holder is refused
+only when it fails on the asked object too.
+
+An
 expression that reads `.outputs` or `.inputs` as a whole — `.outputs | keys`, `getpath(...)`,
 `..`, a function over the channel — or uses a construct the engine does not analyse (an inline
-`def`, an assignment, `label`, destructuring) makes the flow keep every node's full history;
+`def`, `label`, destructuring) makes the flow keep every node's full history;
 **Validate** reports it as a `state_read_unbounded` warning naming the expression, and the
 flow still saves and runs. At run time each expression receives only the `.outputs` /
 `.inputs` entries it names (a channel it reads as a whole, it receives whole), so its result
@@ -156,7 +201,6 @@ bound state's templates, so they track whatever the attachment declares.
 ## See also
 
 - [jq variables](/concepts/jq-variables) — the one rule for a jq's input and its named variables, across every platform surface.
-- [The jq editor](/studio/jq-editor) — jq-studio, the built-in editor the flow editor renders, and how to embed it in your own app.
-- [The visual jq editor](/babelfish#the-visual-jq-editor) — the editor as it appears in the flow canvas: its node vocabulary, the faithfulness guarantee, and the editor shell.
+- [The jq editor](/studio/jq-editor) — jq-studio, the built-in editor the flow editor renders: its canvas, and how to embed it in your own app.
 - [Babelfish Flows](/babelfish) — the flow engine whose fields author through this editor.
-- [Author a Studio plugin](/studio/plugins#the-built-in-jq-editor) — the SDK re-export every plugin field renders the same editor from.
+- [Author a Studio plugin](/studio/plugins#the-built-in-jq-editor) — how every plugin field renders the same built-in jq editor.

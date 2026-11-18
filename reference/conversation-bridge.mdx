@@ -483,7 +483,7 @@ On the channels that **ingest bytes**, the bridged turn additionally carries typ
 `attachments`: the platform has fetched the file, verified it, and stored it by reference, and
 each attachment is a **served reference** — a same-origin capability URL
 (`/api/interactions/media/{media_id}`) a tool, an agent's `start_expr`, or the operator
-console can render or download. The parity `media_*` params still ride the turn, now filled
+console can render or download. The parity `media_*` params ride the turn too, filled
 from the stored file's real size, hash, and type. If the file cannot be received — it is over
 the per-kind cap, its type is not allowed, the byte source could not be fetched, or no storage
 provider is configured — no attachment is minted; the participant is told and the drop is
@@ -520,9 +520,12 @@ provider does not redeliver in a loop; the event makes an otherwise-silent drop 
 
 While a run owes a user a reply, the platform shows that user the channel's own
 "working-on-it" indicator — the typing dots on WhatsApp and Telegram, the typing bubble on the
-web chat page — and refreshes it under the vendor's short expiry so it does not lapse mid-wait.
-It covers every wait the user has on such a run: a bridged inbound message's turn from the
-moment it is accepted, and the wait after the user answers a question the run asked them — a
+web chat page — and refreshes it ahead of the vendor's short expiry, best effort: it can lapse
+for a few seconds between refreshes, for instance after a message the run sends mid-way or when
+two runs serve the same user from different processes. It covers every wait the user has on
+such a run: a bridged inbound message's turn from the moment its target starts running — after
+the thread's queue and the concurrency gate admit it; a queued turn and a turn on a thread in
+manual mode show nothing — and the wait after the user answers a question the run asked them — a
 typed reply, a tapped button or a submitted form — whether the run was waiting for the answer
 or was parked and resumes on it.
 
@@ -532,10 +535,11 @@ where the channel has a stop (the web chat page); on WhatsApp and Telegram, whic
 the vendor's indicator lapses on its own within seconds. It shows again once no question the
 run sent stands (the last one is answered or withdrawn).
 
-The indicator stops the instant the reply is sent, when the turn ends with no send, when the
+The indicator stops as the reply is about to be sent, when the turn ends with no send, when the
 reply's record leaves the in-flight delivery states, and after three refreshes in a row fail.
-One stretch of showing it — from a turn's start, or from the answer to the last question
-standing, until the reply — is bounded by a hard ceiling: at the ceiling the platform stops
+One stretch of showing it — from the moment a turn's target starts running, or from the answer
+to the last question standing, until the reply — is bounded by a hard ceiling: at the ceiling
+the platform stops
 refreshing the indicator until the next stretch, clearing it where the channel has a stop and
 letting the vendor's indicator lapse where it has none. It is best-effort and cosmetic: a signal
 failure is logged and never reaches the run.
@@ -1123,8 +1127,8 @@ as a produced rich answer is, including the delivery machine's capability gate �
 channel that does not advertise the matching `supports_*_notifications` flag never
 receives the part; the record fails loudly instead of the field dropping. `options`
 are the [typed reply/link shapes](/concepts/notifications#media-kinds-and-typed-options)
-(a bare string is not an option); `template` carries its **named components**
-(`header_media`, `body_parameters`, `buttons`). A contract-invalid value (an empty
+(a bare string is not an option); `template` is a
+[`ChannelTemplate`](/concepts/notifications#out-of-window-templates). A contract-invalid value (an empty
 list or dict, an over-cap value, or the mutually exclusive media+template /
 options+template / schema+template / schema+options) is a loud `400`; omit all four
 for a plain text send.
@@ -1420,8 +1424,8 @@ system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
 Every setting reads the `CONVERSATIONS_` env prefix (so `max_concurrent_turns` is
 `CONVERSATIONS_MAX_CONCURRENT_TURNS`). Startup validators reject an invalid
-combination loudly. The `CONVERSATIONS_` prefix is owned: an env name under it that names no
-setting below is refused at boot and on every env write.
+combination loudly. `CONVERSATIONS_` is an
+[owned settings prefix](/concepts/config-and-secrets#owned-settings-prefixes).
 
 ### Backend
 
@@ -1447,7 +1451,7 @@ setting below is refused at boot and on every env write.
 | `thread_lease_refresh_seconds` | `30` | Thread-lease refresh interval; must stay below the lease. |
 | `overlap_cancel_poll_seconds` | `0.5` | Seconds the [overlap-cancel](#overlapping-messages) watcher sleeps between reads of a thread's cancel marker while a `running: cancel` turn runs; must stay **below** `thread_lease_seconds`. |
 | `sync_door_wait_seconds` | `30` | Seconds a synchronous door — operator send / thread or person delete — waits to serialize behind an in-flight turn before answering a retriable 503. |
-| `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one stretch of the [working-on-it](#the-working-on-it-signal) indicator, from a turn's start or from the answer to the last question standing until the reply; `0` disables the indicator entirely (the kill switch). |
+| `working_signal_max_seconds` | `180` | Hard ceiling in seconds on one stretch of the [working-on-it](#the-working-on-it-signal) indicator, from the moment a turn's target starts running or from the answer to the last question standing until the reply; `0` disables the indicator entirely (the kill switch). |
 | `working_signal_refresh_margin_seconds` | `5` | Seconds subtracted from a channel's vendor-indicator lifetime to pick the refresh interval, so each refresh lands before the indicator lapses. |
 
 A turn waiting for a busy thread starts when the running turn releases the thread (a
