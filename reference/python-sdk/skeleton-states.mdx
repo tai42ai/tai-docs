@@ -15,6 +15,15 @@ compared with. `RecordValidator` is the public face over these validators for a 
 with no store bound. Depends only on the standard library, ``jsonschema``/``referencing``, the
 kit's JSON Schema rules and the contract's states models.
 
+## DRAFT_2020_12
+
+`tai42_skeleton.states.schema.DRAFT_2020_12`
+
+```python
+DRAFT_2020_12 = frozenset({'https://json-schema.org/draft/2020-12/schema', 'https://json-schema.org/draft/2020-12/schema#'})
+```
+
+
 ## RecordValidator
 
 `tai42_skeleton.states.schema.RecordValidator`
@@ -90,6 +99,51 @@ opens the message (``"state schema"``, a template's value-schema place). Every r
 | `subject` | `str` | — | — |
 
 
+## document_reasons
+
+`tai42_skeleton.states.schema.document_reasons`
+
+```python
+document_reasons(validator: Draft202012Validator, doc: dict[str, Any]) -> list[ValidationReason]
+```
+
+EVERY way ``doc`` fails ``validator``'s effective schema, ordered by JSON path.
+
+The read-only sibling of `validate_document`: where the write path raises on the first
+failure, this collects them all through ``validator.iter_errors`` so a caller reports the whole
+misfit at once. Each reason carries the offending node's ``json_path`` and the validator's
+message; an empty list means the document fits.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `validator` | `Draft202012Validator` | — | — |
+| `doc` | `dict[str, Any]` | — | — |
+
+
+## is_narrowing
+
+`tai42_skeleton.states.schema.is_narrowing`
+
+```python
+is_narrowing(old_schema: dict[str, Any], new_schema: dict[str, Any]) -> bool
+```
+
+Whether ``new_schema`` removes or changes any top-level property of ``old_schema``.
+
+Also true when it changes any ROOT keyword outside ``properties``.
+Deliberately conservative: any property-subtree edit or root-keyword edit
+registers as narrowing.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `old_schema` | `dict[str, Any]` | — | — |
+| `new_schema` | `dict[str, Any]` | — | — |
+
+
 ## iter_refs
 
 `tai42_skeleton.states.schema.iter_refs`
@@ -131,6 +185,53 @@ schema, so the walk stays linear in the schema's size and its ref count.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `root` | `dict[str, Any]` | — | — |
+
+
+## validate_document
+
+`tai42_skeleton.states.schema.validate_document`
+
+```python
+validate_document(
+    validator: Draft202012Validator,
+    doc: dict[str, Any],
+    *,
+    where: str | None = None,
+) -> None
+```
+
+Validate the FULL record document with the effective schema's ``validator``.
+
+The error names the offending JSON path, prefixed with ``where`` (the state and subject a
+batch validation checks) when given. Loud on the first failure.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `validator` | `Draft202012Validator` | — | — |
+| `doc` | `dict[str, Any]` | — | — |
+| `where` | `str \| None` | `None` | — |
+
+
+## validate_schema
+
+`tai42_skeleton.states.schema.validate_schema`
+
+```python
+validate_schema(schema: Any) -> None
+```
+
+Accept any valid, object-rooted JSON Schema (draft 2020-12) with at least one property.
+
+Refuse everything else loudly. Nesting to any depth is the point — the record
+document is validated WHOLE against this schema on every write.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `Any` | — | — |
 
 
 Composing attached fragments into the effective schema.
@@ -232,7 +333,7 @@ fragment is resolved by the caller first) and parse as a
 `StateTemplateDocument`; then a no-default parameter
 must appear as a marker and every marker names a declared parameter, each parameter and
 declarations schema is a valid schema whose references resolve inside it, the defaults-substituted
-fragment passes ``_validate_schema``, regime and update-program paths lie inside the fragment
+fragment passes ``validate_schema``, regime and update-program paths lie inside the fragment
 (``"*"`` only over ``items``/``additionalProperties``), program names and params are jq
 identifiers, and every inline jq body compiles (a by-id body is rendered and compiled at the
 save door). Raises `TemplateValidationError` on the first
