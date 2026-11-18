@@ -172,6 +172,15 @@ the same dispatch controls a hand-authored loop does — the [wait mode and the
 give-up pair](#node-waits), and the opt-in [state refresh](#refresh-opt-in-state-re-read),
 which fires **once at loop entry** so every iteration inherits the same fresh view.
 
+A map decides what one failed item does. The body step a map compiles to is an ordinary
+runnable, so it can carry an [On Error](#handling-a-nodes-error) like any node: when an item
+fails, that On Error runs, its result becomes the item's output, and the loop goes on with
+its other items. With no On Error on the body, a failed item stops the loop and fails the
+run; the flow's On Error, when set, runs on that failure, but the run still fails (see
+[When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error)).
+The loop node itself never carries one. In the Studio this is the Map card's
+[On Error switch](/babelfish/studio#the-map-cards-on-error-switch).
+
 **Broadcast** is the map-plus-send recipe for fanning one message out to N
 recipients: make the mapped tool the **send** node, set `input` to the
 recipients list, and read the current recipient from `$iterate.item` in the
@@ -589,19 +598,25 @@ aborting. A failing node runs its own On Error, else — when it runs a step of 
 or a **map** takes no route or branch On Error and resolves failures at the nodes inside it.
 In the Studio the same error handle also rides a **Router** card, catching its verdict node's
 failure; each **route** on that card, whose On Error covers a **runnable**, **agent**, **flow
-call**, or **custom node** the route leads to; and a **Sub-Flow Start**,
-where it is the sub-flow's own flow-level On Error.
+call**, or **custom node** the route leads to; a **Map** card set to **Per item**, where it
+is the On Error of the map's body step and so catches one item's failure; and a **Sub-Flow
+Start**, where it is the sub-flow's own flow-level On Error.
 
 An On Error's jq reads the failure through `.upstream_outputs`, the same namespace
-predecessor outputs use, alongside the ordinary run channels:
+predecessor outputs use, alongside the ordinary run channels. There each node key is the
+node's stored output history (a list; `[-1]` is the latest), and the four error keys sit
+beside the node keys; an error key shadows a node of the same name:
 
 | jq path | What it holds |
 | --- | --- |
+| `.upstream_outputs.<node>` | The node's stored output history, newest last — `.upstream_outputs.<node>[-1]` is its latest output. |
 | `.upstream_outputs.error` | The exception payload as raised — a dict is carried verbatim so jq can navigate it (`.upstream_outputs.error.code == 404`), anything else is its string form. |
 | `.upstream_outputs.error_type` | The exception class name, for gating on a specific type. |
 | `.upstream_outputs.error_kind` | The platform's stable error label. It survives class renames, so it is the durable key to route on. |
 | `.upstream_outputs.additional` | Where the failure happened, and its source. `.failed_node` is the id of the node that failed; for an **iterate** or **map** whose failure reaches the flow's On Error the id is under `.failed_iterate_node` instead, alongside the per-iteration detail described in [When a loop's failure reaches the flow's On Error](#when-a-loops-failure-reaches-the-flows-on-error). When a **route**'s or **branch**'s On Error is the one that runs, `.failed_branch` and `.failed_conditional` also name the branch and the conditional it belongs to; a failing branch step carries those two without `.failed_node`. `.error_source` is `"infrastructure"` when a transport the platform owns failed, and `"app"` for every other failure (see [Who handles a failure](#who-handles-a-failure)). |
-| `.inputs` / `.outputs` | The run's inputs and outputs channels at failure — what the [run state](#run-state) keeps. |
+| `.upstream_inputs` | The `.upstream_inputs` the failing node or branch step reads; `null` when the flow-level On Error runs on the run's terminal failure. |
+| `.inputs` / `.outputs` | The run's inputs and outputs channels at failure — what the [run state](#run-state) keeps, one history list per node, newest last. |
+| `.result` | Always `null`: an On Error has no result of its own. |
 | `$states` / `.flow_graph_kwargs` | Declared state and the run's own inputs, exactly as any other authored jq reads them. |
 
 An On Error dispatches one of two ways, and they are exclusive — declaring both
@@ -747,8 +762,10 @@ its code means — so `.upstream_outputs.error_kind` names them rather than `unk
 
 An **iterate** (or its **map** face) resolves its own iterations' errors at the nodes
 inside the loop; a failure it cannot contain surfaces to the **flow-level On Error**,
-where the run still fails (a flow On Error decorates, it does not rescue). What
-`.upstream_outputs.additional` carries then depends on where the loop broke.
+where the run still fails (a flow On Error decorates, it does not rescue). A map set to
+**Whole loop** (the default) has no On Error on its body step, so a failed item is such
+a failure; a map set to **Per item** contains it at the body step's On Error and keeps
+going. What `.upstream_outputs.additional` carries then depends on where the loop broke.
 
 - **The loop could not build or run its plan** — its list `input` was not a list, its
   count was not a number, its `while` condition was not a boolean, or a **bounded**

@@ -47,17 +47,19 @@ validator, the **Validate** action checks the same shape server-side:
 - an **On Error** condition or expression sees the **error envelope** — the failed
   node's error on `.upstream_outputs` (`.error`, `.error_type`, `.error_kind`,
   `.additional`); there `.upstream_outputs.<node>` is that node's output history (a
-  list, newest last), so read the latest output as `.upstream_outputs.<node>[-1]`. A
-  read of a field off `.upstream_outputs.<node>` in an On Error program, or in a
-  Recovery node's expression where it runs as the handler, is refused at build
-  however the program spells it — a dotted path, a pipe, an `as` alias, a bracket
-  key, inside a string's `\(...)` interpolation. A `type == "array"` or `== null` test
-  on the entry narrows the branch it guards, so the spelled-out idiom below is read as
-  the latest output in both runs. A
-  Recovery node that ordinary routing also reaches runs the same expression as a
-  normal step too, where `.upstream_outputs.<node>` is the latest output itself; read
-  it as `(.upstream_outputs.<node> | if type == "array" then .[-1] else . end)` to get
-  the latest output in both runs;
+  list, newest last), so read the latest output as `.upstream_outputs.<node>[-1]`. The
+  four error keys shadow a node of the same name, `.result` is null, and
+  `.upstream_inputs` is null when the flow-level On Error runs on the run's terminal
+  failure. A read of a field off `.upstream_outputs.<node>` in an On Error program, or
+  in a Recovery node's expression where it runs as the handler, is refused at build
+  however the program spells it — a dotted path, a pipe, an `as` alias, a bracket key,
+  inside a string's `\(...)` interpolation. A `type == "array"` or `== null` test on the
+  entry narrows the branch it guards, so the spelled-out idiom below is read as the
+  latest output in both runs. A Recovery node that ordinary routing also reaches runs
+  the same expression as a normal step too, where `.upstream_outputs.<node>` is the
+  latest output itself; read it as
+  `(.upstream_outputs.<node> | if type == "array" then .[-1] else . end)` to get the
+  latest output in both runs;
 - the flow-level On Error's **Reply** sees the same error envelope, with the handler's
   outcome under `.upstream_outputs.additional` (`.handler_result`, or `.handler_error` when
   the handler failed), and must return text or `null`
@@ -160,6 +162,22 @@ flow still saves and runs. At run time each expression receives only the `.outpu
 `.inputs` entries it names (a channel it reads as a whole, it receives whole), so its result
 is the same, and its evaluation's trace record shows just those entries.
 
+A wired **Recovery** node's expression also runs when an On Error dispatches it: there it
+reads the error envelope's `.upstream_outputs` (each node's history list plus the error
+keys) and `.outputs`, and its `.inputs` is the handler's keyword arguments — the Recovery
+node's own baseline arguments with the On Error expression's overrides applied — not the
+inputs channel. The editor notes this on that node's expression field: on a node no
+ordinary routing reaches it reads *This node runs only as the On Error handler*, and on a
+node ordinary routing also reaches, *At a recovery target this expr also runs as the On
+Error handler*.
+
+The engine checks that expression in each envelope it runs in. On a node no ordinary routing
+reaches it is checked only in the error envelope, so a read of an error key such as
+`.upstream_outputs.error` builds. On a node ordinary routing also reaches it is checked in the
+node envelope too, where an `.upstream_outputs` key must name an upstream node, so the same read
+is a build error. Validation likewise reports a `state_read_unbounded` warning for each
+envelope in which the expression's reads cannot be bounded.
+
 ## The variables beside the input
 
 Beside `.`, every flow jq binds the run's context as named variables, reachable
@@ -175,6 +193,11 @@ panel:
 | `$iterate` | The enclosing loop context, or null outside a loop; inside a body `$iterate.item` is the current item and `$iterate.iteration` its position. |
 | `$attachments` | The attachment envelope the template `attachment(...)` locator reads. |
 | `$current_user` | The calling user's id, or null for an anonymous caller. |
+
+An **On Error** condition, expression and Reply — and a Recovery node's expression when the
+On Error dispatches it — bind `$states`, `$run`, `$attachments` and `$current_user` as
+above, while `$iterate` is null and `$iteration` 0 there, even when the failure happened
+inside a loop body.
 
 A **holder** node's start, cancel, resume and warm-start jqs add `$parked` — the
 parked interactions on the held target, a list of `{id, status, …}` (status `asking`,
