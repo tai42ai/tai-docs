@@ -223,17 +223,18 @@ Fetch the URL's body and return ``(bytes, mime)``.
 ``mime`` is the response ``Content-Type`` header (``None`` when absent). When
 the guard is enabled the request runs over `PinningTransport`, which
 validates and pins every connection (initial request and each redirect hop
-that opens a new connection), and the body is size-capped while streaming.
-Raises rather than truncating an over-cap body or reaching a non-public host.
-When the guard is disabled a plain client is used, which caps nothing, pins
-nothing, and lets httpx follow redirects.
+that opens a new connection), the body is size-capped while streaming, and at
+most the guard's ``max_redirects`` hops are followed. Raises rather than
+truncating an over-cap body or reaching a non-public host. When the guard is
+disabled the transport caps nothing and pins nothing, and the redirect bound is
+httpx's own (``httpx.TooManyRedirects`` past it).
 
-Under the guard, redirects are followed one hop at a time rather than by
+Redirects are followed one hop at a time on the shared client rather than by
 httpx, which reads each intermediate body into memory in full before chasing
 ``Location``. A hop carrying a body large enough to exhaust memory would slip
 past the cap that way, so each redirect response is closed unread — forgoing
 connection reuse for that hop — and only the terminal body is streamed and
-counted.
+counted. The cookies a hop sets ride this fetch's later hops only.
 
 **Parameters**
 
