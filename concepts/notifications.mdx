@@ -36,7 +36,7 @@ that is not registered is a loud error, never a silent drop.
 | `audience` | The **identity** whose in-app inbox shows the record (see below). |
 | `media` | Display media sent with the message — `image`, `document`, `video`, and `audio` file items plus labelled `link` anchors (see [media kinds](#media-kinds-and-typed-options)). Requires a channel that advertises media support. |
 | `location` | A shared geographic point — latitude/longitude with an optional place `name` and `address`. Requires a channel that advertises location support. |
-| `template` | A pre-approved out-of-window [template](#out-of-window-templates) send, addressed by its `name` + `language` with **named components** (a media header, positional body values, per-button arguments). Requires a channel that advertises template support. |
+| `template` | A pre-approved out-of-window [template](#out-of-window-templates) send, addressed by its `name` + `language`, with optional channel-defined `parameters`. Requires a channel that advertises template support. |
 | `options` | A flat list of tappable [typed options](#media-kinds-and-typed-options) (at most 10) — a `reply` (its text becomes the person's next message) or a `link` (opens a URL). Requires a channel that advertises interactive support. |
 | `sections` | The sectioned alternative to `options` — titled groups of reply rows (rows summed across sections stay within 10). Requires interactive support. |
 | `header` / `footer` | A single media `header` above, and a short text `footer` below, an interactive message. Each requires `options` or `sections`. |
@@ -92,8 +92,8 @@ anchor the person clicks through. A `document` item may also carry a **`filename
 the suggested display name the medium shows for the download; it is meaningful only on
 a `document` and is refused on any other kind.
 
-**Options** are a **typed, discriminated** list — the clean break from the old
-text-only `list[str]`. Each entry is one of two shapes, tagged by `kind`:
+**Options** are a **typed, discriminated** list. Each entry is one of two shapes, tagged
+by `kind`:
 
 ```json
 {"kind": "reply", "text": "Yes, send it", "description": "Sends the status report", "id": "confirm-send"}
@@ -135,22 +135,14 @@ location-only send may leave `message` blank.
 ### Out-of-window templates
 
 `template` is a pre-approved `ChannelTemplate` for delivery **outside** a medium's
-freeform window (e.g. WhatsApp's 24-hour customer-service window). It is addressed by
-`name` + `language` and parameterised by its **named components**, never a flat
-positional list:
-
-- `header_media` — the media argument for a media header component (a display item,
-  never a link);
-- `body_parameters` — the positional body-text values substituted into the body's
-  placeholders in order (typed values ride as their pre-formatted strings);
-- `buttons` — the positional per-button arguments (a quick-reply `payload` or a URL
-  suffix), the i-th entry parameterising the i-th button.
-
-<Note>
-The named-component shape is a **clean break**: the old flat `parameters` list is
-**removed**. A template's runtime arguments are `header_media`, `body_parameters`, and
-`buttons` — nothing else.
-</Note>
+freeform window (e.g. WhatsApp's 24-hour customer-service window). It carries exactly
+three fields: a `name` and a `language`, both required and non-blank, and an optional
+`parameters` object holding the template's runtime arguments — absent for a template
+with none, and never empty when present. The platform passes `parameters` through
+unopened: the channel that advertises template support owns its shape, may check it
+before the send (a shape it could never render is refused up front), and maps it onto
+its provider's API. [WhatsApp's template parameters](/plugins/tai42/channel-whatsapp#the-24-hour-window-and-templates)
+are one such shape.
 
 ## Channel capability matrix
 
@@ -171,7 +163,7 @@ dropped. Where a medium lacks a native construct but can approximate one, the ch
 | `sections` | multi-section list | titled groups | grouped buttons, title as text header³ | section header + reply buttons | **declined** |
 | `header` / `footer` | media header / text footer | media header / muted footer | header as caption or a separate message; footer as a trailing italic line | image block / muted context block | **declined** |
 | `location` | native pin | map-pin + OpenStreetMap link | `sendLocation` / `sendVenue` | section + OpenStreetMap link | **declined** |
-| `template` | native (named components) | **declined**⁴ | **declined** | **declined**⁵ | **declined**⁶ |
+| `template` | native | **declined**⁴ | **declined** | **declined**⁵ | **declined**⁶ |
 | `schema` (ask-less form) | native Flow (in-window)⁷ | form card | **declined**⁸ | **declined**⁸ | **declined**⁸ |
 | `form` **question** delivery (`ask`)⁹ | Flow | web widget | webview of the callback form page | Block Kit modal | **declined** |
 | a form field's `format`¹⁰ | `date` → native date picker; `time`/`date-time` → text | `date` → `<input type="date">`; `time`/`date-time` → text | `date` → `<input type="date">`; `time`/`date-time` → text | `date` → `datepicker`; `time` → `timepicker`; `date-time` → text | **declined** |

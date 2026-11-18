@@ -629,9 +629,12 @@ flow's ordinary routing if you need its output downstream.
 
 Validation also **warns** when a wired Recovery has no incoming routing and the flow
 declares no entry points: the builder auto-promotes every unrouted node to a start
-entry, so that node would run unconditionally at flow start *as well as* on error.
-Wire an incoming edge to it, or declare the flow's entry points explicitly, to keep it
-Recovery-only.
+entry, so that node would run unconditionally at flow start *as well as* on error. An
+incoming route is an edge, a conditional's branch path, or a holder's
+[ask exit](#the-ask-exit-and-sending-an-ask-up) (`on_ask`); a node reached only through an
+ask exit is not promoted.
+Declare the flow's entry points explicitly to keep it Recovery-only; an incoming edge
+from ordinary routing would make it an ordinary graph step instead.
 
 **A flow-level On Error is a different job.** An On Error attached to the flow itself —
 the Start-attached one — runs only on the terminal error path, and the run still
@@ -777,7 +780,7 @@ Any scheduled node — a runnable, an agent, a flow call, a map, and a router's
 verdict node — can carry an optional **run condition**: a jq predicate authored as an
 inline expression or a stored template with kwargs (the same field triple every jq
 site uses), answering one question — *should this node run at all?* Left empty, the
-node is unconditional and runs exactly as it did before the feature existed.
+node is unconditional and always runs.
 
 The condition is evaluated at fire time — after the node's input barrier releases and
 after its [state refresh](#refresh-opt-in-state-re-read), before the node does any work
@@ -785,7 +788,10 @@ of its own, including its own expression — over the same namespace that node's
 expression reads. It is **bool-strict**, like a conditional's condition: anything but
 `true` or `false` is an authoring defect, and a condition that raises fails the node
 down its normal error path. It is statically checked like every other jq slot, so an
-unresolvable upstream read or a schema-impossible comparison is a build error.
+unresolvable upstream read or a schema-impossible comparison is a build error; a field
+read on a node's stored output history is a build error too, as is every other step the
+[jq editor](/babelfish/jq-editor#what-each-field-seeds) lists as refused, inside a `try` body or
+under `?` too.
 
 - **True** runs the node normally.
 - **False** *skips* it: the node does not execute, its output is `null`, and its status
@@ -878,8 +884,9 @@ reads it together, so every wired edge survives the rename untouched; a route's
 to ordinary engine parts — one verdict node plus one hidden conditional — and folds
 back into the single card on load, the same way a [map](#looping-over-a-list) folds.
 A conditional you author by hand carries no such marker and stays a visible decision.
-A saved router whose stored verdict marker still uses the retired `classifier` key
-cannot be folded: it is shown as a plain conditional, asking you to re-create the routing.
+A saved router whose stored verdict marker carries a `classifier` key cannot be
+folded: it is shown as a plain conditional, with the reason "its stored verdict marker
+uses the retired 'classifier' key — re-create the routing".
 
 ### Decided by
 
@@ -1159,76 +1166,9 @@ declared schema.
 
 ## The visual jq editor
 
-Every jq expression a flow carries — a node's expression, a branch or loop
-condition, a binding's injection or update jq — is authored in one field two ways: by typing
-jq into the field's resting text control, or in a **visual editor**, opened from that
-control, that draws the expression as a small, editable node graph and writes it back
-as jq. The wire always carries the jq text.
-
-<Note>
-This visual editor is [**jq-studio**](/studio/jq-editor) — the platform's
-open-source, built-in jq editor. The [Studio SDK](/reference/studio-sdk/index)
-re-exports its `JqField` component and the Studio host provides the design system and
-evaluation worker, so the flow editor renders it directly, with nothing to install.
-The **same** editor serves every jq field across the Studio — a flow's, a host
-feature's, another plugin's — so the canvas below is identical everywhere. See
-[Visual jq in flows](/babelfish/jq-editor) for the flow field's tabs and per-surface
-seeding.
-</Note>
-
-**The node vocabulary.** The canvas paints eight node kinds, each with a semantic
-hue shared with the flow canvas so a colour means the same thing in both editors:
-
-- **Input** (primary) — the data the expression receives, `.`.
-- **Value** (muted) — a literal or a path into the input.
-- **Operator** (muted) — combines two values (`+`, `==`, `//`, …).
-- **Condition** (warning) — chooses a result with if / else.
-- **Try/Catch** (danger) — runs logic and recovers on error.
-- **Call Function** (primary) — applies a built-in or defined function.
-- **Define Function** (primary) — declares a reusable function.
-- **Comment** (muted) — a note; never runs.
-
-Kinds that share a hue (Input, Call Function, and Define Function on primary;
-Value, Operator, and Comment on muted) wear a terse kind badge and are further
-told apart by glyph and shape, so two same-coloured cards never read alike. A
-**Legend** on the toolbar lists every kind and the wire notations — pipe, operand,
-and function grant — generated from the same registry the canvas paints from, so it
-can never drift from what you see.
-
-**The editor shell.** Around the canvas sits a **Test** panel that runs the
-generated jq against sample JSON — seeded per surface with a skeleton of the right
-input shape, editable, and run locally in WASM (Cmd/Ctrl+Enter) — plus, where the
-engine exposes a matching validator, a **Validate** action that checks the
-expression server-side. A **live readout** shows the jq the graph currently
-serialises to as you edit, and an **error summary** chip counts the graph's problems
-and jumps the view to each one in turn.
-
-**The faithfulness guarantee.** The editor draws a graph only when it can prove that
-reading the graph back gives exactly your expression. Before any loaded expression
-is adopted for editing, its graph is serialised back to jq and a WASM oracle checks
-that the two behave identically; only a faithful round-trip is drawn. Everything else
-is non-destructive: an expression the editor cannot draw, or one whose graph would
-read back differently, keeps your text verbatim and shows it as text with a neutral
-**"not shown here"** notice — your expression is never altered, and the editable
-canvas is reached only through an explicit **Start empty** that you choose. This
-keeps two questions apart — *is the jq valid* and *can the editor draw it*. Only jq
-that genuinely fails to compile raises a loud **"invalid expression"** alert; valid
-jq the editor cannot represent is neutral, never flagged as broken.
-
-**Where you open it.** In a flow field, the visual editor opens from the **Inline**
-tab's **Visual editor** button — the field is a two-tab Inline/Template control, and
-the canvas is never a tab of its own. See [Visual jq in flows](/babelfish/jq-editor)
-for the field's tabs. The same editor opens the same way on every other jq field in
-the Studio.
-
-### Visual jq on every surface
-
-Every jq field carries the same editor, and each names what `.` is at its site so the
-Test panel seeds the right sample and the server validator checks the right shape. The
-per-site input shapes — the node, error, binding, and return envelopes, the loop
-envelopes a `while`/`foreach`/`map` field sees, and the bare flow-inputs and
-state-record documents — are listed in
-[Visual jq in flows](/babelfish/jq-editor#what-each-field-seeds).
+A flow's jq field opens the [built-in jq editor](/studio/jq-editor#the-canvas) from its
+[Inline tab](/babelfish/jq-editor#inline-or-template), seeded with
+[the field's own input shape](/babelfish/jq-editor#what-each-field-seeds).
 
 ## Flow states
 
@@ -1290,6 +1230,20 @@ it runs:
   ['x'] that are not bound on this node; bound states are […]."* A binding whose
   `subject_expr` cannot resolve is likewise a loud mint-door error naming the state and the
   resolved value.
+
+Flow validation that cannot read the state declarations or a flow's state bindings
+skips the checks that need them and reports the skip as a **warning**. A failed read of
+the state declarations skips every `$states` check (`state_checks_skipped`: *"the state
+declarations could not be read, so every $states check was skipped: […]"*); a states
+store outage on a flow's state bindings skips that flow's `state_unbound` and
+`state_refresh_unbound` checks and its template-attached check, the check that each
+template it calls is attached (`state_binding_checks_skipped`: *"the state bindings of
+flow 'f' could not be read, so its state_unbound, state_refresh_unbound,
+template-attached checks were skipped: […]"*).
+
+A conversation-route bind refuses a flow on the unbound read and refresh findings
+(`state_unbound`, `state_refresh_unbound`) that flow validation reports as warnings. It
+does not skip these checks: a store it cannot read fails the bind.
 
 A call to a [template jq](#state-templates) is judged per environment too. Every flow jq
 is compiled when the flow is saved, so a program that is not valid jq — a syntax error,
@@ -1494,8 +1448,8 @@ a gated refusal.
 | `TAI_DB_BINDING_STATES` | `default` | Database the platform [state store](/concepts/states) binds to (records, declarations, templates). |
 | `TAI_DB_BINDING_FLOWS_STATES` | unset | Database the flow-engine binding store binds to; unset = flow states off. |
 
-Record retention is a platform concern now — set it per state (`retention_days`) or as
-a deployment default on the store; see the [States concept](/concepts/states#enabling-the-store).
+Record retention is set on the platform state store — per state (`retention_days`) or
+as a deployment default on the store; see the [States concept](/concepts/states#enabling-the-store).
 
 ## State templates
 
@@ -1681,9 +1635,11 @@ out once per flow version over every scope — the top-level graph and every loo
 
 An expression the engine cannot bound — one that reads `.outputs` or `.inputs` as a whole
 (`.outputs | keys`, `getpath(...)`, `..`, a function over the channel) or uses a construct the
-analysis does not cover (an inline `def`, an assignment, `label`, destructuring) — makes the
+analysis does not cover (an inline `def`, `label`, destructuring) — makes the
 flow keep every node's full history. Validating or saving such a flow reports a
-`state_read_unbounded` **warning** naming the expression; the flow still saves and runs.
+`state_read_unbounded` **warning** naming the expression; the flow still saves and runs. An
+expression that uses a construct the analysis does not cover is also outside the build-time
+checks of its `.upstream_outputs` and `$states` reads, which the warning says.
 
 The engine runs this static analysis of a flow's rendered texts as one job in the server
 process's [compute pool](/operate/deploy#cpu-bound-jobs-and-the-compute-pool), when the flow is
@@ -1768,11 +1724,7 @@ send-up caller ask, or a held flow's own park) parks under the latest deadline a
 call's open asks, so the same bound applies to it.
 
 <Note>
-`FLOW_CHECKPOINT_RETENTION_DAYS` and `POST /api/babelfish/checkpoints/prune` are gone: the
-platform's two retention values and its `sweep_checkpoints` operation replace them. The engine
-owns the `FLOW_` prefix, so a deployment that still sets `FLOW_CHECKPOINT_RETENTION_DAYS`, or
-any other name under `FLOW_` the engine does not read, is refused at boot and on every settings
-write, naming it.
+`FLOW_` is an [owned settings prefix](/concepts/config-and-secrets#owned-settings-prefixes) of the engine.
 </Note>
 
 | Variable | Default | Effect |

@@ -1,6 +1,6 @@
 ---
 title: "Flows editor"
-description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the Router card and its dispatch modes, the classifier card, the visual jq editor, and per-node state bindings."
+description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the Router card and its dispatch modes, the classifier card, and per-node state bindings."
 icon: "pen-ruler"
 ---
 
@@ -32,6 +32,14 @@ read-only: they render the node's
 declared input and output schemas — with the node's outcomes surfaced on Output —
 so a node's contract is readable in build mode, and each shows an empty state when
 nothing is declared.
+
+A node's **name** is its id in the flow graph, and jq reads the node's output as
+`.upstream_outputs.<name>`, so a name is an identifier — letters, digits, and underscore,
+never starting with a digit — that does not start with `__`. Any other name is refused
+with "Node ids must be identifiers (letters, digits, underscore; not starting with a
+digit) and must not start with '__'": the Settings form flags it, a flow holding such a
+name does not save until the node is renamed, and the engine refuses a flow graph that
+carries one. A Branch's name is its branch key, which may start with a digit.
 
 Changes in the panel stay a draft until **Update node** applies them. Closing the
 panel, opening another node, switching mode, leaving the editor, an undo or redo that
@@ -145,7 +153,8 @@ whose controls read top to bottom:
   an ask exit, parks it as a nested park and hands it up to this flow's own caller
   unchanged.
 
-Every jq slot reads through the same Inline / Template control the other editor jqs
+Every jq slot reads through the same
+[Inline / Template control](/babelfish/jq-editor#inline-or-template) the other editor jqs
 use, so a stored template id shows and survives an open-edit-save.
 
 **The Agent card over a saved agent.** An Agent card that holds a saved agent preset
@@ -460,12 +469,11 @@ criteria editor:
 Validation is inline per row, and the apply gate blocks Update on any invalid row —
 the card needs at least one question to save.
 
-The **Input expression** field is the same **Inline / Template** control every other
-editor jq uses: the Inline tab takes a jq and helps with "Must return an object with
-a `state` key — what the classifier reads. Empty: the whole upstream input is judged.";
-the Template tab points the slot at a **stored template** by id, with its kwargs edited
-beside it. A stored reference lowers onto the runnable verbatim and folds back into the
-card on load, so a classify node authored the template-and-kwargs way is a Classifier card
+The **Input expression** field is the same
+[Inline / Template control](/babelfish/jq-editor#inline-or-template) every other editor
+jq uses, with the help text "Must return an object with a `state` key — what the
+classifier reads. Empty: the whole upstream input is judged." A stored reference
+lowers onto the runnable verbatim and folds back into the card on load, so a classify node authored the template-and-kwargs way is a Classifier card
 like any other. The **Model** section is a **Provider** and a **Model** text input; the
 Provider field's helper reads "Leave empty to use the host's default classifier provider"
 — so an unset pair runs on the host's configured classifier.
@@ -545,15 +553,15 @@ A **message** slot on the agent form is edited as a **Plain / Template** tabbed
 control: Plain is a raw message textarea, and Template picks a stored
 [template](/concepts/storage-and-resources) with a deep link to the file and a
 collapsed preview of its first lines, editing its kwargs through a schema-assisted
-form over the authoritative JSON. A jq **expression** slot — on the conditional,
-branch, runnable, On Error, and agent forms — is instead an **Inline / Template**
-control: the Inline tab is the [visual jq editor](/babelfish#the-visual-jq-editor)'s
-field (below), and Template is the same picker. In both, the inline value and the
-template are mutually exclusive — the wire carries one, and switching between them
-clears the mode being left after a confirm when it holds data. An invalid node that
-carries **both** an inline message and a template opens on the Template tab with a
-rescue note and a one-click "clear inline text" action, so the exactly-one-of rule is
-fixable in place. A node with a return
+form over the authoritative JSON. The inline message and the template are mutually
+exclusive — the wire carries one, and switching between them clears the mode being
+left after a confirm when it holds data. An invalid node that carries **both** an
+inline message and a template opens on the Template tab with a rescue note and a
+one-click "clear inline text" action, so the exactly-one-of rule is fixable in place.
+A jq **expression** slot — on the conditional, branch, runnable, On Error, and agent
+forms — is instead an
+[Inline / Template control](/babelfish/jq-editor#inline-or-template), whose visual
+editor is the [built-in jq editor](/studio/jq-editor#the-canvas). A node with a return
 result may carry a **return expression** (jq) that shapes the value it contributes
 to the flow result, and a conditional's branch may be marked **pass-through** to
 inject the conditional's single upstream output verbatim — which excludes a
@@ -562,35 +570,7 @@ API-authored or newer agent carries — are surfaced **read-only** so nothing an
 persists is fully invisible, and are round-tripped untouched.
 
 A jq field that can reach a bound state — a binding field, a node expression — offers
-autocomplete from the [template jq](/babelfish#state-templates) of the templates attached
-to that state: each `purpose: "input"` program by name, inserting its `tjq_<name>({…})`
-call handle (`tjq_<template>__<name>({…})` when a name is shared across the state's
-attachments).
-
-## The visual jq editor
-
-The **Inline** tab's field is the [visual jq editor](/babelfish#the-visual-jq-editor):
-a jq text control with a **Visual editor** button that opens the canvas in a dialog,
-where the expression is drawn as a small, editable node graph and written back as jq.
-The dialog wraps a **Test** panel (run the jq against a sample seeded to the field's
-input shape, plus a server **Validate** where the engine exposes one), a **live
-readout** of the jq the graph currently serialises to, an **error summary** that jumps
-to each problem, and a **Legend** of the node kinds and wire notations.
-The [node vocabulary and its semantic hues](/babelfish#the-visual-jq-editor) — Input,
-Value, Operator, Condition, Try/Catch, Call Function, Define Function, Comment — are
-documented with the feature.
-
-The editor draws a graph **only when it can prove that reading it back gives exactly
-your expression**: a WASM oracle round-trips the graph and adopts it only when the two
-behave identically. Otherwise the fallback is non-destructive — an expression the
-editor cannot draw, or one whose graph would read back differently, keeps your text
-verbatim and shows it as text with a neutral **"not shown here"** notice; nothing is
-altered unless you explicitly **Start empty**. This keeps two questions apart — *is
-the jq valid* and *can the editor draw it* — so only jq that genuinely fails to
-compile raises the loud **"invalid expression"** alert, and valid jq the editor cannot
-represent is never mislabelled as broken. On opening the dialog, a faithful expression
-is drawn on the canvas; an unfaithful one shows the fallback, and the editable canvas
-is then reached only through **Start empty**.
+[autocomplete from the state's template jq](/babelfish/jq-editor#autocomplete-from-a-states-template-jq).
 
 ## State bindings
 
