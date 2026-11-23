@@ -169,6 +169,28 @@ free of the jq subgraph. `JqField` satisfies it structurally; a test pins that.
 | `sample?` | `unknown` | A static skeleton of `.` for the door's test surface. |
 | `variables?` | `readonly ExpressionInputVariable[]` | The named variables the expression reads as `$name` beside `.`; omitted when  the field declares none. |
 
+**Related:** [ExpressionInputKey](/reference/studio-sdk/schema-forms#expressioninputkey), [ExpressionInputVariable](/reference/studio-sdk/schema-forms#expressioninputvariable)
+
+
+## ExpressionInputVariable
+
+```ts
+interface ExpressionInputVariable
+```
+
+One named jq variable the form hands the door beside `.`, mirroring jq-studio's
+variable descriptor without importing it. The door lists it in the legend, offers
+`$name` as a path root, and seeds the Test panel with its `sample`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `blurb` | `string` | One sentence: what this variable holds. |
+| `keys` | `readonly ExpressionInputKey[]` | The top-level keys of the variable's value; empty when it is a scalar or  the annotation glosses none. |
+| `name` | `string` | The variable name WITHOUT the leading `$` (referenced as `$name`). |
+| `sample?` | `unknown` | A static skeleton of the variable's value for the door's Test panel. |
+
 **Related:** [ExpressionInputKey](/reference/studio-sdk/schema-forms#expressioninputkey)
 
 
@@ -203,6 +225,32 @@ A form field's own words, keyed by the root object's property name in a form's
 | `required?` | `string` | — |
 
 
+## FormChoice
+
+```ts
+interface FormChoice
+```
+
+One choice a field offers: the value an answer carries when it is picked.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `value` | `unknown` | — |
+
+
+## FormChoiceLists
+
+```ts
+type FormChoiceLists = Readonly<Record<string, readonly FormChoice[]>>
+```
+
+The choice lists of a form's fields, keyed by top-level property name.
+
+**Related:** [FormChoice](/reference/studio-sdk/schema-forms#formchoice)
+
+
 ## FormControl
 
 ```ts
@@ -227,6 +275,40 @@ The input KIND a `string` field collects, drawn as the matching keyboard or
 native control. The vocabulary is the HTML `inputmode`/control naming of the
 concept: `numeric`/`decimal` set a text box's keyboard hint; `tel`/`email`/`url`
 select the matching native control. It draws, it does not validate.
+
+
+## FormPageFields
+
+```ts
+interface FormPageFields
+```
+
+One page of a stepped form: the top-level fields it shows.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `fields` | `readonly string[]` | — |
+
+
+## FormValueUpdate
+
+```ts
+interface FormValueUpdate
+```
+
+An update to an open form: fields given a new choice list, and fields given a new
+value (`null` clears the field).
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `options` | `FormChoiceLists` | — |
+| `values` | `Readonly<Record<string, unknown>>` | — |
+
+**Related:** [FormChoiceLists](/reference/studio-sdk/schema-forms#formchoicelists)
 
 
 ## JsonSchema
@@ -282,7 +364,7 @@ runtime classification concern the renderer handles.
 | `unavailableDates?` | `readonly string[]` | — |
 | `visibleWhen?` | `VisibleWhen` | A declarative visibility predicate on a property: the field shows only when the predicate holds against the current form values. Static form description evaluated by the renderer (never a consumer reaction); a hidden field is not rendered and not validated. Absent = always visible. See VisibleWhen. |
 
-**Related:** [Discriminator](/reference/studio-sdk/schema-forms#discriminator), [FormControl](/reference/studio-sdk/schema-forms#formcontrol), [FormInputMode](/reference/studio-sdk/schema-forms#forminputmode), [JsonSchemaType](/reference/studio-sdk/schema-forms#jsonschematype)
+**Related:** [Discriminator](/reference/studio-sdk/schema-forms#discriminator), [FormControl](/reference/studio-sdk/schema-forms#formcontrol), [FormInputMode](/reference/studio-sdk/schema-forms#forminputmode), [JsonSchemaType](/reference/studio-sdk/schema-forms#jsonschematype), [VisibleWhen](/reference/studio-sdk/schema-forms#visiblewhen)
 
 
 ## JsonSchemaType
@@ -305,6 +387,22 @@ schema admits no finite value: a chain of required properties refers back to its
 own definition with no `null` accepted on the way. A caller that seeds on a user
 action catches exactly this type to show the failure on its field; any other error
 is not a seeding outcome and propagates.
+
+
+## ReadbackWords
+
+```ts
+interface ReadbackWords
+```
+
+The words a readback draws for a yes/no value; an unset one reads "Yes" / "No".
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `falseLabel?` | `string \| null` | — |
+| `trueLabel?` | `string \| null` | — |
 
 
 ## RecordEntryContext
@@ -501,6 +599,64 @@ reference must be stable (a module-level function).
 **Related:** [TemplatedTextCatalog](/reference/studio-sdk/utilities#templatedtextcatalog)
 
 
+## ValidateOptions
+
+```ts
+interface ValidateOptions
+```
+
+Options for `validateAgainstSchema`.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `fieldWording?` | `Readonly<Record<string, FieldWords>>` | Per-field words, keyed by the root object's exact property name. A field's `invalid` sentence replaces every shape error on that field and anything inside it (a format, pattern, length, bound, type or item error). A missing required value at the field or anywhere inside it shows the field's `required` sentence when set, else the SDK's own required message; `invalid` never covers it. A `pattern` that cannot compile keeps its own message, since that is a defect of the schema, not of the value. A field with no `invalid` sentence keeps the SDK's word for the failing shape. |
+| `maxUploadBytes?` | `number` | The host's default byte cap for media-upload fields, mirroring the renderer's `maxUploadBytes` prop. A field's own `contentMaxBytes` still overrides it; absent both, the shared default applies. |
+
+**Related:** [FieldWords](/reference/studio-sdk/schema-forms#fieldwords)
+
+
+## VisibleWhen
+
+```ts
+interface VisibleWhen
+```
+
+A field-visibility predicate (`visibleWhen`): the field is visible
+only when the referenced sibling `field` satisfies exactly one operator — `equals` a
+value, `in` a list of values, or `notEmpty` (a non-blank scalar / a non-empty array).
+A malformed predicate (none or several operators) degrades to VISIBLE: the send-time
+server validation rejects a malformed predicate loudly, so one never reaches a well-
+formed render, and showing a field is the safe non-hiding default.
+
+**Properties**
+
+| Property | Type | Description |
+|---|---|---|
+| `equals?` | `unknown` | — |
+| `field` | `string` | — |
+| `in?` | `readonly unknown[]` | — |
+| `notEmpty?` | `boolean` | — |
+
+
+## changedTopLevelKeys
+
+```ts
+function changedTopLevelKeys(previous: unknown, next: unknown): string[]
+```
+
+The top-level keys whose value differs between the previous and next form value; a
+value that is not an object reads as empty.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `previous` | `unknown` | — | — |
+| `next` | `unknown` | — | — |
+
+
 ## dateRangePairs
 
 ```ts
@@ -547,6 +703,22 @@ whole-tool-schema call).
 **Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
 
+## errorPathField
+
+```ts
+function errorPathField(path: string): string
+```
+
+The top-level field an error path belongs to: the segment before its first `.` or `[`,
+so a nested error (`address.street`, `tags[0]`) maps to its field.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `path` | `string` | — | — |
+
+
 ## fieldDrawingOrder
 
 ```ts
@@ -570,6 +742,101 @@ walker that orders the same list draws it the same way.
 |---|---|---|---|
 | `names` | `readonly string[]` | — | — |
 | `properties` | `Readonly<Record<string, JsonSchema>>` | — | — |
+
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## firstPageWithError
+
+```ts
+function firstPageWithError(
+  pages: readonly FormPageFields[],
+  errors: SchemaFormErrors,
+): number
+```
+
+The index of the first page whose fields carry an error, or `-1` when none does.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `pages` | `readonly FormPageFields[]` | — | — |
+| `errors` | `SchemaFormErrors` | — | — |
+
+**Related:** [FormPageFields](/reference/studio-sdk/schema-forms#formpagefields), [SchemaFormErrors](/reference/studio-sdk/schema-forms#schemaformerrors)
+
+
+## formatReadbackValue
+
+```ts
+function formatReadbackValue(value: unknown, words: ReadbackWords | undefined): string
+```
+
+An entered value as readback text: `—` when unfilled or an empty list, a list's
+entries joined by `, `, a yes/no value in the field's own words, anything else as
+`toText` draws it.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `unknown` | — | — |
+| `words` | `ReadbackWords \| undefined` | — | — |
+
+**Related:** [ReadbackWords](/reference/studio-sdk/schema-forms#readbackwords)
+
+
+## isArraySchema
+
+```ts
+function isArraySchema(schema: JsonSchema): boolean
+```
+
+Whether a property node is array-shaped (`type: "array"`, alone or in a union).
+
+**Props**
+
+| Prop | Type | Description |
+|---|---|---|
+| `$defs?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `$ref?` | `string` | — |
+| `additionalProperties?` | `boolean \| JsonSchema` | — |
+| `allOf?` | `readonly JsonSchema[]` | — |
+| `anyOf?` | `readonly JsonSchema[]` | — |
+| `const?` | `unknown` | — |
+| `contentEncoding?` | `string` | Media annotations (see the `SchemaForm` module). `contentEncoding: "base64"` together with `contentMediaType` (or `format: "data-url"`) opts a string field into the upload control; `contentMaxBytes` pins a per-field size cap.  `contentMaxBytes` is a NONSTANDARD JSON-Schema extension keyword — a standard JSON-Schema validator ignores it. The client-side caps it drives (see the `media` module) are UX guards, NOT a security boundary: the SERVER MUST independently validate the decoded size of any uploaded content. |
+| `contentMaxBytes?` | `number` | — |
+| `contentMediaType?` | `string` | — |
+| `control?` | `FormControl` | The CONTROL to draw for this property in place of its shape's default — a platform keyword (see FormControl). `chips` draws a `string`-with-`enum` or an `array` of such strings as a chip grid; `textarea` draws a `string` as a multi-line text control. It DRAWS, it does not validate — the answer door still enforces the property's `type`, `enum`, `maxLength` and the rest. A value outside the set is read as absent (the server ask door is the authority that refuses it). |
+| `default?` | `unknown` | — |
+| `definitions?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `description?` | `string` | — |
+| `discriminator?` | `Discriminator` | — |
+| `enum?` | `readonly unknown[]` | — |
+| `format?` | `string` | — |
+| `inputMode?` | `FormInputMode` | The input KIND a `string` field collects — a platform keyword (see FormInputMode). The renderer draws the matching keyboard or native control: `numeric`/`decimal` a text box with that keyboard hint (the value stays the typed string, so `"007"` keeps its leading zeros), `tel`/`email`/`url` the matching native control, `text` or absent a plain text box. It DRAWS, it does not validate — the answer door still enforces `type`, `pattern` and `format`. When present it OUTRANKS `format` for the control. A value outside the set is read as absent (the server ask door is the authority that refuses it). |
+| `items?` | `JsonSchema` | — |
+| `maxDate?` | `string` | — |
+| `maxDays?` | `number` | — |
+| `maxItems?` | `number` | — |
+| `maxLength?` | `number` | — |
+| `maximum?` | `number` | — |
+| `minDate?` | `string` | Platform date-constraint keys on a `string`/`date` (or `date-time`) property. They are NOT the JSON-Schema numeric keywords (which are inert on a string): `minDate`/ `maxDate` are inclusive `YYYY-MM-DD` bounds, `unavailableDates` is a list of `YYYY-MM-DD` days to exclude. A date RANGE is TWO ordinary date fields: the END field names its start field with `rangeStart` and carries the inclusive span in `minDays`/`maxDays`; nothing is recombined. All optional; absent = an unconstrained date. The native control enforces what it can (min/max) and the validator enforces the rest, mirroring the server. |
+| `minDays?` | `number` | — |
+| `minItems?` | `number` | — |
+| `minLength?` | `number` | — |
+| `minimum?` | `number` | — |
+| `oneOf?` | `readonly JsonSchema[]` | — |
+| `pattern?` | `string` | — |
+| `properties?` | `Readonly<Record<string, JsonSchema>>` | — |
+| `rangeStart?` | `string` | — |
+| `required?` | `readonly string[]` | — |
+| `timeOf?` | `string` | On a `string`/`format: time` property: the name of the range-end `date` property this is the time of. The time draws right after its date (inside the range group when the pair merges), and two ends on the same date are then ordered by their times. Absent = a time field of its own. |
+| `title?` | `string` | — |
+| `type?` | `JsonSchemaType \| readonly JsonSchemaType[]` | — |
+| `unavailableDates?` | `readonly string[]` | — |
+| `visibleWhen?` | `VisibleWhen` | A declarative visibility predicate on a property: the field shows only when the predicate holds against the current form values. Static form description evaluated by the renderer (never a consumer reaction); a hidden field is not rendered and not validated. Absent = always visible. See VisibleWhen. |
 
 **Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
@@ -617,6 +884,46 @@ A schema with no `$ref` is returned unchanged. A pointer cycle throws.
 **Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 
 
+## schemaWithSendOptions
+
+```ts
+function schemaWithSendOptions(schema: JsonSchema, options: FormChoiceLists): JsonSchema
+```
+
+The schema the answer is judged against: for every top-level property with a non-empty
+choice list, its `enum` becomes those choices' values — on the property itself, or on an
+array's `items` — replacing any `enum` the published schema carried. A property the
+schema does not declare is skipped. The given schema is never mutated: a fresh schema is
+built, sharing untouched nodes.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `JsonSchema` | — | — |
+| `options` | `FormChoiceLists` | — | — |
+
+**Related:** [FormChoiceLists](/reference/studio-sdk/schema-forms#formchoicelists), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
+
+
+## slotValueText
+
+```ts
+function slotValueText(
+  value: string | number | boolean | null | undefined,
+): string | undefined
+```
+
+A display slot's current value as text (a computed total is a number); absent or
+`null` (the slot unfilled) → `undefined`.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `value` | `string \| number \| boolean \| null \| undefined` | — | — |
+
+
 ## validateAgainstSchema
 
 ```ts
@@ -643,5 +950,31 @@ place of the SDK's message for a missing required value at or inside that field.
 | `value` | `unknown` | — | — |
 | `options` *(optional)* | `ValidateOptions` | — | — |
 
-**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema), [SchemaFormErrors](/reference/studio-sdk/schema-forms#schemaformerrors)
+**Related:** [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema), [SchemaFormErrors](/reference/studio-sdk/schema-forms#schemaformerrors), [ValidateOptions](/reference/studio-sdk/schema-forms#validateoptions)
+
+
+## withFoldedUpdate
+
+```ts
+function withFoldedUpdate(
+  schema: JsonSchema,
+  value: unknown,
+  update: FormValueUpdate,
+): Record<string, unknown>
+```
+
+The form value an update leaves: each field the update gives a new choice list keeps only
+what that list offers (`withinOfferedChoices`), then the update's own `values` are laid
+over the result, never filtered. A `null` member clears its field: the key is removed, the
+state of an unfilled field, so the required check and the answer read it as unanswered.
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `schema` | `JsonSchema` | — | — |
+| `value` | `unknown` | — | — |
+| `update` | `FormValueUpdate` | — | — |
+
+**Related:** [FormValueUpdate](/reference/studio-sdk/schema-forms#formvalueupdate), [JsonSchema](/reference/studio-sdk/schema-forms#jsonschema)
 

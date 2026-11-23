@@ -23,7 +23,9 @@ WORKSPACE_ROOT = DOCS_ROOT.parent
 STUDIO_SDK_DIR = WORKSPACE_ROOT / "tai-studio" / "packages" / "studio-sdk"
 TSCONFIG = STUDIO_SDK_DIR / "tsconfig.build.json"
 # The three PUBLISHED entry points (package.json `exports`): `.`, `./host`,
-# `./testing`. Paths are relative to STUDIO_SDK_DIR (TypeDoc's cwd).
+# `./testing`. Paths are relative to STUDIO_SDK_DIR (TypeDoc's cwd). The order
+# is the documenting order: a symbol several entry points export is documented
+# under the earliest one listed.
 ENTRY_POINTS = ["src/index.ts", "src/host.ts", "src/testing.ts"]
 
 # Pinned TypeDoc toolchain owned by tai-docs (see studio_sdk_typedoc/package.json).

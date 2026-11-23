@@ -44,6 +44,10 @@ def run_typedoc(entry_points: list[str] | None = None) -> dict:
             "resolve",
             "--entryPoints",
             *entry_points,
+            # Keep the modules in entry-point order: the earlier entry point
+            # documents a symbol several of them export.
+            "--sortEntryPoints",
+            "false",
             "--excludeExternals",
             "--excludePrivate",
             "--excludeInternal",
@@ -121,17 +125,14 @@ def category_for(refl: dict, module_name: str) -> str:
 
 
 def enumerate_exports(project: dict) -> list[tuple[dict, str]]:
-    """Every top-level export across the three entry-point modules, as (reflection, module_name).
+    """Every top-level export across the entry-point modules, as (reflection, module_name).
 
-    A symbol re-exported from more than one module is documented once (first
-    module wins, in module order).
+    A symbol re-exported from more than one module is documented once, under the
+    first module in the project's order, which is ``config.ENTRY_POINTS`` order.
     """
     seen: set[str] = set()
     exports: list[tuple[dict, str]] = []
-    modules = sorted(
-        (m for m in project.get("children", []) if m.get("kind") == config.KIND_MODULE),
-        key=lambda m: m.get("name", ""),
-    )
+    modules = [m for m in project.get("children", []) if m.get("kind") == config.KIND_MODULE]
     for module in modules:
         module_name = module.get("name", "")
         for child in module.get("children", []) or []:
