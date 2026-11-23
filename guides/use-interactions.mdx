@@ -333,7 +333,7 @@ At run time, calling the composed tool:
 
 <Note>
 External questions (and any `channel`-delivered question) require
-`INTERACTIONS_PUBLIC_BASE_URL` — an `https://` origin, since the callback URL is a
+`TAI_PUBLIC_BASE_URL`, the deployment's public address — an `https://` origin, since the callback URL is a
 bearer capability — and Redis. Callback payloads arrive through an
 unauthenticated door, so treat every delivered answer as untrusted input.
 </Note>
@@ -449,7 +449,7 @@ Beyond the manifest, the deployment needs:
 - **A webhook endpoint configured on the external system**, its API version pinned
   explicitly where the provider versions its payloads, plus its signing secret in
   the env var the topic binding names (`secret_env`).
-- **`INTERACTIONS_PUBLIC_BASE_URL`** — an `https://` origin. It is both the
+- **`TAI_PUBLIC_BASE_URL`** — the deployment's public address, an `https://` origin. It is both the
   reachability requirement for the minted callback URL and the ground truth the
   bridge's SSRF pin compares against.
 - **`TAI_BRIDGE_CALLBACK_SECRET`** — one value read by BOTH the door's
@@ -573,7 +573,7 @@ The worker that runs the schedule needs three things the app already has: its ow
 manifest must load the confirmation tools module (a tool the worker never imported
 cannot run by name); its Python environment must carry the confirmation tools and
 the external system's client; and its environment must carry the external system's
-API credential, `TAI_BRIDGE_CALLBACK_SECRET` and `INTERACTIONS_PUBLIC_BASE_URL`
+API credential, `TAI_BRIDGE_CALLBACK_SECRET` and `TAI_PUBLIC_BASE_URL`
 with the callback door dialable FROM the worker.
 
 **Cadence and lookback are a coupled pair — document them together, never one
@@ -680,7 +680,7 @@ retry changes. Exhaustion raises.
 - **`failed`** is everything that is not a verdict on one confirmation — transport
   failures, 5xx exhaustion, and the two refusals that read per-confirmation but are
   really deployment-wide breakage arriving one at a time: a **403** (no PUBLIC route
-  row) and an **SSRF-pin refusal** (`INTERACTIONS_PUBLIC_BASE_URL` disagreeing with
+  row) and an **SSRF-pin refusal** (`TAI_PUBLIC_BASE_URL` disagreeing with
   every callback URL). All of `failed` is collected and raised at the END of the
   run.
 
@@ -693,7 +693,7 @@ for its first 24h in the window and `expired` for at most the last ~2h — a ste
 <Warning>
 **One deployment-wide failure slips into `expired`.** If the callback ROUTE stops
 being served at all — a dropped ingress rule, a proxy pointed at the wrong upstream,
-the door unmounted — the origin still matches `INTERACTIONS_PUBLIC_BASE_URL`, so
+the door unmounted — the origin still matches `TAI_PUBLIC_BASE_URL`, so
 every POST draws a route-level 404, every confirmation lands in `expired`, `failed`
 stays empty, and the run does NOT raise. Nothing in the response distinguishes it
 from an aged-out ticket; what does is the SHAPE of the summary — `expired ==

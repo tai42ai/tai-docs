@@ -590,8 +590,9 @@ answers every callback `500` and records nothing.
 ### The callback URL and its pin
 
 Every callback URL the platform mints has one shape:
-`{INTERACTIONS_PUBLIC_BASE_URL}/api/interactions/callback/{ticket}`. A plugin reads the
-prefix from `tai42_app.interactions.callback_url_prefix()` (`None` when no public base is
+`{TAI_PUBLIC_BASE_URL}/api/interactions/callback/{ticket}`, where `TAI_PUBLIC_BASE_URL` is
+the deployment's public address. A plugin reads the prefix from
+`tai42_app.interactions.callback_url_prefix()` (`None` when no public address is
 configured). Every component that POSTs to a stored callback URL — the platform's own
 inbound answer ladder, the web channel's answer and reaction doors, a tool that answers a
 question it opened — first pins it with `tai42_kit.interactions.pin_callback_url(url,
@@ -599,7 +600,7 @@ prefix=...)`: only the exact minted shape passes (same scheme, host and effectiv
 no userinfo, query or fragment, one ticket segment), and anything else raises
 `CallbackUrlRefusedError` with a reason (`host_mismatch`, `path_mismatch`,
 `malformed_url`) and the target host — never the URL, which carries the ticket. A
-deployment that changes `INTERACTIONS_PUBLIC_BASE_URL` while questions are open refuses
+deployment that changes `TAI_PUBLIC_BASE_URL` while questions are open refuses
 their callbacks loudly.
 
 ## Delivering to a channel
@@ -964,7 +965,7 @@ reaches the surface:
 
 | Key | Fills | Validated |
 | --- | --- | --- |
-| `values` | field values to set | declared fields only |
+| `values` | field values to set; a `null` clears the field (its control shows empty; a required field so cleared is refused at submit) | declared fields only |
 | `options` | choice lists to replace | option-bearing fields (string-enum or array-of-strings) only |
 | `errors` | per-field error messages | declared fields only |
 | `display` | display-slot values | declared [display slots](#display-elements-and-a-review-page) only; a text slot takes a string, a boolean or a finite double-precision number, an image slot takes an image source string, and either takes `null` |
@@ -993,9 +994,12 @@ A reaction may **replace a field's choice list** while the form is open (the slo
 a date just picked, say). Such a field is named in **`reactions.choices`**. Because its
 choices are no longer the ones the form was sent with, the platform's submit check
 validates its **type only**, never membership in the send-time list — membership is the
-consumer's, checked at the `submitted` event. A form declaring any `choices` field
-therefore **must** also set `submitted: true`, or the request is refused loudly: an
-unvetted reaction-fed value always meets a consumer submit check.
+consumer's, checked at the `submitted` event. When a reaction replaces a field's
+choices, a pick the new list no longer offers is dropped on every channel: it arrives
+unfilled at `submitted` unless the reaction sets a value for the field. A form
+declaring any `choices` field therefore **must** also set `submitted: true`, or the
+request is refused loudly: an unvetted reaction-fed value always meets a consumer
+submit check.
 
 ### A unique page title
 
@@ -1115,13 +1119,13 @@ card's `answered` frame included — is delivered on reconnect instead of being 
 in the gap: a card the client was tracking converges to answered rather than
 vanishing.
 
-The resume window is the events stream's own bounded recent-events retention. When
-the id is present but cannot cover the gap — malformed, or already aged out of that
-window — the server falls back to the tail end and **logs** the fallback, so a
-genuinely lost resume is never a silent skip; the client's connect-time refetch of
-the paged pending base reconciles the rest. An **absent** id is a normal fresh
-connect, not a lost resume: the server tails from the end and the same paged base
-seeds the pending state, so this case is intentionally not logged.
+The resume window is the events stream's own bounded recent-events retention. An id
+older than the oldest event the stream still holds cannot cover the gap: the server
+answers **`410 Gone`** with the code `interactions-resume-expired` before the stream
+opens, and the client reconnects without `Last-Event-ID` and re-reads the paged
+pending base. A value that is not an events-stream id answers **`400`** with the code
+`interactions-resume-malformed`. An **absent** id is a normal fresh connect: the server
+tails from the end and the same paged base seeds the pending state.
 
 ## Security in brief
 
@@ -1140,7 +1144,7 @@ seeds the pending state, so this case is intentionally not logged.
   closed.
 
 <Note>
-External questions require `INTERACTIONS_PUBLIC_BASE_URL` (an `https://` origin,
+External questions require `TAI_PUBLIC_BASE_URL` (an `https://` origin,
 since the callback URL is a bearer capability) and Redis 7.0+. Callback payloads
 arrive through an unauthenticated door, so every stream consumer must treat them
 as untrusted.

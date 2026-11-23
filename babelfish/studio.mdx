@@ -1,6 +1,6 @@
 ---
 title: "Flows editor"
-description: "The Babelfish Flows page in the Studio: the flow browser, the node edit panel, the Router card and its dispatch modes, the classifier card, and per-node state bindings."
+description: "The Babelfish Flows page in the Studio: the flow browser, arranging the canvas, the node edit panel, the Router card and its dispatch modes, the classifier card, and per-node state bindings."
 icon: "pen-ruler"
 ---
 
@@ -19,6 +19,117 @@ so a resolved attachment index never re-lays out the list. The whole view — th
 open flow, the current folder, dialogs, and the active filters — is derived from
 the URL, so a flow is bookmarkable and the back button works; opening a link to a
 flow that no longer exists renders a loud not-found card, never a blank editor.
+
+## Arrange the canvas
+
+The Build toolbar carries an **Arrange** action, beside **Undo** and **Redo**, that lays
+out every card of the canvas by one rule, which goes by where a line meets a card, never
+by the kind of card. The cards read top to bottom in execution order along the lines that
+leave a card's bottom and enter the next card's top, so the cards such lines lead to from
+one card sit side by side under it: a decision's branches, and the bodies a Router on
+Loop runs from its kind chips. A card joined by a line to the left or right side of
+another card, such as an iterate's body or an agent's tool, hangs beside that card, and
+an On Error chip sits beside the card it guards. Rows sit a fixed gap apart; where a line
+needs room to get around a card, the gaps it passes grow, up to a set limit. Arrange
+first opens every collapsed group, so each card is placed. The rule reads only the flow,
+so the same flow arranges the same way every time; the view is then fitted to the arranged
+cards. The keyboard shortcut is
+**Shift+Alt+A** (**Shift+Option+A** on macOS); a keystroke typed into a form field stays
+with the field. The button is disabled with its reason as its tooltip while a save runs
+(*Wait for the save to finish*), while a dialog is open (*Close the dialog first*), on an
+empty canvas (*Nothing to arrange*), and while the cards are being placed (*Arranging…*).
+The cards are placed in the background: the canvas stays usable while an Arrange runs,
+and the run starts again on the current canvas when you change a card, a line, or a
+group before it finishes (moving, selecting, or panning does not).
+
+One Arrange is one undo step: **Undo** puts every card back where it was, and **Redo**
+arranges again. A layout change — an Arrange or a card you drag — is unsaved work like
+any other edit: the toolbar shows **Unsaved changes**, **Save** or **Ctrl+S** (**Cmd+S**
+on macOS) writes the layout with the flow, and leaving the editor first asks to save. Undoing back to the
+saved layout reads as saved again.
+
+<Frame caption="The Build toolbar with the Arrange action beside Undo and Redo.">
+  <img className="block dark:hidden" src="/images/studio/arrange-light.png" alt="The flow editor's Build toolbar with the Arrange button between Duplicate and Undo, and the Unsaved changes badge after an Arrange." />
+  <img className="hidden dark:block" src="/images/studio/arrange-dark.png" alt="The flow editor's Build toolbar with the Arrange button between Duplicate and Undo, and the Unsaved changes badge after an Arrange." />
+</Frame>
+
+<Frame caption="An arranged canvas: execution order top to bottom, a decision's branches side by side.">
+  <img className="block dark:hidden" src="/images/studio/arrange-canvas-light.png" alt="A flow arranged on the canvas: Start, a runnable and a conditional in one column, the conditional's two branches side by side below it, each followed by its own runnable." />
+  <img className="hidden dark:block" src="/images/studio/arrange-canvas-dark.png" alt="A flow arranged on the canvas: Start, a runnable and a conditional in one column, the conditional's two branches side by side below it, each followed by its own runnable." />
+</Frame>
+
+### What the status line tells you
+
+When the layout cannot keep everything tidy, a status line above the canvas names the
+cards, each once, in one sentence per case after *Arranged.* A clean layout shows no
+status line. The line stays while the canvas holds the same cards — moving or selecting
+them keeps it — and an edit to a card or the next Arrange clears it. So does anything
+that replaces the canvas: an undo or redo, importing a flow file, or a reload that brings
+another version of the flow, such as a revert in History. A replacement also stops an
+Arrange still running, Arrange thoroughly included: its layout never applies, and no
+status line comes back.
+
+- **The search stopped early.** Arrange searches for a route around each card for a
+  bounded number of tries. When it runs out of tries with lines still crossing cards, the
+  line reads, for example, *Arranged. Arrange stopped searching with 2 lines still through
+  a card: "beta".* and offers an **Arrange thoroughly** button (below).
+- **The line could not be kept off a card.** Any other line Arrange could not keep off a
+  card reads, for example, *2 lines still run through a card: "beta", "gamma". Fold that
+  part into a sub-flow to clear them.* — move the crossed part into a flow of its own and call it from
+  a [Flow Call](/babelfish#calling-another-flow-cancel-resume-start) card: that part
+  becomes one card, and the lines no longer run through its steps. After an Arrange
+  thoroughly, the lines it still could not clear are named this way too.
+- **A side line loops back.** A line between two cards of one side group — a card and
+  what hangs at its side — is laid out with that group and can loop back over one of its
+  cards: *1 line loops back through a card: "beta".*
+- **A line crosses its own card.** A line that runs over the card it starts or ends on
+  reads *1 line runs through its own card: "beta".* Folding into a sub-flow does not clear
+  it.
+- **A cycle.** Cards a cycle keeps out of execution order are laid out as their own block
+  under the drawing: *3 cards could not be put in execution order because of a cycle and
+  were placed below: "alpha", "beta", "gamma".* — drag those cards where you want them and
+  save.
+
+If the layout itself fails, the error line above the canvas reads *Arrange failed:*
+followed by the reason, and the cards stay where they were. If the arranged cards cannot
+be fitted into view, the error line reads *Could not fit the flow to view:* followed by
+the reason.
+
+### Arrange thoroughly
+
+**Arrange thoroughly** runs the same Arrange with a much larger search, so it can clear
+lines the first search stopped on; it takes longer. While it runs, the status line keeps
+its text and shows a spinner, *Arranging thoroughly…*, and a **Cancel** button, which
+takes the keyboard focus. When it finishes, its layout applies like any Arrange — one undo
+step, with a new status line for whatever it could not clear, or none. **Cancel** stops
+the run and leaves the canvas exactly as it was before you clicked: the cards keep their
+places, the groups that were collapsed when you clicked collapse again, and the status
+line comes back with its **Arrange thoroughly** button, which takes the focus back.
+
+<Frame caption="An Arrange whose search stopped early offers Arrange thoroughly.">
+  <img className="block dark:hidden" src="/images/studio/arrange-notice-thorough-light.png" alt="The status line above the canvas: Arranged. Arrange stopped searching with lines still through a card, naming the card, followed by an Arrange thoroughly button." />
+  <img className="hidden dark:block" src="/images/studio/arrange-notice-thorough-dark.png" alt="The status line above the canvas: Arranged. Arrange stopped searching with lines still through a card, naming the card, followed by an Arrange thoroughly button." />
+</Frame>
+
+<Frame caption="An Arrange thoroughly in progress, with its Cancel button.">
+  <img className="block dark:hidden" src="/images/studio/arrange-notice-thorough-running-light.png" alt="The same status line while the thorough run is in progress: a spinner, the text Arranging thoroughly…, and a Cancel button." />
+  <img className="hidden dark:block" src="/images/studio/arrange-notice-thorough-running-dark.png" alt="The same status line while the thorough run is in progress: a spinner, the text Arranging thoroughly…, and a Cancel button." />
+</Frame>
+
+### Opening a flow
+
+A flow opened with no stored layout, in the editor or in a read-only view such as a
+version in History, is placed by the same rule when it opens; opening a flow never marks
+it changed. A flow whose stored layout misses some cards keeps the cards it has, and
+places the missing ones as their own block under the drawing; each of them wears a **Placed automatically** warning icon whose tooltip reads
+*'`<name>`' had no saved position, so the editor placed it. Drag it where you want and
+save to keep it.* The status line then has up to three sentences, with no *Arranged.*
+before them: *Placed with 1 line through a card:* names the cards of every line the
+placement could not keep off another card, *Placed with 1 line through its own card:*
+names the cards of the lines over their own card, and the cycle sentence above names the
+cards a cycle kept out of execution order. It offers no **Arrange thoroughly**. If that
+placement fails, the cards stay where they are and the error line above the canvas reads
+*Could not place the cards:* followed by the reason.
 
 ## The node edit panel
 
@@ -582,6 +693,15 @@ removes an outcome value that wired callers route on, the make-a-node dialog sho
 **informational** warning naming the removed values and how many flows use the node
 (their routes would go dead) — it never blocks the save. This inform-don't-block
 convention is the editor's house style for changes whose impact lands on callers.
+
+On the canvas, a custom node's card shows one **outcome chip** for each outcome the node
+declares and one for each outcome a line is wired from. Drag from a declared chip to the
+node that should run when the custom node returns that outcome. A wired outcome the node
+does **not** declare shows as a hollow ring with its label struck through, and its tooltip
+reads "This custom node does not declare this outcome, so the route never runs. Delete the
+line to drop the route." When the Studio does not know which outcomes the node declares
+(its preset is not registered here, for instance), a wired chip simply shows as wired.
+Neither of these two chips starts a new line.
 
 The one thing the make-a-node dialog **does** block on is a genuinely *invalid*
 input-schema edit. The make-a-node dialog's input-schema editor nulls its buffer while
