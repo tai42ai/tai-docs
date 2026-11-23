@@ -316,6 +316,24 @@ pages: [channel-whatsapp](/plugins/tai42/channel-whatsapp) and
 no span — a rootless span would attach to no run.
 </Note>
 
+## What the platform records of its own time
+
+Inside a run's trace, the platform records the time it spends on its own work around
+the steps. Every checkpoint read, write and delete — loading a thread's latest
+checkpoint, saving one, storing pending writes, listing, copying, pruning or deleting a
+thread — records a `checkpoint:<operation>` span (`checkpoint:get_tuple`,
+`checkpoint:put`, `checkpoint:put_writes`, `checkpoint:list`, `checkpoint:delete_thread`,
+…) under the span that made the call. The span carries the store in
+`checkpoint.provider` and, when the call names one thread, that thread in
+`checkpoint.thread_id`; it records no input and no output, so no checkpoint value
+reaches the trace. A failed call marks it `ERROR` with
+the error text, and the error still reaches the caller. A checkpoint read or write
+outside a live trace records nothing.
+
+These records carry `tai42.step_role: internal`: they are the platform's own work, never
+steps, so `list_spans_in_window` leaves them out. A record's self time — its duration
+less its children's — is the time no other record accounts for.
+
 ## Trace a standalone tool call
 
 A tool call made outside any run has no trace of its own. Load the `monitor` extension and stack it onto a tool to record the call as one live span. Load the module, then attach `monitor` to a tool.
@@ -544,8 +562,8 @@ serves and maps its own vocabulary onto the neutral one:
 - Each `MonitoringTraceSummary` carries the trace's own `input` and `output`; the
   platform bounds them for the run list.
 - `list_spans_in_window` selects steps by the producers' marker, never by span
-  names: a record whose metadata `tai42.step_role` is `grouping` or `sub_step` is
-  never an item, and neither is a model call nor an event.
+  names: a record whose metadata `tai42.step_role` is `grouping`, `sub_step` or
+  `internal` is never an item, and neither is a model call nor an event.
 
 The backend's attribute vocabulary lives in the collector config, never in the
 process. Registration refuses a backend whose writer or reader lacks a member of its
