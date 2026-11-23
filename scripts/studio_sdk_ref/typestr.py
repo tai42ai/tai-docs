@@ -284,7 +284,8 @@ def type_str(t: dict | None) -> str:
 def collect_refs(t: dict | None, out: set[str]) -> None:
     """Collect the names of every ``reference`` type reachable from ``t``.
 
-    Used to render a "Related types" line linking to locally documented symbols.
+    Used to render a "Related types" line linking to locally documented symbols,
+    whichever package declares them.
     """
     if isinstance(t, dict):
         # A collapsed external alias (e.g. ApiClient) links by its recovered name;
@@ -294,13 +295,9 @@ def collect_refs(t: dict | None, out: set[str]) -> None:
             if alias is not None:
                 out.add(alias)
                 return
-        # Only same-package references (not type parameters) resolve to a local page.
-        if (
-            t.get("type") == "reference"
-            and isinstance(t.get("name"), str)
-            and t.get("package") == "@tai42/studio-sdk"
-            and not t.get("refersToTypeParameter")
-        ):
+        # Every named reference except a type parameter; the caller links only the
+        # names this reference documents.
+        if t.get("type") == "reference" and isinstance(t.get("name"), str) and not t.get("refersToTypeParameter"):
             out.add(t["name"])
         for value in t.values():
             collect_refs(value, out)
