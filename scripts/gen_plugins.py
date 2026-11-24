@@ -32,7 +32,7 @@ through the fixed label table below.
 
 Run against a live marketplace::
 
-    MARKETPLACE_URL=https://marketplace.tai42.ai python3 scripts/gen_plugins.py
+    MARKETPLACE_URL=https://marketplace.mgmt.tai42.ai python3 scripts/gen_plugins.py
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ HAND_AUTHORED_PAGES: frozenset[str] = frozenset({"authoring-descriptor-plugins.m
 sys.path.insert(0, str(SCRIPT_DIR))
 from kit_docs import DocsValidationError, validate_docs_payload  # noqa: E402
 
-DEFAULT_MARKETPLACE_URL = "https://marketplace.tai42.ai"
+DEFAULT_MARKETPLACE_URL = "https://marketplace.mgmt.tai42.ai"
 
 # First provides-item kind -> nav group label. FIXED: an unmapped kind is a loud
 # failure naming it (a new kind gets its row added when the kind is introduced).
