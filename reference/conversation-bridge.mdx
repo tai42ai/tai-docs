@@ -213,6 +213,14 @@ this way), and `reply_expr` maps only a returned result, so a failure never reac
 mapping and goes straight to the [failure reply](#failure-replies): the target's own reply
 when the failure carries one, else the route's error reply.
 
+The route's error reply is owed only to a turn the participant sent (a message, media, or
+form turn). A turn the participant did not send — an [event turn](#the-event-door) — that
+fails without a reply of its own from the target delivers **nothing**. On a `channel` route
+its record ends in the terminal `silent` state with `answer_status: "error"`, and nothing is
+sent to the client. On an `api` route its callback (or sync-wait reply) carries
+`status: "error"` with no `answer`. Either way the failure stays loud: the record keeps its
+internal detail in `error` for the admin read door, and the failure is logged at ERROR.
+
 ### Example: a Babelfish flow preset as a tool target
 
 The [Babelfish Flows](/babelfish) plugin is one consumer of this door. It publishes a flow
@@ -635,6 +643,19 @@ recorded only when the route has no callback (retrievable through
 `GET /api/conversations/{route_name}/messages/{message_id}`). There is **no** per-request
 callback field: a caller-named sink would make the platform emit a validly signed POST to
 an arbitrary host.
+
+**When an event turn fails.** An event is not the participant's own message, so a failed
+event turn sends the participant no error line. When the target's failure carries a reply
+of its own, that reply is delivered as any answer is. Without one, nothing is delivered: a
+**channel** route's record ends `silent` with `answer_status: "error"`, and an **api**
+route's callback (or inline answer) is `{message_id, thread_id, status}` with `status`
+`"error"` and no `answer`. The record keeps the failure's internal detail in `error` for the
+admin read door, and the failure is logged at ERROR. A parked run of an event turn that
+fails when it resumes follows the same rule: with no reply from the target it delivers
+nothing, its completion record carries `answer_status: "error"` and the detail in the same
+shape, and the failure is logged at ERROR. When a reply to an event turn
+is ready but the channel refuses to send it, the participant is sent no could-not-deliver
+notice either: the record ends `failed` and the refusal is logged at ERROR.
 
 <Note>
 **In-process face.** A run delivers an event to this door with the builtin
@@ -1164,11 +1185,14 @@ must be attributable, so access control must be enabled and the caller bound.
 An answer record moves through `accepted` → `pending_delivery` → `provisional` →
 `delivered`, or ends `failed` (undelivered past the attempt budget, or reported
 failed by the provider), `shed` (refused by the address rate cap; no turn ran), or
-`silent` (nothing sent back for the inbound: a **channel** `tool` turn whose mapped
-reply was `null`/blank, or an ordinary inbound on a `manual`-mode thread whose suppressed
-target turn produced no reply). An **api** turn that resolves silent does **not** end
-`silent`: it rides the delivery pipeline like any answer and ends `delivered`, its
-callback carrying `status: "silent"`. A message handed to another turn under an
+`silent` (nothing sent back for the inbound). A **channel** record is `silent` in two ways:
+by design — a `tool` turn whose mapped reply was `null`/blank, or an ordinary inbound on a
+`manual`-mode thread whose suppressed target turn produced no reply, both with no
+`answer_status` — or by failure — an [event turn](#the-event-door) that failed with no reply
+from the target, with `answer_status: "error"` and its detail in `error`. An **api** turn
+that resolves silent does **not** end `silent`: it rides the delivery pipeline like any
+answer and ends `delivered`, its callback carrying `status: "silent"` (or
+`status: "error"` with no `answer` for a failed event turn). A message handed to another turn under an
 [overlap policy](#overlapping-messages) ends `merged` (its text carried into the named turn) or
 `superseded` (dropped in favour of one) — both answerless terminal outcomes naming that turn in
 `successor_id`, and on the **api** door delivered as a marker exactly as `silent` is. Only the
@@ -1211,9 +1235,10 @@ record view under `pending_receipt`.
 
 When a reachable channel terminally refuses a turn's reply — an answer over the
 channel's cap, an unrenderable part, a permanent input refusal, or a non-retryable
-send rejection — the record stays `failed` and the participant is sent the platform's
-fixed could-not-deliver notice (the route's `reply_texts.error` when set, else
-the built-in default); a transport exhaustion — retryable failures that spend
+send rejection — the record stays `failed`. On a turn the participant sent, the participant
+is sent the platform's fixed could-not-deliver notice (the route's `reply_texts.error` when
+set, else the built-in default); a reply to an [event turn](#the-event-door) is followed by
+no notice, the failed record and the ERROR log being the signal. A transport exhaustion — retryable failures that spend
 every attempt — stays `failed` with no such notice, the failed-delivery listing being
 the only signal.
 
@@ -1234,13 +1259,19 @@ and the platform sends that reply exactly as the target wrote it.
 
 - **Turn error** — when a turn fails, the participant reads the first of:
   1. the **target's reply**, when its failure carries one;
-  2. the route's own `reply_texts.error` (set with `--reply-error`);
-  3. the built-in default `"Sorry, something went wrong handling your message. Please
-     try again."`
+  2. for a turn the participant sent, the route's own `reply_texts.error` (set with
+     `--reply-error`);
+  3. for a turn the participant sent, the built-in default `"Sorry, something went wrong
+     handling your message. Please try again."`
 
-  On a live turn the internal detail is kept in the record's `error` field, for the
-  admin read door only. A failure delivered when a parked run resumes keeps no `error`
-  detail on its record.
+  Otherwise — a failed [event turn](#the-event-door) with no reply from the target — the
+  participant reads nothing.
+
+  The record of a failed turn carries `answer_status: "error"` and keeps the internal
+  detail in its `error` field, on a live turn and on a parked run that fails when it
+  resumes alike. A resume that ends in a blank or `null` agent result, or whose reply
+  mapping fails, is such a failure too. The admin read door shows the detail; the caller's
+  read withholds it. A failure that sends the participant no line is logged at ERROR.
 - **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
   Please wait a moment and try again."` — or the route's `reply_texts.slow_down` when set —
   sent once per cooldown window; further
@@ -1256,7 +1287,7 @@ is refused where the target raises or returns it, and a reply that reaches a com
 delivery malformed is refused loudly there, with no record written.
 
 The target's reply covers only the target's own failure. Every failure the platform owns
-keeps the fixed text above: an infrastructure error or any other exception raised in place
+takes the fixed text above, never a target's reply, and on an event turn sends nothing: an infrastructure error or any other exception raised in place
 of a reported failure (a timeout among them), a door contract or `reply_expr` fault, a
 denied run, a stranded turn, a channel refusal notice, and a give-up (an abandoned resume, or a preset's output map refusing a resumed answer) with no handler result.
 A transport exhaustion sends no notice at all.
@@ -1276,7 +1307,7 @@ member (each 1 to 2,000 characters) is refused at the route write.
 
 | Member | Sent when | Built-in text | CLI flag |
 |---|---|---|---|
-| `error` | a turn fails and the target gave no reply | `Sorry, something went wrong handling your message. Please try again.` | `--reply-error` |
+| `error` | a turn the participant sent fails and the target gave no reply, or the channel refuses that turn's reply | `Sorry, something went wrong handling your message. Please try again.` | `--reply-error` |
 | `slow_down` | an address is over the turn rate | `You are sending messages faster than I can answer. Please wait a moment and try again.` | `--reply-slow-down` |
 | `pairing_code` | the `/link` reply carrying a fresh code | `Your pairing code is <code>. Send it from your other conversation to link the two. It expires at <time>.` | `--reply-pairing-code` |
 | `pairing_code_invalid` | a pairing code is refused | `That pairing code is not valid. It may have expired or already been used.` | `--reply-pairing-code-invalid` |
@@ -1408,7 +1439,8 @@ a deep-agent sub-agent calls. The rules:
   privilege.
 
 A denied run does not crash the turn: it becomes a client-safe `error` outcome, its
-detail retained for the admin read door.
+detail retained for the admin read door. On a turn the participant sent, the participant
+reads the route's error reply; on an event turn, the participant reads nothing.
 
 **Signed-callback posture.** An `api` route's `callback_url` is optional; when set it
 must be absolute **HTTPS** — an `http://` or relative URL is rejected at create, with
@@ -1416,7 +1448,8 @@ must be absolute **HTTPS** — an `http://` or relative URL is rejected at creat
 door (`GET /api/conversations/{route_name}/messages/{message_id}`) instead. Every callback
 is signed: `X-Tai-Signature: sha256=<HMAC-SHA256(callback_secret,
 raw_body)>`, over a body of `{message_id, thread_id, status, answer}` — with `answer`
-absent on a `silent`, `merged`, or `superseded` outcome, and a `successor_id` present on
+absent on a `silent`, `merged`, or `superseded` outcome and on an `error` outcome owed no
+line (a failed event turn with no reply from the target), and a `successor_id` present on
 `merged`/`superseded` naming the turn that took the message's place. See [connect your own
 system](/guides/connect-your-own-system#verify-the-x-tai-signature).
 
