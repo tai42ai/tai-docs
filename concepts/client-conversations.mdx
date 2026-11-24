@@ -35,7 +35,10 @@ through the [event door](/reference/conversation-bridge#the-event-door): the eve
 enters that thread as a turn, ordered behind any in-flight message on the **same
 per-thread FIFO** an inbound message takes, and its answer is delivered by the target
 route's own door. An event carries no human text — it runs a `tool` target only — and
-never mints a thread; it always joins one that already exists.
+never mints a thread; it always joins one that already exists. An event is not the
+participant's own message, so a failed event turn sends the participant no error line: the
+target's own reply is delivered when its failure carries one, and otherwise nothing is
+delivered while the record keeps the failure.
 
 ## The routing table
 
@@ -114,6 +117,14 @@ published [preset](/concepts/presets), say, that replies only when it has
 something to return. See the [bridge
 reference](/reference/conversation-bridge#route-targets-agent-or-tool) for the exprs
 in full.
+
+A deliberate silence is not a failure. A failed event turn with no reply from the target
+also sends nothing, but its record carries the `error` outcome and the failure's detail: a
+**channel** record ends `silent` with `answer_status: "error"`, and an **api** callback
+carries `status: "error"` with no answer. Every failed turn, a line sent or not, also emits
+the [`conversations_turn_failed`](/reference/conversation-bridge#the-failed-turn-platform-event)
+platform event, which a deployment may [hook](/concepts/hooks) if it wants; nothing requires
+one.
 
 A `tool` target may also carry a
 [`state_binding`](/concepts/states#a-bindings-subject-and-scope), so the route injects a bound
@@ -235,9 +246,11 @@ without the matching capability never receives the field. Each part is also held
 the same channel checks a notification gets — a `template` part to the channel's own
 template-parameter check, a `schema` part to the channel-renderable subset and then the
 channel's own form limits — once per part, before any part of the reply is sent. A part
-that fails fails the whole reply: nothing of it is sent, the end user is told the route's
-`reply_texts.error` (else the built-in notice), the refusal is logged naming the property,
-parameter or limit, and the record shows `failed` in the admin failed-delivery listing.
+that fails fails the whole reply: nothing of it is sent, the end user of a turn they sent
+is told the route's `reply_texts.error` (else the built-in notice) — a reply to an
+[event turn](/reference/conversation-bridge#the-event-door) is followed by no notice — the
+refusal is logged naming the property, parameter or limit, and the record shows `failed` in
+the admin failed-delivery listing.
 
 `options` are the same **typed** shapes a notification uses — a `reply` (its `text`
 becomes the person's next message; an author-set `id` echoes back on the next turn's
@@ -324,13 +337,14 @@ delivery lifecycle:
   provider, or a delivery row the sweep can never parse (loud, retained, and listed on the
   admin failed-delivery door).
 - `shed` — refused by the address rate cap; no turn ran.
-- `silent` — nothing is sent back for the inbound. It arises two ways: a **channel**
-  `tool` turn whose mapped reply was `null` or blank, or a `manual`-mode inbound whose
-  suppressed target turn produced no reply (see [control
+- `silent` — nothing is sent back for the inbound. By design it arises two ways: a
+  **channel** `tool` turn whose mapped reply was `null` or blank, or a `manual`-mode inbound
+  whose suppressed target turn produced no reply (see [control
   mode](#control-mode-and-operator-messages)) — a due pairing reply or first-contact
   greeting is sent instead, so those are *not* silent. On an **api** route the silence is
   communicated instead — the record ends `delivered`, its callback carrying
-  `status: "silent"` and no answer.
+  `status: "silent"` and no answer. A **channel** record also ends `silent` when an event
+  turn fails with no reply from the target; its turn outcome is then `error`, not `silent`.
 - `merged` — this message's text was carried into the turn named by its `successor_id` under an
   [overlap policy](#when-messages-overlap) (`deliver: all`).
 - `superseded` — this message was dropped in favour of the turn named by its `successor_id` (a
@@ -344,8 +358,12 @@ callback carries the `status` and `successor_id` with no answer text.
 
 A turn's own outcome is orthogonal: `answered`, `error`, `silent`, `merged`, or `superseded`
 — an `error` answer carries the failing target's own reply when its failure carries one,
-else the route's `reply_texts.error`, else the built-in line, and the platform never puts an
-internal detail into it ([failure replies](/reference/conversation-bridge#failure-replies)); `silent`,
+else, on a turn the participant sent, the route's `reply_texts.error`, else the built-in
+line, and the platform never puts an internal detail into it
+([failure replies](/reference/conversation-bridge#failure-replies)). A failed event turn
+with no reply from the target is an `error` outcome with no answer text: on a **channel**
+route its delivery state is `silent`, on an **api** route its marker is delivered with
+`status: "error"` and no answer. `silent`,
 `merged`, and `superseded` carry no answer text at all, and `merged`/`superseded` name their
 `successor_id`. Delivery is retried
 with backoff; a permanently undelivered answer ends `failed` rather than

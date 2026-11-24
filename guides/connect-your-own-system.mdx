@@ -128,7 +128,7 @@ answer payload; correlate it by `message_id`:
 ```
 
 On a turn that errored, the shape is identical but `status` is `error` and `answer`
-is **client-safe text** — never an internal detail the platform holds. By default it is
+is, when present, **client-safe text** — never an internal detail the platform holds. By default it is
 the generic line:
 
 ```json
@@ -137,7 +137,20 @@ the generic line:
 ```
 
 The `answer` is the first of: the failing target's own reply, when its failure carries
-one; the route's `reply_texts.error`; the built-in line above. A tool target supplies its
+one; the route's `reply_texts.error`; the built-in line above. The last two answer only a
+turn the person sent. A failed [event turn](/reference/conversation-bridge#the-event-door)
+whose target gave no reply carries `status: "error"` and **no** `answer` key at all:
+
+```json
+{ "message_id": "4f1c…", "thread_id": "bridge:account:user-42", "status": "error" }
+```
+
+Every failed turn also emits the
+[`conversations_turn_failed`](/reference/conversation-bridge#the-failed-turn-platform-event)
+platform event, which a deployment may [hook](/concepts/hooks) to alert someone; nothing
+requires one.
+
+A tool target supplies its
 reply on the failure it raises, and the internal outcome stays out of the answer:
 
 ```python
@@ -165,7 +178,8 @@ all:
 { "message_id": "4f1c…", "thread_id": "bridge:account:user-42", "status": "silent" }
 ```
 
-Every turn therefore resolves to one of `answered`, `error`, or `silent`, so your
+Every turn therefore resolves to one of `answered`, `error` (with or without an `answer`),
+or `silent`, so your
 receiver always gets a terminal callback (or inline reply) and never waits on a turn
 that quietly went nowhere.
 
