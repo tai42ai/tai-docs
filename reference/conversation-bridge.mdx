@@ -219,7 +219,10 @@ fails without a reply of its own from the target delivers **nothing**. On a `cha
 its record ends in the terminal `silent` state with `answer_status: "error"`, and nothing is
 sent to the client. On an `api` route its callback (or sync-wait reply) carries
 `status: "error"` with no `answer`. Either way the failure stays loud: the record keeps its
-internal detail in `error` for the admin read door, and the failure is logged at ERROR.
+internal detail in `error` for the admin read door, and the failure is logged at ERROR. A
+deployment that wants more may hook the
+[`conversations_turn_failed`](#the-failed-turn-platform-event) event, which every failed turn
+emits; nothing requires one.
 
 ### Example: a Babelfish flow preset as a tool target
 
@@ -524,6 +527,21 @@ provider does not redeliver in a loop; the event makes an otherwise-silent drop 
   bound conversation route. It is distinct from a rejection: an unrouted reply and a
   recognised-but-unbridgeable content are different faults.
 
+### The failed-turn platform event
+
+- **`conversations_turn_failed`** — emitted once for every turn whose record is stored with the
+  `error` outcome, a message turn and an [event turn](#the-event-door) alike, whether or not
+  the participant is sent a line: a live turn, a turn stranded mid-run that the platform
+  fails, and a parked run that fails when it resumes. It rides beside the record's `error`
+  outcome and the ERROR log, never replacing them, and is emitted only once the record is
+  written: a live turn or a stranded turn that lost a race to another writer emits nothing,
+  while two deliveries of one parked run's completion racing each other can each emit it,
+  as each can write the record. Its payload is
+  `message_id`, `thread_id`, `route_name`, `door`, `channel`, `client_address`,
+  `inbound_kind` (`message` or `event`) and `error` (the failure's internal detail, as the
+  record keeps it) — never the inbound content. A deployment may wire a hook to it to route
+  the failure wherever it wants; nothing requires one.
+
 ### The working-on-it signal
 
 While a run owes a user a reply, the platform shows that user the channel's own
@@ -655,7 +673,10 @@ fails when it resumes follows the same rule: with no reply from the target it de
 nothing, its completion record carries `answer_status: "error"` and the detail in the same
 shape, and the failure is logged at ERROR. When a reply to an event turn
 is ready but the channel refuses to send it, the participant is sent no could-not-deliver
-notice either: the record ends `failed` and the refusal is logged at ERROR.
+notice either: the record ends `failed` and the refusal is logged at ERROR. Every failed
+event turn, live or resumed, also emits the
+[`conversations_turn_failed`](#the-failed-turn-platform-event) event, which a deployment may
+hook; nothing requires one.
 
 <Note>
 **In-process face.** A run delivers an event to this door with the builtin
@@ -1271,7 +1292,10 @@ and the platform sends that reply exactly as the target wrote it.
   detail in its `error` field, on a live turn and on a parked run that fails when it
   resumes alike. A resume that ends in a blank or `null` agent result, or whose reply
   mapping fails, is such a failure too. The admin read door shows the detail; the caller's
-  read withholds it. A failure that sends the participant no line is logged at ERROR.
+  read withholds it. A failure that sends the participant no line is logged at ERROR. Every
+  failed turn, a line sent or not, also emits the
+  [`conversations_turn_failed`](#the-failed-turn-platform-event) event, which a deployment may
+  hook; nothing requires one.
 - **Rate-cap slow-down** — `"You are sending messages faster than I can answer.
   Please wait a moment and try again."` — or the route's `reply_texts.slow_down` when set —
   sent once per cooldown window; further
