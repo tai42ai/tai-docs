@@ -266,8 +266,19 @@ Acceptance is not delivery. On channels with a delivery-status webhook (WhatsApp
 Twilio), the provider's later status closes the loop: the status is resolved back
 to the originating send and posted as a `delivery_receipt` event on that run's
 trace, nested under its send span — a failed delivery as an `ERROR` event
-carrying the provider's error detail. The receipt is **observability only**: it
-annotates the trace, never re-sends, and never fails the run.
+carrying the provider's error detail. A receipt never re-sends a message. It also
+orders the sends to one participant: on these channels the next send to a participant
+waits for the previous message's receipt (see [the delivery
+lifecycle](/reference/conversation-bridge#the-delivery-lifecycle)), so a `failed` receipt
+that arrives during that wait stops what was waiting on it: an answer's later parts are
+not sent and its record ends `failed`, and a notification sent as several messages raises
+a non-retryable `ChannelDeliveryError` carrying the provider's detail. When no receipt
+arrives within `CONVERSATIONS_DELIVERY_RECEIPT_WAIT_SECONDS`, the next send goes out and
+one WARNING names the messages that were never confirmed:
+`conversations: outbound ['<message id>'] on '<channel>' to '<address>' reported no
+delivery receipt within <wait>s; sending the next message without it`. Between the
+messages of one notification the line names no address (it ends `on '<channel>' reported
+no delivery receipt …`).
 
 A send on a channel with a bridge route is also a [send
 record](/reference/conversation-bridge#send-records) in its conversation thread. When
