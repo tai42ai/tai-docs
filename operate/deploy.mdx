@@ -75,7 +75,7 @@ Every worker and the serve process also enable Python's fault handler. A worker 
 
 ### CPU-bound jobs and the compute pool
 
-Every server process — each `tai serve` worker and each `tai backend` worker process — runs its CPU-bound jobs in a compute pool of [`COMPUTE_WORKERS`](/concepts/config-and-secrets#timeouts-and-limits) worker processes (default `2`), its own unless noted below; jq compile and evaluation are such jobs. A long job runs in a pool process, so the server process keeps serving requests and answers the health ping above in time, and `/health` keeps answering. The pool starts with the first job a process runs and stops with the process.
+Every server process — each `tai serve` worker and each `tai backend` worker process — runs its CPU-bound jobs in a compute pool of [`COMPUTE_WORKERS`](/concepts/config-and-secrets#timeouts-and-limits) worker processes (default `2`), its own unless noted below; jq compile and evaluation are such jobs. A long job runs in a pool process, so the server process keeps serving requests and answers the health ping above in time, and `/health` keeps answering. The pool starts with the first job a process runs and stops with the process. Each worker process runs at most [`COMPUTE_WORKER_MAX_TASKS`](/concepts/config-and-secrets#timeouts-and-limits) jobs (default `10000`); then, between jobs, the pool replaces it with a fresh one, so the memory a long-lived worker accumulates is returned and a job in flight is never interrupted.
 
 Two kinds of backend worker process keep no pool of their own. A process a backend worker forks to run its jobs (a prefork pool child, a forked work-horse) runs its compute jobs in the pool of the worker that forked it. A backend worker on a green-thread pool (`gevent`, `eventlet`) starts one helper process, its pool host, with its first compute job; the host keeps the pool, so that worker's first job takes up to a second longer and each later job pays under a millisecond for the hop. The host stops with its worker; if it ends earlier, the jobs it was running fail to their callers, the next job starts a fresh host and the worker logs the `WARNING` `compute pool host replaced after it ended`.
 
@@ -86,6 +86,22 @@ While jobs run, one server process may use up to `1 + COMPUTE_WORKERS` CPU cores
 A job that runs past its budget fails to its caller (`TimeoutError` from the pool; a jq job past [`JQ_TIMEOUT_SECONDS`](/concepts/config-and-secrets#timeouts-and-limits) fails as the author's `JqBudgetExceededError`): the pool killed that worker process and starts a fresh one, and the server process itself is unaffected. The budget is kept by the process that runs the pool (the server process, or a pool host): when that process is killed outright (`SIGKILL`), a worker process that is running a job finishes that job before it ends.
 
 If a pool's worker processes die while idle (for example, killed by the out-of-memory killer), the next job starts a fresh pool and the process logs the `WARNING` `compute pool replaced after its workers died`.
+
+### Memory after a burst
+
+The [distribution image](/self-hosted) runs its processes on the jemalloc allocator with background purging, and routes the interpreter's own object allocations through it too. So the memory a burst of work freed goes back to the system within a few decay windows (about 10 s each) once the server is idle, instead of staying resident until the process restarts. A process a backend worker forks to run its jobs (a prefork pool child, a forked work-horse) keeps jemalloc but has no purge thread, so it returns that memory on its next job, not while idle. Size a host for the peaks during a burst, not for what stays after it.
+
+On a bare install (no image), install the `libjemalloc2` package and set three variables in the environment that starts every `tai` process (`tai serve`, `tai backend`, `tai metrics`):
+
+```bash
+LD_PRELOAD=libjemalloc.so.2
+MALLOC_CONF=background_thread:true
+PYTHONMALLOC=malloc
+```
+
+The third is needed because CPython otherwise serves small objects from arenas it maps itself and returns only when they are wholly empty.
+
+A derived image inherits the three variables. One that sets its own `LD_PRELOAD`, `MALLOC_CONF` or `PYTHONMALLOC` must keep the image's values in them (keep `libjemalloc.so.2` in `LD_PRELOAD`).
 
 ## Run under a supervisor
 

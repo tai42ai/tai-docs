@@ -23,9 +23,19 @@ than a silent null.
 
 <Note>
 The process environment is sealed out of every expression: the `env` builtin is
-disabled and `$ENV` is an empty object. The binding-mechanism names `__in`, `ENV`,
-and `__loc__` are reserved: they cannot be bound as variables, and a program that
-reads `$__in` is refused at compile. A value a program must
+disabled and `$ENV` is an empty object. A program may end itself: `halt` ends its
+output with no further value, and `halt_error` fails the evaluation with its input
+as the error text (a string as written, anything else as JSON); the exit code of
+`halt_error` has no meaning here and is not reported. Unlike in a jq process,
+whatever catches an error catches either one: a `try`, the `?` operator, and a
+destructuring alternative `?//`, which runs its body again with its next pattern. A
+`try halt catch .` hands the catch jq's internal break object (`{"__jq": <n>}`), so
+none of these should enclose a `halt` or a `halt_error`. The
+binding-mechanism names `__in`, `ENV`, and `__loc__` are reserved: they cannot be
+bound as variables, and a program that reads `$__in` is refused at compile. `halt`
+is a `break` to a label `__halt` around the whole program, so `break $__halt` ends the
+program as `halt` does, and a program's own `label $__halt` hides it inside that
+label's body. A value a program must
 trust comes from its declared input or variables, never the host environment.
 </Note>
 
