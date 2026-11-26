@@ -104,8 +104,8 @@ In Studio, pick whatsapp as the route's Channel; the Our identity field then sho
   `LinkOption` → a `cta_url` URL button), multi-section **lists** with per-row
   descriptions (`sections`), a media **header** + text **footer** on an
   interactive message, a shared **location**, an **ask-less form** (`schema`, an
-  in-chat Flow), and out-of-window **templates** (`header_media` +
-  `body_parameters` + quick-reply/url `buttons`). A choice surface, `schema`,
+  in-chat Flow), and out-of-window
+  [**templates**](#the-24-hour-window-and-templates). A choice surface, `schema`,
   and `template` are mutually exclusive on one send; media and location may
   combine with a choice surface. A channel that cannot render a given field never
   receives it (the send gates on the matching `supports_*` capability flag).
@@ -119,9 +119,43 @@ per-send prefill values and option lists open the form already filled in. A shor
 string `enum` renders a radio group (longer, a dropdown), an array of strings a
 checkbox group, a `format: date` a calendar picker (bounded by its date constraints); a page's
 display blocks and a review page render too, and a `visibleWhen` field is shown or
-hidden client-side. A field shown for several values of its controlling field is drawn
+hidden client-side. A display block that names a `slot` shows its own `text` (an image
+its `src`) until a reaction's `display` update replaces it, and is empty until then when
+it carries none. A field shown for several values of its controlling field is drawn
 as one control per value; such a form is endpoint-driven (below), and the data endpoint
-keeps the value of the case whose condition holds under the field's own name.
+keeps the value of the case whose condition holds under the field's own name. A
+`format: date` or `format: date-time` field's `minDate`, `maxDate` and `unavailableDates`
+values ride each send's form data, not the published Flow, which holds only which of
+those bounds the field has: forms that differ only in a date bound's value share one Flow.
+
+An image block's `src` may be an `http` or `https` link: the channel fetches the
+picture when the form is sent and embeds it in the form. It may also be a stored-media
+reference (`/api/interactions/media/<id>`): the channel reads the stored picture through
+the platform's media store and embeds it the same way. Any other `src` is taken as the
+picture's base64 data and sent as it is. A fetched or stored picture must be a JPEG or a
+PNG of at most 300 kB, and a link that cannot be fetched, a stored reference that is
+unknown, has expired or is not attached to a message yet, or a picture that breaks
+either rule, refuses the send,
+naming the page and the picture. The fetch goes through the platform's URL guard and
+its [settings](/reference/settings#urlguardsettings). A picture outside any slot is part
+of the published Flow, so a picture that changes from send to send belongs in a slotted
+block: a send whose unslotted picture differs publishes its own Flow. A reaction's
+`display` update may give a link or a stored reference for an image slot too; when its
+picture cannot be fetched or read, the screen shows the `update_failed` line (below). Slotted pictures ride the
+form's data, so a form with picture slots has a size for that data: 1 MB in all, and
+about 720 kB when the form is endpoint-driven (below), which leaves room for the
+person's answers on the way back to the data endpoint. An endpoint-driven form without
+picture slots has that same size for its data, about 720 kB. A send over its size is
+refused, naming both sizes; a reaction's update over it shows the `update_failed`
+line. A form that is neither endpoint-driven nor has picture slots is not measured.
+
+Each picture link has **5 seconds** in all to be fetched — finding the host, connecting,
+any redirects and the download together. A link that takes longer refuses the send with
+a retryable delivery error that names the picture and its host; the form is never sent
+without its picture. When a reaction's `display` update gives the link, the picture is
+fetched while WhatsApp waits for the answer (WhatsApp documents that wait as 10 seconds,
+the reaction tool's own time included); a picture that misses the 5 seconds shows the
+form's `update_failed` line.
 
 A string field's `inputMode` hint picks the text field's keyboard: `numeric` and
 `decimal` draw the numeric keypad (it admits a decimal separator), `tel` the phone
@@ -143,7 +177,7 @@ the screen, with the field's sentence under it, before the submit leaves the for
 | `minLength` / `maxLength` | The control's character limits (a text area has no minimum: the data endpoint checks it) |
 | `minimum` / `maximum`, `exclusiveMinimum` / `exclusiveMaximum`, `multipleOf` | The data endpoint |
 | `minItems` / `maxItems` | The checkbox group's or chip grid's selection limits |
-| `minDate` / `maxDate` / `unavailableDates` | The calendar picker's bounds and excluded days |
+| `minDate` / `maxDate` / `unavailableDates` | The calendar picker's bounds and excluded days on a `format: date` drawn as a calendar (a pair drawn as one range control: both ends' bounds together, and a send that leaves the pair no date to pick is refused, naming the pair); the data endpoint on a `format: date-time`, and on a `format: date` drawn as a choice (one with an `enum` or per-send options) |
 | a date range's order and `minDays` / `maxDays` | The range calendar picker when the pair draws as one control; else the data endpoint |
 | a range end's time order (`timeOf`: an end time before the start time on the same day) | The data endpoint |
 | any other keyword | The data endpoint |
@@ -176,7 +210,8 @@ the count. A `control: textarea` string draws a
 multi-line text area, and a declared `maxLength`/`minLength` is drawn as the field's
 character limit (`max-chars`/`min-chars` on a single-line field, `max-length` on the
 text area). A declared date range (a `rangeStart` pairing) draws as one range
-CalendarPicker when both ends sit on the same page with the same visibility, no
+CalendarPicker when both ends are drawn as calendars (neither has an `enum` or
+per-send options) and sit on the same page with the same visibility, no
 other field depends on either end, and the form has no review page, else as two date
 fields (a review page reads each field's value back as text, which a range object
 cannot render); either way the answer is the two date strings. A time paired with a
@@ -243,6 +278,20 @@ than by the identifier-safe names; the channel maps those labels back to the sch
 when it decodes the reply. The channel sends the labels in drawing order, each paired
 time right after its date.
 
+A completed form whose flow token names **no pending ask** of the pair — the ask was
+withdrawn, lapsed or already answered, or the token is another ask's — is still the
+participant's message: it enters the conversation as a fresh turn whose text is the
+submitted values rendered readably (one `label: value` line per value; a form that
+carried only its token reads `{}`), with the values as the turn's `form` (keyed as the
+Flow submitted them) and the token under the `flow_token` entry parameter (see
+**Inbound entry parameters**).
+
+A completed form whose response the channel cannot read (Meta sent no `response_json`, or
+one that is not a JSON object) is logged at warning and the participant gets one
+`unreadable` rejection notice ("That message could not be read. Please send it again.",
+or the route's `reply_texts.rejected_unreadable`) with a rejection event of kind `form`;
+a redelivery of the same message sends no second notice.
+
 If the platform rejects a submitted answer (a value fails the answer schema at the
 door — a case no in-form check could see), the **same form is re-sent** — same steps,
 same prefill, with the door's reason shown above it as *Label: sentence* (*Your last
@@ -271,6 +320,10 @@ keys it understands:
 
 - `reply_id` (+ `reply_description` for a list row) — an interactive tap that is
   not an answer carries its question-bound wire id.
+- `flow_token` — a completed Flow (`nfm_reply`) that is not an answer to a pending
+  ask (the ask was withdrawn, lapsed or already answered, or the token is another
+  ask's) carries the token the Flow held; the submitted values ride as the turn
+  text and its `form` (see **Form asks**).
 - `button_payload` — a **template quick-reply** tap (`button` message) carries the
   developer payload behind the visible button text.
 - `referral_source_url` / `referral_source_id` / `referral_source_type` /
@@ -338,12 +391,18 @@ Params ride only on the bridge path — a tap or quick-reply that **answers** a
 pending question surfaces none (the answer path carries no params). Meta inbound
 error notices (`errors[]`) are always logged at warning and never bridged; an
 **unsupported-message-type** notice (`code 131051`) — participant content the
-channel cannot receive — additionally sends the participant one generic
-"unsupported content" reply and records a rejection event, while every other error
+channel cannot receive — additionally sends the participant the one generic
+unsupported-type reply and records a rejection event, while every other error
 code stays log-only (an operator-facing vendor signal, not participant content). An
 unhandled participant **content type** the plugin has no handler for likewise gets
-the generic reply + event; a vendor **non-content** notification (`system` /
-`request_welcome`) stays log-only. Each reply is sent once, deduped per message.
+the generic reply + event, and so does an **interactive** message whose subtype the
+plugin has no reader for (anything but a reply button, a list row or a completed form);
+a vendor **non-content** notification (`system` / `request_welcome`) stays log-only. A
+participant message whose text is blank (a reply button or list row with a blank title,
+a text with no body, a quick-reply with no text) is not bridged, with or without a
+question pending (the question stays open): it gets the one `unreadable` reply ("That
+message could not be read. Please send it again.") and a rejection event of kind `text`,
+`button`, or `button_reply`/`list_reply`. Each reply is sent once, deduped per message.
 
 ## The 24-hour window and templates
 
@@ -377,9 +436,14 @@ are Meta's rule. The state is read once per turn, so a turn that runs past
 `closes_at` may still see `open`; Meta's 131047 rejection stays the final check.
 
 A **pre-approved template** is the one message delivered outside the window. Send
-one with `notify_user`'s `template` input: a `name`, a `language`, an optional
-`header_media` (image/video/document), positional `body_parameters` (body-text
-fills), and per-button `buttons` (a quick-reply `payload` or a url suffix). Because
+one with `notify_user`'s `template` input, a
+[`ChannelTemplate`](/concepts/notifications#out-of-window-templates): a `name`, a
+`language`, and `parameters` holding an optional `header_media` (an image, video or
+document item, the media a template header carries; a `link` or `audio` item is
+refused before the send), positional `body_parameters` (body-text fills), and
+per-button `buttons` (`{"kind": "quick_reply", "payload": ...}` or
+`{"kind": "url", "url_parameter": ...}`, the url button's suffix). Any other parameter
+key is refused before the send. Because
 a template is billed and delivered cold, the
 channel fences who may receive one: the recipient must be on
 `CHANNEL_WHATSAPP_ALLOWED_RECIPIENTS`, or be a **known contact** — a number the
@@ -400,13 +464,22 @@ the ids and addresses it records:
 
 ## Working-on-it signal
 
-While a message runs its turn, the platform keeps WhatsApp's **typing indicator**
-alive: it re-sends the indicator ahead of Meta's ~25 s dismissal window until the
-reply is sent, so the participant sees it for the whole wait rather than only the
-first few seconds. The refresh is bounded by the
-`CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` ceiling (`0` disables it entirely), with
-`CONVERSATIONS_WORKING_SIGNAL_REFRESH_MARGIN_SECONDS` the margin it refreshes ahead
-of each lapse. An inbound message is marked **read** the moment it is received,
+While a reply is owed to the participant — a message's turn once its target starts
+running, the wait after they answer a question, a parked run that resumes — the
+platform re-sends WhatsApp's **typing indicator** ahead of Meta's ~25 s dismissal
+window until the reply is sent, so the participant sees it for the wait
+rather than only the first few seconds — best effort: Meta dismisses it on any message
+the run sends mid-way, and it returns at the next refresh. A message's turn shows nothing while it waits for its
+slot, or when its thread is in manual mode; a parked run that resumes in a manual-mode
+thread still shows it while its reply is owed. It is paused while a question the run
+sent stands, to the participant or to anyone else (no longer re-sent, so the indicator
+lapses on its own), and shown again once no question the run sent stands. WhatsApp's
+indicator points at an inbound message of the participant, so a parked run that resumes
+on no message of the participant — resumed by its expiry, by an answer from someone
+else, or by an answer given through the link — shows no indicator. One stretch of showing it is
+bounded by the `CONVERSATIONS_WORKING_SIGNAL_MAX_SECONDS` ceiling (`0` disables it
+entirely), with `CONVERSATIONS_WORKING_SIGNAL_REFRESH_MARGIN_SECONDS` the margin it
+refreshes ahead of each lapse. An inbound message is marked **read** the moment it is received,
 independent of the indicator.
 
 ## See also
